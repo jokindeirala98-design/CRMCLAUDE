@@ -34,9 +34,6 @@ interface CallbackQuery {
 }
 
 /* ─── Conversation state (persisted in Supabase) ─────────────────────────── */
-// Stored in telegram_conversations table so state survives serverless cold starts
-// and works across Vercel function instances. Timeout: 24 hours.
-
 interface ConversationState {
   step: string
   data: Record<string, any>
@@ -44,6 +41,7 @@ interface ConversationState {
 }
 
 const CONVO_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
+const BATCH_TIMEOUT_MS = 15 * 1000 // 15 seconds
 
 async function getConvo(chatId: number): Promise<ConversationState | null> {
   try {
@@ -131,17 +129,28 @@ async function handleMessage(msg: TelegramMessage) {
   const chatId = msg.chat.id
   const text = (msg.text || '').trim()
 
+  // Flush pending batch if any non-file message arrives (text, command, etc.)
+  if (!msg.document && !msg.photo) {
+    const pendingBatch = await getConvo(chatId)
+    if (pendingBatch?.step === 'batch_collecting' && pendingBatch.data.files?.length > 0) {
+      await processBatchFiles(chatId, pendingBatch.data)
+      await clearConvo(chatId)
+    }
+  }
+
   if (text.startsWith('/')) {
     return handleCommand(msg, text)
   }
 
-  // File received — classify and process
+  // File received — batch or process immediately
   if (msg.document || msg.photo) {
-    return handleDocumentFile(msg)
+    return handleDocumentWithBatch(msg)
   }
 
   // Conversation continuation
   const convo = await getConvo(chatId)
+
+  // Conversation continuation
   if (convo) {
     return handleConvoStep(msg, convo)
   }
@@ -190,6 +199,22 @@ async function handleCommand(msg: TelegramMessage, text: string) {
         'Luego escríbeme:\n<code>/vincular TU_CODIGO</code>'
       )
 
+    case '/cliente':
+      return handleClientModeCommand(chatId, arg)
+
+    case '/salir':
+      return handleExitClientMode(chatId)
+
+    case '/ultimo':
+      return handleLastClient(chatId)
+
+    case '/estado':
+      if (!arg) return sendMessage(chatId, '🔍 Escribe: <code>/estado CUPS_O_ID</code>')
+      return handleSupplyStatus(chatId, arg)
+
+    case '/nota':
+      return handleNoteCommand(chatId, arg)
+
     case '/mis':
       return handleMySupplies(chatId)
 
@@ -204,13 +229,22 @@ async function handleCommand(msg: TelegramMessage, text: string) {
     case '/help':
       return sendMessage(chatId,
         '📖 <b>Comandos disponibles</b>\n\n' +
+        '<b>Documentos:</b>\n' +
+        '  Envía fotos o PDFs directamente\n\n' +
+        '<b>Cliente Mode:</b>\n' +
+        '/cliente [nombre] — Activar modo cliente\n' +
+        '/salir — Desactivar modo cliente\n\n' +
+        '<b>Acceso rápido:</b>\n' +
+        '/ultimo — Último cliente/suministro\n' +
+        '/estado [CUPS] — Ver estado suministro\n' +
+        '/nota [CUPS] [text] — Añadir nota rápida\n\n' +
+        '<b>Consultas:</b>\n' +
         '/vincular [código] — Vincular cuenta CRM\n' +
         '/mis — Mis suministros con acción pendiente\n' +
         '/buscar [texto] — Buscar cliente o CUPS\n' +
-        '/pendientes — Tareas y citas del día\n' +
-        '/ayuda — Este mensaje\n\n' +
-        '📎 Envíame directamente <b>fotos o PDFs</b>:\n' +
-        '• Facturas de luz/gas → análisis + alta suministro\n' +
+        '/pendientes — Tareas y citas del día\n\n' +
+        '📎 Documentos aceptados:\n' +
+        '• Facturas de luz/gas\n' +
         '• CIF/NIF → asociar a cliente\n' +
         '• Titularidad bancaria → guardar IBAN\n' +
         '• Contratos → archivo documental'
@@ -289,11 +323,10 @@ async function getLinkedUser(chatId: number): Promise<{ userId: string; userName
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
-/*  DOCUMENT PROCESSING (unified handler for all file types)                 */
+/*  BATCH MODE (NEW)                                                         */
 /* ═══════════════════════════════════════════════════════════════════════════ */
-async function handleDocumentFile(msg: TelegramMessage) {
+async function handleDocumentWithBatch(msg: TelegramMessage) {
   const chatId = msg.chat.id
-
   const user = await getLinkedUser(chatId)
   if (!user) {
     return sendMessage(chatId,
@@ -301,9 +334,7 @@ async function handleDocumentFile(msg: TelegramMessage) {
     )
   }
 
-  await sendChatAction(chatId, 'typing')
-
-  // Download file
+  // Extract file info
   let fileId: string
   let fileType: 'pdf' | 'image' = 'image'
   let fileName = 'file'
@@ -321,51 +352,533 @@ async function handleDocumentFile(msg: TelegramMessage) {
     return sendMessage(chatId, '❌ No pude detectar el archivo. Envía una foto o PDF.')
   }
 
-  const statusMsg = await sendMessage(chatId, '⏳ Descargando documento...')
+  // Check if we're already collecting a batch
+  const convo = await getConvo(chatId)
+  const now = Date.now()
+
+  if (convo?.step === 'batch_collecting') {
+    const lastFileTime = convo.data.batch_last_file_at || 0
+    const timeSinceLastFile = now - lastFileTime
+
+    if (timeSinceLastFile > BATCH_TIMEOUT_MS) {
+      // Timeout reached — process existing batch first
+      await processBatchFiles(chatId, convo.data)
+      await clearConvo(chatId)
+      // Then create new batch with this file
+      return startNewBatch(chatId, fileId, fileType, fileName, msg, user)
+    } else {
+      // Add to existing batch
+      return addToBatch(chatId, fileId, fileType, fileName, msg, convo.data)
+    }
+  } else {
+    // Start new batch
+    return startNewBatch(chatId, fileId, fileType, fileName, msg, user)
+  }
+}
+
+async function startNewBatch(
+  chatId: number,
+  fileId: string,
+  fileType: 'pdf' | 'image',
+  fileName: string,
+  msg: TelegramMessage,
+  user: { userId: string; userName: string }
+) {
+  const now = Date.now()
+  const fileItem = { fileId, fileType, fileName, caption: msg.caption || '', receivedAt: now }
+
+  // Check if user is in client mode
+  const existingConvo = await getConvo(chatId)
+  const clientModeId = existingConvo?.data?.clientModeId
+  const clientModeName = existingConvo?.data?.clientModeName
+
+  await setConvo(chatId, 'batch_collecting', {
+    files: [fileItem],
+    batch_last_file_at: now,
+    userId: user.userId,
+    userName: user.userName,
+    clientModeId,
+    clientModeName,
+  })
+
+  const clientModeStr = clientModeName ? ` (👤 ${clientModeName})` : ''
+  return sendMessage(chatId, `📥 Documento recibido (1)${clientModeStr}. Sigue enviando o espera unos segundos para procesar...`)
+}
+
+async function addToBatch(
+  chatId: number,
+  fileId: string,
+  fileType: 'pdf' | 'image',
+  fileName: string,
+  msg: TelegramMessage,
+  batchData: Record<string, any>
+) {
+  const now = Date.now()
+  const files = batchData.files || []
+  files.push({ fileId, fileType, fileName, caption: msg.caption || '', receivedAt: now })
+
+  await setConvo(chatId, 'batch_collecting', {
+    ...batchData,
+    files,
+    batch_last_file_at: now,
+  })
+
+  const clientModeStr = batchData.clientModeName ? ` (👤 ${batchData.clientModeName})` : ''
+  return sendMessage(chatId, `📥 Documento recibido (${files.length})${clientModeStr}. Sigue enviando o espera unos segundos...`)
+}
+
+async function processBatchFiles(chatId: number, batchData: Record<string, any>) {
+  const files = batchData.files || []
+  if (files.length === 0) return
+
+  await sendChatAction(chatId, 'typing')
+  const statusMsg = await sendMessage(chatId, `⏳ Procesando ${files.length} documento${files.length > 1 ? 's' : ''}...`)
 
   try {
-    const { buffer, fileName: dlFileName } = await downloadFile(fileId)
-    const base64 = buffer.toString('base64')
-    const mimeType = getMimeType(dlFileName || fileName, fileType)
+    // Download and classify all files in parallel
+    const classifyPromises = files.map(async (file: any) => {
+      try {
+        const { buffer, fileName: dlFileName } = await downloadFile(file.fileId)
+        const base64 = buffer.toString('base64')
+        const mimeType = getMimeType(dlFileName || file.fileName, file.fileType)
 
-    await editMessage(chatId, statusMsg.message_id, '🔍 Clasificando documento con IA...')
+        // Classify with caption hint
+        const caption = (file.caption || '').toLowerCase()
+        let hintType: DocumentType | undefined
+        if (caption.includes('factura')) hintType = 'factura'
+        else if (caption.includes('cif')) hintType = 'cif'
+        else if (caption.includes('nif') || caption.includes('dni')) hintType = 'nif'
+        else if (caption.includes('iban') || caption.includes('banco')) hintType = 'iban'
+        else if (caption.includes('contrato')) hintType = 'contrato'
 
-    // Check if the caption gives us a hint about document type
-    const caption = (msg.caption || '').toLowerCase()
-    let hintType: DocumentType | undefined
-    if (caption.includes('factura')) hintType = 'factura'
-    else if (caption.includes('cif')) hintType = 'cif'
-    else if (caption.includes('nif') || caption.includes('dni')) hintType = 'nif'
-    else if (caption.includes('iban') || caption.includes('banco') || caption.includes('bancari')) hintType = 'iban'
-    else if (caption.includes('contrato')) hintType = 'contrato'
+        let docType: DocumentType
+        if (hintType) {
+          docType = hintType
+        } else {
+          const classification = await classifyDocument(base64, mimeType)
+          docType = classification.type
+        }
 
-    // Classify the document
-    let docType: DocumentType
-    if (hintType) {
-      docType = hintType
-    } else {
-      const classification = await classifyDocument(base64, mimeType)
-      docType = classification.type
-      console.log(`[Telegram] Document classified as: ${docType} (${classification.confidence}) — ${classification.description}`)
+        return {
+          file,
+          base64,
+          mimeType,
+          docType,
+          dlFileName: dlFileName || file.fileName,
+          success: true,
+        }
+      } catch (err: any) {
+        console.error('[Telegram] Batch file classify error:', err)
+        return {
+          file,
+          success: false,
+          error: err.message,
+        }
+      }
+    })
+
+    const classified = await Promise.all(classifyPromises)
+    const successful = classified.filter(c => c.success)
+    const failed = classified.filter(c => !c.success)
+
+    if (successful.length === 0) {
+      await editMessage(chatId, statusMsg.message_id, '❌ No pude procesar ningún documento.')
+      return
     }
 
-    // Route based on document type
-    if (docType === 'factura') {
-      return handleInvoiceAnalysis(chatId, statusMsg.message_id, base64, mimeType, fileType, dlFileName || fileName, user)
-    } else {
-      return handleClientDocument(chatId, statusMsg.message_id, base64, mimeType, fileType, dlFileName || fileName, docType, user)
+    // Analyze all successful files in parallel
+    const analyzePromises = successful.map(async (item: any) => {
+      if (item.docType === 'factura') {
+        const extracted = await analyzeInvoice(item.base64, item.mimeType)
+        return { ...item, extracted, analyzed: true }
+      } else {
+        const extracted = await analyzeDocument(item.base64, item.mimeType, item.docType)
+        return { ...item, extracted, analyzed: true }
+      }
+    })
+
+    const analyzed = await Promise.all(analyzePromises)
+
+    // Group by type
+    const invoices = analyzed.filter((a: any) => a.docType === 'factura')
+    const clientDocs = analyzed.filter((a: any) => a.docType !== 'factura')
+
+    // For each invoice, check for duplicates and existing supply
+    const processedInvoices = []
+    for (const inv of invoices) {
+      const cups = normalizeCups(inv.extracted.cups || '')
+      const supabase = createBotSupabase()
+
+      let existingSupply = null
+      if (cups) {
+        const { data: supplies } = await supabase
+          .from('supplies')
+          .select('id, cups, client:clients(id, name)')
+          .eq('cups', cups)
+          .limit(1)
+
+        if (supplies?.length) existingSupply = supplies[0]
+      }
+
+      processedInvoices.push({
+        ...inv,
+        cups,
+        existingSupply,
+      })
     }
+
+    // Try to auto-match client docs
+    const processedDocs = []
+    for (const doc of clientDocs) {
+      const docData = doc.extracted
+      const searchTerms: string[] = []
+      if (docData.cif) searchTerms.push(docData.cif)
+      if (docData.nif) searchTerms.push(docData.nif)
+      if (docData.holder_name) searchTerms.push(docData.holder_name)
+
+      let matchedClients: any[] = []
+      if (searchTerms.length > 0) {
+        const supabase = createBotSupabase()
+        const orClauses = searchTerms.map(t =>
+          `name.ilike.%${t}%,cif_nif.ilike.%${t}%,cif.ilike.%${t}%,nif.ilike.%${t}%`
+        ).join(',')
+
+        const { data: clients } = await supabase
+          .from('clients')
+          .select('id, name, cif_nif')
+          .or(orClauses)
+          .limit(5)
+
+        matchedClients = clients || []
+      }
+
+      let matchedClient = null
+      if (matchedClients.length === 1) {
+        matchedClient = matchedClients[0]
+      }
+
+      processedDocs.push({
+        ...doc,
+        matchedClients,
+        matchedClient,
+      })
+    }
+
+    // Build batch summary
+    let summaryText = `📦 <b>Lote procesado (${successful.length} documento${successful.length > 1 ? 's' : ''})</b>\n`
+
+    if (processedInvoices.length > 0) {
+      summaryText += '\n📄 <b>Facturas:</b>\n'
+      processedInvoices.forEach((inv: any) => {
+        const extracted = inv.extracted
+        const tariff = extracted.tariff || '-'
+        const total = extracted.total_amount || '-'
+        const cups = inv.cups || '-'
+        summaryText += `  • CUPS <code>${cups}</code> · ${tariff} · ${total}€\n`
+      })
+    }
+
+    if (processedDocs.length > 0) {
+      summaryText += '\n📎 <b>Documentos:</b>\n'
+      processedDocs.forEach((doc: any) => {
+        const typeLabel = getDocTypeLabel(doc.docType)
+        const holder = doc.extracted.holder_name || '-'
+        summaryText += `  • ${typeLabel}: ${holder}\n`
+      })
+    }
+
+    if (failed.length > 0) {
+      summaryText += `\n⚠️ No procesados: ${failed.length}\n`
+    }
+
+    // If in client mode, all files auto-associate — process immediately
+    if (batchData.clientModeId) {
+      summaryText += `\n👤 <b>Cliente:</b> ${batchData.clientModeName}\n`
+      summaryText += '\n⏳ Guardando...\n'
+      await editMessage(chatId, statusMsg.message_id, summaryText)
+
+      // Process all invoices and docs for this client
+      for (const inv of processedInvoices) {
+        try {
+          await uploadInvoiceAndCreate({
+            ...inv,
+            clientId: batchData.clientModeId,
+            userId: batchData.userId,
+            fileBuffer: inv.base64,
+            fileType: inv.file.fileType,
+            fileName: inv.dlFileName,
+            extracted: inv.extracted,
+          }, !inv.existingSupply)
+        } catch (err: any) {
+          console.error('[Telegram] Batch invoice creation error:', err)
+        }
+      }
+
+      for (const doc of processedDocs) {
+        try {
+          await saveDocumentToClient(batchData.clientModeId, batchData.clientModeName, {
+            docType: doc.docType,
+            docData: doc.extracted,
+            fileBuffer: doc.base64,
+            fileType: doc.file.fileType,
+            fileName: doc.dlFileName,
+            mimeType: doc.mimeType,
+          })
+        } catch (err: any) {
+          console.error('[Telegram] Batch doc save error:', err)
+        }
+      }
+
+      summaryText += `✅ ${processedInvoices.length} factura${processedInvoices.length !== 1 ? 's' : ''} + ${processedDocs.length} documento${processedDocs.length !== 1 ? 's' : ''} guardados.`
+      return editMessage(chatId, statusMsg.message_id, summaryText)
+    }
+
+    // Otherwise, if all matched, auto-create; if not all matched, ask for client
+    const allClientDocsMatched = processedDocs.every((d: any) => d.matchedClient)
+    const canAutoProcess = processedInvoices.length === 0 && processedDocs.length > 0 && allClientDocsMatched
+
+    if (canAutoProcess) {
+      // All docs matched — save automatically
+      summaryText += '\n✅ Guardando documentos...\n'
+      await editMessage(chatId, statusMsg.message_id, summaryText)
+
+      for (const doc of processedDocs) {
+        try {
+          await saveDocumentToClient(doc.matchedClient.id, doc.matchedClient.name, {
+            docType: doc.docType,
+            docData: doc.extracted,
+            fileBuffer: doc.base64,
+            fileType: doc.file.fileType,
+            fileName: doc.dlFileName,
+            mimeType: doc.mimeType,
+          })
+        } catch (err: any) {
+          console.error('[Telegram] Batch doc save error:', err)
+        }
+      }
+
+      summaryText += `✅ ${processedDocs.length} documento${processedDocs.length !== 1 ? 's' : ''} guardados.`
+      return editMessage(chatId, statusMsg.message_id, summaryText)
+    }
+
+    // Store batch and ask for client assignment
+    await setConvo(chatId, 'batch_confirm_client', {
+      processedInvoices: processedInvoices.map((i: any) => ({
+        base64: i.base64,
+        mimeType: i.mimeType,
+        docType: i.docType,
+        dlFileName: i.dlFileName,
+        fileType: i.file.fileType,
+        extracted: i.extracted,
+        cups: i.cups,
+        existingSupply: i.existingSupply,
+      })),
+      processedDocs: processedDocs.map((d: any) => ({
+        base64: d.base64,
+        mimeType: d.mimeType,
+        docType: d.docType,
+        dlFileName: d.dlFileName,
+        fileType: d.file.fileType,
+        extracted: d.extracted,
+      })),
+      userId: batchData.userId,
+      summaryText,
+    })
+
+    summaryText += '\n\n👤 ¿Asignar todo a qué cliente?'
+    return editMessage(chatId, statusMsg.message_id, summaryText, inlineKeyboard([
+      [button('🔍 Buscar cliente', 'batch_search_client')],
+      [button('🆕 Crear cliente nuevo', 'batch_new_client')],
+      [button('❌ Cancelar', 'cancel')],
+    ]))
 
   } catch (err: any) {
-    console.error('[Telegram] Document processing error:', err)
-    await editMessage(chatId, statusMsg.message_id,
-      `❌ Error procesando el documento: ${err.message || 'Error desconocido'}\nInténtalo de nuevo o súbelo desde la Bandeja del CRM.`
-    )
+    console.error('[Telegram] Batch processing error:', err)
+    await editMessage(chatId, statusMsg.message_id, `❌ Error procesando lote: ${err.message}`)
   }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
-/*  INVOICE ANALYSIS (called directly, no HTTP self-call)                    */
+/*  CLIENT MODE (NEW)                                                        */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+async function handleClientModeCommand(chatId: number, arg: string) {
+  if (!arg) {
+    return sendMessage(chatId, '🔍 Escribe: <code>/cliente [nombre o búsqueda]</code>')
+  }
+
+  const supabase = createBotSupabase()
+  const { data: clients } = await supabase
+    .from('clients')
+    .select('id, name, cif_nif')
+    .or(`name.ilike.%${arg}%,cif_nif.ilike.%${arg}%`)
+    .limit(5)
+
+  if (!clients?.length) {
+    return sendMessage(chatId, `❌ No encontré clientes con "<b>${arg}</b>".`)
+  }
+
+  if (clients.length === 1) {
+    // Auto-select single match
+    const client = clients[0]
+    const convo = await getConvo(chatId)
+    await setConvo(chatId, convo?.step || '', {
+      ...(convo?.data || {}),
+      clientModeId: client.id,
+      clientModeName: client.name,
+    })
+    return sendMessage(chatId, `📌 <b>Modo cliente activado</b>\n\n👤 ${client.name}\n\nTodos los documentos que envíes se asociarán automáticamente a este cliente.`)
+  }
+
+  // Multiple matches — ask to select
+  const buttons = clients.map((c: any) =>
+    [button(`${c.name}${c.cif_nif ? ` (${c.cif_nif})` : ''}`, `mode_select_client:${c.id}:${c.name}`)]
+  )
+  buttons.push([button('❌ Cancelar', 'cancel')])
+
+  return sendMessage(chatId, '👤 Selecciona el cliente:', { replyMarkup: inlineKeyboard(buttons) })
+}
+
+async function handleExitClientMode(chatId: number) {
+  const convo = await getConvo(chatId)
+  if (!convo || !convo.data.clientModeId) {
+    return sendMessage(chatId, '❌ No estás en modo cliente.')
+  }
+
+  const clientName = convo.data.clientModeName
+  await setConvo(chatId, convo.step, {
+    ...convo.data,
+    clientModeId: undefined,
+    clientModeName: undefined,
+  })
+
+  return sendMessage(chatId, `❌ Modo cliente desactivado.\n\nSaliste de <b>${clientName}</b>.`)
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  QUICK COMMANDS (NEW)                                                     */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+async function handleLastClient(chatId: number) {
+  const user = await getLinkedUser(chatId)
+  if (!user) return sendMessage(chatId, '🔒 Vincula tu cuenta primero con /vincular')
+
+  const supabase = createBotSupabase()
+
+  // Get last edited supply by this user
+  const { data: supplies } = await supabase
+    .from('supplies')
+    .select('id, cups, tariff, status, client:clients(id, name, commercial_id)')
+    .eq('client.commercial_id', user.userId)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+
+  if (!supplies?.length) {
+    return sendMessage(chatId, '📭 No tienes suministros aún.')
+  }
+
+  const supply = supplies[0]
+  const client = supply.client
+  const statusText = getStatusLabel(supply.status)
+
+  return sendMessage(chatId,
+    `👤 <b>Último cliente/suministro:</b>\n\n` +
+    `${client.name}\n` +
+    `CUPS: <code>${supply.cups || '-'}</code>\n` +
+    `Tarifa: ${supply.tariff || '-'}\n` +
+    `Estado: ${statusText}`,
+    { replyMarkup: inlineKeyboard([
+      [button('📌 Modo cliente', `mode_select_client:${client.id}:${client.name}`)],
+      [button('🔗 Detalles', `quick_supply_details:${supply.id}`)],
+    ]) }
+  )
+}
+
+async function handleSupplyStatus(chatId: number, cupsOrId: string) {
+  const user = await getLinkedUser(chatId)
+  if (!user) return sendMessage(chatId, '🔒 Vincula tu cuenta primero con /vincular')
+
+  const supabase = createBotSupabase()
+
+  const { data: supply } = await supabase
+    .from('supplies')
+    .select('id, cups, tariff, type, address, status, client:clients(name), invoices(id, total_amount, created_at)')
+    .or(`cups.eq.${cupsOrId},id.eq.${cupsOrId}`)
+    .limit(1)
+    .single()
+
+  if (!supply) {
+    return sendMessage(chatId, `❌ No encontré suministro "<b>${cupsOrId}</b>".`)
+  }
+
+  const statusText = getStatusLabel(supply.status)
+  const invoiceCount = supply.invoices?.length || 0
+  const totalAmount = supply.invoices?.reduce((sum: number, inv: any) => sum + (inv.total_amount || 0), 0) || 0
+
+  return sendMessage(chatId,
+    `📊 <b>Estado del suministro</b>\n\n` +
+    `👤 Cliente: ${supply.client?.name || '?'}\n` +
+    `🔌 CUPS: <code>${supply.cups || '-'}</code>\n` +
+    `⚡ Tarifa: ${supply.tariff || '-'}\n` +
+    `🏠 Tipo: ${supply.type || '-'}\n` +
+    `📍 Dirección: ${supply.address || '-'}\n` +
+    `📊 Estado: ${statusText}\n` +
+    `📄 Facturas: ${invoiceCount} (${totalAmount}€)\n`,
+    { replyMarkup: inlineKeyboard([
+      [button('📊 Crear estudio', `quick_estudio:${supply.id}`)],
+      [button('📞 Agendar llamada', `quick_llamada:${supply.id}`)],
+      [button('📝 Añadir nota', `quick_nota:${supply.id}`)],
+    ]) }
+  )
+}
+
+async function handleNoteCommand(chatId: number, arg: string) {
+  const user = await getLinkedUser(chatId)
+  if (!user) return sendMessage(chatId, '🔒 Vincula tu cuenta primero con /vincular')
+
+  if (!arg || arg.length < 5) {
+    return sendMessage(chatId, '🔍 Escribe: <code>/nota CUPS texto_nota</code>')
+  }
+
+  const parts = arg.split(/\s+/)
+  const cupsOrId = parts[0]
+  const noteText = parts.slice(1).join(' ')
+
+  const supabase = createBotSupabase()
+  const { data: supply } = await supabase
+    .from('supplies')
+    .select('id, cups, client:clients(name)')
+    .or(`cups.eq.${cupsOrId},id.eq.${cupsOrId}`)
+    .limit(1)
+    .single()
+
+  if (!supply) {
+    return sendMessage(chatId, `❌ No encontré suministro "<b>${cupsOrId}</b>".`)
+  }
+
+  // Append note to client's notes field
+  const { data: client } = await supabase
+    .from('clients')
+    .select('id, notes')
+    .eq('id', (supply.client as any)?.id || supply.id)
+    .single()
+
+  if (client) {
+    const existingNotes = client.notes || ''
+    const timestamp = new Date().toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    const newNotes = existingNotes
+      ? `${existingNotes}\n[${timestamp}] ${noteText}`
+      : `[${timestamp}] ${noteText}`
+
+    await supabase.from('clients').update({ notes: newNotes, updated_at: new Date().toISOString() }).eq('id', client.id)
+  }
+
+  return sendMessage(chatId,
+    `✅ Nota añadida a <b>${(supply.client as any)?.name || 'suministro'}</b>\n\n` +
+    `📝 "${noteText}"`
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  DOCUMENT PROCESSING (unified handler for all file types)                 */
 /* ═══════════════════════════════════════════════════════════════════════════ */
 async function handleInvoiceAnalysis(
   chatId: number,
@@ -391,6 +904,21 @@ async function handleInvoiceAnalysis(
 
   const cups = normalizeCups(extracted.cups || '')
   const supabase = createBotSupabase()
+
+  // Check for duplicate invoices (same CUPS + period)
+  let duplicateWarning = ''
+  if (cups) {
+    const period = extracted.billing_period || ''
+    const { data: existing } = await supabase
+      .from('invoices')
+      .select('id, created_at')
+      .eq('supply.cups', cups)
+      .limit(5)
+
+    if (existing?.length) {
+      duplicateWarning = '\n\n⚠️ Advertencia: Esta CUPS ya tiene facturas en el sistema.'
+    }
+  }
 
   // Check if CUPS exists
   let existingSupply: any = null
@@ -434,8 +962,9 @@ async function handleInvoiceAnalysis(
       `💰 Total: ${total}€\n` +
       `📅 Período: ${period}\n` +
       `🏢 Comercializadora: ${comercializadora}\n\n` +
-      `✅ Este CUPS ya existe en el sistema asignado a <b>${clientName}</b>.\n` +
-      `¿Añadir esta factura al suministro existente?`,
+      `✅ Este CUPS ya existe en el sistema asignado a <b>${clientName}</b>.` +
+      duplicateWarning +
+      `\n¿Añadir esta factura al suministro existente?`,
       inlineKeyboard([
         [button('✅ Sí, añadir factura', 'add_to_existing')],
         [button('❌ Cancelar', 'cancel')],
@@ -541,7 +1070,7 @@ async function handleClientDocument(
 
     const { data: clients } = await supabase
       .from('clients')
-      .select('id, name, cif_nif, cif, nif')
+      .select('id, name, cif_nif')
       .or(orClauses)
       .limit(5)
 
@@ -683,6 +1212,20 @@ async function handleCallback(cb: CallbackQuery) {
   const data = cb.data || ''
   const convo = await getConvo(chatId)
 
+  // ── Client mode selection ──
+  if (data.startsWith('mode_select_client:')) {
+    const parts = data.split(':')
+    const clientId = parts[1]
+    const clientName = parts.slice(2).join(':')
+    const existingConvo = await getConvo(chatId)
+    await setConvo(chatId, existingConvo?.step || '', {
+      ...(existingConvo?.data || {}),
+      clientModeId: clientId,
+      clientModeName: clientName,
+    })
+    return editMessage(chatId, msgId, `📌 <b>Modo cliente activado</b>\n\n👤 ${clientName}\n\nTodos los documentos que envíes se asociarán automáticamente a este cliente.`)
+  }
+
   // ── Invoice: add to existing supply ──
   if (data === 'add_to_existing' && convo?.step === 'confirm_existing') {
     await editMessage(chatId, msgId, '⏳ Añadiendo factura al suministro...')
@@ -726,11 +1269,117 @@ async function handleCallback(cb: CallbackQuery) {
       const result = await uploadInvoiceAndCreate({ ...convo.data, clientId }, true)
       await clearConvo(chatId)
       return editMessage(chatId, msgId,
-        `✅ Suministro creado para CUPS <code>${convo.data.cups || 'nuevo'}</code>.`
+        `✅ Suministro creado para CUPS <code>${convo.data.cups || 'nuevo'}</code>.\n\n` +
+        `👤 Cliente: ${convo.data.clientName || '?'}\n\n` +
+        `📌 ¿Qué quieres hacer ahora?`,
+        inlineKeyboard([
+          [button('📊 Crear estudio', `quick_estudio:${result.supplyId}`)],
+          [button('📞 Agendar llamada', `quick_llamada:${result.supplyId}`)],
+          [button('📄 Pedir más facturas', `quick_mas_facturas:${result.supplyId}`)],
+        ])
       )
     } catch (err: any) {
       return editMessage(chatId, msgId, `❌ Error: ${err.message}`)
     }
+  }
+
+  // ── Batch: search client ──
+  if (data === 'batch_search_client' && convo?.step === 'batch_confirm_client') {
+    await setConvo(chatId, 'batch_await_client_search', convo.data)
+    return editMessage(chatId, msgId, '🔍 Escribe el nombre del cliente:')
+  }
+
+  // ── Quick actions: study, call, more invoices ──
+  if (data.startsWith('quick_estudio:')) {
+    const supplyId = data.split(':')[1]
+    const user = await getLinkedUser(chatId)
+    if (user) {
+      const supabase = createBotSupabase()
+      // Update supply status to indicate study is needed
+      await supabase.from('supplies').update({
+        status: 'facturas_recibidas',
+        updated_at: new Date().toISOString(),
+      }).eq('id', supplyId)
+      // Create a task for the study
+      await supabase.from('tasks').insert({
+        title: 'Crear estudio de suministro',
+        supply_id: supplyId,
+        assigned_to: user.userId,
+        status: 'pending',
+        priority: 'high',
+        created_at: new Date().toISOString(),
+      }).then(() => {})
+    }
+    return editMessage(chatId, msgId, `✅ Tarea creada: <b>Crear estudio</b> para este suministro.`)
+  }
+
+  if (data.startsWith('quick_llamada:')) {
+    const supplyId = data.split(':')[1]
+    const user = await getLinkedUser(chatId)
+    if (user) {
+      const supabase = createBotSupabase()
+      // Get supply info for the task
+      const { data: supply } = await supabase
+        .from('supplies')
+        .select('cups, client:clients(id, name)')
+        .eq('id', supplyId)
+        .single()
+
+      const tomorrow = new Date()
+      tomorrow.setDate(tomorrow.getDate() + 1)
+      tomorrow.setHours(10, 0, 0, 0)
+
+      await supabase.from('appointments').insert({
+        type: 'llamada',
+        supply_id: supplyId,
+        client_id: (supply?.client as any)?.id,
+        commercial_id: user.userId,
+        status: 'scheduled',
+        scheduled_at: tomorrow.toISOString(),
+        notes: `Llamada para ${(supply?.client as any)?.name || 'cliente'}`,
+        created_at: new Date().toISOString(),
+      }).then(() => {})
+    }
+    return editMessage(chatId, msgId, `✅ Llamada agendada para mañana a las 10:00.`)
+  }
+
+  if (data.startsWith('quick_mas_facturas:')) {
+    const supplyId = data.split(':')[1]
+    return editMessage(chatId, msgId, `📄 Envíame más facturas de este suministro. Las procesaré automáticamente.`)
+  }
+
+  if (data.startsWith('quick_supply_details:')) {
+    const supplyId = data.split(':')[1]
+    const supabase = createBotSupabase()
+    const { data: supply } = await supabase
+      .from('supplies')
+      .select('id, cups, tariff, type, address, status, client:clients(name), invoices(id, total_amount)')
+      .eq('id', supplyId)
+      .single()
+
+    if (!supply) return editMessage(chatId, msgId, '❌ Suministro no encontrado.')
+
+    const statusText = getStatusLabel(supply.status)
+    const invoiceCount = supply.invoices?.length || 0
+    return editMessage(chatId, msgId,
+      `📊 <b>Detalles</b>\n\n` +
+      `👤 ${(supply.client as any)?.name || '?'}\n` +
+      `🔌 CUPS: <code>${supply.cups || '-'}</code>\n` +
+      `⚡ Tarifa: ${supply.tariff || '-'}\n` +
+      `📊 Estado: ${statusText}\n` +
+      `📄 Facturas: ${invoiceCount}`,
+      inlineKeyboard([
+        [button('📊 Crear estudio', `quick_estudio:${supply.id}`)],
+        [button('📞 Agendar llamada', `quick_llamada:${supply.id}`)],
+        [button('📝 Añadir nota', `quick_nota:${supply.id}`)],
+      ])
+    )
+  }
+
+  if (data.startsWith('quick_nota:')) {
+    const supplyId = data.split(':')[1]
+    await setConvo(chatId, 'await_supply_note', { supplyId })
+    return editMessage(chatId, msgId, `📝 Escribe la nota:`)
   }
 
   // ── Document: confirm save to matched client ──
@@ -786,6 +1435,35 @@ async function handleCallback(cb: CallbackQuery) {
     )
   }
 
+  // ── Batch: select client from search ──
+  if (data.startsWith('batch_select_client:')) {
+    if (!convo) return editMessage(chatId, msgId, '⏰ Sesión expirada.')
+    const parts = data.split(':')
+    const clientId = parts[1]
+    const clientName = parts.slice(2).join(':')
+
+    try {
+      await processBatchForClient(chatId, convo.data, clientId, clientName)
+    } catch (err: any) {
+      return editMessage(chatId, msgId, `❌ Error: ${err.message}`)
+    }
+    return
+  }
+
+  // ── Batch: new client ──
+  if (data === 'batch_new_client') {
+    if (!convo) return editMessage(chatId, msgId, '⏰ Sesión expirada.')
+    // Get holder name from first invoice or doc
+    const firstInv = convo.data.processedInvoices?.[0]
+    const firstDoc = convo.data.processedDocs?.[0]
+    const holderName = firstInv?.extracted?.holder_name || firstDoc?.extracted?.holder_name || ''
+    await setConvo(chatId, 'batch_await_new_client_name', convo.data)
+    return editMessage(chatId, msgId,
+      `🆕 Escribe el nombre del nuevo cliente.\n\n` +
+      (holderName ? `💡 Nombre detectado: <b>${holderName}</b>\nEscribe "ok" para usarlo o escribe otro nombre.` : '')
+    )
+  }
+
   // ── Cancel ──
   if (data === 'cancel') {
     await clearConvo(chatId)
@@ -799,6 +1477,18 @@ function getDocTypeLabel(docType: DocumentType): string {
     iban: 'Titularidad bancaria', contrato: 'Contrato', otro: 'Documento',
   }
   return labels[docType] || 'Documento'
+}
+
+function getStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    'primer_contacto': '📞 Primer contacto',
+    'facturas_recibidas': '📄 Facturas recibidas',
+    'estudio_completado': '📊 Estudio listo',
+    'presentacion_pendiente': '📋 Pendiente presentar',
+    'pendiente_firma': '✍️ Pendiente firma',
+    'contrato_firmado': '✅ Contrato firmado',
+  }
+  return labels[status] || status
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
@@ -823,7 +1513,13 @@ async function handleConvoStep(msg: TelegramMessage, convo: ConversationState) {
 
       await clearConvo(chatId)
       return editMessage(chatId, statusMsg.message_id,
-        `✅ <b>Cliente y suministro creados</b>\n\nCliente: ${clientName}\nCUPS: <code>${convo.data.cups || 'Por asignar'}</code>`
+        `✅ <b>Cliente y suministro creados</b>\n\nCliente: ${clientName}\nCUPS: <code>${convo.data.cups || 'Por asignar'}</code>\n\n` +
+        `📌 ¿Qué quieres hacer ahora?`,
+        inlineKeyboard([
+          [button('📊 Crear estudio', `quick_estudio:${result.supplyId}`)],
+          [button('📞 Agendar llamada', `quick_llamada:${result.supplyId}`)],
+          [button('📄 Pedir más facturas', `quick_mas_facturas:${result.supplyId}`)],
+        ])
       )
     } catch (err: any) {
       return editMessage(chatId, statusMsg.message_id, `❌ Error: ${err.message}`)
@@ -936,6 +1632,166 @@ async function handleConvoStep(msg: TelegramMessage, convo: ConversationState) {
     buttons.push([button('❌ Cancelar', 'cancel')])
 
     return sendMessage(chatId, '👤 Selecciona el cliente:', { replyMarkup: inlineKeyboard(buttons) })
+  }
+
+  // ── Batch: search client ──
+  if (convo.step === 'batch_await_client_search') {
+    await sendChatAction(chatId, 'typing')
+    const supabase = createBotSupabase()
+
+    const { data: clients } = await supabase
+      .from('clients')
+      .select('id, name, cif_nif')
+      .or(`name.ilike.%${text}%,cif_nif.ilike.%${text}%`)
+      .limit(5)
+
+    if (!clients?.length) {
+      return sendMessage(chatId,
+        `❌ No encontré clientes con "<b>${text}</b>".\nEscribe otro nombre.`,
+        { replyMarkup: inlineKeyboard([
+          [button('🆕 Crear cliente nuevo', 'batch_new_client')],
+          [button('❌ Cancelar', 'cancel')],
+        ]) }
+      )
+    }
+
+    if (clients.length === 1) {
+      // Auto-select
+      const client = clients[0]
+      return processBatchForClient(chatId, convo.data, client.id, client.name)
+    }
+
+    await setConvo(chatId, 'batch_choose_client', convo.data)
+
+    const buttons = clients.map((c: any) =>
+      [button(`${c.name}${c.cif_nif ? ` (${c.cif_nif})` : ''}`, `batch_select_client:${c.id}:${c.name}`)]
+    )
+    buttons.push([button('❌ Cancelar', 'cancel')])
+
+    return sendMessage(chatId, '👤 Selecciona el cliente:', { replyMarkup: inlineKeyboard(buttons) })
+  }
+
+  // ── Batch: new client name ──
+  if (convo.step === 'batch_await_new_client_name') {
+    const firstInv = convo.data.processedInvoices?.[0]
+    const firstDoc = convo.data.processedDocs?.[0]
+    const holderName = firstInv?.extracted?.holder_name || firstDoc?.extracted?.holder_name || ''
+    const clientName = text.toLowerCase() === 'ok' ? holderName : text
+
+    if (!clientName) {
+      return sendMessage(chatId, '❌ Escribe el nombre del cliente:')
+    }
+
+    await sendChatAction(chatId, 'typing')
+    const statusMsg = await sendMessage(chatId, `⏳ Creando cliente <b>${clientName}</b>...`)
+
+    try {
+      const supabase = createBotSupabase()
+      // Collect CIF/NIF from first document
+      const docData = firstDoc?.extracted || firstInv?.extracted || {}
+      const { data: newClient, error } = await supabase
+        .from('clients')
+        .insert({
+          name: clientName,
+          cif_nif: docData.cif || docData.nif || docData.holder_cif_nif || null,
+          cif: docData.cif || null,
+          nif: docData.nif || null,
+          type: docData.cif ? 'empresa' : 'particular',
+          fiscal_address: docData.fiscal_address || null,
+          commercial_id: convo.data.userId,
+          origin: 'captacion',
+          created_at: new Date().toISOString(),
+        })
+        .select('id')
+        .single()
+
+      if (error) throw new Error(`Error creando cliente: ${error.message}`)
+
+      await processBatchForClient(chatId, convo.data, newClient.id, clientName)
+    } catch (err: any) {
+      return editMessage(chatId, statusMsg.message_id, `❌ Error: ${err.message}`)
+    }
+    return
+  }
+
+  // ── Supply note ──
+  if (convo.step === 'await_supply_note') {
+    const supplyId = convo.data.supplyId
+    const supabase = createBotSupabase()
+
+    // Get client for this supply to update notes
+    const { data: supply } = await supabase
+      .from('supplies')
+      .select('client_id, client:clients(id, notes, name)')
+      .eq('id', supplyId)
+      .single()
+
+    if (supply?.client) {
+      const client = supply.client as any
+      const existingNotes = client.notes || ''
+      const timestamp = new Date().toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      const newNotes = existingNotes
+        ? `${existingNotes}\n[${timestamp}] ${text}`
+        : `[${timestamp}] ${text}`
+      await supabase.from('clients').update({ notes: newNotes, updated_at: new Date().toISOString() }).eq('id', client.id)
+    }
+
+    await clearConvo(chatId)
+    return sendMessage(chatId, `✅ Nota guardada: "${text}"`)
+  }
+}
+
+async function processBatchForClient(
+  chatId: number,
+  batchData: Record<string, any>,
+  clientId: string,
+  clientName: string
+) {
+  const statusMsg = await sendMessage(chatId, `⏳ Procesando lote para <b>${clientName}</b>...`)
+
+  try {
+    const processedInvoices = batchData.processedInvoices || []
+    const processedDocs = batchData.processedDocs || []
+
+    // Process invoices
+    for (const inv of processedInvoices) {
+      try {
+        await uploadInvoiceAndCreate({
+          ...inv,
+          clientId,
+          userId: batchData.userId,
+        }, !inv.existingSupply)
+      } catch (err: any) {
+        console.error('[Telegram] Batch invoice error:', err)
+      }
+    }
+
+    // Process docs
+    for (const doc of processedDocs) {
+      try {
+        await saveDocumentToClient(clientId, clientName, {
+          docType: doc.docType,
+          docData: doc.extracted,
+          fileBuffer: doc.base64,
+          fileType: doc.fileType,
+          fileName: doc.dlFileName,
+          mimeType: doc.mimeType,
+        })
+      } catch (err: any) {
+        console.error('[Telegram] Batch doc error:', err)
+      }
+    }
+
+    await clearConvo(chatId)
+
+    let resultText = `✅ <b>Lote procesado</b>\n\n👤 Cliente: <b>${clientName}</b>\n\n`
+    resultText += `✅ ${processedInvoices.length} factura${processedInvoices.length !== 1 ? 's' : ''}\n`
+    resultText += `✅ ${processedDocs.length} documento${processedDocs.length !== 1 ? 's' : ''}`
+
+    return editMessage(chatId, statusMsg.message_id, resultText)
+  } catch (err: any) {
+    console.error('[Telegram] Batch process error:', err)
+    return editMessage(chatId, statusMsg.message_id, `❌ Error procesando lote: ${err.message}`)
   }
 }
 
