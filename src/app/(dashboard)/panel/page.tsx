@@ -243,10 +243,10 @@ export default function PanelPage() {
           assigned_user:assigned_to(full_name)
         `
         )
-        .eq('status', 'pending')
+        .in('status', ['pending', 'in_progress'])
         .order('priority', { ascending: false })
         .order('due_date', { ascending: true })
-        .limit(5)
+        .limit(8)
 
       setTasks((data as TaskWithUser[]) || [])
     } catch (error) {
@@ -255,6 +255,28 @@ export default function PanelPage() {
       setLoadingTasks(false)
     }
   }, [])
+
+  // Mark task as completed
+  const completeTask = async (taskId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setDismissingIds(prev => new Set(prev).add(taskId))
+    const supabase = createClient()
+    await supabase
+      .from('tasks')
+      .update({ status: 'completed', completed_at: new Date().toISOString() })
+      .eq('id', taskId)
+    setTasks(prev => prev.filter(t => t.id !== taskId))
+    setDismissingIds(prev => { const next = new Set(prev); next.delete(taskId); return next })
+  }
+
+  // Handle task click — if associated to client, navigate to client; otherwise open task
+  const handleTaskClick = (task: TaskWithUser) => {
+    if (task.related_entity_type === 'client' && task.related_entity_id) {
+      router.push(`/clients/${task.related_entity_id}`)
+    } else {
+      router.push(`/agenda`)
+    }
+  }
 
   // Fetch notifications
   const fetchNotifications = useCallback(async () => {
@@ -543,42 +565,72 @@ export default function PanelPage() {
                   <p className="text-sm text-on-surface-variant">No hay tareas pendientes</p>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {tasks.map((task) => (
-                    <motion.div
-                      key={task.id}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      className="p-3 bg-surface-container-low rounded-lg hover:bg-surface-container-high transition-colors cursor-pointer border border-transparent hover:border-outline-variant/20"
-                      onClick={() =>
-                        router.push(`/agenda/${task.id}`)
-                      }
-                    >
-                      <div className="flex items-start justify-between gap-2 mb-1">
-                        <p className="text-sm font-medium text-on-surface flex-1 line-clamp-1">
-                          {task.title}
-                        </p>
-                        <span
-                          className={`px-2 py-1 rounded text-xs font-semibold flex-shrink-0 ${getPriorityColor(
-                            task.priority
-                          )}`}
-                        >
-                          {getPriorityLabel(task.priority)}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-4 text-xs text-on-surface-variant">
-                        {task.due_date && (
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-3 h-3" />
-                            {formatDate(task.due_date)}
-                          </span>
-                        )}
-                        {task.assigned_user && (
-                          <span>{task.assigned_user.full_name}</span>
-                        )}
-                      </div>
-                    </motion.div>
-                  ))}
+                <div className="space-y-2">
+                  {tasks.map((task) => {
+                    const priorityStyles = task.priority === 'high'
+                      ? 'bg-red-50 border-red-300 hover:bg-red-100'
+                      : task.priority === 'medium'
+                      ? 'bg-amber-50 border-amber-300 hover:bg-amber-100'
+                      : 'bg-green-50 border-green-300 hover:bg-green-100'
+                    const priorityText = task.priority === 'high'
+                      ? 'text-red-800'
+                      : task.priority === 'medium'
+                      ? 'text-amber-800'
+                      : 'text-green-800'
+                    const prioritySubtext = task.priority === 'high'
+                      ? 'text-red-600'
+                      : task.priority === 'medium'
+                      ? 'text-amber-600'
+                      : 'text-green-600'
+                    const checkColor = task.priority === 'high'
+                      ? 'border-red-400 hover:bg-red-400'
+                      : task.priority === 'medium'
+                      ? 'border-amber-400 hover:bg-amber-400'
+                      : 'border-green-400 hover:bg-green-400'
+
+                    return (
+                      <motion.div
+                        key={task.id}
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: 20, height: 0 }}
+                        className={`p-3 rounded-xl border cursor-pointer transition-all ${priorityStyles}`}
+                        onClick={() => handleTaskClick(task)}
+                      >
+                        <div className="flex items-start gap-3">
+                          {/* Mark as done button */}
+                          <button
+                            onClick={(e) => completeTask(task.id, e)}
+                            className={`mt-0.5 flex-shrink-0 w-5 h-5 rounded-full border-2 ${checkColor} flex items-center justify-center transition-all group/check`}
+                            title="Marcar como hecha"
+                          >
+                            {dismissingIds.has(task.id) ? (
+                              <Loader2 className={`w-3 h-3 ${prioritySubtext} animate-spin`} />
+                            ) : (
+                              <Check className="w-3 h-3 text-transparent group-hover/check:text-white transition-colors" />
+                            )}
+                          </button>
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-sm font-semibold ${priorityText} line-clamp-1`}>
+                              {task.title}
+                            </p>
+                            <div className={`flex items-center gap-3 text-xs ${prioritySubtext} mt-0.5`}>
+                              {task.due_date && (
+                                <span className="flex items-center gap-1">
+                                  <Clock className="w-3 h-3" />
+                                  {formatDate(task.due_date)}
+                                </span>
+                              )}
+                              {task.assigned_user && (
+                                <span>{task.assigned_user.full_name}</span>
+                              )}
+                            </div>
+                          </div>
+                          <ChevronRight className={`w-4 h-4 ${prioritySubtext} flex-shrink-0 mt-0.5`} />
+                        </div>
+                      </motion.div>
+                    )
+                  })}
                 </div>
               )}
             </div>

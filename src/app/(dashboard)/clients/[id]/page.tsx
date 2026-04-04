@@ -6,7 +6,8 @@ import {
   ArrowLeft, Building2, Mail, Phone, MapPin, FileText,
   CreditCard, Zap, Edit2, Trash2, Plus, ExternalLink, FileCheck,
   Send, Sparkles, AlertTriangle, ChevronDown, ChevronUp, FileImage, File,
-  Check, XCircle, Clock, DollarSign, Pencil, X, Flame, Phone as PhoneIcon
+  Check, XCircle, Clock, DollarSign, Pencil, X, Flame, Phone as PhoneIcon,
+  Loader2
 } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
 import { Card } from '@/components/ui/Card'
@@ -32,6 +33,8 @@ export default function ClientDetailPage() {
   const [clientBillings, setClientBillings] = useState<any[]>([])
   const [editingSupplyName, setEditingSupplyName] = useState<string | null>(null)
   const [supplyNameValue, setSupplyNameValue] = useState('')
+  const [clientTasks, setClientTasks] = useState<any[]>([])
+  const [dismissingTaskIds, setDismissingTaskIds] = useState<Set<string>>(new Set())
 
   const toggleSupply = (supplyId: string) => {
     setExpandedSupplies(prev => {
@@ -71,6 +74,16 @@ export default function ClientDetailPage() {
         .order('created_at', { ascending: false })
       setClientBillings(bills || [])
     }
+
+    // Fetch pending tasks associated with this client
+    const { data: tasks } = await supabase
+      .from('tasks')
+      .select('*, assigned_user:assigned_to(full_name)')
+      .eq('related_entity_type', 'client')
+      .eq('related_entity_id', id as string)
+      .in('status', ['pending', 'in_progress'])
+      .order('priority', { ascending: false })
+    setClientTasks(tasks || [])
   }, [id])
 
   useEffect(() => {
@@ -138,6 +151,17 @@ export default function ClientDetailPage() {
     } catch { return 'documento' }
   }
 
+  const completeClientTask = async (taskId: string) => {
+    setDismissingTaskIds(prev => new Set(prev).add(taskId))
+    const supabase = createClient()
+    await supabase
+      .from('tasks')
+      .update({ status: 'completed', completed_at: new Date().toISOString() })
+      .eq('id', taskId)
+    setClientTasks(prev => prev.filter(t => t.id !== taskId))
+    setDismissingTaskIds(prev => { const next = new Set(prev); next.delete(taskId); return next })
+  }
+
   const typeIcons: Record<string, string> = { luz: '⚡', gas: '🔥', telefonia: '📞' }
   const supplyTypeIconComponents: Record<string, React.ElementType> = { luz: Zap, gas: Flame, telefonia: PhoneIcon }
 
@@ -172,6 +196,58 @@ export default function ClientDetailPage() {
       />
 
       <div className="px-6 lg:px-8 pb-8 space-y-6">
+        {/* Task disclaimers */}
+        {clientTasks.length > 0 && (
+          <div className="space-y-2">
+            {clientTasks.map((task) => {
+              const isHigh = task.priority === 'high'
+              const isMedium = task.priority === 'medium'
+              const bgColor = isHigh ? 'bg-red-50 border-red-300' : isMedium ? 'bg-amber-50 border-amber-300' : 'bg-green-50 border-green-300'
+              const textColor = isHigh ? 'text-red-800' : isMedium ? 'text-amber-800' : 'text-green-800'
+              const subColor = isHigh ? 'text-red-600' : isMedium ? 'text-amber-600' : 'text-green-600'
+              const iconColor = isHigh ? 'text-red-500' : isMedium ? 'text-amber-500' : 'text-green-500'
+              const btnColor = isHigh
+                ? 'bg-red-600 hover:bg-red-700 text-white'
+                : isMedium
+                ? 'bg-amber-500 hover:bg-amber-600 text-white'
+                : 'bg-green-600 hover:bg-green-700 text-white'
+
+              return (
+                <div key={task.id} className={`flex items-center gap-4 px-5 py-3 rounded-xl border ${bgColor}`}>
+                  <AlertTriangle className={`w-5 h-5 flex-shrink-0 ${iconColor}`} />
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm font-semibold ${textColor}`}>{task.title}</p>
+                    {task.description && (
+                      <p className={`text-xs ${subColor} line-clamp-1 mt-0.5`}>{task.description}</p>
+                    )}
+                    <div className={`flex items-center gap-3 text-xs ${subColor} mt-0.5`}>
+                      {task.due_date && (
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          {formatDate(task.due_date)}
+                        </span>
+                      )}
+                      {task.assigned_user && <span>{task.assigned_user.full_name}</span>}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => completeClientTask(task.id)}
+                    disabled={dismissingTaskIds.has(task.id)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex-shrink-0 ${btnColor}`}
+                  >
+                    {dismissingTaskIds.has(task.id) ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Check className="w-3.5 h-3.5" />
+                    )}
+                    Hecha
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
         {/* Info cards */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <Card>

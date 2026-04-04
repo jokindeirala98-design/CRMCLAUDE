@@ -19,7 +19,6 @@ import {
   Inbox,
   DollarSign,
   FileSpreadsheet,
-  ClipboardList,
 } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 import { getUserInitials } from '@/lib/utils/format'
@@ -45,7 +44,6 @@ const navItems: NavItem[] = [
   { href: '/contracts', label: 'Contratos', icon: FileText },
   { href: '/subscriptions', label: 'Suscripciones', icon: CreditCard, permission: 'billing' },
   { href: '/billing', label: 'Facturacion', icon: Receipt, permission: 'billing' },
-  { href: '/tasks', label: 'Tareas', icon: ClipboardList },
   { href: '/agenda', label: 'Agenda', icon: CalendarDays },
   { href: '/commissions', label: 'Comisiones', icon: DollarSign },
   { href: '/reports', label: 'Estadisticas', icon: BarChart3, permission: 'reports' },
