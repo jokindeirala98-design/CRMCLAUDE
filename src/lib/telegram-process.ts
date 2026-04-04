@@ -44,27 +44,35 @@ export interface ProcessResult {
  * @param inboxId - UUID of the telegram_inbox row
  * @param base64Data - Optional pre-computed base64 of the file (avoids re-download)
  * @param mimeType - Optional mime type if base64Data is provided
+ * @param itemData - Optional pre-fetched item data (avoids re-querying the DB)
  */
 export async function processTelegramInboxItem(
   inboxId: string,
   base64Data?: string,
   mimeType?: string,
+  itemData?: { file_url: string; file_type: string; file_name: string; user_id: string },
 ): Promise<ProcessResult> {
   const supabase = getSupabase()
 
-  // 1. Get the inbox item
-  const { data: item, error: fetchErr } = await supabase
-    .from('telegram_inbox')
-    .select('*')
-    .eq('id', inboxId)
-    .single()
+  // 1. Get the inbox item — use provided data or fetch from DB
+  let item = itemData as any
 
-  if (fetchErr || !item) {
-    return { ok: false, error: 'Item not found' }
-  }
+  if (!item) {
+    const { data, error: fetchErr } = await supabase
+      .from('telegram_inbox')
+      .select('*')
+      .eq('id', inboxId)
+      .single()
 
-  if (item.status !== 'pending') {
-    return { ok: true, skipped: true }
+    if (fetchErr || !data) {
+      return { ok: false, error: 'Item not found: ' + (fetchErr?.message || 'no data') }
+    }
+
+    if (data.status !== 'pending') {
+      return { ok: true, skipped: true }
+    }
+
+    item = data
   }
 
   // Mark as processing
@@ -188,23 +196,41 @@ export async function processTelegramInboxItem(
       ? holderName
       : (item.file_name || 'Cliente Telegram')
 
-    const { data: newClient, error: clientErr } = await supabase
+    // Try with 'telegram' origin first; if the enum value doesn't exist yet, fallback to 'captacion'
+    let newClient: any = null
+    let clientErr: any = null
+
+    const clientPayload = {
+      name: clientName,
+      type: 'empresa',
+      commercial_id: item.user_id,
+      cif_nif: holderCif || null,
+      marketing_consent: false,
+    }
+
+    const res1 = await supabase
       .from('clients')
-      .insert({
-        name: clientName,
-        type: 'empresa',
-        commercial_id: item.user_id,
-        origin: 'telegram',
-        cif_nif: holderCif || null,
-        marketing_consent: false,
-      })
+      .insert({ ...clientPayload, origin: 'telegram' })
       .select('id')
       .single()
+
+    if (res1.error) {
+      console.warn(`[TelegramProcess] 'telegram' origin failed, trying 'captacion':`, res1.error.message)
+      const res2 = await supabase
+        .from('clients')
+        .insert({ ...clientPayload, origin: 'captacion' })
+        .select('id')
+        .single()
+      newClient = res2.data
+      clientErr = res2.error
+    } else {
+      newClient = res1.data
+    }
 
     if (clientErr || !newClient) {
       console.error(`[TelegramProcess] Failed to create client:`, clientErr)
       await supabase.from('telegram_inbox').update({ status: 'error' }).eq('id', inboxId)
-      return { ok: false, error: 'Failed to create client' }
+      return { ok: false, error: 'Failed to create client: ' + (clientErr?.message || 'unknown') }
     }
 
     clientId = newClient.id

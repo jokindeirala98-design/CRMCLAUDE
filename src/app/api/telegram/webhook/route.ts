@@ -502,16 +502,33 @@ async function handleDocumentFile(msg: TelegramMessage) {
       sendMessage(chatId, `📥 Recibido ✓ — Procesando automaticamente...`).catch(() => {})
     }
 
-    // Process inline — pass the base64 we already have to avoid re-downloading
+    // Process inline — pass base64 + item data we already have to avoid re-downloading & re-querying
     const base64 = Buffer.from(buffer).toString('base64')
     const mimeType = fileType === 'pdf' ? 'application/pdf' : 'image/jpeg'
 
     try {
-      const result = await processTelegramInboxItem(insertedRow.id, base64, mimeType)
-      console.log(`[Telegram] Process result for ${insertedRow.id}:`, result.ok ? 'success' : result.error)
+      const result = await processTelegramInboxItem(
+        insertedRow.id,
+        base64,
+        mimeType,
+        {
+          file_url: urlData.publicUrl,
+          file_type: fileType,
+          file_name: dlFileName || fileName,
+          user_id: user.userId,
+        }
+      )
+      console.log(`[Telegram] Process result for ${insertedRow.id}:`, JSON.stringify(result))
+
+      // Notify user of result
+      if (result.ok && !result.skipped) {
+        sendMessage(chatId, `✅ Factura procesada → ${result.cups || 'sin CUPS'} (${result.is_existing_supply ? 'suministro existente' : 'nuevo suministro'})`).catch(() => {})
+      } else if (!result.ok) {
+        sendMessage(chatId, `⚠️ Error procesando: ${result.error || 'desconocido'}`).catch(() => {})
+      }
     } catch (processErr: any) {
       console.error(`[Telegram] Inline process error:`, processErr.message)
-      // Item stays as 'pending' or 'processing' — can be retried via /api/telegram/process
+      sendMessage(chatId, `⚠️ Error en procesamiento: ${processErr.message}`).catch(() => {})
     }
 
   } catch (err: any) {
