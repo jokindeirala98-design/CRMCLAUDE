@@ -1,0 +1,62 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'Inter', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-surface text-on-surface;
+  }
+
+  /* Kinetic Precision: No scrollbar noise */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-outline-variant/40 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-outline/60;
+  }
+}
+
+@layer components {
+  /* Kinetic glass panels */
+  .glass-panel {
+    @apply bg-white/60 backdrop-blur-[20px];
+  }
+
+  /* Gradient CTA - Kinetic signature */
+  .gradient-primary {
+    background: linear-gradient(135deg, #001e40 0%, #003366 100%);
+  }
+
+  /* Status accent bar */
+  .accent-bar-active {
+    @apply border-l-2 border-secondary;
+  }
+
+  /* Ghost border (fallback for similar backgrounds) */
+  .ghost-border {
+    outline: 1px solid rgba(194, 199, 206, 0.15);
+  }
+
+  /* Ambient glow for focus states */
+  .focus-glow {
+    box-shadow: 0 0 0 2px rgba(49, 225, 147, 0.4);
+  }
+}

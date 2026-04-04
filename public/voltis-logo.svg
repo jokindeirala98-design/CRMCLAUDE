@@ -1,0 +1,10 @@
+<svg width="178" height="54" viewBox="0 0 178 54" xmlns="http://www.w3.org/2000/svg">
+  <!-- "Voltis" bold dark blue text -->
+  <text x="4" y="40" font-family="Arial Black,Arial,sans-serif" font-weight="900" font-size="36" fill="#1A3A8C">Voltis</text>
+  <!-- Ascending diagonal accent bar through the "l" -->
+  <polygon points="45,52 55,52 61,2 51,2" fill="#2E75B6" opacity="0.85"/>
+  <!-- "energía" subtitle -->
+  <text x="73" y="52" font-family="Arial,sans-serif" font-size="13" fill="#2E75B6" font-weight="400">energía</text>
+  <!-- Bottom-right accent element -->
+  <polygon points="150,44 178,27 178,36 157,53 150,53" fill="#2E75B6" opacity="0.45"/>
+</svg>
