@@ -33,8 +33,9 @@ interface CallbackQuery {
   data?: string
 }
 
-/* ─── Conversation state (in-memory, per chat) ─────────────────────────────── */
-const conversations = new Map<number, ConversationState>()
+/* ─── Conversation state (persisted in Supabase) ─────────────────────────── */
+// Stored in telegram_conversations table so state survives serverless cold starts
+// and works across Vercel function instances. Timeout: 24 hours.
 
 interface ConversationState {
   step: string
@@ -42,26 +43,63 @@ interface ConversationState {
   expiresAt: number
 }
 
-function getConvo(chatId: number): ConversationState | null {
-  const c = conversations.get(chatId)
-  if (!c) return null
-  if (Date.now() > c.expiresAt) {
-    conversations.delete(chatId)
+const CONVO_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
+
+async function getConvo(chatId: number): Promise<ConversationState | null> {
+  try {
+    const supabase = createBotSupabase()
+    const { data, error } = await supabase
+      .from('telegram_conversations')
+      .select('step, data, expires_at')
+      .eq('chat_id', chatId)
+      .single()
+
+    if (error || !data) return null
+
+    // Check expiry
+    if (new Date(data.expires_at).getTime() < Date.now()) {
+      // Expired — clean up
+      await supabase.from('telegram_conversations').delete().eq('chat_id', chatId)
+      return null
+    }
+
+    return {
+      step: data.step,
+      data: data.data || {},
+      expiresAt: new Date(data.expires_at).getTime(),
+    }
+  } catch (err) {
+    console.error('[Telegram] getConvo error:', err)
     return null
   }
-  return c
 }
 
-function setConvo(chatId: number, step: string, data: Record<string, any> = {}) {
-  conversations.set(chatId, {
-    step,
-    data,
-    expiresAt: Date.now() + 30 * 60 * 1000,
-  })
+async function setConvo(chatId: number, step: string, data: Record<string, any> = {}) {
+  try {
+    const supabase = createBotSupabase()
+    const expiresAt = new Date(Date.now() + CONVO_TTL_MS).toISOString()
+
+    await supabase
+      .from('telegram_conversations')
+      .upsert({
+        chat_id: chatId,
+        step,
+        data,
+        expires_at: expiresAt,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'chat_id' })
+  } catch (err) {
+    console.error('[Telegram] setConvo error:', err)
+  }
 }
 
-function clearConvo(chatId: number) {
-  conversations.delete(chatId)
+async function clearConvo(chatId: number) {
+  try {
+    const supabase = createBotSupabase()
+    await supabase.from('telegram_conversations').delete().eq('chat_id', chatId)
+  } catch (err) {
+    console.error('[Telegram] clearConvo error:', err)
+  }
 }
 
 /* ─── Main webhook handler ─────────────────────────────────────────────────── */
@@ -103,7 +141,7 @@ async function handleMessage(msg: TelegramMessage) {
   }
 
   // Conversation continuation
-  const convo = getConvo(chatId)
+  const convo = await getConvo(chatId)
   if (convo) {
     return handleConvoStep(msg, convo)
   }
@@ -376,7 +414,7 @@ async function handleInvoiceAnalysis(
   if (existingSupply) {
     const clientName = existingSupply.client?.name || 'Sin cliente'
 
-    setConvo(chatId, 'confirm_existing', {
+    await setConvo(chatId, 'confirm_existing', {
       supplyId: existingSupply.id,
       clientId: existingSupply.client?.id,
       clientName,
@@ -404,7 +442,7 @@ async function handleInvoiceAnalysis(
       ])
     )
   } else {
-    setConvo(chatId, 'choose_client_type', {
+    await setConvo(chatId, 'choose_client_type', {
       cups,
       extracted,
       fileBuffer: base64,
@@ -478,7 +516,7 @@ async function handleClientDocument(
   const summary = lines.join('\n')
 
   // Store document data + file in conversation for client selection
-  setConvo(chatId, 'choose_client_for_doc', {
+  await setConvo(chatId, 'choose_client_for_doc', {
     docType,
     docData,
     fileBuffer: base64,
@@ -513,8 +551,9 @@ async function handleClientDocument(
   if (matchedClients.length === 1) {
     // Auto-match: offer to save to this client
     const client = matchedClients[0]
-    setConvo(chatId, 'confirm_doc_client', {
-      ...getConvo(chatId)!.data,
+    const currentConvo = await getConvo(chatId)
+    await setConvo(chatId, 'confirm_doc_client', {
+      ...(currentConvo?.data || {}),
       clientId: client.id,
       clientName: client.name,
     })
@@ -642,14 +681,14 @@ async function handleCallback(cb: CallbackQuery) {
   await answerCallback(cb.id)
 
   const data = cb.data || ''
-  const convo = getConvo(chatId)
+  const convo = await getConvo(chatId)
 
   // ── Invoice: add to existing supply ──
   if (data === 'add_to_existing' && convo?.step === 'confirm_existing') {
     await editMessage(chatId, msgId, '⏳ Añadiendo factura al suministro...')
     try {
       await uploadInvoiceAndCreate(convo.data, false)
-      clearConvo(chatId)
+      await clearConvo(chatId)
       return editMessage(chatId, msgId,
         `✅ Factura añadida al suministro de <b>${convo.data.clientName}</b>.`
       )
@@ -662,7 +701,7 @@ async function handleCallback(cb: CallbackQuery) {
   if (data === 'new_client') {
     if (!convo) return editMessage(chatId, msgId, '⏰ Sesión expirada. Envía la factura de nuevo.')
     const holder = convo.data.holder || convo.data.extracted?.holder_name || ''
-    setConvo(chatId, 'await_new_client_name', convo.data)
+    await setConvo(chatId, 'await_new_client_name', convo.data)
 
     return editMessage(chatId, msgId,
       `🆕 Escribe el nombre del nuevo cliente.\n\n` +
@@ -673,7 +712,7 @@ async function handleCallback(cb: CallbackQuery) {
   // ── Invoice: existing client search ──
   if (data === 'existing_client') {
     if (!convo) return editMessage(chatId, msgId, '⏰ Sesión expirada.')
-    setConvo(chatId, 'await_client_search', convo.data)
+    await setConvo(chatId, 'await_client_search', convo.data)
     return editMessage(chatId, msgId, '🔍 Escribe el nombre del cliente a buscar:')
   }
 
@@ -685,7 +724,7 @@ async function handleCallback(cb: CallbackQuery) {
     await editMessage(chatId, msgId, '⏳ Creando suministro...')
     try {
       const result = await uploadInvoiceAndCreate({ ...convo.data, clientId }, true)
-      clearConvo(chatId)
+      await clearConvo(chatId)
       return editMessage(chatId, msgId,
         `✅ Suministro creado para CUPS <code>${convo.data.cups || 'nuevo'}</code>.`
       )
@@ -699,7 +738,7 @@ async function handleCallback(cb: CallbackQuery) {
     await editMessage(chatId, msgId, '⏳ Guardando documento...')
     try {
       await saveDocumentToClient(convo.data.clientId, convo.data.clientName, convo.data)
-      clearConvo(chatId)
+      await clearConvo(chatId)
       const typeLabel = getDocTypeLabel(convo.data.docType)
       return editMessage(chatId, msgId,
         `✅ ${typeLabel} guardado en el cliente <b>${convo.data.clientName}</b>.`
@@ -719,7 +758,7 @@ async function handleCallback(cb: CallbackQuery) {
     await editMessage(chatId, msgId, '⏳ Guardando documento...')
     try {
       await saveDocumentToClient(clientId, clientName, convo.data)
-      clearConvo(chatId)
+      await clearConvo(chatId)
       const typeLabel = getDocTypeLabel(convo.data.docType)
       return editMessage(chatId, msgId,
         `✅ ${typeLabel} guardado en el cliente <b>${clientName}</b>.`
@@ -732,7 +771,7 @@ async function handleCallback(cb: CallbackQuery) {
   // ── Document: choose another client ──
   if (data === 'choose_other_client_doc' || data === 'search_client_for_doc') {
     if (!convo) return editMessage(chatId, msgId, '⏰ Sesión expirada.')
-    setConvo(chatId, 'await_client_search_doc', convo.data)
+    await setConvo(chatId, 'await_client_search_doc', convo.data)
     return editMessage(chatId, msgId, '🔍 Escribe el nombre del cliente:')
   }
 
@@ -740,7 +779,7 @@ async function handleCallback(cb: CallbackQuery) {
   if (data === 'doc_new_client') {
     if (!convo) return editMessage(chatId, msgId, '⏰ Sesión expirada.')
     const holderName = convo.data.docData?.holder_name || ''
-    setConvo(chatId, 'await_new_client_name_doc', convo.data)
+    await setConvo(chatId, 'await_new_client_name_doc', convo.data)
     return editMessage(chatId, msgId,
       `🆕 Escribe el nombre del nuevo cliente.\n\n` +
       (holderName ? `💡 Nombre detectado: <b>${holderName}</b>\nEscribe "ok" para usarlo o escribe otro nombre.` : '')
@@ -749,7 +788,7 @@ async function handleCallback(cb: CallbackQuery) {
 
   // ── Cancel ──
   if (data === 'cancel') {
-    clearConvo(chatId)
+    await clearConvo(chatId)
     return editMessage(chatId, msgId, '❌ Operación cancelada.')
   }
 }
@@ -782,7 +821,7 @@ async function handleConvoStep(msg: TelegramMessage, convo: ConversationState) {
         isNewClient: true,
       }, true)
 
-      clearConvo(chatId)
+      await clearConvo(chatId)
       return editMessage(chatId, statusMsg.message_id,
         `✅ <b>Cliente y suministro creados</b>\n\nCliente: ${clientName}\nCUPS: <code>${convo.data.cups || 'Por asignar'}</code>`
       )
@@ -826,7 +865,7 @@ async function handleConvoStep(msg: TelegramMessage, convo: ConversationState) {
       // Save document file to client
       await saveDocumentToClient(newClient.id, clientName, convo.data)
 
-      clearConvo(chatId)
+      await clearConvo(chatId)
       const typeLabel = getDocTypeLabel(convo.data.docType)
       return editMessage(chatId, statusMsg.message_id,
         `✅ Cliente <b>${clientName}</b> creado con ${typeLabel} guardado.`
@@ -857,7 +896,7 @@ async function handleConvoStep(msg: TelegramMessage, convo: ConversationState) {
       )
     }
 
-    setConvo(chatId, 'choose_client_type', convo.data)
+    await setConvo(chatId, 'choose_client_type', convo.data)
 
     const buttons = clients.map((c: any) =>
       [button(`${c.name}${c.cif_nif ? ` (${c.cif_nif})` : ''}`, `select_client:${c.id}`)]
@@ -888,7 +927,7 @@ async function handleConvoStep(msg: TelegramMessage, convo: ConversationState) {
       )
     }
 
-    setConvo(chatId, 'choose_client_for_doc', convo.data)
+    await setConvo(chatId, 'choose_client_for_doc', convo.data)
 
     const buttons = clients.map((c: any) =>
       [button(`${c.name}${c.cif_nif ? ` (${c.cif_nif})` : ''}`, `doc_select_client:${c.id}:${c.name}`)]
