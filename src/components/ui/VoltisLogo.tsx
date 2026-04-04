@@ -32,8 +32,6 @@ export function VoltisLogo({ height = 40, className }: VoltisLogoProps) {
       >
         Voltis
       </text>
-      {/* Ascending diagonal accent bar through the "l" */}
-      <polygon points="45,52 55,52 61,2 51,2" fill="#2E75B6" opacity="0.85" />
       {/* "energía" subtitle */}
       <text
         x="73" y="52"
@@ -44,8 +42,6 @@ export function VoltisLogo({ height = 40, className }: VoltisLogoProps) {
       >
         energía
       </text>
-      {/* Bottom-right accent element */}
-      <polygon points="150,44 178,27 178,36 157,53 150,53" fill="#2E75B6" opacity="0.45" />
     </svg>
   )
 }
