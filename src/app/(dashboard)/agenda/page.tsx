@@ -198,13 +198,22 @@ export default function AgendaPage() {
   const totalHigh = activeTasks.filter((t) => t.priority === 'high').length
 
   // ── Task actions ─────────────────────────────────────────────
-  const updateTaskStatus = async (taskId: string, newStatus: string) => {
+  const updateTaskStatus = (taskId: string, newStatus: string) => {
+    // Optimistic UI — update local state instantly
+    setTasks(prev => prev.map(t =>
+      t.id === taskId
+        ? { ...t, status: newStatus as any, completed_at: newStatus === 'completed' ? new Date().toISOString() : null }
+        : t
+    ))
+    // Fire-and-forget DB update
     const supabase = createClient()
     const updates: any = { status: newStatus }
     if (newStatus === 'completed') updates.completed_at = new Date().toISOString()
     if (newStatus !== 'completed') updates.completed_at = null
-    await supabase.from('tasks').update(updates).eq('id', taskId)
-    fetchTasks()
+    supabase.from('tasks').update(updates).eq('id', taskId).then(() => {
+      // Background refetch to keep in sync
+      fetchTasks()
+    })
   }
 
   const reassignTask = async (taskId: string, newUserId: string) => {
@@ -269,12 +278,19 @@ export default function AgendaPage() {
   const selectedUserName = selectedUser ? getUserInitials(selectedUser.full_name) : 'Todos'
 
   // ── Render task card ─────────────────────────────────────────
+  const PRIORITY_BG: Record<string, string> = {
+    high: 'bg-red-50 border-red-300',
+    medium: 'bg-amber-50 border-amber-300',
+    low: 'bg-green-50 border-green-300',
+  }
+
   const renderTask = (task: TaskType) => {
     const prio = PRIORITY_CONFIG[task.priority]
     const daysLeft = getDaysUntilDue(task.due_date)
     const isOverdue = daysLeft !== null && daysLeft < 0 && task.status !== 'completed'
     const isDueSoon = daysLeft !== null && daysLeft >= 0 && daysLeft <= 3 && task.status !== 'completed'
     const isExpanded = expandedTaskId === task.id
+    const prioBg = task.status === 'completed' ? 'bg-surface border-outline-variant/30' : PRIORITY_BG[task.priority]
 
     return (
       <div key={task.id}>
@@ -285,8 +301,8 @@ export default function AgendaPage() {
           onDrop={() => handleDrop(task.id, task.status)}
           onClick={() => setExpandedTaskId(isExpanded ? null : task.id)}
           className={cn(
-            'group p-4 bg-surface rounded-2xl border-l-4 shadow-ambient-xs hover:shadow-ambient-sm transition-all cursor-pointer',
-            prio.border,
+            'group p-4 rounded-2xl border shadow-ambient-xs hover:shadow-ambient-sm transition-all cursor-pointer',
+            prioBg,
             draggedId === task.id && 'opacity-50',
             task.status === 'completed' && 'opacity-60',
             isExpanded && 'ring-1 ring-secondary/30'

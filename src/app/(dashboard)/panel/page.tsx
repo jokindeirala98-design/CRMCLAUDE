@@ -256,20 +256,21 @@ export default function PanelPage() {
     }
   }, [])
 
-  // Mark task as completed
-  const completeTask = async (taskId: string, e: React.MouseEvent) => {
+  // Mark task as completed — optimistic: remove from UI instantly, DB in background
+  const completeTask = (taskId: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    setDismissingIds(prev => new Set(prev).add(taskId))
+    // Instant UI removal
+    setTasks(prev => prev.filter(t => t.id !== taskId))
+    // Fire-and-forget DB update + refetch to backfill next tasks
     const supabase = createClient()
-    await supabase
+    supabase
       .from('tasks')
       .update({ status: 'completed', completed_at: new Date().toISOString() })
       .eq('id', taskId)
-    setTasks(prev => prev.filter(t => t.id !== taskId))
-    setDismissingIds(prev => { const next = new Set(prev); next.delete(taskId); return next })
+      .then(() => fetchTasks())
   }
 
-  // Handle task click — if associated to client, navigate to client; otherwise open task
+  // Handle task click — if associated to client, navigate to client; otherwise open task in agenda
   const handleTaskClick = (task: TaskWithUser) => {
     if (task.related_entity_type === 'client' && task.related_entity_id) {
       router.push(`/clients/${task.related_entity_id}`)
@@ -323,59 +324,50 @@ export default function PanelPage() {
   // ── Dismiss notification (mark as read) ──
   const [dismissingIds, setDismissingIds] = useState<Set<string>>(new Set())
 
-  const dismissNotification = async (notifId: string, e: React.MouseEvent) => {
+  const dismissNotification = (notifId: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    setDismissingIds(prev => new Set(prev).add(notifId))
-    const supabase = createClient()
-
     const notif = notifications.find(n => n.id === notifId)
 
-    // Mark notification as read
-    await supabase.from('notifications').update({ read: true }).eq('id', notifId)
+    // Instant UI removal
+    setNotifications(prev => prev.filter(n => n.id !== notifId))
+
+    // Fire-and-forget DB updates
+    const supabase = createClient()
+    supabase.from('notifications').update({ read: true }).eq('id', notifId)
 
     // If it's an estudio_completado notification, auto-transition supply to presentado
     if (notif?.type === 'estudio_completado' && (notif as any).metadata?.supply_id) {
       const supplyId = (notif as any).metadata.supply_id
-      await supabase
+      supabase
         .from('supplies')
         .update({ status: 'presentado', updated_at: new Date().toISOString() })
         .eq('id', supplyId)
     }
-
-    // Remove from local state with animation
-    setNotifications(prev => prev.filter(n => n.id !== notifId))
-    setDismissingIds(prev => { const next = new Set(prev); next.delete(notifId); return next })
   }
 
-  // ── Dismiss completed study (mark as presented) ──
-  const dismissStudy = async (study: any, e: React.MouseEvent) => {
+  // ── Dismiss completed study (mark as presented) — optimistic ──
+  const dismissStudy = (study: any, e: React.MouseEvent) => {
     e.stopPropagation()
-    const studyId = study.id
-    setDismissingIds(prev => new Set(prev).add(studyId))
-    const supabase = createClient()
 
-    // Transition supply to presentado
+    // Instant UI removal — both study cards and any matching notifications
+    setCompletedStudies(prev => prev.filter(s => s.id !== study.id))
+    setNotifications(prev => prev.filter(n =>
+      !(n.type === 'estudio_completado' && (n as any).metadata?.supply_id === study.supply_id)
+    ))
+
+    // Fire-and-forget DB updates
+    const supabase = createClient()
     if (study.supply_id) {
-      await supabase
+      supabase
         .from('supplies')
         .update({ status: 'presentado', updated_at: new Date().toISOString() })
         .eq('id', study.supply_id)
-
-      // Also mark any related estudio_completado notifications as read
-      await supabase
+      supabase
         .from('notifications')
         .update({ read: true })
         .eq('type', 'estudio_completado')
         .contains('metadata', { supply_id: study.supply_id })
     }
-
-    // Remove from local state
-    setCompletedStudies(prev => prev.filter(s => s.id !== studyId))
-    // Also remove from notifications if duplicated there
-    setNotifications(prev => prev.filter(n =>
-      !(n.type === 'estudio_completado' && (n as any).metadata?.supply_id === study.supply_id)
-    ))
-    setDismissingIds(prev => { const next = new Set(prev); next.delete(studyId); return next })
   }
 
   useEffect(() => {
@@ -724,11 +716,10 @@ export default function PanelPage() {
                         </button>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-green-900">
-                            Estudio completado
+                            Informes listos para {study.supply?.client?.name || 'cliente'}
                           </p>
                           <p className="text-xs text-green-700 line-clamp-1">
-                            {study.supply?.client?.name || ''} (
-                            {study.supply?.cups || 'N/A'})
+                            {study.supply?.cups || 'N/A'}
                           </p>
                           <p className="text-xs text-green-600/60 mt-1">
                             {getRelativeTime(study.created_at)}
@@ -783,12 +774,9 @@ export default function PanelPage() {
                         <div className="flex items-center gap-2 mb-2">
                           <FileBarChart2 className="w-5 h-5 text-green-600 flex-shrink-0" />
                           <h3 className="font-semibold text-on-surface group-hover:text-primary transition-colors">
-                            Estudio Completado
+                            Informes listos para {study.supply?.client?.name || 'cliente'}
                           </h3>
                         </div>
-                        <p className="text-sm text-on-surface-variant mb-1">
-                          {study.supply?.client?.name || 'Cliente'}
-                        </p>
                         <p className="text-xs font-mono text-on-surface-variant">
                           {study.supply?.cups || 'CUPS desconocido'}
                         </p>
