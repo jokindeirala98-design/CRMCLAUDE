@@ -15,7 +15,10 @@ import {
   User as UserIcon,
   Building2,
   ArrowRightLeft,
+  Send,
+  ArrowRight,
 } from 'lucide-react'
+import Link from 'next/link'
 import { Header } from '@/components/layout/Header'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
@@ -67,6 +70,7 @@ export default function TasksPage() {
   const [showCompleted, setShowCompleted] = useState(false)
   const [draggedId, setDraggedId] = useState<string | null>(null)
   const [reassigningId, setReassigningId] = useState<string | null>(null)
+  const [telegramPending, setTelegramPending] = useState(0)
 
   const isAdmin = user?.role === 'admin'
 
@@ -91,10 +95,21 @@ export default function TasksPage() {
     setUsers(data || [])
   }, [])
 
+  // Fetch Telegram pending count
+  const fetchTelegramPending = useCallback(async () => {
+    const supabase = createClient()
+    const { count } = await supabase
+      .from('telegram_inbox')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'pending')
+    setTelegramPending(count || 0)
+  }, [])
+
   useEffect(() => {
     fetchTasks()
     fetchUsers()
-  }, [fetchTasks, fetchUsers])
+    fetchTelegramPending()
+  }, [fetchTasks, fetchUsers, fetchTelegramPending])
 
   // Filter tasks
   const filteredTasks = tasks.filter((t) => {
@@ -377,6 +392,23 @@ export default function TasksPage() {
             <p className="font-display font-bold text-2xl text-success">{totalCompleted}</p>
           </Card>
         </div>
+
+        {/* Telegram pending alert */}
+        {telegramPending > 0 && (
+          <Link href="/inbox"
+            className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-[#2AABEE]/5 border border-[#2AABEE]/20 hover:bg-[#2AABEE]/10 transition-colors group cursor-pointer">
+            <div className="w-10 h-10 rounded-xl bg-[#2AABEE]/10 flex items-center justify-center flex-shrink-0">
+              <Send className="w-5 h-5 text-[#2AABEE]" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-on-surface">
+                {telegramPending} documento{telegramPending !== 1 ? 's' : ''} de Telegram
+              </p>
+              <p className="text-xs text-on-surface-variant">Pendiente{telegramPending !== 1 ? 's' : ''} de procesar en la bandeja</p>
+            </div>
+            <ArrowRight className="w-4 h-4 text-[#2AABEE] group-hover:translate-x-0.5 transition-transform" />
+          </Link>
+        )}
 
         {/* Filter bar */}
         <div className="flex flex-wrap items-center gap-2">

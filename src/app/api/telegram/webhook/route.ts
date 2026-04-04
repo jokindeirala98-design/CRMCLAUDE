@@ -3,11 +3,6 @@ import {
   sendMessage, editMessage, answerCallback, sendChatAction,
   downloadFile, inlineKeyboard, button, createBotSupabase,
 } from '@/lib/telegram'
-import { normalizeCups } from '@/lib/utils/cups'
-import {
-  analyzeInvoice, analyzeDocument, classifyDocument, getMimeType,
-  type DocumentType, type ExtractedInvoiceData, type ExtractedDocumentData,
-} from '@/lib/gemini'
 
 /* ─── Types ────────────────────────────────────────────────────────────────── */
 interface TelegramUpdate {
@@ -114,7 +109,7 @@ function extractSearchKeywords(text: string): string[] {
   const words = cleaned.split(/\s+/).filter(w => w.length >= 3)
 
   // Return unique significant words
-  return [...new Set(words.map(w => w.toLowerCase()))]
+  return Array.from(new Set(words.map(w => w.toLowerCase())))
 }
 
 async function searchClients(
@@ -245,12 +240,12 @@ async function handleMessage(msg: TelegramMessage) {
     return handleCommand(msg, text)
   }
 
-  // File received — process it individually (one file per webhook call)
+  // File received — upload to inbox
   if (msg.document || msg.photo) {
     return handleDocumentFile(msg)
   }
 
-  // Conversation continuation (e.g., waiting for client name, search text, etc.)
+  // Conversation continuation (e.g., waiting for note text)
   const convo = await getConvo(chatId)
   if (convo && convo.step !== 'idle') {
     return handleConvoStep(msg, convo)
@@ -262,14 +257,14 @@ async function handleMessage(msg: TelegramMessage) {
   }
 
   await sendMessage(chatId,
-    '👋 Envíame un <b>documento</b> (foto o PDF) y lo proceso automáticamente.\n\n' +
-    'Acepto:\n' +
+    '👋 Envíame <b>documentos</b> (foto o PDF) y se guardarán en tu <b>Bandeja</b>.\n\n' +
+    'Puedo procesar:\n' +
     '• 📄 <b>Facturas</b> de luz/gas\n' +
     '• 🏢 <b>CIF</b> de empresa\n' +
     '• 🪪 <b>NIF/DNI</b>\n' +
-    '• 🏦 <b>Titularidad bancaria</b> (IBAN)\n' +
+    '• 🏦 <b>IBAN</b>\n' +
     '• 📋 <b>Contratos</b>\n\n' +
-    'Comandos: /vincular · /mis · /buscar · /cliente · /ayuda'
+    'Comandos: /vincular · /mis · /buscar · /ayuda'
   )
 }
 
@@ -284,11 +279,10 @@ async function handleCommand(msg: TelegramMessage, text: string) {
       if (arg) return handleLinkCode(chatId, arg, msg.from.id)
       return sendMessage(chatId,
         '⚡ <b>Voltis CRM Bot</b>\n\n' +
-        'Soy tu asistente de Voltis. Puedo:\n' +
-        '• Analizar <b>facturas</b> que me envíes (foto/PDF)\n' +
-        '• Procesar <b>CIF, NIF, IBAN</b> y asociarlos a clientes\n' +
-        '• Crear suministros automáticamente\n' +
-        '• Consultar tus clientes y suministros\n\n' +
+        'Soy tu asistente. Puedo:\n' +
+        '• Guardar <b>documentos</b> que me envíes en tu Bandeja\n' +
+        '• Consultar tus <b>clientes y suministros</b>\n' +
+        '• Mostrar tus <b>tareas del día</b>\n\n' +
         'Para empezar, vincula tu cuenta con <b>/vincular</b>'
       )
 
@@ -298,9 +292,6 @@ async function handleCommand(msg: TelegramMessage, text: string) {
         '🔗 Para vincular tu cuenta, ve a <b>Ajustes → Telegram</b> en el CRM y copia tu código.\n' +
         'Luego escríbeme:\n<code>/vincular TU_CODIGO</code>'
       )
-
-    case '/cliente':
-      return handleClientModeCommand(chatId, arg)
 
     case '/salir':
       return handleExitClientMode(chatId)
@@ -330,12 +321,9 @@ async function handleCommand(msg: TelegramMessage, text: string) {
       return sendMessage(chatId,
         '📖 <b>Comandos disponibles</b>\n\n' +
         '<b>📎 Documentos:</b>\n' +
-        '  Envía fotos o PDFs directamente\n\n' +
-        '<b>👤 Modo cliente:</b>\n' +
-        '/cliente [nombre] — Modo cliente (auto-asigna)\n' +
-        '/salir — Salir del modo cliente\n\n' +
+        '  Envía fotos o PDFs — se guardan en tu Bandeja\n\n' +
         '<b>⚡ Acceso rápido:</b>\n' +
-        '/ultimo — Último cliente/suministro\n' +
+        '/ultimo — Último suministro\n' +
         '/estado [CUPS] — Estado del suministro\n' +
         '/nota [CUPS] [texto] — Nota rápida\n\n' +
         '<b>🔍 Consultas:</b>\n' +
@@ -393,8 +381,7 @@ async function handleLinkCode(chatId: number, code: string, telegramUserId: numb
   return sendMessage(chatId,
     `✅ ¡Cuenta vinculada correctamente!\n\n` +
     `Bienvenido, <b>${profile?.full_name || 'comercial'}</b>.\n\n` +
-    `Ahora puedes enviarme facturas, CIF, NIF, IBAN...\n` +
-    `Prueba enviándome una foto de factura 📸`
+    `Ahora puedes enviarme documentos y se guardarán automáticamente en tu Bandeja. 📥`
   )
 }
 
@@ -415,52 +402,89 @@ async function getLinkedUser(chatId: number): Promise<{ userId: string; userName
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
-/*  CLIENT MODE (/cliente)                                                   */
+/*  DOCUMENT PROCESSING — SIMPLE FILE UPLOAD                                 */
 /* ═══════════════════════════════════════════════════════════════════════════ */
-async function handleClientModeCommand(chatId: number, arg: string) {
-  if (!arg) {
-    return sendMessage(chatId, '🔍 Escribe: <code>/cliente nombre_del_cliente</code>')
+async function handleDocumentFile(msg: TelegramMessage) {
+  const chatId = msg.chat.id
+
+  const user = await getLinkedUser(chatId)
+  if (!user) {
+    return sendMessage(chatId, '🔒 Vincula tu cuenta con <b>/vincular</b> para procesar documentos.')
   }
 
-  const supabase = createBotSupabase()
-  const clients = await searchClients(supabase, arg)
+  // Extract file info
+  let fileId: string
+  let fileType: 'pdf' | 'image' = 'image'
+  let fileName = 'file'
 
-  if (!clients?.length) {
-    return sendMessage(chatId, `❌ No encontré clientes con "<b>${arg}</b>".`)
+  if (msg.document) {
+    fileId = msg.document.file_id
+    fileName = msg.document.file_name || 'document'
+    const mime = msg.document.mime_type || ''
+    fileType = mime.includes('pdf') ? 'pdf' : 'image'
+  } else if (msg.photo?.length) {
+    fileId = msg.photo[msg.photo.length - 1].file_id
+    fileType = 'image'
+    fileName = 'photo.jpg'
+  } else {
+    return sendMessage(chatId, '❌ No pude detectar el archivo. Envía una foto o PDF.')
   }
 
-  if (clients.length === 1) {
-    const client = clients[0]
-    await setConvo(chatId, 'idle', {
-      clientModeId: client.id,
-      clientModeName: client.name,
+  try {
+    // Download file from Telegram
+    const { buffer, fileName: dlFileName } = await downloadFile(fileId)
+
+    // Prepare upload path and extension
+    const ext = fileType === 'pdf' ? 'pdf' : 'jpg'
+    const timestamp = Date.now()
+    const storagePath = `telegram/${user.userId}/${timestamp}.${ext}`
+    const contentType = fileType === 'pdf' ? 'application/pdf' : 'image/jpeg'
+
+    // Upload to Supabase storage
+    const supabase = createBotSupabase()
+    const { error: uploadError } = await supabase.storage
+      .from('documents')
+      .upload(storagePath, buffer, { contentType })
+
+    if (uploadError) {
+      console.error('[Telegram] Upload error:', uploadError)
+      return sendMessage(chatId, '❌ Error subiendo documento. Inténtalo de nuevo.')
+    }
+
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from('documents')
+      .getPublicUrl(storagePath)
+
+    // Insert into telegram_inbox
+    // Build sender display name from Telegram user info
+    const senderName = msg.from
+      ? [msg.from.first_name, msg.from.username ? `(@${msg.from.username})` : ''].filter(Boolean).join(' ')
+      : 'Desconocido'
+
+    const { error: insertError } = await supabase.from('telegram_inbox').insert({
+      user_id: user.userId,
+      chat_id: chatId,
+      sender_name: senderName,
+      file_url: urlData.publicUrl,
+      file_type: fileType,
+      file_name: dlFileName || fileName,
+      status: 'pending',
+      created_at: new Date().toISOString(),
     })
-    return sendMessage(chatId,
-      `📌 <b>Modo cliente activado</b>\n\n` +
-      `👤 ${client.name}\n\n` +
-      `Todos los documentos que envíes se asignarán automáticamente a este cliente.\n` +
-      `Escribe /salir para desactivar.`
-    )
+
+    if (insertError) {
+      console.error('[Telegram] Insert error:', insertError)
+      return sendMessage(chatId, '❌ Error guardando documento. Inténtalo de nuevo.')
+    }
+
+    // Send simple confirmation — admin will process from the CRM panel
+    return sendMessage(chatId, `📥 Recibido ✓ — El equipo lo procesará desde el panel.`)
+
+  } catch (err: any) {
+    console.error('[Telegram] Document processing error:', err)
+    return sendMessage(chatId, `❌ Error procesando documento: ${err.message || 'Error desconocido'}\nInténtalo de nuevo.`)
   }
-
-  const buttons = clients.map((c: any) =>
-    [button(`${c.name}${c.cif_nif ? ` (${c.cif_nif})` : ''}`, `mode_select:${c.id}:${c.name}`)]
-  )
-  buttons.push([button('❌ Cancelar', 'cancel')])
-
-  return sendMessage(chatId, '👤 Selecciona el cliente:', {
-    replyMarkup: inlineKeyboard(buttons),
-  })
-}
-
-async function handleExitClientMode(chatId: number) {
-  const convo = await getConvo(chatId)
-  if (!convo?.data?.clientModeId) {
-    return sendMessage(chatId, 'No estás en modo cliente.')
-  }
-  const name = convo.data.clientModeName
-  await clearConvo(chatId)
-  return sendMessage(chatId, `✅ Saliste del modo cliente (<b>${name}</b>).`)
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
@@ -492,7 +516,6 @@ async function handleLastClient(chatId: number) {
     `⚡ Tarifa: ${s.tariff || '-'}\n` +
     `📊 Estado: ${getStatusLabel(s.status)}`,
     { replyMarkup: inlineKeyboard([
-      [button('📌 Modo cliente', `mode_select:${client.id}:${client.name}`)],
       [button('📊 Crear estudio', `quick_estudio:${s.id}`)],
       [button('📞 Agendar llamada', `quick_llamada:${s.id}`)],
     ]) }
@@ -574,985 +597,6 @@ async function handleNoteCommand(chatId: number, arg: string) {
   return sendMessage(chatId, `✅ Nota añadida a <b>${client?.name || 'cliente'}</b>:\n📝 "${noteText}"`)
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════ */
-/*  DOCUMENT PROCESSING — ONE FILE PER WEBHOOK CALL                          */
-/*  Each file is processed individually. No batching.                        */
-/*  Auto-links to same client if one was chosen recently (10 min window).    */
-/* ═══════════════════════════════════════════════════════════════════════════ */
-async function handleDocumentFile(msg: TelegramMessage) {
-  const chatId = msg.chat.id
-
-  const user = await getLinkedUser(chatId)
-  if (!user) {
-    return sendMessage(chatId, '🔒 Vincula tu cuenta con <b>/vincular</b> para procesar documentos.')
-  }
-
-  await sendChatAction(chatId, 'typing')
-
-  // Extract file info
-  let fileId: string
-  let fileType: 'pdf' | 'image' = 'image'
-  let fileName = 'file'
-
-  if (msg.document) {
-    fileId = msg.document.file_id
-    fileName = msg.document.file_name || 'document'
-    const mime = msg.document.mime_type || ''
-    fileType = mime.includes('pdf') ? 'pdf' : 'image'
-  } else if (msg.photo?.length) {
-    fileId = msg.photo[msg.photo.length - 1].file_id
-    fileType = 'image'
-    fileName = 'photo.jpg'
-  } else {
-    return sendMessage(chatId, '❌ No pude detectar el archivo. Envía una foto o PDF.')
-  }
-
-  // Check conversation for /cliente mode only (no time-based auto-link)
-  const convo = await getConvo(chatId)
-  const clientModeId = convo?.data?.clientModeId || null
-  const clientModeName = convo?.data?.clientModeName || null
-
-  const statusMsg = await sendMessage(chatId, '⏳ Procesando documento...')
-
-  try {
-    // Download
-    const { buffer, fileName: dlFileName } = await downloadFile(fileId)
-    const base64 = buffer.toString('base64')
-    const mimeType = getMimeType(dlFileName || fileName, fileType)
-
-    await editMessage(chatId, statusMsg.message_id, '🔍 Clasificando...')
-
-    // Caption hint
-    const caption = (msg.caption || '').toLowerCase()
-    let hintType: DocumentType | undefined
-    if (caption.includes('factura')) hintType = 'factura'
-    else if (caption.includes('cif')) hintType = 'cif'
-    else if (caption.includes('nif') || caption.includes('dni')) hintType = 'nif'
-    else if (caption.includes('iban') || caption.includes('banco') || caption.includes('bancari')) hintType = 'iban'
-    else if (caption.includes('contrato')) hintType = 'contrato'
-
-    // Classify
-    let docType: DocumentType
-    if (hintType) {
-      docType = hintType
-    } else {
-      const classification = await classifyDocument(base64, mimeType)
-      docType = classification.type
-    }
-
-    // Route by type
-    if (docType === 'factura') {
-      return handleInvoiceAnalysis(chatId, statusMsg.message_id, base64, mimeType, fileType, dlFileName || fileName, user, clientModeId, clientModeName)
-    } else {
-      return handleClientDocument(chatId, statusMsg.message_id, base64, mimeType, fileType, dlFileName || fileName, docType, user, clientModeId, clientModeName)
-    }
-
-  } catch (err: any) {
-    console.error('[Telegram] Document processing error:', err)
-    await editMessage(chatId, statusMsg.message_id,
-      `❌ Error procesando documento: ${err.message || 'Error desconocido'}\nInténtalo de nuevo.`
-    )
-  }
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════ */
-/*  INVOICE ANALYSIS                                                         */
-/* ═══════════════════════════════════════════════════════════════════════════ */
-async function handleInvoiceAnalysis(
-  chatId: number,
-  statusMsgId: number,
-  base64: string,
-  mimeType: string,
-  fileType: 'pdf' | 'image',
-  fileName: string,
-  user: { userId: string; userName: string },
-  autoClientId: string | null,
-  autoClientName: string | null,
-) {
-  await editMessage(chatId, statusMsgId, '🔍 Analizando factura...')
-
-  const extracted = await analyzeInvoice(base64, mimeType)
-
-  if (extracted.mode === 'manual' || extracted.error) {
-    return editMessage(chatId, statusMsgId,
-      '⚠️ No pude extraer los datos automáticamente.\n' +
-      (extracted.error ? `Detalle: <i>${extracted.error}</i>\n\n` : '\n') +
-      'Sube esta factura desde la <b>Bandeja</b> del CRM.'
-    )
-  }
-
-  const cups = normalizeCups(extracted.cups || '')
-  const holder = extracted.holder_name || 'No detectado'
-  const tariff = extracted.tariff || '-'
-  const total = extracted.total_amount || '-'
-  const period = extracted.billing_period || '-'
-  const comercializadora = extracted.comercializadora || '-'
-
-  const summary =
-    `📋 Titular: ${holder}\n` +
-    `🔌 CUPS: <code>${cups || 'No detectado'}</code>\n` +
-    `⚡ Tarifa: ${tariff}\n` +
-    `💰 Total: ${total}€\n` +
-    `📅 Período: ${period}\n` +
-    `🏢 Comercializadora: ${comercializadora}`
-
-  const supabase = createBotSupabase()
-
-  // Check if CUPS already exists
-  let existingSupply: any = null
-  if (cups) {
-    const { data: supplies } = await supabase
-      .from('supplies')
-      .select('id, cups, tariff, client:clients(id, name)')
-      .eq('cups', cups)
-      .limit(1)
-
-    if (supplies?.length) existingSupply = supplies[0]
-  }
-
-  // === PRIORITY 1: /cliente mode — always auto-assign ===
-  if (autoClientId) {
-    await editMessage(chatId, statusMsgId, `✅ <b>Factura analizada</b>\n\n${summary}\n\n📌 <b>${autoClientName}</b>\n⏳ Guardando...`)
-    try {
-      const result = await uploadInvoiceAndCreate({
-        extracted, fileBuffer: base64, fileType, fileName, userId: user.userId, cups,
-        clientId: existingSupply ? (existingSupply.client as any)?.id : autoClientId,
-        supplyId: existingSupply?.id,
-      }, !existingSupply)
-
-      return editMessage(chatId, statusMsgId,
-        `✅ <b>Factura procesada</b>\n\n${summary}\n\n` +
-        `📌 <b>${autoClientName}</b>\n` +
-        (existingSupply ? '📎 Añadida al suministro existente.' : '🆕 Suministro creado.'),
-        inlineKeyboard([
-          [button('📊 Crear estudio', `quick_estudio:${result.supplyId}`)],
-          [button('📞 Agendar llamada', `quick_llamada:${result.supplyId}`)],
-        ])
-      )
-    } catch (err: any) {
-      return editMessage(chatId, statusMsgId, `❌ Error: ${err.message}`)
-    }
-  }
-
-  // === PRIORITY 2: CUPS exists in system — auto-add invoice (no confirmation needed) ===
-  if (existingSupply) {
-    const clientName = (existingSupply.client as any)?.name || 'Sin cliente'
-    await editMessage(chatId, statusMsgId, `✅ <b>Factura analizada</b>\n\n${summary}\n\n✅ CUPS encontrado → <b>${clientName}</b>\n⏳ Añadiendo...`)
-    try {
-      const result = await uploadInvoiceAndCreate({
-        extracted, fileBuffer: base64, fileType, fileName, userId: user.userId, cups,
-        clientId: (existingSupply.client as any)?.id,
-        supplyId: existingSupply.id,
-      }, false)
-
-      return editMessage(chatId, statusMsgId,
-        `✅ <b>Factura añadida</b>\n\n${summary}\n\n` +
-        `👤 <b>${clientName}</b> · CUPS existente`,
-        inlineKeyboard([
-          [button('📊 Crear estudio', `quick_estudio:${result.supplyId}`)],
-          [button('📞 Agendar llamada', `quick_llamada:${result.supplyId}`)],
-        ])
-      )
-    } catch (err: any) {
-      return editMessage(chatId, statusMsgId, `❌ Error: ${err.message}`)
-    }
-  }
-
-  // === PRIORITY 3: CUPS nuevo — buscar cliente por titular/CIF (smart matching) ===
-  const holderCif = extracted.holder_cif_nif || extracted.cif || ''
-  const matchedClients = await findClientByInvoiceData(supabase, holder, holderCif)
-
-  // Single match → auto-create supply for that client
-  if (matchedClients.length === 1) {
-    const client = matchedClients[0]
-    await editMessage(chatId, statusMsgId,
-      `✅ <b>Factura analizada</b>\n\n${summary}\n\n` +
-      `🔗 Titular coincide con <b>${client.name}</b>\n⏳ Creando suministro...`
-    )
-    try {
-      const result = await uploadInvoiceAndCreate({
-        extracted, fileBuffer: base64, fileType, fileName, userId: user.userId, cups,
-        clientId: client.id,
-      }, true)
-
-      return editMessage(chatId, statusMsgId,
-        `✅ <b>Suministro creado</b>\n\n${summary}\n\n` +
-        `👤 <b>${client.name}</b> (detectado automáticamente)`,
-        inlineKeyboard([
-          [button('📊 Crear estudio', `quick_estudio:${result.supplyId}`)],
-          [button('📞 Agendar llamada', `quick_llamada:${result.supplyId}`)],
-          [button('📄 Más facturas', `quick_mas:${result.supplyId}`)],
-        ])
-      )
-    } catch (err: any) {
-      return editMessage(chatId, statusMsgId, `❌ Error: ${err.message}`)
-    }
-  }
-
-  // Multiple matches → let user pick
-  if (matchedClients.length > 1) {
-    await setConvo(chatId, 'choose_client_type', {
-      cups, extracted, fileBuffer: base64, fileType, fileName, userId: user.userId, holder,
-    })
-
-    const buttons = matchedClients.map((c: any) =>
-      [button(`${c.name}${c.cif_nif ? ` (${c.cif_nif})` : ''}`, `select_client:${c.id}:${c.name}`)]
-    )
-    buttons.push([button('🆕 Cliente nuevo', 'new_client')])
-    buttons.push([button('❌ Cancelar', 'cancel')])
-
-    return editMessage(chatId, statusMsgId,
-      `✅ <b>Factura analizada</b>\n\n${summary}\n\n` +
-      `Varios clientes posibles:`,
-      inlineKeyboard(buttons)
-    )
-  }
-
-  // === No match at all — ask ===
-  await setConvo(chatId, 'choose_client_type', {
-    cups, extracted, fileBuffer: base64, fileType, fileName, userId: user.userId, holder,
-  })
-
-  return editMessage(chatId, statusMsgId,
-    `✅ <b>Factura analizada</b>\n\n${summary}\n\n` +
-    `No encontré cliente. ¿Nuevo o existente?`,
-    inlineKeyboard([
-      [button('🆕 Cliente nuevo', 'new_client')],
-      [button('👤 Buscar cliente', 'existing_client')],
-      [button('❌ Cancelar', 'cancel')],
-    ])
-  )
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════ */
-/*  CLIENT DOCUMENT PROCESSING (CIF, NIF, IBAN, etc.)                        */
-/* ═══════════════════════════════════════════════════════════════════════════ */
-async function handleClientDocument(
-  chatId: number,
-  statusMsgId: number,
-  base64: string,
-  mimeType: string,
-  fileType: 'pdf' | 'image',
-  fileName: string,
-  docType: DocumentType,
-  user: { userId: string; userName: string },
-  autoClientId: string | null,
-  autoClientName: string | null,
-) {
-  const typeLabels: Record<DocumentType, string> = {
-    factura: 'factura', cif: 'CIF', nif: 'NIF/DNI',
-    iban: 'titularidad bancaria', contrato: 'contrato', otro: 'documento',
-  }
-  const typeEmoji: Record<DocumentType, string> = {
-    factura: '📄', cif: '🏢', nif: '🪪',
-    iban: '🏦', contrato: '📋', otro: '📎',
-  }
-
-  await editMessage(chatId, statusMsgId, `🔍 Analizando ${typeLabels[docType]}...`)
-
-  const docData = await analyzeDocument(base64, mimeType, docType)
-
-  if (docData.mode === 'manual' || docData.error) {
-    return editMessage(chatId, statusMsgId,
-      `⚠️ No pude extraer los datos del ${typeLabels[docType]}.\n` +
-      (docData.error ? `Detalle: <i>${docData.error}</i>\n\n` : '\n') +
-      'Súbelo manualmente desde el CRM.'
-    )
-  }
-
-  // Build summary
-  const lines: string[] = []
-  if (docData.holder_name) lines.push(`👤 Titular: <b>${docData.holder_name}</b>`)
-  if (docData.cif) lines.push(`🏢 CIF: <code>${docData.cif}</code>`)
-  if (docData.nif) lines.push(`🪪 NIF: <code>${docData.nif}</code>`)
-  if (docData.iban) lines.push(`🏦 IBAN: <code>${docData.iban}</code>`)
-  if (docData.bank_name) lines.push(`🏛 Banco: ${docData.bank_name}`)
-  if (docData.fiscal_address) lines.push(`📍 Dirección: ${docData.fiscal_address}`)
-  const summaryText = lines.join('\n')
-
-  // === AUTO-ASSIGN ===
-  if (autoClientId) {
-    await editMessage(chatId, statusMsgId,
-      `${typeEmoji[docType]} <b>${typeLabels[docType].charAt(0).toUpperCase() + typeLabels[docType].slice(1)} analizado</b>\n\n` +
-      `${summaryText}\n\n👤 <b>${autoClientName}</b>\n⏳ Guardando...`
-    )
-
-    try {
-      await saveDocumentToClient(autoClientId, autoClientName || '', {
-        docType, docData, fileBuffer: base64, fileType, fileName, mimeType,
-      })
-
-      const convo = await getConvo(chatId)
-      await setConvo(chatId, 'idle', {
-        ...(convo?.data || {}),
-        lastClientId: autoClientId,
-        lastClientName: autoClientName,
-        lastClientAt: Date.now(),
-      })
-
-      return editMessage(chatId, statusMsgId,
-        `✅ <b>${typeLabels[docType].charAt(0).toUpperCase() + typeLabels[docType].slice(1)} guardado</b>\n\n` +
-        `${summaryText}\n\n👤 Cliente: <b>${autoClientName}</b>`
-      )
-    } catch (err: any) {
-      return editMessage(chatId, statusMsgId, `❌ Error: ${err.message}`)
-    }
-  }
-
-  // === MATCH CLIENT (smart search) ===
-  await setConvo(chatId, 'choose_client_for_doc', {
-    docType, docData, fileBuffer: base64, fileType, fileName, userId: user.userId, mimeType,
-  })
-
-  const supabase = createBotSupabase()
-  const matchedClients = await findClientByInvoiceData(
-    supabase,
-    docData.holder_name || '',
-    docData.cif || docData.nif || ''
-  )
-
-  const label = typeLabels[docType].charAt(0).toUpperCase() + typeLabels[docType].slice(1)
-
-  if (matchedClients.length === 1) {
-    const client = matchedClients[0]
-    await setConvo(chatId, 'confirm_doc_client', {
-      docType, docData, fileBuffer: base64, fileType, fileName, userId: user.userId, mimeType,
-      clientId: client.id, clientName: client.name,
-    })
-
-    return editMessage(chatId, statusMsgId,
-      `${typeEmoji[docType]} <b>${label} analizado</b>\n\n${summaryText}\n\n` +
-      `🔗 Coincide con: <b>${client.name}</b>\n¿Guardar?`,
-      inlineKeyboard([
-        [button(`✅ Guardar en ${client.name}`, 'save_doc_to_client')],
-        [button('👤 Elegir otro', 'choose_other_client_doc')],
-        [button('❌ Cancelar', 'cancel')],
-      ])
-    )
-  } else if (matchedClients.length > 1) {
-    const buttons = matchedClients.map(c =>
-      [button(`${c.name}${c.cif_nif ? ` (${c.cif_nif})` : ''}`, `doc_select:${c.id}:${c.name}`)]
-    )
-    buttons.push([button('🆕 Cliente nuevo', 'doc_new_client')])
-    buttons.push([button('❌ Cancelar', 'cancel')])
-
-    return editMessage(chatId, statusMsgId,
-      `${typeEmoji[docType]} <b>${label} analizado</b>\n\n${summaryText}\n\n` +
-      `Varios clientes posibles:`,
-      inlineKeyboard(buttons)
-    )
-  } else {
-    return editMessage(chatId, statusMsgId,
-      `${typeEmoji[docType]} <b>${label} analizado</b>\n\n${summaryText}\n\n` +
-      `No encontré cliente. ¿Qué hacemos?`,
-      inlineKeyboard([
-        [button('👤 Buscar cliente', 'search_client_for_doc')],
-        [button('🆕 Cliente nuevo', 'doc_new_client')],
-        [button('❌ Cancelar', 'cancel')],
-      ])
-    )
-  }
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════ */
-/*  SAVE DOCUMENT TO CLIENT                                                  */
-/* ═══════════════════════════════════════════════════════════════════════════ */
-async function saveDocumentToClient(
-  clientId: string,
-  clientName: string,
-  data: Record<string, any>,
-): Promise<string> {
-  const supabase = createBotSupabase()
-  const { docType, docData, fileBuffer, fileType, fileName, mimeType } = data
-
-  // Upload file
-  const buffer = Buffer.from(fileBuffer, 'base64')
-  const ext = fileType === 'pdf' ? 'pdf' : 'jpg'
-  const folder = docType === 'factura' ? 'invoices' : docType
-  const storagePath = `clients/${clientId}/${folder}/${Date.now()}_telegram.${ext}`
-
-  const { error: uploadError } = await supabase.storage
-    .from('documents')
-    .upload(storagePath, buffer, {
-      contentType: mimeType || (fileType === 'pdf' ? 'application/pdf' : 'image/jpeg'),
-    })
-
-  if (uploadError) console.error('[Telegram] Upload error:', uploadError)
-
-  const { data: urlData } = supabase.storage.from('documents').getPublicUrl(storagePath)
-  const fileUrl = urlData?.publicUrl || null
-
-  // Update client fields
-  const updates: Record<string, any> = { updated_at: new Date().toISOString() }
-
-  if (docType === 'cif' && docData.cif) {
-    updates.cif = docData.cif
-    updates.cif_nif = docData.cif
-    if (fileUrl) updates.cif_file_url = fileUrl
-    if (docData.holder_name) updates.name = docData.holder_name
-    if (docData.fiscal_address) updates.fiscal_address = docData.fiscal_address
-    updates.type = 'empresa'
-  } else if (docType === 'nif' && docData.nif) {
-    updates.nif = docData.nif
-    updates.cif_nif = docData.nif
-    if (fileUrl) updates.nif_file_url = fileUrl
-    if (docData.holder_name) updates.name = docData.holder_name
-    if (docData.fiscal_address) updates.fiscal_address = docData.fiscal_address
-    updates.type = 'particular'
-  } else if (docType === 'iban' && docData.iban) {
-    updates.iban = docData.iban.replace(/\s+/g, '')
-    if (fileUrl) updates.iban_file_url = fileUrl
-    if (fileUrl) updates.bank_certificate_url = fileUrl
-  } else if (docType === 'contrato') {
-    if (docData.cif) { updates.cif = docData.cif; updates.cif_nif = docData.cif }
-    if (docData.nif) { updates.nif = docData.nif; updates.cif_nif = docData.nif }
-  } else {
-    if (docData.cif) { updates.cif = docData.cif; updates.cif_nif = docData.cif }
-    if (docData.nif) { updates.nif = docData.nif; updates.cif_nif = docData.nif }
-    if (docData.iban) updates.iban = docData.iban.replace(/\s+/g, '')
-  }
-
-  const { error: updateError } = await supabase
-    .from('clients')
-    .update(updates)
-    .eq('id', clientId)
-
-  if (updateError) throw new Error(`Error actualizando cliente: ${updateError.message}`)
-
-  return fileUrl || 'saved'
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════ */
-/*  CALLBACK HANDLER                                                         */
-/* ═══════════════════════════════════════════════════════════════════════════ */
-async function handleCallback(cb: CallbackQuery) {
-  const chatId = cb.message?.chat.id
-  const msgId = cb.message?.message_id
-  if (!chatId || !msgId) return
-  await answerCallback(cb.id)
-
-  const data = cb.data || ''
-  const convo = await getConvo(chatId)
-
-  // ── Client mode selection ──
-  if (data.startsWith('mode_select:')) {
-    const parts = data.split(':')
-    const clientId = parts[1]
-    const clientName = parts.slice(2).join(':')
-    await setConvo(chatId, 'idle', {
-      ...(convo?.data || {}),
-      clientModeId: clientId,
-      clientModeName: clientName,
-    })
-    return editMessage(chatId, msgId,
-      `📌 <b>Modo cliente activado</b>\n\n👤 ${clientName}\n\nTodos los documentos se asignarán a este cliente.\nEscribe /salir para desactivar.`
-    )
-  }
-
-  // ── Invoice: add to existing supply ──
-  if (data === 'add_to_existing' && convo?.step === 'confirm_existing') {
-    await editMessage(chatId, msgId, '⏳ Añadiendo factura...')
-    try {
-      const result = await uploadInvoiceAndCreate(convo.data, false)
-
-      // Set auto-link
-      await setConvo(chatId, 'idle', {
-        ...(convo?.data?.clientModeId ? { clientModeId: convo.data.clientModeId, clientModeName: convo.data.clientModeName } : {}),
-        lastClientId: convo.data.clientId,
-        lastClientName: convo.data.clientName,
-        lastClientAt: Date.now(),
-      })
-
-      return editMessage(chatId, msgId,
-        `✅ Factura añadida a <b>${convo.data.clientName}</b>.`,
-        inlineKeyboard([
-          [button('📊 Crear estudio', `quick_estudio:${result.supplyId}`)],
-          [button('📞 Agendar llamada', `quick_llamada:${result.supplyId}`)],
-        ])
-      )
-    } catch (err: any) {
-      return editMessage(chatId, msgId, `❌ Error: ${err.message}`)
-    }
-  }
-
-  // ── Invoice: new client flow ──
-  if (data === 'new_client') {
-    if (!convo) return editMessage(chatId, msgId, '⏰ Sesión expirada. Envía la factura de nuevo.')
-    const holder = convo.data.holder || convo.data.extracted?.holder_name || ''
-    await setConvo(chatId, 'await_new_client_name', convo.data)
-    return editMessage(chatId, msgId,
-      `🆕 Escribe el nombre del nuevo cliente.\n\n` +
-      (holder ? `💡 Detectado: <b>${holder}</b>\nEscribe "ok" para usarlo.` : '')
-    )
-  }
-
-  // ── Invoice: search existing client ──
-  if (data === 'existing_client') {
-    if (!convo) return editMessage(chatId, msgId, '⏰ Sesión expirada.')
-    await setConvo(chatId, 'await_client_search', convo.data)
-    return editMessage(chatId, msgId, '🔍 Escribe el nombre del cliente:')
-  }
-
-  // ── Invoice: select specific client from search results ──
-  if (data.startsWith('select_client:')) {
-    if (!convo) return editMessage(chatId, msgId, '⏰ Sesión expirada.')
-    const parts = data.split(':')
-    const clientId = parts[1]
-    const clientName = parts.slice(2).join(':')
-
-    await editMessage(chatId, msgId, '⏳ Creando suministro...')
-    try {
-      const result = await uploadInvoiceAndCreate({ ...convo.data, clientId }, true)
-
-      await setConvo(chatId, 'idle', {
-        ...(convo?.data?.clientModeId ? { clientModeId: convo.data.clientModeId, clientModeName: convo.data.clientModeName } : {}),
-        lastClientId: clientId,
-        lastClientName: clientName,
-        lastClientAt: Date.now(),
-      })
-
-      return editMessage(chatId, msgId,
-        `✅ Suministro creado\n\n👤 <b>${clientName}</b>\n🔌 CUPS: <code>${convo.data.cups || '-'}</code>`,
-        inlineKeyboard([
-          [button('📊 Crear estudio', `quick_estudio:${result.supplyId}`)],
-          [button('📞 Agendar llamada', `quick_llamada:${result.supplyId}`)],
-          [button('📄 Más facturas', `quick_mas:${result.supplyId}`)],
-        ])
-      )
-    } catch (err: any) {
-      return editMessage(chatId, msgId, `❌ Error: ${err.message}`)
-    }
-  }
-
-  // ── Document: save to matched client ──
-  if (data === 'save_doc_to_client' && convo?.step === 'confirm_doc_client') {
-    await editMessage(chatId, msgId, '⏳ Guardando...')
-    try {
-      await saveDocumentToClient(convo.data.clientId, convo.data.clientName, convo.data)
-
-      await setConvo(chatId, 'idle', {
-        ...(convo?.data?.clientModeId ? { clientModeId: convo.data.clientModeId, clientModeName: convo.data.clientModeName } : {}),
-        lastClientId: convo.data.clientId,
-        lastClientName: convo.data.clientName,
-        lastClientAt: Date.now(),
-      })
-
-      return editMessage(chatId, msgId,
-        `✅ ${getDocTypeLabel(convo.data.docType)} guardado en <b>${convo.data.clientName}</b>.`
-      )
-    } catch (err: any) {
-      return editMessage(chatId, msgId, `❌ Error: ${err.message}`)
-    }
-  }
-
-  // ── Document: select client from list ──
-  if (data.startsWith('doc_select:')) {
-    if (!convo) return editMessage(chatId, msgId, '⏰ Sesión expirada.')
-    const parts = data.split(':')
-    const clientId = parts[1]
-    const clientName = parts.slice(2).join(':')
-
-    await editMessage(chatId, msgId, '⏳ Guardando...')
-    try {
-      await saveDocumentToClient(clientId, clientName, convo.data)
-
-      await setConvo(chatId, 'idle', {
-        ...(convo?.data?.clientModeId ? { clientModeId: convo.data.clientModeId, clientModeName: convo.data.clientModeName } : {}),
-        lastClientId: clientId,
-        lastClientName: clientName,
-        lastClientAt: Date.now(),
-      })
-
-      return editMessage(chatId, msgId,
-        `✅ ${getDocTypeLabel(convo.data.docType)} guardado en <b>${clientName}</b>.`
-      )
-    } catch (err: any) {
-      return editMessage(chatId, msgId, `❌ Error: ${err.message}`)
-    }
-  }
-
-  // ── Document: choose another client / search ──
-  if (data === 'choose_other_client_doc' || data === 'search_client_for_doc') {
-    if (!convo) return editMessage(chatId, msgId, '⏰ Sesión expirada.')
-    await setConvo(chatId, 'await_client_search_doc', convo.data)
-    return editMessage(chatId, msgId, '🔍 Escribe el nombre del cliente:')
-  }
-
-  // ── Document: create new client from doc ──
-  if (data === 'doc_new_client') {
-    if (!convo) return editMessage(chatId, msgId, '⏰ Sesión expirada.')
-    const holderName = convo.data.docData?.holder_name || ''
-    await setConvo(chatId, 'await_new_client_name_doc', convo.data)
-    return editMessage(chatId, msgId,
-      `🆕 Escribe el nombre del nuevo cliente.\n\n` +
-      (holderName ? `💡 Detectado: <b>${holderName}</b>\nEscribe "ok" para usarlo.` : '')
-    )
-  }
-
-  // ── Quick actions ──
-  if (data.startsWith('quick_estudio:')) {
-    const supplyId = data.split(':')[1]
-    const user = await getLinkedUser(chatId)
-    if (user) {
-      const supabase = createBotSupabase()
-      await supabase.from('supplies').update({ status: 'facturas_recibidas', updated_at: new Date().toISOString() }).eq('id', supplyId)
-      await supabase.from('tasks').insert({
-        title: 'Crear estudio de suministro',
-        supply_id: supplyId,
-        assigned_to: user.userId,
-        status: 'pending',
-        priority: 'high',
-        created_at: new Date().toISOString(),
-      }).then(() => {})
-    }
-    return editMessage(chatId, msgId, `✅ Tarea creada: <b>Crear estudio</b>`)
-  }
-
-  if (data.startsWith('quick_llamada:')) {
-    const supplyId = data.split(':')[1]
-    const user = await getLinkedUser(chatId)
-    if (user) {
-      const supabase = createBotSupabase()
-      const { data: supply } = await supabase
-        .from('supplies')
-        .select('client:clients(id, name)')
-        .eq('id', supplyId)
-        .single()
-
-      const tomorrow = new Date()
-      tomorrow.setDate(tomorrow.getDate() + 1)
-      tomorrow.setHours(10, 0, 0, 0)
-
-      await supabase.from('appointments').insert({
-        type: 'llamada',
-        supply_id: supplyId,
-        client_id: (supply?.client as any)?.id,
-        commercial_id: user.userId,
-        status: 'scheduled',
-        scheduled_at: tomorrow.toISOString(),
-        notes: `Llamada para ${(supply?.client as any)?.name || 'cliente'}`,
-        created_at: new Date().toISOString(),
-      }).then(() => {})
-    }
-    return editMessage(chatId, msgId, `✅ Llamada agendada para mañana 10:00`)
-  }
-
-  if (data.startsWith('quick_mas:')) {
-    return editMessage(chatId, msgId, `📄 Envíame más facturas, las procesaré automáticamente.`)
-  }
-
-  if (data.startsWith('quick_nota:')) {
-    const supplyId = data.split(':')[1]
-    await setConvo(chatId, 'await_supply_note', { ...(convo?.data || {}), supplyId })
-    return editMessage(chatId, msgId, `📝 Escribe la nota:`)
-  }
-
-  // ── Cancel ──
-  if (data === 'cancel') {
-    // Preserve client mode if active
-    const clientModeData = convo?.data?.clientModeId
-      ? { clientModeId: convo.data.clientModeId, clientModeName: convo.data.clientModeName }
-      : {}
-    if (Object.keys(clientModeData).length > 0) {
-      await setConvo(chatId, 'idle', clientModeData)
-    } else {
-      await clearConvo(chatId)
-    }
-    return editMessage(chatId, msgId, '❌ Cancelado.')
-  }
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════ */
-/*  CONVERSATION STEPS                                                       */
-/* ═══════════════════════════════════════════════════════════════════════════ */
-async function handleConvoStep(msg: TelegramMessage, convo: ConversationState) {
-  const chatId = msg.chat.id
-  const text = (msg.text || '').trim()
-
-  // ── New client name (invoice flow) ──
-  if (convo.step === 'await_new_client_name') {
-    const clientName = text.toLowerCase() === 'ok' ? (convo.data.holder || text) : text
-    if (!clientName) return sendMessage(chatId, 'Escribe el nombre del cliente:')
-
-    await sendChatAction(chatId, 'typing')
-    const statusMsg = await sendMessage(chatId, `⏳ Creando cliente <b>${clientName}</b> y suministro...`)
-
-    try {
-      const result = await uploadInvoiceAndCreate({
-        ...convo.data,
-        clientName,
-        isNewClient: true,
-      }, true)
-
-      await setConvo(chatId, 'idle', {
-        ...(convo.data.clientModeId ? { clientModeId: convo.data.clientModeId, clientModeName: convo.data.clientModeName } : {}),
-        lastClientId: result.clientId,
-        lastClientName: clientName,
-        lastClientAt: Date.now(),
-      })
-
-      return editMessage(chatId, statusMsg.message_id,
-        `✅ <b>Cliente y suministro creados</b>\n\n` +
-        `👤 ${clientName}\n🔌 CUPS: <code>${convo.data.cups || '-'}</code>`,
-        inlineKeyboard([
-          [button('📊 Crear estudio', `quick_estudio:${result.supplyId}`)],
-          [button('📞 Agendar llamada', `quick_llamada:${result.supplyId}`)],
-          [button('📄 Más facturas', `quick_mas:${result.supplyId}`)],
-        ])
-      )
-    } catch (err: any) {
-      return editMessage(chatId, statusMsg.message_id, `❌ Error: ${err.message}`)
-    }
-  }
-
-  // ── New client name (document flow) ──
-  if (convo.step === 'await_new_client_name_doc') {
-    const clientName = text.toLowerCase() === 'ok'
-      ? (convo.data.docData?.holder_name || text)
-      : text
-    if (!clientName) return sendMessage(chatId, 'Escribe el nombre del cliente:')
-
-    await sendChatAction(chatId, 'typing')
-    const statusMsg = await sendMessage(chatId, `⏳ Creando cliente <b>${clientName}</b>...`)
-
-    try {
-      const supabase = createBotSupabase()
-      const docData = convo.data.docData || {}
-
-      const { data: newClient, error } = await supabase
-        .from('clients')
-        .insert({
-          name: clientName,
-          cif_nif: docData.cif || docData.nif || null,
-          cif: docData.cif || null,
-          nif: docData.nif || null,
-          type: docData.cif ? 'empresa' : 'particular',
-          fiscal_address: docData.fiscal_address || null,
-          iban: docData.iban ? docData.iban.replace(/\s+/g, '') : null,
-          commercial_id: convo.data.userId,
-          origin: 'captacion',
-          created_at: new Date().toISOString(),
-        })
-        .select('id')
-        .single()
-
-      if (error) throw new Error(`Error creando cliente: ${error.message}`)
-
-      await saveDocumentToClient(newClient.id, clientName, convo.data)
-
-      await setConvo(chatId, 'idle', {
-        ...(convo.data.clientModeId ? { clientModeId: convo.data.clientModeId, clientModeName: convo.data.clientModeName } : {}),
-        lastClientId: newClient.id,
-        lastClientName: clientName,
-        lastClientAt: Date.now(),
-      })
-
-      const typeLabel = getDocTypeLabel(convo.data.docType)
-      return editMessage(chatId, statusMsg.message_id,
-        `✅ Cliente <b>${clientName}</b> creado con ${typeLabel} guardado.`
-      )
-    } catch (err: any) {
-      return editMessage(chatId, statusMsg.message_id, `❌ Error: ${err.message}`)
-    }
-  }
-
-  // ── Search client (invoice flow) ──
-  if (convo.step === 'await_client_search') {
-    await sendChatAction(chatId, 'typing')
-    const supabase = createBotSupabase()
-
-    const clients = await searchClients(supabase, text)
-
-    if (!clients?.length) {
-      return sendMessage(chatId,
-        `❌ No encontré "<b>${text}</b>".\nEscribe otro nombre:`,
-        { replyMarkup: inlineKeyboard([
-          [button('🆕 Crear cliente nuevo', 'new_client')],
-          [button('❌ Cancelar', 'cancel')],
-        ]) }
-      )
-    }
-
-    await setConvo(chatId, 'choose_client_type', convo.data)
-
-    const buttons = clients.map((c: any) =>
-      [button(`${c.name}${c.cif_nif ? ` (${c.cif_nif})` : ''}`, `select_client:${c.id}:${c.name}`)]
-    )
-    buttons.push([button('❌ Cancelar', 'cancel')])
-
-    return sendMessage(chatId, '👤 Selecciona:', { replyMarkup: inlineKeyboard(buttons) })
-  }
-
-  // ── Search client (document flow) ──
-  if (convo.step === 'await_client_search_doc') {
-    await sendChatAction(chatId, 'typing')
-    const supabase = createBotSupabase()
-
-    const clients = await searchClients(supabase, text)
-
-    if (!clients?.length) {
-      return sendMessage(chatId,
-        `❌ No encontré "<b>${text}</b>".\nEscribe otro nombre:`,
-        { replyMarkup: inlineKeyboard([
-          [button('🆕 Crear cliente nuevo', 'doc_new_client')],
-          [button('❌ Cancelar', 'cancel')],
-        ]) }
-      )
-    }
-
-    await setConvo(chatId, 'choose_client_for_doc', convo.data)
-
-    const buttons = clients.map((c: any) =>
-      [button(`${c.name}${c.cif_nif ? ` (${c.cif_nif})` : ''}`, `doc_select:${c.id}:${c.name}`)]
-    )
-    buttons.push([button('🆕 Crear cliente nuevo', 'doc_new_client')])
-    buttons.push([button('❌ Cancelar', 'cancel')])
-
-    return sendMessage(chatId, '👤 Selecciona:', { replyMarkup: inlineKeyboard(buttons) })
-  }
-
-  // ── Supply note (from quick_nota button) ──
-  if (convo.step === 'await_supply_note') {
-    const supplyId = convo.data.supplyId
-    const supabase = createBotSupabase()
-
-    const { data: supply } = await supabase
-      .from('supplies')
-      .select('client_id, client:clients(id, notes, name)')
-      .eq('id', supplyId)
-      .single()
-
-    if (supply?.client) {
-      const client = supply.client as any
-      const existingNotes = client.notes || ''
-      const ts = new Date().toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-      const newNotes = existingNotes ? `${existingNotes}\n[${ts}] ${text}` : `[${ts}] ${text}`
-      await supabase.from('clients').update({ notes: newNotes, updated_at: new Date().toISOString() }).eq('id', client.id)
-    }
-
-    // Preserve client mode
-    const clientModeData = convo.data.clientModeId
-      ? { clientModeId: convo.data.clientModeId, clientModeName: convo.data.clientModeName }
-      : {}
-    await setConvo(chatId, 'idle', clientModeData)
-
-    return sendMessage(chatId, `✅ Nota guardada: "${text}"`)
-  }
-
-  // If step is unknown or idle, treat as text query
-  if (text.length > 1) {
-    return handleSearch(chatId, text)
-  }
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════ */
-/*  CORE: Upload invoice + create supply/client                              */
-/* ═══════════════════════════════════════════════════════════════════════════ */
-async function uploadInvoiceAndCreate(
-  data: Record<string, any>,
-  createNewSupply: boolean,
-): Promise<{ supplyId: string; clientId: string }> {
-  const supabase = createBotSupabase()
-  const { extracted, fileBuffer, fileType, fileName, userId } = data
-
-  let clientId = data.clientId
-  let supplyId = data.supplyId
-
-  if (data.isNewClient) {
-    const { data: newClient, error } = await supabase
-      .from('clients')
-      .insert({
-        name: data.clientName,
-        cif_nif: extracted.holder_cif_nif || null,
-        type: 'empresa',
-        commercial_id: userId,
-        origin: 'captacion',
-        created_at: new Date().toISOString(),
-      })
-      .select('id')
-      .single()
-
-    if (error) throw new Error(`Error creando cliente: ${error.message}`)
-    clientId = newClient.id
-  }
-
-  if (createNewSupply) {
-    const cups = data.cups || null
-    const tariff = extracted.tariff || null
-    const type = extracted.type || 'luz'
-    const address = extracted.supply_address || extracted.billing_address || null
-
-    const { data: newSupply, error } = await supabase
-      .from('supplies')
-      .insert({
-        client_id: clientId,
-        cups,
-        tariff,
-        type,
-        address,
-        status: 'facturas_recibidas',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .select('id')
-      .single()
-
-    if (error) throw new Error(`Error creando suministro: ${error.message}`)
-    supplyId = newSupply.id
-
-    // Auto-prescoring for non-2.0 tariffs
-    const tariffNorm = (tariff || '').replace(/\s+/g, '').toUpperCase()
-    const needsPrescoring = tariffNorm &&
-      !tariffNorm.startsWith('2.0') && tariffNorm !== '20TD' &&
-      tariffNorm !== '20' && tariffNorm !== '2.0DHA'
-
-    if (needsPrescoring) {
-      await supabase.from('prescorings').insert({
-        supply_id: supplyId,
-        client_name: data.clientName || extracted.holder_name || '',
-        cups,
-        tariff,
-        status: 'pending',
-        requested_by: userId,
-        requested_at: new Date().toISOString(),
-      }).then(() => {})
-    }
-  }
-
-  // Upload file
-  const buffer = Buffer.from(fileBuffer, 'base64')
-  const ext = fileType === 'pdf' ? 'pdf' : 'jpg'
-  const storagePath = `invoices/${supplyId}/${Date.now()}_telegram.${ext}`
-
-  const { error: uploadError } = await supabase.storage
-    .from('documents')
-    .upload(storagePath, buffer, {
-      contentType: fileType === 'pdf' ? 'application/pdf' : 'image/jpeg',
-    })
-
-  if (uploadError) throw new Error(`Error subiendo archivo: ${uploadError.message}`)
-
-  const { data: urlData } = supabase.storage.from('documents').getPublicUrl(storagePath)
-
-  const { error: invoiceError } = await supabase.from('invoices').insert({
-    supply_id: supplyId,
-    file_url: urlData.publicUrl,
-    file_type: fileType,
-    extracted_data: extracted,
-    total_amount: extracted.total_amount ? parseFloat(extracted.total_amount) : null,
-    extraction_status: 'completed',
-    extraction_confidence: 0.85,
-    created_at: new Date().toISOString(),
-  })
-
-  if (invoiceError) throw new Error(`Error creando factura: ${invoiceError.message}`)
-
-  return { supplyId, clientId }
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════ */
-/*  QUERY COMMANDS                                                           */
-/* ═══════════════════════════════════════════════════════════════════════════ */
 async function handleMySupplies(chatId: number) {
   const user = await getLinkedUser(chatId)
   if (!user) return sendMessage(chatId, '🔒 Vincula tu cuenta primero con /vincular')
@@ -1677,15 +721,100 @@ async function handlePendingActions(chatId: number) {
   return sendMessage(chatId, text)
 }
 
-/* ─── Helpers ─────────────────────────────────────────────────────────────── */
-function getDocTypeLabel(docType: DocumentType): string {
-  const labels: Record<DocumentType, string> = {
-    factura: 'Factura', cif: 'CIF', nif: 'NIF/DNI',
-    iban: 'Titularidad bancaria', contrato: 'Contrato', otro: 'Documento',
+async function handleExitClientMode(chatId: number) {
+  const convo = await getConvo(chatId)
+  if (!convo?.data?.clientModeId) {
+    return sendMessage(chatId, 'No estás en modo cliente.')
   }
-  return labels[docType] || 'Documento'
+  const name = convo.data.clientModeName
+  await clearConvo(chatId)
+  return sendMessage(chatId, `✅ Saliste del modo cliente (<b>${name}</b>).`)
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  CALLBACK HANDLER                                                         */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+async function handleCallback(cb: CallbackQuery) {
+  const chatId = cb.message?.chat.id
+  if (!chatId) return
+
+  const [action, ...params] = (cb.data || '').split(':')
+
+  try {
+    switch (action) {
+      case 'quick_estudio':
+        return answerCallback(cb.id, '📊 Abriendo estudio...')
+
+      case 'quick_llamada':
+        return answerCallback(cb.id, '📞 Abriendo agenda...')
+
+      case 'quick_nota':
+        {
+          const supplyId = params[0]
+          if (!supplyId) return answerCallback(cb.id, 'Error: falta ID')
+          await setConvo(chatId, 'await_supply_note', { supplyId })
+          await answerCallback(cb.id)
+          return sendMessage(chatId, '📝 Escribe la nota (o /cancelar):')
+        }
+
+      case 'cancel':
+        await clearConvo(chatId)
+        return answerCallback(cb.id, '✅ Cancelado')
+
+      default:
+        return answerCallback(cb.id)
+    }
+  } catch (err: any) {
+    console.error('[Telegram] Callback error:', err)
+    return answerCallback(cb.id, '❌ Error')
+  }
+}
+
+/* ─── Conversation steps ──────────────────────────────────────────────────── */
+async function handleConvoStep(msg: TelegramMessage, convo: ConversationState) {
+  const chatId = msg.chat.id
+  const text = (msg.text || '').trim()
+
+  // Cancel any conversation
+  if (text === '/cancelar' || text === '/cancel') {
+    await clearConvo(chatId)
+    return sendMessage(chatId, '✅ Cancelado.')
+  }
+
+  if (convo.step === 'await_supply_note') {
+    const supplyId = convo.data.supplyId
+    const user = await getLinkedUser(chatId)
+    if (!user) return sendMessage(chatId, '🔒 Vincula tu cuenta con /vincular')
+
+    const supabase = createBotSupabase()
+    const { data: supply } = await supabase
+      .from('supplies')
+      .select('id, cups, client:clients(id, name, notes)')
+      .eq('id', supplyId)
+      .single()
+
+    if (!supply) {
+      await clearConvo(chatId)
+      return sendMessage(chatId, '❌ Suministro no encontrado.')
+    }
+
+    const client = supply.client as any
+    if (client?.id) {
+      const existingNotes = client.notes || ''
+      const ts = new Date().toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      const newNotes = existingNotes ? `${existingNotes}\n[${ts}] ${text}` : `[${ts}] ${text}`
+      await supabase.from('clients').update({ notes: newNotes, updated_at: new Date().toISOString() }).eq('id', client.id)
+    }
+
+    await clearConvo(chatId)
+    return sendMessage(chatId, `✅ Nota añadida a <b>${client?.name || 'cliente'}</b>:\n📝 "${text}"`)
+  }
+
+  await clearConvo(chatId)
+  await sendMessage(chatId, 'No entendí la respuesta.')
+}
+
+/* ─── Helpers ─────────────────────────────────────────────────────────────── */
 function getStatusLabel(status: string): string {
   const labels: Record<string, string> = {
     'primer_contacto': '📞 Primer contacto',
