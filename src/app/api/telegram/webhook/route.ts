@@ -4,6 +4,10 @@ import {
   downloadFile, inlineKeyboard, button, createBotSupabase,
 } from '@/lib/telegram'
 import { normalizeCups } from '@/lib/utils/cups'
+import {
+  analyzeInvoice, analyzeDocument, classifyDocument, getMimeType,
+  type DocumentType, type ExtractedInvoiceData, type ExtractedDocumentData,
+} from '@/lib/gemini'
 
 /* ─── Types ────────────────────────────────────────────────────────────────── */
 interface TelegramUpdate {
@@ -30,7 +34,6 @@ interface CallbackQuery {
 }
 
 /* ─── Conversation state (in-memory, per chat) ─────────────────────────────── */
-// For production, use Redis or Supabase. For MVP this is fine (stateless restarts clear it).
 const conversations = new Map<number, ConversationState>()
 
 interface ConversationState {
@@ -53,7 +56,7 @@ function setConvo(chatId: number, step: string, data: Record<string, any> = {}) 
   conversations.set(chatId, {
     step,
     data,
-    expiresAt: Date.now() + 30 * 60 * 1000, // 30 min timeout
+    expiresAt: Date.now() + 30 * 60 * 1000,
   })
 }
 
@@ -75,11 +78,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true })
   } catch (err) {
     console.error('[Telegram Webhook] Error:', err)
-    return NextResponse.json({ ok: true }) // Always 200 so Telegram doesn't retry
+    return NextResponse.json({ ok: true })
   }
 }
 
-/* Also allow GET for webhook verification */
 export async function GET() {
   return NextResponse.json({ status: 'Voltis CRM Telegram Bot active' })
 }
@@ -91,34 +93,35 @@ async function handleMessage(msg: TelegramMessage) {
   const chatId = msg.chat.id
   const text = (msg.text || '').trim()
 
-  // ── Commands ──
   if (text.startsWith('/')) {
     return handleCommand(msg, text)
   }
 
-  // ── File received (invoice) ──
+  // File received — classify and process
   if (msg.document || msg.photo) {
-    return handleInvoiceFile(msg)
+    return handleDocumentFile(msg)
   }
 
-  // ── Conversation continuation ──
+  // Conversation continuation
   const convo = getConvo(chatId)
   if (convo) {
     return handleConvoStep(msg, convo)
   }
 
-  // ── Natural text: try quick query ──
+  // Natural text: try quick query
   if (text.length > 1) {
     return handleTextQuery(msg, text)
   }
 
   await sendMessage(chatId,
-    '👋 Envíame una <b>factura</b> (foto o PDF) para analizarla y crear un suministro.\n\n' +
-    'Comandos:\n' +
-    '/vincular — Vincular tu cuenta CRM\n' +
-    '/mis — Mis suministros pendientes\n' +
-    '/buscar nombre — Buscar cliente o CUPS\n' +
-    '/ayuda — Ver todos los comandos'
+    '👋 Envíame un <b>documento</b> (foto o PDF) y lo proceso automáticamente.\n\n' +
+    'Acepto:\n' +
+    '• 📄 <b>Facturas</b> de luz/gas\n' +
+    '• 🏢 <b>CIF</b> de empresa\n' +
+    '• 🪪 <b>NIF/DNI</b>\n' +
+    '• 🏦 <b>Titularidad bancaria</b> (IBAN)\n' +
+    '• 📋 <b>Contratos</b>\n\n' +
+    'Comandos: /vincular · /mis · /buscar · /ayuda'
   )
 }
 
@@ -134,7 +137,8 @@ async function handleCommand(msg: TelegramMessage, text: string) {
       return sendMessage(chatId,
         '⚡ <b>Voltis CRM Bot</b>\n\n' +
         'Soy tu asistente de Voltis. Puedo:\n' +
-        '• Analizar facturas que me envíes (foto/PDF)\n' +
+        '• Analizar <b>facturas</b> que me envíes (foto/PDF)\n' +
+        '• Procesar <b>CIF, NIF, IBAN</b> y asociarlos a clientes\n' +
         '• Crear suministros automáticamente\n' +
         '• Consultar tus clientes y suministros\n' +
         '• Enviarte notificaciones del CRM\n\n' +
@@ -167,7 +171,11 @@ async function handleCommand(msg: TelegramMessage, text: string) {
         '/buscar [texto] — Buscar cliente o CUPS\n' +
         '/pendientes — Tareas y citas del día\n' +
         '/ayuda — Este mensaje\n\n' +
-        '📎 También puedes enviarme directamente una <b>foto o PDF de factura</b> y la proceso automáticamente.'
+        '📎 Envíame directamente <b>fotos o PDFs</b>:\n' +
+        '• Facturas de luz/gas → análisis + alta suministro\n' +
+        '• CIF/NIF → asociar a cliente\n' +
+        '• Titularidad bancaria → guardar IBAN\n' +
+        '• Contratos → archivo documental'
       )
 
     default:
@@ -181,7 +189,6 @@ async function handleCommand(msg: TelegramMessage, text: string) {
 async function handleLinkCode(chatId: number, code: string, telegramUserId: number) {
   const supabase = createBotSupabase()
 
-  // Find pending link with this code
   const { data: link, error } = await supabase
     .from('telegram_links')
     .select('*')
@@ -191,12 +198,10 @@ async function handleLinkCode(chatId: number, code: string, telegramUserId: numb
 
   if (error || !link) {
     return sendMessage(chatId,
-      '❌ Código no válido o expirado.\n' +
-      'Genera uno nuevo en <b>Ajustes → Telegram</b> del CRM.'
+      '❌ Código no válido o expirado.\nGenera uno nuevo en <b>Ajustes → Telegram</b> del CRM.'
     )
   }
 
-  // Activate the link
   const { error: updateError } = await supabase
     .from('telegram_links')
     .update({
@@ -212,7 +217,6 @@ async function handleLinkCode(chatId: number, code: string, telegramUserId: numb
     return sendMessage(chatId, '❌ Error vinculando la cuenta. Inténtalo de nuevo.')
   }
 
-  // Get user name
   const { data: profile } = await supabase
     .from('users_profile')
     .select('full_name')
@@ -223,14 +227,13 @@ async function handleLinkCode(chatId: number, code: string, telegramUserId: numb
     `✅ ¡Cuenta vinculada correctamente!\n\n` +
     `Bienvenido, <b>${profile?.full_name || 'comercial'}</b>.\n\n` +
     `Ahora puedes:\n` +
-    `• Enviarme facturas para analizarlas\n` +
+    `• Enviarme facturas, CIF, NIF, IBAN...\n` +
     `• Recibir notificaciones del CRM\n` +
     `• Consultar tus clientes y suministros\n\n` +
     `Prueba enviándome una foto de factura 📸`
   )
 }
 
-/* ─── Get linked user ──────────────────────────────────────────────────────── */
 async function getLinkedUser(chatId: number): Promise<{ userId: string; userName: string } | null> {
   const supabase = createBotSupabase()
   const { data } = await supabase
@@ -248,16 +251,15 @@ async function getLinkedUser(chatId: number): Promise<{ userId: string; userName
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
-/*  INVOICE PROCESSING                                                       */
+/*  DOCUMENT PROCESSING (unified handler for all file types)                 */
 /* ═══════════════════════════════════════════════════════════════════════════ */
-async function handleInvoiceFile(msg: TelegramMessage) {
+async function handleDocumentFile(msg: TelegramMessage) {
   const chatId = msg.chat.id
 
-  // Check linked account
   const user = await getLinkedUser(chatId)
   if (!user) {
     return sendMessage(chatId,
-      '🔒 Primero vincula tu cuenta CRM con <b>/vincular</b> para poder procesar facturas.'
+      '🔒 Primero vincula tu cuenta CRM con <b>/vincular</b> para poder procesar documentos.'
     )
   }
 
@@ -266,142 +268,368 @@ async function handleInvoiceFile(msg: TelegramMessage) {
   // Download file
   let fileId: string
   let fileType: 'pdf' | 'image' = 'image'
+  let fileName = 'file'
 
   if (msg.document) {
     fileId = msg.document.file_id
+    fileName = msg.document.file_name || 'document'
     const mime = msg.document.mime_type || ''
     fileType = mime.includes('pdf') ? 'pdf' : 'image'
   } else if (msg.photo?.length) {
-    // Get highest resolution photo
     fileId = msg.photo[msg.photo.length - 1].file_id
     fileType = 'image'
+    fileName = 'photo.jpg'
   } else {
     return sendMessage(chatId, '❌ No pude detectar el archivo. Envía una foto o PDF.')
   }
 
-  const statusMsg = await sendMessage(chatId, '⏳ Descargando factura...')
+  const statusMsg = await sendMessage(chatId, '⏳ Descargando documento...')
 
   try {
-    const { buffer, fileName } = await downloadFile(fileId)
-
-    await editMessage(chatId, statusMsg.message_id, '🔍 Analizando factura con IA...')
-
-    // Call our analyze-invoice API
+    const { buffer, fileName: dlFileName } = await downloadFile(fileId)
     const base64 = buffer.toString('base64')
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000'
+    const mimeType = getMimeType(dlFileName || fileName, fileType)
 
-    const analysisRes = await fetch(`${appUrl}/api/analyze-invoice`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        file_base64: base64,
-        file_type: fileType,
-        file_name: fileName,
-      }),
-    })
+    await editMessage(chatId, statusMsg.message_id, '🔍 Clasificando documento con IA...')
 
-    if (!analysisRes.ok) throw new Error('Analysis API failed')
-    const extracted = await analysisRes.json()
+    // Check if the caption gives us a hint about document type
+    const caption = (msg.caption || '').toLowerCase()
+    let hintType: DocumentType | undefined
+    if (caption.includes('factura')) hintType = 'factura'
+    else if (caption.includes('cif')) hintType = 'cif'
+    else if (caption.includes('nif') || caption.includes('dni')) hintType = 'nif'
+    else if (caption.includes('iban') || caption.includes('banco') || caption.includes('bancari')) hintType = 'iban'
+    else if (caption.includes('contrato')) hintType = 'contrato'
 
-    if (extracted.mode === 'manual' || extracted.error) {
-      return editMessage(chatId, statusMsg.message_id,
-        '⚠️ No pude extraer los datos automáticamente.\n' +
-        'Sube esta factura manualmente desde la <b>Bandeja</b> del CRM.'
-      )
-    }
-
-    // Store file buffer and extraction in conversation
-    const cups = normalizeCups(extracted.cups)
-    const supabase = createBotSupabase()
-
-    // Check if CUPS exists in system
-    let existingSupply: any = null
-    if (cups) {
-      const { data: supplies } = await supabase
-        .from('supplies')
-        .select('id, cups, tariff, client:clients(id, name)')
-        .eq('cups', cups)
-        .limit(1)
-
-      if (supplies?.length) {
-        existingSupply = supplies[0]
-      }
-    }
-
-    // Build summary
-    const holder = extracted.holder_name || 'No detectado'
-    const tariff = extracted.tariff || '-'
-    const total = extracted.total_amount || '-'
-    const period = extracted.billing_period || '-'
-    const comercializadora = extracted.comercializadora || '-'
-
-    if (existingSupply) {
-      // CUPS found → offer to add invoice to existing supply
-      const clientName = existingSupply.client?.name || 'Sin cliente'
-
-      setConvo(chatId, 'confirm_existing', {
-        supplyId: existingSupply.id,
-        clientId: existingSupply.client?.id,
-        clientName,
-        cups,
-        extracted,
-        fileBuffer: base64,
-        fileType,
-        fileName,
-        userId: user.userId,
-      })
-
-      return editMessage(chatId, statusMsg.message_id,
-        `✅ <b>Factura analizada</b>\n\n` +
-        `📋 Titular: ${holder}\n` +
-        `🔌 CUPS: <code>${cups}</code>\n` +
-        `⚡ Tarifa: ${tariff}\n` +
-        `💰 Total: ${total}€\n` +
-        `📅 Período: ${period}\n` +
-        `🏢 Comercializadora: ${comercializadora}\n\n` +
-        `✅ Este CUPS ya existe en el sistema asignado a <b>${clientName}</b>.\n` +
-        `¿Añadir esta factura al suministro existente?`,
-        inlineKeyboard([
-          [button('✅ Sí, añadir factura', 'add_to_existing')],
-          [button('❌ Cancelar', 'cancel')],
-        ])
-      )
+    // Classify the document
+    let docType: DocumentType
+    if (hintType) {
+      docType = hintType
     } else {
-      // CUPS not found → ask if new or existing client
-      setConvo(chatId, 'choose_client_type', {
-        cups,
-        extracted,
-        fileBuffer: base64,
-        fileType,
-        fileName,
-        userId: user.userId,
-        holder,
-      })
-
-      return editMessage(chatId, statusMsg.message_id,
-        `✅ <b>Factura analizada</b>\n\n` +
-        `📋 Titular: ${holder}\n` +
-        `🔌 CUPS: <code>${cups || 'No detectado'}</code>\n` +
-        `⚡ Tarifa: ${tariff}\n` +
-        `💰 Total: ${total}€\n` +
-        `📅 Período: ${period}\n` +
-        `🏢 Comercializadora: ${comercializadora}\n\n` +
-        `Este CUPS no está en el sistema. ¿Es un cliente nuevo o existente?`,
-        inlineKeyboard([
-          [button('🆕 Cliente nuevo', 'new_client')],
-          [button('👤 Cliente existente', 'existing_client')],
-          [button('❌ Cancelar', 'cancel')],
-        ])
-      )
+      const classification = await classifyDocument(base64, mimeType)
+      docType = classification.type
+      console.log(`[Telegram] Document classified as: ${docType} (${classification.confidence}) — ${classification.description}`)
     }
+
+    // Route based on document type
+    if (docType === 'factura') {
+      return handleInvoiceAnalysis(chatId, statusMsg.message_id, base64, mimeType, fileType, dlFileName || fileName, user)
+    } else {
+      return handleClientDocument(chatId, statusMsg.message_id, base64, mimeType, fileType, dlFileName || fileName, docType, user)
+    }
+
   } catch (err: any) {
-    console.error('[Telegram] Invoice processing error:', err)
+    console.error('[Telegram] Document processing error:', err)
     await editMessage(chatId, statusMsg.message_id,
-      `❌ Error procesando la factura: ${err.message || 'Error desconocido'}\n` +
-      `Inténtalo de nuevo o súbela manualmente desde la Bandeja del CRM.`
+      `❌ Error procesando el documento: ${err.message || 'Error desconocido'}\nInténtalo de nuevo o súbelo desde la Bandeja del CRM.`
     )
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  INVOICE ANALYSIS (called directly, no HTTP self-call)                    */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+async function handleInvoiceAnalysis(
+  chatId: number,
+  statusMsgId: number,
+  base64: string,
+  mimeType: string,
+  fileType: 'pdf' | 'image',
+  fileName: string,
+  user: { userId: string; userName: string },
+) {
+  await editMessage(chatId, statusMsgId, '🔍 Analizando factura con IA...')
+
+  // Call Gemini DIRECTLY (no HTTP self-call)
+  const extracted = await analyzeInvoice(base64, mimeType)
+
+  if (extracted.mode === 'manual' || extracted.error) {
+    return editMessage(chatId, statusMsgId,
+      '⚠️ No pude extraer los datos automáticamente.\n' +
+      (extracted.error ? `Detalle: <i>${extracted.error}</i>\n\n` : '\n') +
+      'Sube esta factura manualmente desde la <b>Bandeja</b> del CRM.'
+    )
+  }
+
+  const cups = normalizeCups(extracted.cups || '')
+  const supabase = createBotSupabase()
+
+  // Check if CUPS exists
+  let existingSupply: any = null
+  if (cups) {
+    const { data: supplies } = await supabase
+      .from('supplies')
+      .select('id, cups, tariff, client:clients(id, name)')
+      .eq('cups', cups)
+      .limit(1)
+
+    if (supplies?.length) existingSupply = supplies[0]
+  }
+
+  // Build summary
+  const holder = extracted.holder_name || 'No detectado'
+  const tariff = extracted.tariff || '-'
+  const total = extracted.total_amount || '-'
+  const period = extracted.billing_period || '-'
+  const comercializadora = extracted.comercializadora || '-'
+
+  if (existingSupply) {
+    const clientName = existingSupply.client?.name || 'Sin cliente'
+
+    setConvo(chatId, 'confirm_existing', {
+      supplyId: existingSupply.id,
+      clientId: existingSupply.client?.id,
+      clientName,
+      cups,
+      extracted,
+      fileBuffer: base64,
+      fileType,
+      fileName,
+      userId: user.userId,
+    })
+
+    return editMessage(chatId, statusMsgId,
+      `✅ <b>Factura analizada</b>\n\n` +
+      `📋 Titular: ${holder}\n` +
+      `🔌 CUPS: <code>${cups}</code>\n` +
+      `⚡ Tarifa: ${tariff}\n` +
+      `💰 Total: ${total}€\n` +
+      `📅 Período: ${period}\n` +
+      `🏢 Comercializadora: ${comercializadora}\n\n` +
+      `✅ Este CUPS ya existe en el sistema asignado a <b>${clientName}</b>.\n` +
+      `¿Añadir esta factura al suministro existente?`,
+      inlineKeyboard([
+        [button('✅ Sí, añadir factura', 'add_to_existing')],
+        [button('❌ Cancelar', 'cancel')],
+      ])
+    )
+  } else {
+    setConvo(chatId, 'choose_client_type', {
+      cups,
+      extracted,
+      fileBuffer: base64,
+      fileType,
+      fileName,
+      userId: user.userId,
+      holder,
+    })
+
+    return editMessage(chatId, statusMsgId,
+      `✅ <b>Factura analizada</b>\n\n` +
+      `📋 Titular: ${holder}\n` +
+      `🔌 CUPS: <code>${cups || 'No detectado'}</code>\n` +
+      `⚡ Tarifa: ${tariff}\n` +
+      `💰 Total: ${total}€\n` +
+      `📅 Período: ${period}\n` +
+      `🏢 Comercializadora: ${comercializadora}\n\n` +
+      `Este CUPS no está en el sistema. ¿Es un cliente nuevo o existente?`,
+      inlineKeyboard([
+        [button('🆕 Cliente nuevo', 'new_client')],
+        [button('👤 Cliente existente', 'existing_client')],
+        [button('❌ Cancelar', 'cancel')],
+      ])
+    )
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  CLIENT DOCUMENT PROCESSING (CIF, NIF, IBAN, etc.)                        */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+async function handleClientDocument(
+  chatId: number,
+  statusMsgId: number,
+  base64: string,
+  mimeType: string,
+  fileType: 'pdf' | 'image',
+  fileName: string,
+  docType: DocumentType,
+  user: { userId: string; userName: string },
+) {
+  const typeLabels: Record<DocumentType, string> = {
+    factura: 'factura', cif: 'CIF', nif: 'NIF/DNI',
+    iban: 'titularidad bancaria', contrato: 'contrato', otro: 'documento',
+  }
+  const typeEmoji: Record<DocumentType, string> = {
+    factura: '📄', cif: '🏢', nif: '🪪',
+    iban: '🏦', contrato: '📋', otro: '📎',
+  }
+
+  await editMessage(chatId, statusMsgId, `🔍 Analizando ${typeLabels[docType]} con IA...`)
+
+  const docData = await analyzeDocument(base64, mimeType, docType)
+
+  if (docData.mode === 'manual' || docData.error) {
+    return editMessage(chatId, statusMsgId,
+      `⚠️ No pude extraer los datos del ${typeLabels[docType]}.\n` +
+      (docData.error ? `Detalle: <i>${docData.error}</i>\n\n` : '\n') +
+      'Súbelo manualmente desde el CRM.'
+    )
+  }
+
+  // Build extracted info summary
+  const lines: string[] = []
+  if (docData.holder_name) lines.push(`👤 Titular: <b>${docData.holder_name}</b>`)
+  if (docData.cif) lines.push(`🏢 CIF: <code>${docData.cif}</code>`)
+  if (docData.nif) lines.push(`🪪 NIF: <code>${docData.nif}</code>`)
+  if (docData.iban) lines.push(`🏦 IBAN: <code>${docData.iban}</code>`)
+  if (docData.bank_name) lines.push(`🏛 Banco: ${docData.bank_name}`)
+  if (docData.fiscal_address) lines.push(`📍 Dirección: ${docData.fiscal_address}`)
+
+  const summary = lines.join('\n')
+
+  // Store document data + file in conversation for client selection
+  setConvo(chatId, 'choose_client_for_doc', {
+    docType,
+    docData,
+    fileBuffer: base64,
+    fileType,
+    fileName,
+    userId: user.userId,
+    mimeType,
+  })
+
+  // Try to find matching clients
+  const supabase = createBotSupabase()
+  const searchTerms: string[] = []
+  if (docData.cif) searchTerms.push(docData.cif)
+  if (docData.nif) searchTerms.push(docData.nif)
+  if (docData.holder_name) searchTerms.push(docData.holder_name)
+
+  let matchedClients: any[] = []
+  if (searchTerms.length > 0) {
+    const orClauses = searchTerms.map(t =>
+      `name.ilike.%${t}%,cif_nif.ilike.%${t}%,cif.ilike.%${t}%,nif.ilike.%${t}%`
+    ).join(',')
+
+    const { data: clients } = await supabase
+      .from('clients')
+      .select('id, name, cif_nif, cif, nif')
+      .or(orClauses)
+      .limit(5)
+
+    matchedClients = clients || []
+  }
+
+  if (matchedClients.length === 1) {
+    // Auto-match: offer to save to this client
+    const client = matchedClients[0]
+    setConvo(chatId, 'confirm_doc_client', {
+      ...getConvo(chatId)!.data,
+      clientId: client.id,
+      clientName: client.name,
+    })
+
+    return editMessage(chatId, statusMsgId,
+      `${typeEmoji[docType]} <b>${typeLabels[docType].charAt(0).toUpperCase() + typeLabels[docType].slice(1)} analizado</b>\n\n` +
+      `${summary}\n\n` +
+      `🔗 Coincide con: <b>${client.name}</b>\n` +
+      `¿Guardar en este cliente?`,
+      inlineKeyboard([
+        [button(`✅ Guardar en ${client.name}`, 'save_doc_to_client')],
+        [button('👤 Elegir otro cliente', 'choose_other_client_doc')],
+        [button('❌ Cancelar', 'cancel')],
+      ])
+    )
+  } else if (matchedClients.length > 1) {
+    // Multiple matches
+    const buttons = matchedClients.map(c =>
+      [button(`${c.name}${c.cif_nif ? ` (${c.cif_nif})` : ''}`, `doc_select_client:${c.id}:${c.name}`)]
+    )
+    buttons.push([button('🆕 Cliente nuevo', 'doc_new_client')])
+    buttons.push([button('❌ Cancelar', 'cancel')])
+
+    return editMessage(chatId, statusMsgId,
+      `${typeEmoji[docType]} <b>${typeLabels[docType].charAt(0).toUpperCase() + typeLabels[docType].slice(1)} analizado</b>\n\n` +
+      `${summary}\n\n` +
+      `Encontré varios clientes posibles. ¿A cuál lo asigno?`,
+      inlineKeyboard(buttons)
+    )
+  } else {
+    // No match — ask
+    return editMessage(chatId, statusMsgId,
+      `${typeEmoji[docType]} <b>${typeLabels[docType].charAt(0).toUpperCase() + typeLabels[docType].slice(1)} analizado</b>\n\n` +
+      `${summary}\n\n` +
+      `No encontré un cliente que coincida. ¿Qué quieres hacer?`,
+      inlineKeyboard([
+        [button('👤 Buscar cliente', 'search_client_for_doc')],
+        [button('🆕 Crear cliente nuevo', 'doc_new_client')],
+        [button('❌ Cancelar', 'cancel')],
+      ])
+    )
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  SAVE DOCUMENT TO CLIENT                                                  */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+async function saveDocumentToClient(
+  clientId: string,
+  clientName: string,
+  data: Record<string, any>,
+): Promise<string> {
+  const supabase = createBotSupabase()
+  const { docType, docData, fileBuffer, fileType, fileName, mimeType } = data
+
+  // Upload file to storage
+  const buffer = Buffer.from(fileBuffer, 'base64')
+  const ext = fileType === 'pdf' ? 'pdf' : 'jpg'
+  const folder = docType === 'factura' ? 'invoices' : docType
+  const storagePath = `clients/${clientId}/${folder}/${Date.now()}_telegram.${ext}`
+
+  const { error: uploadError } = await supabase.storage
+    .from('documents')
+    .upload(storagePath, buffer, {
+      contentType: mimeType || (fileType === 'pdf' ? 'application/pdf' : 'image/jpeg'),
+    })
+
+  if (uploadError) {
+    console.error('[Telegram] Upload error:', uploadError)
+    // Continue even if upload fails — still save extracted data
+  }
+
+  const { data: urlData } = supabase.storage.from('documents').getPublicUrl(storagePath)
+  const fileUrl = urlData?.publicUrl || null
+
+  // Update client fields based on document type
+  const updates: Record<string, any> = { updated_at: new Date().toISOString() }
+
+  if (docType === 'cif' && docData.cif) {
+    updates.cif = docData.cif
+    updates.cif_nif = docData.cif
+    if (fileUrl) updates.cif_file_url = fileUrl
+    if (docData.holder_name) updates.name = docData.holder_name
+    if (docData.fiscal_address) updates.fiscal_address = docData.fiscal_address
+    updates.type = 'empresa'
+  } else if (docType === 'nif' && docData.nif) {
+    updates.nif = docData.nif
+    updates.cif_nif = docData.nif
+    if (fileUrl) updates.nif_file_url = fileUrl
+    if (docData.holder_name) updates.name = docData.holder_name
+    if (docData.fiscal_address) updates.fiscal_address = docData.fiscal_address
+    updates.type = 'particular'
+  } else if (docType === 'iban' && docData.iban) {
+    updates.iban = docData.iban.replace(/\s+/g, '')
+    if (fileUrl) updates.iban_file_url = fileUrl
+    if (fileUrl) updates.bank_certificate_url = fileUrl
+  } else if (docType === 'contrato') {
+    // Just store the file
+    if (docData.cif) { updates.cif = docData.cif; updates.cif_nif = docData.cif }
+    if (docData.nif) { updates.nif = docData.nif; updates.cif_nif = docData.nif }
+  } else {
+    // 'otro' type: store whatever we found
+    if (docData.cif) { updates.cif = docData.cif; updates.cif_nif = docData.cif }
+    if (docData.nif) { updates.nif = docData.nif; updates.cif_nif = docData.nif }
+    if (docData.iban) updates.iban = docData.iban.replace(/\s+/g, '')
+  }
+
+  const { error: updateError } = await supabase
+    .from('clients')
+    .update(updates)
+    .eq('id', clientId)
+
+  if (updateError) throw new Error(`Error actualizando cliente: ${updateError.message}`)
+
+  return fileUrl || 'saved'
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
@@ -410,107 +638,141 @@ async function handleInvoiceFile(msg: TelegramMessage) {
 async function handleCallback(cb: CallbackQuery) {
   const chatId = cb.message?.chat.id
   const msgId = cb.message?.message_id
-  const data = cb.data || ''
-
-  if (!chatId || !msgId) return answerCallback(cb.id)
-
+  if (!chatId || !msgId) return
   await answerCallback(cb.id)
 
+  const data = cb.data || ''
   const convo = getConvo(chatId)
-  if (!convo) {
-    return editMessage(chatId, msgId, '⏰ Sesión expirada. Envía la factura de nuevo.')
-  }
 
-  // ── Add invoice to existing supply ──
-  if (data === 'add_to_existing' && convo.step === 'confirm_existing') {
-    await editMessage(chatId, msgId, '⏳ Subiendo factura al suministro...')
+  // ── Invoice: add to existing supply ──
+  if (data === 'add_to_existing' && convo?.step === 'confirm_existing') {
+    await editMessage(chatId, msgId, '⏳ Añadiendo factura al suministro...')
     try {
       await uploadInvoiceAndCreate(convo.data, false)
       clearConvo(chatId)
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || ''
       return editMessage(chatId, msgId,
-        `✅ <b>Factura añadida correctamente</b>\n\n` +
-        `Suministro: <code>${convo.data.cups}</code>\n` +
-        `Cliente: ${convo.data.clientName}\n\n` +
-        `<a href="${appUrl}/supplies/${convo.data.supplyId}">Ver suministro en el CRM →</a>`
+        `✅ Factura añadida al suministro de <b>${convo.data.clientName}</b>.`
       )
     } catch (err: any) {
       return editMessage(chatId, msgId, `❌ Error: ${err.message}`)
     }
   }
 
-  // ── New client ──
-  if (data === 'new_client' && convo.step === 'choose_client_type') {
+  // ── Invoice: new client flow ──
+  if (data === 'new_client') {
+    if (!convo) return editMessage(chatId, msgId, '⏰ Sesión expirada. Envía la factura de nuevo.')
+    const holder = convo.data.holder || convo.data.extracted?.holder_name || ''
     setConvo(chatId, 'await_new_client_name', convo.data)
+
     return editMessage(chatId, msgId,
-      `🆕 <b>Nuevo cliente</b>\n\n` +
-      `Titular detectado: <b>${convo.data.holder}</b>\n\n` +
-      `Escribe el nombre del cliente (o envía "ok" para usar el titular detectado):`
+      `🆕 Escribe el nombre del nuevo cliente.\n\n` +
+      (holder ? `💡 Nombre detectado: <b>${holder}</b>\nEscribe "ok" para usarlo o escribe otro nombre.` : '')
     )
   }
 
-  // ── Existing client ──
-  if (data === 'existing_client' && convo.step === 'choose_client_type') {
+  // ── Invoice: existing client search ──
+  if (data === 'existing_client') {
+    if (!convo) return editMessage(chatId, msgId, '⏰ Sesión expirada.')
     setConvo(chatId, 'await_client_search', convo.data)
-    return editMessage(chatId, msgId,
-      '🔍 Escribe el nombre del cliente para buscarlo:'
-    )
+    return editMessage(chatId, msgId, '🔍 Escribe el nombre del cliente a buscar:')
   }
 
-  // ── Client selected from search ──
+  // ── Invoice: select specific client ──
   if (data.startsWith('select_client:')) {
-    const clientId = data.replace('select_client:', '')
-    const supabase = createBotSupabase()
-    const { data: client } = await supabase
-      .from('clients')
-      .select('id, name')
-      .eq('id', clientId)
-      .single()
+    if (!convo) return editMessage(chatId, msgId, '⏰ Sesión expirada.')
+    const clientId = data.split(':')[1]
 
-    if (!client) return editMessage(chatId, msgId, '❌ Cliente no encontrado.')
-
-    await editMessage(chatId, msgId, `⏳ Creando suministro para <b>${client.name}</b>...`)
-
+    await editMessage(chatId, msgId, '⏳ Creando suministro...')
     try {
-      const result = await uploadInvoiceAndCreate({
-        ...convo.data,
-        clientId: client.id,
-        clientName: client.name,
-        isNewClient: false,
-      }, true)
-
+      const result = await uploadInvoiceAndCreate({ ...convo.data, clientId }, true)
       clearConvo(chatId)
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || ''
       return editMessage(chatId, msgId,
-        `✅ <b>Suministro creado</b>\n\n` +
-        `Cliente: ${client.name}\n` +
-        `CUPS: <code>${convo.data.cups || 'Por asignar'}</code>\n\n` +
-        `<a href="${appUrl}/supplies/${result.supplyId}">Ver suministro en el CRM →</a>`
+        `✅ Suministro creado para CUPS <code>${convo.data.cups || 'nuevo'}</code>.`
       )
     } catch (err: any) {
       return editMessage(chatId, msgId, `❌ Error: ${err.message}`)
     }
+  }
+
+  // ── Document: confirm save to matched client ──
+  if (data === 'save_doc_to_client' && convo?.step === 'confirm_doc_client') {
+    await editMessage(chatId, msgId, '⏳ Guardando documento...')
+    try {
+      await saveDocumentToClient(convo.data.clientId, convo.data.clientName, convo.data)
+      clearConvo(chatId)
+      const typeLabel = getDocTypeLabel(convo.data.docType)
+      return editMessage(chatId, msgId,
+        `✅ ${typeLabel} guardado en el cliente <b>${convo.data.clientName}</b>.`
+      )
+    } catch (err: any) {
+      return editMessage(chatId, msgId, `❌ Error: ${err.message}`)
+    }
+  }
+
+  // ── Document: select client from list ──
+  if (data.startsWith('doc_select_client:')) {
+    if (!convo) return editMessage(chatId, msgId, '⏰ Sesión expirada.')
+    const parts = data.split(':')
+    const clientId = parts[1]
+    const clientName = parts.slice(2).join(':')
+
+    await editMessage(chatId, msgId, '⏳ Guardando documento...')
+    try {
+      await saveDocumentToClient(clientId, clientName, convo.data)
+      clearConvo(chatId)
+      const typeLabel = getDocTypeLabel(convo.data.docType)
+      return editMessage(chatId, msgId,
+        `✅ ${typeLabel} guardado en el cliente <b>${clientName}</b>.`
+      )
+    } catch (err: any) {
+      return editMessage(chatId, msgId, `❌ Error: ${err.message}`)
+    }
+  }
+
+  // ── Document: choose another client ──
+  if (data === 'choose_other_client_doc' || data === 'search_client_for_doc') {
+    if (!convo) return editMessage(chatId, msgId, '⏰ Sesión expirada.')
+    setConvo(chatId, 'await_client_search_doc', convo.data)
+    return editMessage(chatId, msgId, '🔍 Escribe el nombre del cliente:')
+  }
+
+  // ── Document: create new client from doc ──
+  if (data === 'doc_new_client') {
+    if (!convo) return editMessage(chatId, msgId, '⏰ Sesión expirada.')
+    const holderName = convo.data.docData?.holder_name || ''
+    setConvo(chatId, 'await_new_client_name_doc', convo.data)
+    return editMessage(chatId, msgId,
+      `🆕 Escribe el nombre del nuevo cliente.\n\n` +
+      (holderName ? `💡 Nombre detectado: <b>${holderName}</b>\nEscribe "ok" para usarlo o escribe otro nombre.` : '')
+    )
   }
 
   // ── Cancel ──
   if (data === 'cancel') {
     clearConvo(chatId)
-    return editMessage(chatId, msgId, '🚫 Operación cancelada.')
+    return editMessage(chatId, msgId, '❌ Operación cancelada.')
   }
 }
 
+function getDocTypeLabel(docType: DocumentType): string {
+  const labels: Record<DocumentType, string> = {
+    factura: 'Factura', cif: 'CIF', nif: 'NIF/DNI',
+    iban: 'Titularidad bancaria', contrato: 'Contrato', otro: 'Documento',
+  }
+  return labels[docType] || 'Documento'
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════ */
-/*  CONVERSATION STEPS (text input after prompt)                             */
+/*  CONVERSATION STEPS                                                       */
 /* ═══════════════════════════════════════════════════════════════════════════ */
 async function handleConvoStep(msg: TelegramMessage, convo: ConversationState) {
   const chatId = msg.chat.id
   const text = (msg.text || '').trim()
 
-  // ── New client name ──
+  // ── New client name (invoice flow) ──
   if (convo.step === 'await_new_client_name') {
     const clientName = text.toLowerCase() === 'ok' ? convo.data.holder : text
     await sendChatAction(chatId, 'typing')
-
     const statusMsg = await sendMessage(chatId, `⏳ Creando cliente <b>${clientName}</b> y suministro...`)
 
     try {
@@ -521,19 +783,60 @@ async function handleConvoStep(msg: TelegramMessage, convo: ConversationState) {
       }, true)
 
       clearConvo(chatId)
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || ''
       return editMessage(chatId, statusMsg.message_id,
-        `✅ <b>Cliente y suministro creados</b>\n\n` +
-        `Cliente: ${clientName}\n` +
-        `CUPS: <code>${convo.data.cups || 'Por asignar'}</code>\n\n` +
-        `<a href="${appUrl}/supplies/${result.supplyId}">Ver suministro →</a>`
+        `✅ <b>Cliente y suministro creados</b>\n\nCliente: ${clientName}\nCUPS: <code>${convo.data.cups || 'Por asignar'}</code>`
       )
     } catch (err: any) {
       return editMessage(chatId, statusMsg.message_id, `❌ Error: ${err.message}`)
     }
   }
 
-  // ── Search for existing client ──
+  // ── New client name (document flow) ──
+  if (convo.step === 'await_new_client_name_doc') {
+    const clientName = text.toLowerCase() === 'ok'
+      ? (convo.data.docData?.holder_name || text)
+      : text
+    await sendChatAction(chatId, 'typing')
+    const statusMsg = await sendMessage(chatId, `⏳ Creando cliente <b>${clientName}</b>...`)
+
+    try {
+      const supabase = createBotSupabase()
+      const docData = convo.data.docData || {}
+
+      // Create client
+      const { data: newClient, error } = await supabase
+        .from('clients')
+        .insert({
+          name: clientName,
+          cif_nif: docData.cif || docData.nif || null,
+          cif: docData.cif || null,
+          nif: docData.nif || null,
+          type: docData.cif ? 'empresa' : 'particular',
+          fiscal_address: docData.fiscal_address || null,
+          iban: docData.iban ? docData.iban.replace(/\s+/g, '') : null,
+          commercial_id: convo.data.userId,
+          origin: 'captacion',
+          created_at: new Date().toISOString(),
+        })
+        .select('id')
+        .single()
+
+      if (error) throw new Error(`Error creando cliente: ${error.message}`)
+
+      // Save document file to client
+      await saveDocumentToClient(newClient.id, clientName, convo.data)
+
+      clearConvo(chatId)
+      const typeLabel = getDocTypeLabel(convo.data.docType)
+      return editMessage(chatId, statusMsg.message_id,
+        `✅ Cliente <b>${clientName}</b> creado con ${typeLabel} guardado.`
+      )
+    } catch (err: any) {
+      return editMessage(chatId, statusMsg.message_id, `❌ Error: ${err.message}`)
+    }
+  }
+
+  // ── Search client (invoice flow) ──
   if (convo.step === 'await_client_search') {
     await sendChatAction(chatId, 'typing')
     const supabase = createBotSupabase()
@@ -546,7 +849,7 @@ async function handleConvoStep(msg: TelegramMessage, convo: ConversationState) {
 
     if (!clients?.length) {
       return sendMessage(chatId,
-        `❌ No encontré clientes con "<b>${text}</b>".\n\nEscribe otro nombre o usa /cancelar.`,
+        `❌ No encontré clientes con "<b>${text}</b>".\nEscribe otro nombre o usa /cancelar.`,
         { replyMarkup: inlineKeyboard([
           [button('🆕 Crear cliente nuevo', 'new_client')],
           [button('❌ Cancelar', 'cancel')],
@@ -554,12 +857,43 @@ async function handleConvoStep(msg: TelegramMessage, convo: ConversationState) {
       )
     }
 
-    // Re-set convo for client selection
     setConvo(chatId, 'choose_client_type', convo.data)
 
     const buttons = clients.map((c: any) =>
       [button(`${c.name}${c.cif_nif ? ` (${c.cif_nif})` : ''}`, `select_client:${c.id}`)]
     )
+    buttons.push([button('❌ Cancelar', 'cancel')])
+
+    return sendMessage(chatId, '👤 Selecciona el cliente:', { replyMarkup: inlineKeyboard(buttons) })
+  }
+
+  // ── Search client (document flow) ──
+  if (convo.step === 'await_client_search_doc') {
+    await sendChatAction(chatId, 'typing')
+    const supabase = createBotSupabase()
+
+    const { data: clients } = await supabase
+      .from('clients')
+      .select('id, name, cif_nif')
+      .or(`name.ilike.%${text}%,cif_nif.ilike.%${text}%`)
+      .limit(5)
+
+    if (!clients?.length) {
+      return sendMessage(chatId,
+        `❌ No encontré clientes con "<b>${text}</b>".\nEscribe otro nombre.`,
+        { replyMarkup: inlineKeyboard([
+          [button('🆕 Crear cliente nuevo', 'doc_new_client')],
+          [button('❌ Cancelar', 'cancel')],
+        ]) }
+      )
+    }
+
+    setConvo(chatId, 'choose_client_for_doc', convo.data)
+
+    const buttons = clients.map((c: any) =>
+      [button(`${c.name}${c.cif_nif ? ` (${c.cif_nif})` : ''}`, `doc_select_client:${c.id}:${c.name}`)]
+    )
+    buttons.push([button('🆕 Crear cliente nuevo', 'doc_new_client')])
     buttons.push([button('❌ Cancelar', 'cancel')])
 
     return sendMessage(chatId, '👤 Selecciona el cliente:', { replyMarkup: inlineKeyboard(buttons) })
@@ -579,7 +913,6 @@ async function uploadInvoiceAndCreate(
   let clientId = data.clientId
   let supplyId = data.supplyId
 
-  // ── Create new client if needed ──
   if (data.isNewClient) {
     const { data: newClient, error } = await supabase
       .from('clients')
@@ -598,7 +931,6 @@ async function uploadInvoiceAndCreate(
     clientId = newClient.id
   }
 
-  // ── Create new supply if needed ──
   if (createNewSupply) {
     const cups = data.cups || null
     const tariff = extracted.tariff || null
@@ -627,8 +959,7 @@ async function uploadInvoiceAndCreate(
     const tariffNorm = (tariff || '').replace(/\s+/g, '').toUpperCase()
     const needsPrescoring = tariffNorm &&
       !tariffNorm.startsWith('2.0') && tariffNorm !== '20TD' &&
-      tariffNorm !== '20' && tariffNorm !== '202020' &&
-      tariffNorm !== '2.0DHA' && tariffNorm !== '20DHA'
+      tariffNorm !== '20' && tariffNorm !== '2.0DHA'
 
     if (needsPrescoring) {
       await supabase.from('prescorings').insert({
@@ -639,11 +970,11 @@ async function uploadInvoiceAndCreate(
         status: 'pending',
         requested_by: userId,
         requested_at: new Date().toISOString(),
-      }).then(() => {}) // Don't throw on prescoring failure
+      }).then(() => {})
     }
   }
 
-  // ── Upload file to storage ──
+  // Upload file
   const buffer = Buffer.from(fileBuffer, 'base64')
   const ext = fileType === 'pdf' ? 'pdf' : 'jpg'
   const storagePath = `invoices/${supplyId}/${Date.now()}_telegram.${ext}`
@@ -658,7 +989,6 @@ async function uploadInvoiceAndCreate(
 
   const { data: urlData } = supabase.storage.from('documents').getPublicUrl(storagePath)
 
-  // ── Create invoice record ──
   const { error: invoiceError } = await supabase.from('invoices').insert({
     supply_id: supplyId,
     file_url: urlData.publicUrl,
@@ -685,7 +1015,6 @@ async function handleMySupplies(chatId: number) {
   await sendChatAction(chatId, 'typing')
   const supabase = createBotSupabase()
 
-  // Get supplies of this commercial's clients that need action
   const actionStatuses = ['primer_contacto', 'facturas_recibidas', 'estudio_completado',
     'presentacion_pendiente', 'pendiente_firma']
 
@@ -728,14 +1057,12 @@ async function handleSearch(chatId: number, query: string) {
   await sendChatAction(chatId, 'typing')
   const supabase = createBotSupabase()
 
-  // Search clients
   const { data: clients } = await supabase
     .from('clients')
     .select('id, name, cif_nif, phone')
     .or(`name.ilike.%${query}%,cif_nif.ilike.%${query}%`)
     .limit(5)
 
-  // Search supplies by CUPS
   const { data: supplies } = await supabase
     .from('supplies')
     .select('id, cups, tariff, status, client:clients(name)')
@@ -772,7 +1099,6 @@ async function handlePendingActions(chatId: number) {
   await sendChatAction(chatId, 'typing')
   const supabase = createBotSupabase()
 
-  // Get today's tasks
   const today = new Date().toISOString().split('T')[0]
   const { data: tasks } = await supabase
     .from('tasks')
@@ -782,7 +1108,6 @@ async function handlePendingActions(chatId: number) {
     .order('due_date', { ascending: true })
     .limit(10)
 
-  // Get today's appointments
   const { data: appointments } = await supabase
     .from('appointments')
     .select('type, scheduled_at, client:clients(name), notes')
@@ -819,18 +1144,16 @@ async function handlePendingActions(chatId: number) {
   return sendMessage(chatId, text)
 }
 
-/* ─── Text query (no command prefix) ───────────────────────────────────────── */
 async function handleTextQuery(msg: TelegramMessage, text: string) {
   const chatId = msg.chat.id
 
-  // If it looks like a search query, search
   if (text.length >= 3 && !text.includes('/')) {
     return handleSearch(chatId, text)
   }
 
   return sendMessage(chatId,
     '💡 Puedo:\n' +
-    '• Recibir <b>facturas</b> (foto/PDF)\n' +
+    '• Recibir <b>documentos</b> (facturas, CIF, NIF, IBAN...)\n' +
     '• <b>Buscar</b> clientes o CUPS\n' +
     '• Ver tus <b>/pendientes</b> del día\n' +
     '• Ver tus <b>/mis</b> suministros'
