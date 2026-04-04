@@ -432,11 +432,12 @@ async function handleDocumentFile(msg: TelegramMessage) {
 
   try {
     // Download file from Telegram
+    console.log(`[Telegram] Downloading file ${fileId} for user ${user.userId}`)
     const { buffer, fileName: dlFileName } = await downloadFile(fileId)
+    console.log(`[Telegram] Downloaded ${buffer.length} bytes`)
 
     // Prepare upload path and extension
     const ext = fileType === 'pdf' ? 'pdf' : 'jpg'
-    // Use timestamp + shortened fileId for guaranteed unique path
     const safeFileId = fileId.replace(/[^a-zA-Z0-9]/g, '').slice(-8)
     const timestamp = Date.now()
     const storagePath = `telegram/${user.userId}/${timestamp}_${safeFileId}.${ext}`
@@ -444,13 +445,20 @@ async function handleDocumentFile(msg: TelegramMessage) {
 
     // Upload to Supabase storage
     const supabase = createBotSupabase()
+
+    // Convert Buffer to Uint8Array for edge runtime compatibility
+    const fileData = new Uint8Array(buffer)
+
     const { error: uploadError } = await supabase.storage
       .from('documents')
-      .upload(storagePath, buffer, { contentType })
+      .upload(storagePath, fileData, {
+        contentType,
+        upsert: true,
+      })
 
     if (uploadError) {
-      console.error('[Telegram] Upload error:', uploadError)
-      return sendMessage(chatId, '❌ Error subiendo documento. Inténtalo de nuevo.')
+      console.error('[Telegram] Upload error:', JSON.stringify(uploadError))
+      return sendMessage(chatId, `❌ Error subiendo documento: ${uploadError.message || 'Error de storage'}`)
     }
 
     // Get public URL
@@ -458,7 +466,8 @@ async function handleDocumentFile(msg: TelegramMessage) {
       .from('documents')
       .getPublicUrl(storagePath)
 
-    // Insert into telegram_inbox
+    console.log(`[Telegram] Uploaded to ${storagePath}, URL: ${urlData.publicUrl}`)
+
     // Build sender display name from Telegram user info
     const senderName = msg.from
       ? [msg.from.first_name, msg.from.username ? `(@${msg.from.username})` : ''].filter(Boolean).join(' ')
@@ -476,8 +485,8 @@ async function handleDocumentFile(msg: TelegramMessage) {
     })
 
     if (insertError) {
-      console.error('[Telegram] Insert error:', insertError)
-      return sendMessage(chatId, '❌ Error guardando documento. Inténtalo de nuevo.')
+      console.error('[Telegram] Insert error:', JSON.stringify(insertError))
+      return sendMessage(chatId, `❌ Error guardando: ${insertError.message || 'Error DB'}`)
     }
 
     // Notification Debounce (2.5s)

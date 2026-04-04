@@ -55,7 +55,7 @@ export default function InboxPage() {
   const router = useRouter()
   const user = useAuthStore((s) => s.user)
   const isAdmin = useAuthStore((s) => s.isAdmin)
-  const supabase = createClient()
+  const [supabase] = useState(() => createClient())
 
   // Flow state
   const [step, setStep] = useState<Step>('inbox')
@@ -102,7 +102,8 @@ export default function InboxPage() {
       .order('created_at', { ascending: false })
     setTelegramFiles((data as TelegramFile[]) || [])
     setLoadingInbox(false)
-  }, [supabase])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => { fetchInbox() }, [fetchInbox])
 
