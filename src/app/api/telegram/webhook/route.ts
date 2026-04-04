@@ -489,13 +489,26 @@ async function handleDocumentFile(msg: TelegramMessage) {
       return sendMessage(chatId, `❌ Error guardando: ${insertError?.message || 'Error DB'}`)
     }
 
-    // Trigger async processing — fire and forget
+    // Trigger async processing — await with timeout so the HTTP request actually fires
+    // (fire-and-forget doesn't work in Vercel serverless: function dies before request is sent)
     const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
-    fetch(`${APP_URL}/api/telegram/process`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ inbox_id: insertedRow.id }),
-    }).catch(err => console.error('[Telegram] Process trigger error:', err))
+    const abortCtrl = new AbortController()
+    const abortTimer = setTimeout(() => abortCtrl.abort(), 3000)
+    try {
+      await fetch(`${APP_URL}/api/telegram/process`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inbox_id: insertedRow.id }),
+        signal: abortCtrl.signal,
+      })
+    } catch (triggerErr: any) {
+      // AbortError is expected (we timeout after 3s while process continues)
+      if (triggerErr?.name !== 'AbortError') {
+        console.error('[Telegram] Process trigger error:', triggerErr)
+      }
+    } finally {
+      clearTimeout(abortTimer)
+    }
 
     // Notification Debounce (2.5s)
     const DEBOUNCE_MS = 2500
