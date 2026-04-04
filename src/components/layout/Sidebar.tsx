@@ -14,7 +14,6 @@ import {
   BarChart3,
   CalendarDays,
   Settings,
-  ChevronLeft,
   LogOut,
   ClipboardCheck,
   Inbox,
@@ -72,8 +71,12 @@ export function Sidebar() {
 
   const sidebarContent = (
     <div className="flex flex-col h-full">
-      {/* Logo */}
-      <div className="flex items-center gap-2 px-4 py-5">
+      {/* Logo — click to toggle sidebar */}
+      <button
+        onClick={() => setCollapsed(!collapsed)}
+        className="flex items-center gap-2 px-4 py-5 w-full hover:opacity-80 transition-opacity cursor-pointer"
+        title={collapsed ? 'Expandir menú' : 'Plegar menú'}
+      >
         <AnimatePresence initial={false}>
           {collapsed ? (
             <motion.div
@@ -97,7 +100,7 @@ export function Sidebar() {
             </motion.div>
           )}
         </AnimatePresence>
-      </div>
+      </button>
 
       {/* Navigation */}
       <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
@@ -187,17 +190,6 @@ export function Sidebar() {
         className="hidden lg:flex flex-col h-screen bg-surface-container-low sticky top-0 overflow-hidden"
       >
         {sidebarContent}
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="absolute top-6 -right-3 w-6 h-6 rounded-full bg-surface-container-lowest shadow-ambient-sm flex items-center justify-center hover:bg-surface-container-high transition-all"
-        >
-          <ChevronLeft
-            className={cn(
-              'w-3.5 h-3.5 text-on-surface-variant transition-transform',
-              collapsed && 'rotate-180'
-            )}
-          />
-        </button>
       </motion.aside>
     </>
   )
