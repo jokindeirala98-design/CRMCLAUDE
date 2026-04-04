@@ -3,6 +3,7 @@ import {
   sendMessage, editMessage, answerCallback, sendChatAction,
   downloadFile, inlineKeyboard, button, createBotSupabase,
 } from '@/lib/telegram'
+import { processTelegramInboxItem } from '@/lib/telegram-process'
 
 /* ─── Types ────────────────────────────────────────────────────────────────── */
 interface TelegramUpdate {
@@ -489,36 +490,28 @@ async function handleDocumentFile(msg: TelegramMessage) {
       return sendMessage(chatId, `❌ Error guardando: ${insertError?.message || 'Error DB'}`)
     }
 
-    // Trigger async processing — await with timeout so the HTTP request actually fires
-    // (fire-and-forget doesn't work in Vercel serverless: function dies before request is sent)
-    const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
-    const abortCtrl = new AbortController()
-    const abortTimer = setTimeout(() => abortCtrl.abort(), 3000)
-    try {
-      await fetch(`${APP_URL}/api/telegram/process`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ inbox_id: insertedRow.id }),
-        signal: abortCtrl.signal,
-      })
-    } catch (triggerErr: any) {
-      // AbortError is expected (we timeout after 3s while process continues)
-      if (triggerErr?.name !== 'AbortError') {
-        console.error('[Telegram] Process trigger error:', triggerErr)
-      }
-    } finally {
-      clearTimeout(abortTimer)
-    }
-
-    // Notification Debounce (2.5s)
-    const DEBOUNCE_MS = 2500
+    // Send "Recibido" immediately before processing starts
     const convo = await getConvo(chatId) || { step: 'idle', data: {}, expiresAt: 0 }
+    const DEBOUNCE_MS = 2500
     const lastNotifAt = convo.data?.last_notif_at || 0
     const now = Date.now()
 
     if (now - lastNotifAt > DEBOUNCE_MS) {
       await setConvo(chatId, convo.step, { ...(convo.data || {}), last_notif_at: now })
-      return sendMessage(chatId, `📥 Recibido ✓ — Procesando automaticamente...`)
+      // Don't await sendMessage — let it fly while we start processing
+      sendMessage(chatId, `📥 Recibido ✓ — Procesando automaticamente...`).catch(() => {})
+    }
+
+    // Process inline — pass the base64 we already have to avoid re-downloading
+    const base64 = Buffer.from(buffer).toString('base64')
+    const mimeType = fileType === 'pdf' ? 'application/pdf' : 'image/jpeg'
+
+    try {
+      const result = await processTelegramInboxItem(insertedRow.id, base64, mimeType)
+      console.log(`[Telegram] Process result for ${insertedRow.id}:`, result.ok ? 'success' : result.error)
+    } catch (processErr: any) {
+      console.error(`[Telegram] Inline process error:`, processErr.message)
+      // Item stays as 'pending' or 'processing' — can be retried via /api/telegram/process
     }
 
   } catch (err: any) {
