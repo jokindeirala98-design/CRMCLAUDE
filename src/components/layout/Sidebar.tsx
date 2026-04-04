@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -20,12 +20,14 @@ import {
   Inbox,
   DollarSign,
   FileSpreadsheet,
+  ClipboardList,
 } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 import { getUserInitials } from '@/lib/utils/format'
 import { useAuthStore } from '@/stores/auth'
 import { getAuthClient } from '@/lib/supabase/client'
 import { VoltisLogo } from '@/components/ui/VoltisLogo'
+import { createClient } from '@/lib/supabase/client'
 
 interface NavItem {
   href: string
@@ -45,6 +47,7 @@ const navItems: NavItem[] = [
   { href: '/contracts', label: 'Contratos', icon: FileText },
   { href: '/subscriptions', label: 'Suscripciones', icon: CreditCard, permission: 'billing' },
   { href: '/billing', label: 'Facturacion', icon: Receipt, permission: 'billing' },
+  { href: '/tasks', label: 'Tareas', icon: ClipboardList },
   { href: '/agenda', label: 'Agenda', icon: CalendarDays },
   { href: '/commissions', label: 'Comisiones', icon: DollarSign },
   { href: '/reports', label: 'Estadisticas', icon: BarChart3, permission: 'reports' },
@@ -52,8 +55,24 @@ const navItems: NavItem[] = [
 
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false)
+  const [telegramCount, setTelegramCount] = useState(0)
   const pathname = usePathname()
   const { user, hasPermission, isAdmin } = useAuthStore()
+  const supabase = createClient()
+
+  // Fetch pending telegram inbox count
+  useEffect(() => {
+    const fetchCount = async () => {
+      const { count } = await supabase
+        .from('telegram_inbox')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'pending')
+      setTelegramCount(count || 0)
+    }
+    fetchCount()
+    const interval = setInterval(fetchCount, 30000) // refresh every 30s
+    return () => clearInterval(interval)
+  }, [supabase])
 
   const filteredItems = navItems.filter((item) => {
     if (item.adminOnly && !isAdmin()) return false
@@ -114,19 +133,31 @@ export function Sidebar() {
                   : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'
               )}
             >
-              <Icon className={cn('w-5 h-5 flex-shrink-0', isActive && 'text-secondary')} />
+              <div className="relative flex-shrink-0">
+                <Icon className={cn('w-5 h-5', isActive && 'text-secondary')} />
+                {item.href === '/inbox' && telegramCount > 0 && collapsed && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#2AABEE] text-white text-[9px] font-bold flex items-center justify-center">
+                    {telegramCount > 9 ? '9+' : telegramCount}
+                  </span>
+                )}
+              </div>
               <AnimatePresence>
                 {!collapsed && (
                   <motion.span
                     initial={{ opacity: 0, width: 0 }}
                     animate={{ opacity: 1, width: 'auto' }}
                     exit={{ opacity: 0, width: 0 }}
-                    className="whitespace-nowrap overflow-hidden"
+                    className="whitespace-nowrap overflow-hidden flex-1"
                   >
                     {item.label}
                   </motion.span>
                 )}
               </AnimatePresence>
+              {item.href === '/inbox' && telegramCount > 0 && !collapsed && (
+                <span className="ml-auto px-1.5 py-0.5 rounded-full bg-[#2AABEE] text-white text-[10px] font-bold leading-none">
+                  {telegramCount}
+                </span>
+              )}
             </Link>
           )
         })}
