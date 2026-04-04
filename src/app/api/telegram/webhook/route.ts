@@ -41,8 +41,6 @@ interface ConversationState {
 }
 
 const CONVO_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
-// Auto-link timeout: subsequent files within 10 min auto-assign to same client
-const AUTO_LINK_MS = 10 * 60 * 1000
 
 async function getConvo(chatId: number): Promise<ConversationState | null> {
   try {
@@ -498,17 +496,10 @@ async function handleDocumentFile(msg: TelegramMessage) {
     return sendMessage(chatId, '❌ No pude detectar el archivo. Envía una foto o PDF.')
   }
 
-  // Check conversation for client mode or auto-link
+  // Check conversation for /cliente mode only (no time-based auto-link)
   const convo = await getConvo(chatId)
-  const clientModeId = convo?.data?.clientModeId
-  const clientModeName = convo?.data?.clientModeName
-  const lastClientId = convo?.data?.lastClientId
-  const lastClientName = convo?.data?.lastClientName
-  const lastClientAt = convo?.data?.lastClientAt || 0
-
-  // Determine if we should auto-assign
-  const autoClientId = clientModeId || (lastClientId && (Date.now() - lastClientAt < AUTO_LINK_MS) ? lastClientId : null)
-  const autoClientName = clientModeId ? clientModeName : (autoClientId ? lastClientName : null)
+  const clientModeId = convo?.data?.clientModeId || null
+  const clientModeName = convo?.data?.clientModeName || null
 
   const statusMsg = await sendMessage(chatId, '⏳ Procesando documento...')
 
@@ -540,9 +531,9 @@ async function handleDocumentFile(msg: TelegramMessage) {
 
     // Route by type
     if (docType === 'factura') {
-      return handleInvoiceAnalysis(chatId, statusMsg.message_id, base64, mimeType, fileType, dlFileName || fileName, user, autoClientId, autoClientName)
+      return handleInvoiceAnalysis(chatId, statusMsg.message_id, base64, mimeType, fileType, dlFileName || fileName, user, clientModeId, clientModeName)
     } else {
-      return handleClientDocument(chatId, statusMsg.message_id, base64, mimeType, fileType, dlFileName || fileName, docType, user, autoClientId, autoClientName)
+      return handleClientDocument(chatId, statusMsg.message_id, base64, mimeType, fileType, dlFileName || fileName, docType, user, clientModeId, clientModeName)
     }
 
   } catch (err: any) {
@@ -608,35 +599,91 @@ async function handleInvoiceAnalysis(
     if (supplies?.length) existingSupply = supplies[0]
   }
 
-  // === AUTO-ASSIGN: client mode or auto-link ===
+  // === PRIORITY 1: /cliente mode — always auto-assign ===
   if (autoClientId) {
-    await editMessage(chatId, statusMsgId, `✅ <b>Factura analizada</b>\n\n${summary}\n\n👤 Cliente: <b>${autoClientName}</b>\n⏳ Guardando...`)
-
+    await editMessage(chatId, statusMsgId, `✅ <b>Factura analizada</b>\n\n${summary}\n\n📌 <b>${autoClientName}</b>\n⏳ Guardando...`)
     try {
       const result = await uploadInvoiceAndCreate({
-        extracted,
-        fileBuffer: base64,
-        fileType,
-        fileName,
-        userId: user.userId,
-        cups,
-        clientId: existingSupply?.client?.id || autoClientId,
+        extracted, fileBuffer: base64, fileType, fileName, userId: user.userId, cups,
+        clientId: existingSupply ? (existingSupply.client as any)?.id : autoClientId,
         supplyId: existingSupply?.id,
       }, !existingSupply)
 
-      // Refresh auto-link timestamp
-      const convo = await getConvo(chatId)
-      await setConvo(chatId, 'idle', {
-        ...(convo?.data || {}),
-        lastClientId: autoClientId,
-        lastClientName: autoClientName,
-        lastClientAt: Date.now(),
-      })
-
       return editMessage(chatId, statusMsgId,
         `✅ <b>Factura procesada</b>\n\n${summary}\n\n` +
-        `👤 Cliente: <b>${autoClientName}</b>\n` +
+        `📌 <b>${autoClientName}</b>\n` +
         (existingSupply ? '📎 Añadida al suministro existente.' : '🆕 Suministro creado.'),
+        inlineKeyboard([
+          [button('📊 Crear estudio', `quick_estudio:${result.supplyId}`)],
+          [button('📞 Agendar llamada', `quick_llamada:${result.supplyId}`)],
+        ])
+      )
+    } catch (err: any) {
+      return editMessage(chatId, statusMsgId, `❌ Error: ${err.message}`)
+    }
+  }
+
+  // === PRIORITY 2: CUPS exists in system — auto-add invoice (no confirmation needed) ===
+  if (existingSupply) {
+    const clientName = (existingSupply.client as any)?.name || 'Sin cliente'
+    await editMessage(chatId, statusMsgId, `✅ <b>Factura analizada</b>\n\n${summary}\n\n✅ CUPS encontrado → <b>${clientName}</b>\n⏳ Añadiendo...`)
+    try {
+      const result = await uploadInvoiceAndCreate({
+        extracted, fileBuffer: base64, fileType, fileName, userId: user.userId, cups,
+        clientId: (existingSupply.client as any)?.id,
+        supplyId: existingSupply.id,
+      }, false)
+
+      return editMessage(chatId, statusMsgId,
+        `✅ <b>Factura añadida</b>\n\n${summary}\n\n` +
+        `👤 <b>${clientName}</b> · CUPS existente`,
+        inlineKeyboard([
+          [button('📊 Crear estudio', `quick_estudio:${result.supplyId}`)],
+          [button('📞 Agendar llamada', `quick_llamada:${result.supplyId}`)],
+        ])
+      )
+    } catch (err: any) {
+      return editMessage(chatId, statusMsgId, `❌ Error: ${err.message}`)
+    }
+  }
+
+  // === PRIORITY 3: CUPS nuevo — buscar cliente por titular/CIF ===
+  const holderCif = extracted.holder_cif_nif || extracted.cif || ''
+  const searchTerms: string[] = []
+  if (holderCif) searchTerms.push(holderCif)
+  if (holder && holder !== 'No detectado') searchTerms.push(holder)
+
+  let matchedClients: any[] = []
+  if (searchTerms.length > 0) {
+    const orClauses = searchTerms.map(t =>
+      `name.ilike.%${t}%,cif_nif.ilike.%${t}%,cif.ilike.%${t}%,nif.ilike.%${t}%`
+    ).join(',')
+
+    const { data: clients } = await supabase
+      .from('clients')
+      .select('id, name, cif_nif')
+      .or(orClauses)
+      .limit(5)
+
+    matchedClients = clients || []
+  }
+
+  // Single match → auto-create supply for that client
+  if (matchedClients.length === 1) {
+    const client = matchedClients[0]
+    await editMessage(chatId, statusMsgId,
+      `✅ <b>Factura analizada</b>\n\n${summary}\n\n` +
+      `🔗 Titular coincide con <b>${client.name}</b>\n⏳ Creando suministro...`
+    )
+    try {
+      const result = await uploadInvoiceAndCreate({
+        extracted, fileBuffer: base64, fileType, fileName, userId: user.userId, cups,
+        clientId: client.id,
+      }, true)
+
+      return editMessage(chatId, statusMsgId,
+        `✅ <b>Suministro creado</b>\n\n${summary}\n\n` +
+        `👤 <b>${client.name}</b> (detectado automáticamente)`,
         inlineKeyboard([
           [button('📊 Crear estudio', `quick_estudio:${result.supplyId}`)],
           [button('📞 Agendar llamada', `quick_llamada:${result.supplyId}`)],
@@ -648,49 +695,36 @@ async function handleInvoiceAnalysis(
     }
   }
 
-  // === EXISTING SUPPLY: just add invoice ===
-  if (existingSupply) {
-    const clientName = (existingSupply.client as any)?.name || 'Sin cliente'
-
-    await setConvo(chatId, 'confirm_existing', {
-      supplyId: existingSupply.id,
-      clientId: (existingSupply.client as any)?.id,
-      clientName,
-      cups,
-      extracted,
-      fileBuffer: base64,
-      fileType,
-      fileName,
-      userId: user.userId,
+  // Multiple matches → let user pick
+  if (matchedClients.length > 1) {
+    await setConvo(chatId, 'choose_client_type', {
+      cups, extracted, fileBuffer: base64, fileType, fileName, userId: user.userId, holder,
     })
+
+    const buttons = matchedClients.map((c: any) =>
+      [button(`${c.name}${c.cif_nif ? ` (${c.cif_nif})` : ''}`, `select_client:${c.id}:${c.name}`)]
+    )
+    buttons.push([button('🆕 Cliente nuevo', 'new_client')])
+    buttons.push([button('❌ Cancelar', 'cancel')])
 
     return editMessage(chatId, statusMsgId,
       `✅ <b>Factura analizada</b>\n\n${summary}\n\n` +
-      `✅ CUPS encontrado → <b>${clientName}</b>\n¿Añadir factura?`,
-      inlineKeyboard([
-        [button('✅ Sí, añadir', 'add_to_existing')],
-        [button('❌ Cancelar', 'cancel')],
-      ])
+      `Varios clientes posibles:`,
+      inlineKeyboard(buttons)
     )
   }
 
-  // === NEW CUPS: ask for client ===
+  // === No match at all — ask ===
   await setConvo(chatId, 'choose_client_type', {
-    cups,
-    extracted,
-    fileBuffer: base64,
-    fileType,
-    fileName,
-    userId: user.userId,
-    holder,
+    cups, extracted, fileBuffer: base64, fileType, fileName, userId: user.userId, holder,
   })
 
   return editMessage(chatId, statusMsgId,
     `✅ <b>Factura analizada</b>\n\n${summary}\n\n` +
-    `CUPS no encontrado. ¿Cliente nuevo o existente?`,
+    `No encontré cliente. ¿Nuevo o existente?`,
     inlineKeyboard([
       [button('🆕 Cliente nuevo', 'new_client')],
-      [button('👤 Cliente existente', 'existing_client')],
+      [button('👤 Buscar cliente', 'existing_client')],
       [button('❌ Cancelar', 'cancel')],
     ])
   )
