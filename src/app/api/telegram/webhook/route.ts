@@ -436,8 +436,10 @@ async function handleDocumentFile(msg: TelegramMessage) {
 
     // Prepare upload path and extension
     const ext = fileType === 'pdf' ? 'pdf' : 'jpg'
+    // Use timestamp + shortened fileId for guaranteed unique path
+    const safeFileId = fileId.replace(/[^a-zA-Z0-9]/g, '').slice(-8)
     const timestamp = Date.now()
-    const storagePath = `telegram/${user.userId}/${timestamp}.${ext}`
+    const storagePath = `telegram/${user.userId}/${timestamp}_${safeFileId}.${ext}`
     const contentType = fileType === 'pdf' ? 'application/pdf' : 'image/jpeg'
 
     // Upload to Supabase storage
@@ -478,8 +480,17 @@ async function handleDocumentFile(msg: TelegramMessage) {
       return sendMessage(chatId, '❌ Error guardando documento. Inténtalo de nuevo.')
     }
 
-    // Send simple confirmation — admin will process from the CRM panel
-    return sendMessage(chatId, `📥 Recibido ✓ — El equipo lo procesará desde el panel.`)
+    // Notification Debounce (2.5s)
+    // Avoid sending multiple confirmation messages when receiving a batch of files
+    const DEBOUNCE_MS = 2500
+    const convo = await getConvo(chatId) || { step: 'idle', data: {}, expiresAt: 0 }
+    const lastNotifAt = convo.data?.last_notif_at || 0
+    const now = Date.now()
+
+    if (now - lastNotifAt > DEBOUNCE_MS) {
+      await setConvo(chatId, convo.step, { ...(convo.data || {}), last_notif_at: now })
+      return sendMessage(chatId, `📥 Recibido ✓ — El equipo lo procesará desde el panel.`)
+    }
 
   } catch (err: any) {
     console.error('[Telegram] Document processing error:', err)
