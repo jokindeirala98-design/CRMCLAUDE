@@ -97,6 +97,121 @@ async function clearConvo(chatId: number) {
   }
 }
 
+/* ─── Smart client search ─────────────────────────────────────────────────── */
+// Strips legal suffixes, splits into keywords, searches flexibly
+const LEGAL_SUFFIXES = /\b(s\.?l\.?u?\.?|s\.?a\.?|s\.?c\.?|s\.?coop\.?|c\.?b\.?|sociedad|limitada|anonima|anónima|cooperativa|comunidad\s+de\s+bienes)\b/gi
+const FILLER_WORDS = /\b(de|del|la|las|los|el|y|e|en|con)\b/gi
+
+function extractSearchKeywords(text: string): string[] {
+  // Remove legal suffixes and filler words
+  let cleaned = text
+    .replace(LEGAL_SUFFIXES, '')
+    .replace(FILLER_WORDS, '')
+    .replace(/[.,;:'"()]/g, '')
+    .trim()
+
+  // Split into words, filter short ones
+  const words = cleaned.split(/\s+/).filter(w => w.length >= 3)
+
+  // Return unique significant words
+  return [...new Set(words.map(w => w.toLowerCase()))]
+}
+
+async function searchClients(
+  supabase: any,
+  rawQuery: string,
+  limit: number = 5
+): Promise<any[]> {
+  // 1. Try exact/substring match first (handles CIF/NIF and close names)
+  const { data: exactMatches } = await supabase
+    .from('clients')
+    .select('id, name, cif_nif, cif, nif')
+    .or(`name.ilike.%${rawQuery}%,cif_nif.ilike.%${rawQuery}%,cif.ilike.%${rawQuery}%,nif.ilike.%${rawQuery}%`)
+    .limit(limit)
+
+  if (exactMatches?.length) return exactMatches
+
+  // 2. Keyword search — each significant word must match
+  const keywords = extractSearchKeywords(rawQuery)
+  if (keywords.length === 0) return []
+
+  // Search by each keyword and intersect results
+  // Use the most significant keyword (longest) for the primary search
+  const primaryKeyword = keywords.sort((a, b) => b.length - a.length)[0]
+
+  const { data: keywordMatches } = await supabase
+    .from('clients')
+    .select('id, name, cif_nif, cif, nif')
+    .or(`name.ilike.%${primaryKeyword}%,cif_nif.ilike.%${primaryKeyword}%`)
+    .limit(limit * 2) // fetch more so we can filter
+
+  if (!keywordMatches?.length) return []
+
+  // If multiple keywords, filter to ensure all match somewhere
+  if (keywords.length > 1) {
+    return keywordMatches.filter((c: any) => {
+      const haystack = `${c.name} ${c.cif_nif || ''} ${c.cif || ''} ${c.nif || ''}`.toLowerCase()
+      // At least the primary keyword must match (it does by query)
+      // Check if any OTHER keyword also matches for better relevance
+      return keywords.some(k => haystack.includes(k))
+    }).slice(0, limit)
+  }
+
+  return keywordMatches.slice(0, limit)
+}
+
+// For invoice auto-matching: search by holder name AND CIF with keyword splitting
+async function findClientByInvoiceData(
+  supabase: any,
+  holderName: string,
+  holderCif: string,
+): Promise<any[]> {
+  const results: any[] = []
+
+  // 1. CIF/NIF exact match (most reliable)
+  if (holderCif) {
+    const cleanCif = holderCif.replace(/[\s.-]/g, '').toUpperCase()
+    if (cleanCif.length >= 8) {
+      const { data } = await supabase
+        .from('clients')
+        .select('id, name, cif_nif, cif, nif')
+        .or(`cif_nif.ilike.%${cleanCif}%,cif.ilike.%${cleanCif}%,nif.ilike.%${cleanCif}%`)
+        .limit(3)
+
+      if (data?.length) return data
+    }
+  }
+
+  // 2. Name keyword search
+  if (holderName && holderName !== 'No detectado') {
+    const keywords = extractSearchKeywords(holderName)
+    if (keywords.length === 0) return []
+
+    // Search by longest keyword
+    const primaryKeyword = keywords.sort((a, b) => b.length - a.length)[0]
+
+    const { data: nameMatches } = await supabase
+      .from('clients')
+      .select('id, name, cif_nif, cif, nif')
+      .ilike('name', `%${primaryKeyword}%`)
+      .limit(10)
+
+    if (!nameMatches?.length) return []
+
+    // Score matches by how many keywords match
+    const scored = nameMatches.map((c: any) => {
+      const haystack = c.name.toLowerCase()
+      const score = keywords.filter(k => haystack.includes(k)).length
+      return { ...c, score }
+    }).filter((c: any) => c.score > 0)
+      .sort((a: any, b: any) => b.score - a.score)
+
+    return scored.slice(0, 5)
+  }
+
+  return results
+}
+
 /* ─── Main webhook handler ─────────────────────────────────────────────────── */
 export async function POST(req: NextRequest) {
   try {
@@ -308,11 +423,7 @@ async function handleClientModeCommand(chatId: number, arg: string) {
   }
 
   const supabase = createBotSupabase()
-  const { data: clients } = await supabase
-    .from('clients')
-    .select('id, name, cif_nif')
-    .or(`name.ilike.%${arg}%,cif_nif.ilike.%${arg}%`)
-    .limit(5)
+  const clients = await searchClients(supabase, arg)
 
   if (!clients?.length) {
     return sendMessage(chatId, `❌ No encontré clientes con "<b>${arg}</b>".`)
@@ -647,26 +758,9 @@ async function handleInvoiceAnalysis(
     }
   }
 
-  // === PRIORITY 3: CUPS nuevo — buscar cliente por titular/CIF ===
+  // === PRIORITY 3: CUPS nuevo — buscar cliente por titular/CIF (smart matching) ===
   const holderCif = extracted.holder_cif_nif || extracted.cif || ''
-  const searchTerms: string[] = []
-  if (holderCif) searchTerms.push(holderCif)
-  if (holder && holder !== 'No detectado') searchTerms.push(holder)
-
-  let matchedClients: any[] = []
-  if (searchTerms.length > 0) {
-    const orClauses = searchTerms.map(t =>
-      `name.ilike.%${t}%,cif_nif.ilike.%${t}%,cif.ilike.%${t}%,nif.ilike.%${t}%`
-    ).join(',')
-
-    const { data: clients } = await supabase
-      .from('clients')
-      .select('id, name, cif_nif')
-      .or(orClauses)
-      .limit(5)
-
-    matchedClients = clients || []
-  }
+  const matchedClients = await findClientByInvoiceData(supabase, holder, holderCif)
 
   // Single match → auto-create supply for that client
   if (matchedClients.length === 1) {
@@ -805,31 +899,17 @@ async function handleClientDocument(
     }
   }
 
-  // === MATCH CLIENT ===
+  // === MATCH CLIENT (smart search) ===
   await setConvo(chatId, 'choose_client_for_doc', {
     docType, docData, fileBuffer: base64, fileType, fileName, userId: user.userId, mimeType,
   })
 
   const supabase = createBotSupabase()
-  const searchTerms: string[] = []
-  if (docData.cif) searchTerms.push(docData.cif)
-  if (docData.nif) searchTerms.push(docData.nif)
-  if (docData.holder_name) searchTerms.push(docData.holder_name)
-
-  let matchedClients: any[] = []
-  if (searchTerms.length > 0) {
-    const orClauses = searchTerms.map(t =>
-      `name.ilike.%${t}%,cif_nif.ilike.%${t}%,cif.ilike.%${t}%,nif.ilike.%${t}%`
-    ).join(',')
-
-    const { data: clients } = await supabase
-      .from('clients')
-      .select('id, name, cif_nif, cif, nif')
-      .or(orClauses)
-      .limit(5)
-
-    matchedClients = clients || []
-  }
+  const matchedClients = await findClientByInvoiceData(
+    supabase,
+    docData.holder_name || '',
+    docData.cif || docData.nif || ''
+  )
 
   const label = typeLabels[docType].charAt(0).toUpperCase() + typeLabels[docType].slice(1)
 
@@ -1281,11 +1361,7 @@ async function handleConvoStep(msg: TelegramMessage, convo: ConversationState) {
     await sendChatAction(chatId, 'typing')
     const supabase = createBotSupabase()
 
-    const { data: clients } = await supabase
-      .from('clients')
-      .select('id, name, cif_nif')
-      .or(`name.ilike.%${text}%,cif_nif.ilike.%${text}%`)
-      .limit(5)
+    const clients = await searchClients(supabase, text)
 
     if (!clients?.length) {
       return sendMessage(chatId,
@@ -1312,11 +1388,7 @@ async function handleConvoStep(msg: TelegramMessage, convo: ConversationState) {
     await sendChatAction(chatId, 'typing')
     const supabase = createBotSupabase()
 
-    const { data: clients } = await supabase
-      .from('clients')
-      .select('id, name, cif_nif')
-      .or(`name.ilike.%${text}%,cif_nif.ilike.%${text}%`)
-      .limit(5)
+    const clients = await searchClients(supabase, text)
 
     if (!clients?.length) {
       return sendMessage(chatId,
@@ -1522,11 +1594,7 @@ async function handleSearch(chatId: number, query: string) {
   await sendChatAction(chatId, 'typing')
   const supabase = createBotSupabase()
 
-  const { data: clients } = await supabase
-    .from('clients')
-    .select('id, name, cif_nif, phone')
-    .or(`name.ilike.%${query}%,cif_nif.ilike.%${query}%`)
-    .limit(5)
+  const clients = await searchClients(supabase, query)
 
   const { data: supplies } = await supabase
     .from('supplies')
