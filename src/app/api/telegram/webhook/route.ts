@@ -473,7 +473,7 @@ async function handleDocumentFile(msg: TelegramMessage) {
       ? [msg.from.first_name, msg.from.username ? `(@${msg.from.username})` : ''].filter(Boolean).join(' ')
       : 'Desconocido'
 
-    const { error: insertError } = await supabase.from('telegram_inbox').insert({
+    const { data: insertedRow, error: insertError } = await supabase.from('telegram_inbox').insert({
       user_id: user.userId,
       chat_id: chatId,
       sender_name: senderName,
@@ -482,15 +482,22 @@ async function handleDocumentFile(msg: TelegramMessage) {
       file_name: dlFileName || fileName,
       status: 'pending',
       created_at: new Date().toISOString(),
-    })
+    }).select('id').single()
 
-    if (insertError) {
+    if (insertError || !insertedRow) {
       console.error('[Telegram] Insert error:', JSON.stringify(insertError))
-      return sendMessage(chatId, `❌ Error guardando: ${insertError.message || 'Error DB'}`)
+      return sendMessage(chatId, `❌ Error guardando: ${insertError?.message || 'Error DB'}`)
     }
 
+    // Trigger async processing — fire and forget
+    const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
+    fetch(`${APP_URL}/api/telegram/process`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ inbox_id: insertedRow.id }),
+    }).catch(err => console.error('[Telegram] Process trigger error:', err))
+
     // Notification Debounce (2.5s)
-    // Avoid sending multiple confirmation messages when receiving a batch of files
     const DEBOUNCE_MS = 2500
     const convo = await getConvo(chatId) || { step: 'idle', data: {}, expiresAt: 0 }
     const lastNotifAt = convo.data?.last_notif_at || 0
@@ -498,7 +505,7 @@ async function handleDocumentFile(msg: TelegramMessage) {
 
     if (now - lastNotifAt > DEBOUNCE_MS) {
       await setConvo(chatId, convo.step, { ...(convo.data || {}), last_notif_at: now })
-      return sendMessage(chatId, `📥 Recibido ✓ — El equipo lo procesará desde el panel.`)
+      return sendMessage(chatId, `📥 Recibido ✓ — Procesando automaticamente...`)
     }
 
   } catch (err: any) {

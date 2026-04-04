@@ -6,8 +6,6 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Upload, Check, AlertCircle, Loader2, CheckCircle,
   X, Zap, FileText, User, ArrowRight, Clipboard,
-  Send, Download, Trash2, CheckSquare, Square, Image,
-  ArrowLeft, RefreshCw, ExternalLink,
 } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
 import { createClient } from '@/lib/supabase/client'
@@ -16,27 +14,11 @@ import { normalizeCups } from '@/lib/utils/cups'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type Step = 'inbox' | 'client' | 'invoices' | 'analyzing' | 'review' | 'submitting' | 'success'
-
-interface TelegramFile {
-  id: string
-  user_id: string
-  chat_id: number
-  sender_name: string | null
-  file_url: string
-  file_type: 'pdf' | 'image'
-  file_name: string | null
-  status: string
-  created_at: string
-}
+type Step = 'client' | 'invoices' | 'analyzing' | 'review' | 'submitting' | 'success'
 
 interface UploadFile {
   id: string
-  file?: File
-  remoteUrl?: string
-  fileName: string
-  fileType: 'pdf' | 'image'
-  telegramInboxId?: string
+  file: File
   status: 'pending' | 'analyzing' | 'success' | 'error'
   extractedData?: any
   error?: string
@@ -54,18 +36,10 @@ interface ClientOption {
 export default function InboxPage() {
   const router = useRouter()
   const user = useAuthStore((s) => s.user)
-  const isAdmin = useAuthStore((s) => s.isAdmin)
   const [supabase] = useState(() => createClient())
 
   // Flow state
-  const [step, setStep] = useState<Step>('inbox')
-  const [mode, setMode] = useState<'telegram' | 'manual'>('telegram')
-
-  // Telegram inbox
-  const [telegramFiles, setTelegramFiles] = useState<TelegramFile[]>([])
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [loadingInbox, setLoadingInbox] = useState(true)
-  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set())
+  const [step, setStep] = useState<Step>('client')
 
   // Client selection
   const [clients, setClients] = useState<ClientOption[]>([])
@@ -75,7 +49,7 @@ export default function InboxPage() {
   const [newClientName, setNewClientName] = useState('')
   const clientInputRef = useRef<HTMLInputElement>(null)
 
-  // Working files (unified for both telegram and manual)
+  // Invoice files
   const [files, setFiles] = useState<UploadFile[]>([])
   const [scanProgress, setScanProgress] = useState({ done: 0, total: 0 })
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -92,21 +66,6 @@ export default function InboxPage() {
   const [successSupplyId, setSuccessSupplyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // ── Load Telegram inbox ──
-  const fetchInbox = useCallback(async () => {
-    setLoadingInbox(true)
-    const { data } = await supabase
-      .from('telegram_inbox')
-      .select('*')
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false })
-    setTelegramFiles((data as TelegramFile[]) || [])
-    setLoadingInbox(false)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  useEffect(() => { fetchInbox() }, [fetchInbox])
-
   // ── Load clients ──
   useEffect(() => {
     const load = async () => {
@@ -117,94 +76,8 @@ export default function InboxPage() {
       setClients(data || [])
     }
     load()
-  }, [supabase])
-
-  // ── Selection helpers ──
-  const toggleSelect = (id: string) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id); else next.add(id)
-      return next
-    })
-  }
-
-  const toggleSelectAll = () => {
-    if (selectedIds.size === telegramFiles.length) {
-      setSelectedIds(new Set())
-    } else {
-      setSelectedIds(new Set(telegramFiles.map(f => f.id)))
-    }
-  }
-
-  // ── Delete Telegram files ──
-  const deleteSelected = async () => {
-    const ids = Array.from(selectedIds)
-    if (!ids.length) return
-    setDeletingIds(new Set(ids))
-
-    for (const id of ids) {
-      const file = telegramFiles.find(f => f.id === id)
-      if (!file) continue
-      // Try to remove from storage
-      try {
-        const url = new URL(file.file_url)
-        const pathMatch = url.pathname.match(/\/storage\/v1\/object\/public\/documents\/(.+)/)
-        if (pathMatch) {
-          await supabase.storage.from('documents').remove([pathMatch[1]])
-        }
-      } catch {}
-      await supabase.from('telegram_inbox').delete().eq('id', id)
-    }
-
-    setTelegramFiles(prev => prev.filter(f => !ids.includes(f.id)))
-    setSelectedIds(new Set())
-    setDeletingIds(new Set())
-  }
-
-  // ── Delete single file ──
-  const deleteSingle = async (id: string) => {
-    setDeletingIds(new Set([id]))
-    const file = telegramFiles.find(f => f.id === id)
-    if (file) {
-      try {
-        const url = new URL(file.file_url)
-        const pathMatch = url.pathname.match(/\/storage\/v1\/object\/public\/documents\/(.+)/)
-        if (pathMatch) {
-          await supabase.storage.from('documents').remove([pathMatch[1]])
-        }
-      } catch {}
-      await supabase.from('telegram_inbox').delete().eq('id', id)
-    }
-    setTelegramFiles(prev => prev.filter(f => f.id !== id))
-    setSelectedIds(prev => { const next = new Set(prev); next.delete(id); return next })
-    setDeletingIds(new Set())
-  }
-
-  // ── Start analysis from Telegram files ──
-  const startFromTelegram = () => {
-    const selected = telegramFiles.filter(f => selectedIds.has(f.id))
-    if (!selected.length) return
-
-    const workingFiles: UploadFile[] = selected.map(tf => ({
-      id: tf.id,
-      remoteUrl: tf.file_url,
-      fileName: tf.file_name || 'documento',
-      fileType: tf.file_type as 'pdf' | 'image',
-      telegramInboxId: tf.id,
-      status: 'pending',
-    }))
-
-    setFiles(workingFiles)
-    setMode('telegram')
-    setStep('client')
-  }
-
-  // ── Start manual upload flow ──
-  const startManual = () => {
-    setFiles([])
-    setMode('manual')
-    setStep('client')
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ── Filtered clients ──
   const filteredClients = clientSearch.trim()
@@ -216,19 +89,12 @@ export default function InboxPage() {
 
   const showNewClientButton = clientSearch.trim().length >= 2 && filteredClients.length === 0
 
-  // ── Select client (then go to analyze or invoices) ──
+  // ── Select client ──
   const handleSelectClient = (client: ClientOption) => {
     setSelectedClient(client)
     setClientSearch('')
     setCreatingNewClient(false)
-    if (mode === 'telegram') {
-      // Files already loaded from Telegram — go straight to analysis
-      setStep('analyzing')
-      // Trigger analysis after state update
-      setTimeout(() => runAnalysis(), 50)
-    } else {
-      setStep('invoices')
-    }
+    setStep('invoices')
   }
 
   // ── Create new client ──
@@ -251,12 +117,7 @@ export default function InboxPage() {
         setClients(prev => [data, ...prev])
         setSelectedClient(data)
         setNewClientName('')
-        if (mode === 'telegram') {
-          setStep('analyzing')
-          setTimeout(() => runAnalysis(), 50)
-        } else {
-          setStep('invoices')
-        }
+        setStep('invoices')
       }
     } catch (err) {
       console.error('Error creating client:', err)
@@ -265,21 +126,21 @@ export default function InboxPage() {
     }
   }
 
-  // ── Manual file handling ──
+  // ── File handling ──
   const addFiles = (fileList: File[]) => {
     const valid = fileList.filter(f => f.type === 'application/pdf' || f.type.startsWith('image/'))
     if (!valid.length) return
     const newFiles: UploadFile[] = valid.map(f => ({
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       file: f,
-      fileName: f.name,
-      fileType: f.type.startsWith('image') ? 'image' as const : 'pdf' as const,
-      status: 'pending' as const,
+      status: 'pending',
     }))
     setFiles(prev => [...prev, ...newFiles])
   }
 
-  const removeFile = (id: string) => setFiles(prev => prev.filter(f => f.id !== id))
+  const removeFile = (id: string) => {
+    setFiles(prev => prev.filter(f => f.id !== id))
+  }
 
   // ── Paste handler ──
   useEffect(() => {
@@ -295,7 +156,10 @@ export default function InboxPage() {
           if (file) pastedFiles.push(file)
         }
       }
-      if (pastedFiles.length > 0) { e.preventDefault(); addFiles(pastedFiles) }
+      if (pastedFiles.length > 0) {
+        e.preventDefault()
+        addFiles(pastedFiles)
+      }
     }
     window.addEventListener('paste', handlePaste)
     return () => window.removeEventListener('paste', handlePaste)
@@ -305,10 +169,11 @@ export default function InboxPage() {
   const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation() }
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault(); e.stopPropagation()
-    addFiles(Array.from(e.dataTransfer.files))
+    const droppedFiles = Array.from(e.dataTransfer.files)
+    addFiles(droppedFiles)
   }
 
-  // ── Read local file as base64 ──
+  // ── Read file as base64 ──
   const readFileAsBase64 = (file: File): Promise<string> =>
     new Promise((resolve, reject) => {
       const reader = new FileReader()
@@ -317,82 +182,62 @@ export default function InboxPage() {
       reader.readAsDataURL(file)
     })
 
-  // ── Fetch remote file (Telegram URL) as base64 ──
-  const fetchUrlAsBase64 = async (url: string): Promise<string> => {
-    const res = await fetch(url)
-    const blob = await res.blob()
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve((reader.result as string).split(',')[1])
-      reader.onerror = reject
-      reader.readAsDataURL(blob)
-    })
-  }
-
-  // ── Analyze all files (unified for both modes) ──
-  const runAnalysis = async () => {
-    // Use ref to get latest files since this might be called from setTimeout
-    const currentFiles = files.length > 0 ? files : []
-    if (currentFiles.length === 0) return
+  // ── Analyze all files ──
+  const startAnalysis = async () => {
+    if (files.length === 0) return
     setStep('analyzing')
     setError(null)
-    setScanProgress({ done: 0, total: currentFiles.length })
+    setScanProgress({ done: 0, total: files.length })
 
     let firstData: any = null
 
-    const getBase64 = async (uf: UploadFile): Promise<string> => {
-      if (uf.file) return readFileAsBase64(uf.file)
-      if (uf.remoteUrl) return fetchUrlAsBase64(uf.remoteUrl)
-      throw new Error('No file source')
-    }
-
-    // Analyze first file
-    const first = currentFiles[0]
-    setFiles(prev => prev.map(f => f.id === first.id ? { ...f, status: 'analyzing' as const } : f))
+    // Analyze first file immediately
+    const first = files[0]
+    setFiles(prev => prev.map(f => f.id === first.id ? { ...f, status: 'analyzing' } : f))
     try {
-      const b64 = await getBase64(first)
+      const b64 = await readFileAsBase64(first.file)
       const res = await fetch('/api/analyze-invoice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           file_base64: b64,
-          file_type: first.fileType === 'image' ? 'image' : 'pdf',
-          file_name: first.fileName,
+          file_type: first.file.type.startsWith('image') ? 'image' : 'pdf',
+          file_name: first.file.name,
         }),
       })
       if (!res.ok) throw new Error('Analysis failed')
       firstData = await res.json()
-      setFiles(prev => prev.map(f => f.id === first.id ? { ...f, status: 'success' as const, extractedData: firstData } : f))
+      setFiles(prev => prev.map(f => f.id === first.id ? { ...f, status: 'success', extractedData: firstData } : f))
     } catch {
-      setFiles(prev => prev.map(f => f.id === first.id ? { ...f, status: 'error' as const, error: 'Error al analizar' } : f))
+      setFiles(prev => prev.map(f => f.id === first.id ? { ...f, status: 'error', error: 'Error al analizar' } : f))
     }
-    setScanProgress({ done: 1, total: currentFiles.length })
+    setScanProgress({ done: 1, total: files.length })
 
     // Analyze rest in parallel batches of 3
-    const rest = currentFiles.slice(1)
+    const rest = files.slice(1)
     for (let i = 0; i < rest.length; i += 3) {
       const batch = rest.slice(i, i + 3)
       await Promise.allSettled(batch.map(async (uf) => {
-        setFiles(prev => prev.map(f => f.id === uf.id ? { ...f, status: 'analyzing' as const } : f))
+        setFiles(prev => prev.map(f => f.id === uf.id ? { ...f, status: 'analyzing' } : f))
         try {
-          const b64 = await getBase64(uf)
+          const b64 = await readFileAsBase64(uf.file)
           const res = await fetch('/api/analyze-invoice', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               file_base64: b64,
-              file_type: uf.fileType === 'image' ? 'image' : 'pdf',
-              file_name: uf.fileName,
+              file_type: uf.file.type.startsWith('image') ? 'image' : 'pdf',
+              file_name: uf.file.name,
             }),
           })
           if (!res.ok) throw new Error()
           const data = await res.json()
-          setFiles(prev => prev.map(f => f.id === uf.id ? { ...f, status: 'success' as const, extractedData: data } : f))
+          setFiles(prev => prev.map(f => f.id === uf.id ? { ...f, status: 'success', extractedData: data } : f))
         } catch {
-          setFiles(prev => prev.map(f => f.id === uf.id ? { ...f, status: 'error' as const, error: 'Error' } : f))
+          setFiles(prev => prev.map(f => f.id === uf.id ? { ...f, status: 'error', error: 'Error' } : f))
         }
       }))
-      setScanProgress(prev => ({ ...prev, done: Math.min(prev.done + batch.length, currentFiles.length) }))
+      setScanProgress(prev => ({ ...prev, done: Math.min(prev.done + batch.length, files.length) }))
     }
 
     // Build review from first analyzed data
@@ -402,6 +247,7 @@ export default function InboxPage() {
     setExtractedAddress(firstData?.supply_address || firstData?.billing_address || null)
     setExtractedHolder(firstData?.holder_name || firstData?.economics?.titular || null)
 
+    // Check if CUPS already exists
     if (cups) {
       try {
         const checkRes = await fetch('/api/check-cups', {
@@ -429,40 +275,22 @@ export default function InboxPage() {
       const clientId = selectedClient.id
       const normalizedCups = extractedCups ? normalizeCups(extractedCups) : null
 
-      // Helper: create invoice record
-      const createInvoice = async (supplyId: string, uf: UploadFile) => {
-        if (uf.remoteUrl) {
-          // Telegram file — already in Supabase storage
-          await supabase.from('invoices').insert({
-            supply_id: supplyId,
-            file_url: uf.remoteUrl,
-            file_type: uf.fileType === 'image' ? 'image' : 'pdf',
-            extraction_status: 'completed',
-            extracted_data: uf.extractedData,
-          })
-        } else if (uf.file) {
-          // Manual upload
-          const uid = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-          const path = `invoices/${user!.id}/${uid}-${uf.file.name}`
-          const { error: upErr } = await supabase.storage.from('documents').upload(path, uf.file)
-          if (upErr) { console.error(upErr); return }
-          const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path)
-          await supabase.from('invoices').insert({
-            supply_id: supplyId,
-            file_url: urlData.publicUrl,
-            file_type: uf.fileType === 'image' ? 'image' : 'pdf',
-            extraction_status: 'completed',
-            extracted_data: uf.extractedData,
-          })
-        }
-      }
-
       // If CUPS exists, add invoices to existing supply
       if (existingSupply) {
         for (const uf of files.filter(f => f.status === 'success')) {
-          await createInvoice(existingSupply.id, uf)
+          const uid = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+          const path = `invoices/${user.id}/${uid}-${uf.file.name}`
+          const { error: upErr } = await supabase.storage.from('documents').upload(path, uf.file)
+          if (upErr) { console.error(upErr); continue }
+          const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path)
+          await supabase.from('invoices').insert({
+            supply_id: existingSupply.id,
+            file_url: urlData.publicUrl,
+            file_type: uf.file.type.startsWith('image') ? 'image' : 'pdf',
+            extraction_status: 'completed',
+            extracted_data: uf.extractedData,
+          })
         }
-        await markTelegramProcessed()
         setSuccessSupplyId(existingSupply.id)
         setStep('success')
         return
@@ -484,16 +312,26 @@ export default function InboxPage() {
 
       if (supplyErr || !supply) throw new Error(supplyErr?.message || 'Error creando suministro')
 
+      // Upload all successful files
       for (const uf of files.filter(f => f.status === 'success')) {
-        await createInvoice(supply.id, uf)
+        const uid = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+        const path = `invoices/${user.id}/${uid}-${uf.file.name}`
+        const { error: upErr } = await supabase.storage.from('documents').upload(path, uf.file)
+        if (upErr) { console.error(upErr); continue }
+        const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path)
+        await supabase.from('invoices').insert({
+          supply_id: supply.id,
+          file_url: urlData.publicUrl,
+          file_type: uf.file.type.startsWith('image') ? 'image' : 'pdf',
+          extraction_status: 'completed',
+          extracted_data: uf.extractedData,
+        })
       }
 
-      await markTelegramProcessed()
-
-      // Create prescoring if needed
+      // Create prescoring — only for tariffs that need it (skip 2.0 tariffs)
       const tariffNorm = (extractedTariff || '').replace(/\s+/g, '').toUpperCase()
-      const skip20 = tariffNorm.startsWith('2.0') || tariffNorm === '20TD' || tariffNorm === '20' || tariffNorm === '202020' || tariffNorm === '2.0DHA' || tariffNorm === '20DHA'
-      if (!skip20) {
+      const needsPrescoring = !tariffNorm.startsWith('2.0') && tariffNorm !== '20TD' && tariffNorm !== '20' && tariffNorm !== '202020' && tariffNorm !== '2.0DHA' && tariffNorm !== '20DHA'
+      if (needsPrescoring) {
         await supabase.from('prescorings').insert({
           supply_id: supply.id,
           client_name: extractedHolder || selectedClient.name,
@@ -504,7 +342,7 @@ export default function InboxPage() {
         })
       }
 
-      // Background SIPS fetch
+      // Background: fetch SIPS + power study
       if (normalizedCups) {
         fetchSipsBackground(supply.id, normalizedCups, clientId, extractedHolder || selectedClient.name)
       }
@@ -514,18 +352,6 @@ export default function InboxPage() {
     } catch (err: any) {
       setError(err.message || 'Error al crear suministro')
       setStep('review')
-    }
-  }
-
-  // ── Mark telegram inbox files as processed ──
-  const markTelegramProcessed = async () => {
-    const telegramIds = files.filter(f => f.telegramInboxId).map(f => f.telegramInboxId!)
-    if (!telegramIds.length) return
-    for (const id of telegramIds) {
-      await supabase
-        .from('telegram_inbox')
-        .update({ status: 'processed', processed_at: new Date().toISOString() })
-        .eq('id', id)
     }
   }
 
@@ -582,13 +408,11 @@ export default function InboxPage() {
 
   // ── Reset ──
   const reset = () => {
-    setStep('inbox')
-    setMode('telegram')
+    setStep('client')
     setSelectedClient(null)
     setClientSearch('')
     setNewClientName('')
     setFiles([])
-    setSelectedIds(new Set())
     setExtractedCups(null)
     setExtractedTariff(null)
     setExtractedAddress(null)
@@ -596,205 +420,47 @@ export default function InboxPage() {
     setExistingSupply(null)
     setSuccessSupplyId(null)
     setError(null)
-    fetchInbox()
-  }
-
-  // ── Go back ──
-  const goBack = () => {
-    if (step === 'client') { reset(); return }
-    if (step === 'invoices') { setStep('client'); return }
-    if (step === 'review') {
-      if (mode === 'telegram') setStep('client')
-      else setStep('invoices')
-    }
   }
 
   const successCount = files.filter(f => f.status === 'success').length
 
-  // ── Time ago ──
-  const timeAgo = (dateStr: string) => {
-    const diff = Date.now() - new Date(dateStr).getTime()
-    const mins = Math.floor(diff / 60000)
-    if (mins < 1) return 'ahora'
-    if (mins < 60) return `hace ${mins}m`
-    const hours = Math.floor(mins / 60)
-    if (hours < 24) return `hace ${hours}h`
-    return `hace ${Math.floor(hours / 24)}d`
-  }
-
   // ═══════════════════════════════════════════════════════════════════════════
   return (
     <div className="min-h-screen bg-surface">
-      <Header
-        title={step === 'inbox' ? 'Bandeja de Entrada' : 'Procesar Documentos'}
-        subtitle={step === 'inbox' ? 'Documentos recibidos por Telegram' : 'Selecciona cliente y analiza'}
-      />
+      <Header title="Agregar Suministro" subtitle="Crea un suministro con sus facturas" />
 
       <div className="px-4 lg:px-8 py-6 max-w-xl mx-auto">
 
-        {/* ═══ MAIN VIEW: TELEGRAM INBOX ═══ */}
-        {step === 'inbox' && (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
-
-            {/* Actions bar */}
-            {telegramFiles.length > 0 && (
-              <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  onClick={toggleSelectAll}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium text-on-surface-variant hover:bg-surface-container-high transition"
-                >
-                  {selectedIds.size === telegramFiles.length
-                    ? <CheckSquare className="w-3.5 h-3.5 text-primary" />
-                    : <Square className="w-3.5 h-3.5" />
-                  }
-                  {selectedIds.size === telegramFiles.length ? 'Deseleccionar' : 'Seleccionar todo'}
-                </button>
-
-                <div className="flex-1" />
-
-                {selectedIds.size > 0 && (
-                  <>
-                    <button
-                      onClick={deleteSelected}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium text-error/80 hover:bg-error/5 transition"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      Eliminar ({selectedIds.size})
-                    </button>
-                    <button
-                      onClick={startFromTelegram}
-                      className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold text-white gradient-primary transition hover:opacity-90 active:scale-[0.98]"
-                    >
-                      <Zap className="w-3.5 h-3.5" />
-                      Analizar ({selectedIds.size})
-                    </button>
-                  </>
-                )}
-
-                <button
-                  onClick={fetchInbox}
-                  className="p-2 rounded-xl text-on-surface-variant hover:bg-surface-container-high transition"
-                  title="Refrescar"
-                >
-                  <RefreshCw className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-
-            {/* File list */}
-            {loadingInbox ? (
-              <div className="flex flex-col items-center py-16 gap-3">
-                <Loader2 className="w-6 h-6 text-primary animate-spin" />
-                <p className="text-sm text-on-surface-variant">Cargando documentos...</p>
-              </div>
-            ) : telegramFiles.length === 0 ? (
-              <div className="flex flex-col items-center py-16 gap-4">
-                <div className="w-16 h-16 rounded-2xl bg-surface-container-high flex items-center justify-center">
-                  <Send className="w-7 h-7 text-on-surface-variant/50" />
+        {/* ── Step indicator ── */}
+        <div className="flex items-center gap-2 mb-8">
+          {['Cliente', 'Facturas', 'Revisar'].map((label, i) => {
+            const stepIdx = i === 0 ? 'client' : i === 1 ? 'invoices' : 'review'
+            const stepOrder = ['client', 'invoices', 'analyzing', 'review', 'submitting', 'success']
+            const currentIdx = stepOrder.indexOf(step)
+            const thisIdx = stepOrder.indexOf(stepIdx)
+            const isDone = currentIdx > thisIdx
+            const isCurrent = step === stepIdx || (i === 2 && ['review', 'analyzing', 'submitting', 'success'].includes(step))
+            return (
+              <div key={label} className="flex items-center gap-2 flex-1">
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+                  isDone ? 'bg-primary text-white' :
+                  isCurrent ? 'bg-primary/20 text-primary border-2 border-primary' :
+                  'bg-surface-container-high text-on-surface-variant'
+                }`}>
+                  {isDone ? <Check className="w-3.5 h-3.5" /> : i + 1}
                 </div>
-                <div className="text-center">
-                  <p className="text-sm font-medium text-on-surface">No hay documentos pendientes</p>
-                  <p className="text-xs text-on-surface-variant mt-1">
-                    Los comerciales pueden enviar facturas por Telegram
-                  </p>
-                </div>
+                <span className={`text-xs font-medium ${isCurrent || isDone ? 'text-on-surface' : 'text-on-surface-variant'}`}>
+                  {label}
+                </span>
+                {i < 2 && <div className={`flex-1 h-px ${isDone ? 'bg-primary' : 'bg-outline-variant/30'}`} />}
               </div>
-            ) : (
-              <div className="bg-surface-container-low rounded-2xl border border-outline-variant/20 overflow-hidden divide-y divide-outline-variant/10">
-                {telegramFiles.map(tf => {
-                  const isSelected = selectedIds.has(tf.id)
-                  const isDeleting = deletingIds.has(tf.id)
-                  return (
-                    <div
-                      key={tf.id}
-                      onClick={() => toggleSelect(tf.id)}
-                      className={`flex items-center gap-3 px-4 py-3 transition-all cursor-pointer ${
-                        isSelected ? 'bg-primary/5' : 'hover:bg-surface-container-high'
-                      } ${isDeleting ? 'opacity-40 pointer-events-none' : ''}`}
-                    >
-                      {/* Checkbox */}
-                      <div className="flex-shrink-0">
-                        {isSelected
-                          ? <CheckSquare className="w-5 h-5 text-primary" />
-                          : <Square className="w-5 h-5 text-on-surface-variant/40" />
-                        }
-                      </div>
+            )
+          })}
+        </div>
 
-                      {/* Icon */}
-                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                        tf.file_type === 'pdf' ? 'bg-red-500/10' : 'bg-blue-500/10'
-                      }`}>
-                        {tf.file_type === 'pdf'
-                          ? <FileText className="w-4 h-4 text-red-500" />
-                          : <Image className="w-4 h-4 text-blue-500" />
-                        }
-                      </div>
-
-                      {/* Info */}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-on-surface truncate">
-                          {tf.file_name || 'Documento'}
-                        </p>
-                        <p className="text-xs text-on-surface-variant truncate">
-                          {tf.sender_name || 'Comercial'} &middot; {timeAgo(tf.created_at)}
-                        </p>
-                      </div>
-
-                      {/* Quick actions */}
-                      <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
-                        <a
-                          href={tf.file_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="p-1.5 rounded-lg hover:bg-surface-container-high transition"
-                          title="Ver / Descargar"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5 text-on-surface-variant" />
-                        </a>
-                        <button
-                          onClick={() => deleteSingle(tf.id)}
-                          className="p-1.5 rounded-lg hover:bg-error/5 transition"
-                          title="Eliminar"
-                        >
-                          <Trash2 className="w-3.5 h-3.5 text-on-surface-variant hover:text-error" />
-                        </button>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-
-            {/* Manual upload */}
-            <div className="pt-2">
-              <button
-                onClick={startManual}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl border-2 border-dashed border-outline-variant/30 hover:border-primary/40 hover:bg-primary/[0.02] transition-all text-on-surface-variant hover:text-primary"
-              >
-                <Plus className="w-4 h-4" />
-                <span className="text-sm font-medium">Subir facturas manualmente</span>
-              </button>
-            </div>
-          </motion.div>
-        )}
-
-        {/* ═══ STEP: CLIENT SELECTION ═══ */}
+        {/* ═══ STEP 1: CLIENT SELECTION ═══ */}
         {step === 'client' && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
-            <button onClick={goBack} className="flex items-center gap-1 text-xs text-on-surface-variant hover:text-on-surface transition">
-              <ArrowLeft className="w-3.5 h-3.5" /> Volver a bandeja
-            </button>
-
-            {/* Telegram badge */}
-            {mode === 'telegram' && files.length > 0 && (
-              <div className="flex items-center gap-2 px-3 py-2 bg-[#2AABEE]/5 rounded-xl border border-[#2AABEE]/20">
-                <Send className="w-4 h-4 text-[#2AABEE]" />
-                <span className="text-xs font-medium text-on-surface">
-                  {files.length} documento{files.length !== 1 ? 's' : ''} de Telegram
-                </span>
-              </div>
-            )}
-
             <div>
               <label className="text-xs font-semibold text-on-surface-variant tracking-wider mb-2 block">
                 SELECCIONA O CREA UN CLIENTE
@@ -879,7 +545,7 @@ export default function InboxPage() {
           </motion.div>
         )}
 
-        {/* ═══ STEP: MANUAL INVOICES UPLOAD ═══ */}
+        {/* ═══ STEP 2: INVOICES UPLOAD ═══ */}
         {step === 'invoices' && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
             <div className="flex items-center gap-2 px-3 py-2 bg-primary/5 rounded-xl border border-primary/20">
@@ -903,7 +569,7 @@ export default function InboxPage() {
               </div>
               <div className="text-center">
                 <p className="text-sm font-medium text-on-surface">Arrastra facturas o haz click</p>
-                <p className="text-xs text-on-surface-variant mt-1">PDF o imagenes &middot; <span className="text-primary font-medium">Ctrl+V</span> para pegar</p>
+                <p className="text-xs text-on-surface-variant mt-1">PDF o imagenes. Tambien puedes <span className="text-primary font-medium">pegar (Ctrl+V)</span> desde el portapapeles</p>
               </div>
             </div>
             <input ref={fileInputRef} type="file" multiple accept=".pdf,image/*" className="hidden"
@@ -914,8 +580,8 @@ export default function InboxPage() {
                 {files.map(f => (
                   <div key={f.id} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-surface-container-low">
                     <FileText className="w-4 h-4 text-on-surface-variant flex-shrink-0" />
-                    <span className="text-xs text-on-surface truncate flex-1">{f.fileName}</span>
-                    <span className="text-[10px] text-on-surface-variant">{f.file ? `${(f.file.size / 1024).toFixed(0)} KB` : ''}</span>
+                    <span className="text-xs text-on-surface truncate flex-1">{f.file.name}</span>
+                    <span className="text-[10px] text-on-surface-variant">{(f.file.size / 1024).toFixed(0)} KB</span>
                     <button onClick={() => removeFile(f.id)} className="p-1 rounded-lg hover:bg-surface-container-high transition">
                       <X className="w-3 h-3 text-on-surface-variant" />
                     </button>
@@ -925,12 +591,12 @@ export default function InboxPage() {
             )}
 
             <div className="flex gap-3 pt-2">
-              <button onClick={goBack}
+              <button onClick={() => setStep('client')}
                 className="px-4 py-2.5 rounded-xl text-sm text-on-surface-variant hover:bg-surface-container-high transition">
                 Atras
               </button>
               <button
-                onClick={runAnalysis}
+                onClick={startAnalysis}
                 disabled={files.length === 0}
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white gradient-primary disabled:opacity-40 transition hover:opacity-90 active:scale-[0.98]"
               >
@@ -941,7 +607,7 @@ export default function InboxPage() {
           </motion.div>
         )}
 
-        {/* ═══ ANALYZING ═══ */}
+        {/* ═══ STEP 3: ANALYZING ═══ */}
         {step === 'analyzing' && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center py-16 gap-4">
             <div className="relative">
@@ -957,7 +623,7 @@ export default function InboxPage() {
           </motion.div>
         )}
 
-        {/* ═══ REVIEW ═══ */}
+        {/* ═══ STEP 4: REVIEW ═══ */}
         {step === 'review' && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
             {existingSupply && (
@@ -966,7 +632,7 @@ export default function InboxPage() {
                 <div>
                   <p className="text-sm font-medium text-amber-800">CUPS ya existe en el sistema</p>
                   <p className="text-xs text-amber-600 mt-0.5">
-                    Las facturas se a&ntilde;adiran al suministro existente.
+                    Cliente: {existingSupply.client_name} — Las facturas se a&ntilde;adiran al suministro existente.
                   </p>
                 </div>
               </div>
@@ -1007,7 +673,7 @@ export default function InboxPage() {
                     ) : (
                       <Loader2 className="w-3.5 h-3.5 text-primary animate-spin" />
                     )}
-                    <span className="text-on-surface truncate">{f.fileName}</span>
+                    <span className="text-on-surface truncate">{f.file.name}</span>
                   </div>
                 ))}
               </div>
@@ -1020,7 +686,7 @@ export default function InboxPage() {
             )}
 
             <div className="flex gap-3 pt-2">
-              <button onClick={goBack}
+              <button onClick={() => setStep('invoices')}
                 className="px-4 py-2.5 rounded-xl text-sm text-on-surface-variant hover:bg-surface-container-high transition">
                 Atras
               </button>
@@ -1030,15 +696,9 @@ export default function InboxPage() {
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white gradient-primary disabled:opacity-40 transition hover:opacity-90 active:scale-[0.98]"
               >
                 {existingSupply ? (
-                  <>
-                    <Plus className="w-4 h-4" />
-                    A&ntilde;adir facturas
-                  </>
+                  <><Plus className="w-4 h-4" /> A&ntilde;adir facturas</>
                 ) : (
-                  <>
-                    <Zap className="w-4 h-4" />
-                    Crear suministro
-                  </>
+                  <><Zap className="w-4 h-4" /> Crear suministro</>
                 )}
               </button>
             </div>
@@ -1065,15 +725,13 @@ export default function InboxPage() {
             <p className="text-lg font-bold text-on-surface">
               {existingSupply ? 'Facturas a\u00f1adidas' : 'Suministro creado'}
             </p>
-            {extractedCups && (
-              <p className="text-sm text-on-surface-variant text-center">
-                <span className="font-mono text-xs">{extractedCups}</span>
-              </p>
-            )}
+            <p className="text-sm text-on-surface-variant text-center">
+              {extractedCups && <span className="font-mono text-xs">{extractedCups}</span>}
+            </p>
             <div className="flex gap-3 mt-4">
               <button onClick={reset}
                 className="px-5 py-2.5 rounded-xl text-sm font-medium text-on-surface-variant hover:bg-surface-container-high transition border border-outline-variant/30">
-                Volver a bandeja
+                Agregar otro
               </button>
               {successSupplyId && (
                 <button onClick={() => router.push(`/supplies/${successSupplyId}`)}
