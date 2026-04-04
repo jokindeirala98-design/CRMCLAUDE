@@ -293,7 +293,7 @@ export default function SupplyDetailPage() {
     return () => clearTimeout(timer)
   }, [supply]) // re-run once supply data loads
 
-  // ── Bulk signing state ──
+  // ── Bulk transition state (used for both 'presentado' cascade and 'firmado' bulk signing) ──
   const [showBulkSign, setShowBulkSign] = useState(false)
   const [bulkSignSelected, setBulkSignSelected] = useState<Set<string>>(new Set())
   const [bulkSigning, setBulkSigning] = useState(false)
@@ -302,9 +302,25 @@ export default function SupplyDetailPage() {
   const handleTransition = async (nextStatus: SupplyStatus) => {
     if (updating) return
 
+    // If transitioning to 'presentado' and client has other supplies with completed studies,
+    // cascade — mark them all as presentado
+    if (nextStatus === 'presentado' && siblingSupplies.length > 1) {
+      const eligibleStatuses = new Set(['estudio_completado'])
+      const eligibleIds = new Set(
+        siblingSupplies
+          .filter(s => eligibleStatuses.has(s.status))
+          .map(s => s.id)
+      )
+      if (eligibleIds.size > 0) {
+        setBulkSignSelected(eligibleIds)
+        setPendingTransition(nextStatus)
+        setShowBulkSign(true)
+        return
+      }
+    }
+
     // If transitioning to 'firmado' and client has other supplies, show bulk sign modal
     if (nextStatus === 'firmado' && siblingSupplies.length > 1) {
-      // Pre-select all sibling supplies that are NOT already signed/subscribed/following
       const alreadySigned = new Set(['firmado', 'suscrito', 'seguimiento_activo'])
       const eligibleIds = new Set(
         siblingSupplies
@@ -318,27 +334,60 @@ export default function SupplyDetailPage() {
     }
 
     setUpdating(true)
-    const supabase = createClient()
-    await supabase
-      .from('supplies')
-      .update({ status: nextStatus, updated_at: new Date().toISOString() })
-      .eq('id', id)
-    await fetchSupply()
+    try {
+      const supabase = createClient()
+      const { error } = await supabase
+        .from('supplies')
+        .update({ status: nextStatus, updated_at: new Date().toISOString() })
+        .eq('id', id)
+      if (error) {
+        showNotification(`Error: ${error.message}`, 'error')
+      } else {
+        showNotification(`Estado actualizado a "${nextStatus}"`, 'success')
+        // Bidirectional sync: mark related panel notifications as read
+        if (nextStatus === 'presentado') {
+          await supabase
+            .from('notifications')
+            .update({ read: true })
+            .eq('type', 'estudio_completado')
+            .contains('metadata', { supply_id: id })
+        }
+      }
+      await fetchSupply()
+    } catch (err: any) {
+      showNotification(`Error: ${err.message}`, 'error')
+    }
     setUpdating(false)
   }
 
   const handleBulkSign = async () => {
+    if (!pendingTransition) return
     setBulkSigning(true)
     const supabase = createClient()
     const ids = Array.from(bulkSignSelected)
+    const targetStatus = pendingTransition
     if (ids.length > 0) {
       for (const supplyId of ids) {
         await supabase
           .from('supplies')
-          .update({ status: 'firmado' as SupplyStatus, updated_at: new Date().toISOString() })
+          .update({ status: targetStatus, updated_at: new Date().toISOString() })
           .eq('id', supplyId)
+        // Bidirectional sync: mark related notifications as read when transitioning to presentado
+        if (targetStatus === 'presentado') {
+          await supabase
+            .from('notifications')
+            .update({ read: true })
+            .eq('type', 'estudio_completado')
+            .contains('metadata', { supply_id: supplyId })
+        }
       }
     }
+    showNotification(
+      targetStatus === 'presentado'
+        ? `${ids.length} suministro(s) marcado(s) como presentado`
+        : `${ids.length} suministro(s) firmado(s)`,
+      'success'
+    )
     setBulkSigning(false)
     setShowBulkSign(false)
     setPendingTransition(null)
@@ -1884,9 +1933,14 @@ export default function SupplyDetailPage() {
             <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
               {/* Header */}
               <div className="px-6 py-4 border-b border-outline-variant/15">
-                <h3 className="font-display font-semibold text-lg text-on-surface">Firma de contratos</h3>
+                <h3 className="font-display font-semibold text-lg text-on-surface">
+                  {pendingTransition === 'presentado' ? 'Marcar como presentado' : 'Firma de contratos'}
+                </h3>
                 <p className="text-xs text-on-surface-variant mt-1">
-                  Este cliente tiene {siblingSupplies.length} suministros. Selecciona los que quieres marcar como firmados bajo la misma suscripción.
+                  {pendingTransition === 'presentado'
+                    ? `Este cliente tiene ${siblingSupplies.length} suministros. Selecciona los que quieres marcar como presentados.`
+                    : `Este cliente tiene ${siblingSupplies.length} suministros. Selecciona los que quieres marcar como firmados bajo la misma suscripción.`
+                  }
                 </p>
               </div>
 
@@ -1894,7 +1948,10 @@ export default function SupplyDetailPage() {
               <div className="px-6 py-4 max-h-64 overflow-y-auto space-y-2">
                 {siblingSupplies.map(s => {
                   const isSelected = bulkSignSelected.has(s.id)
-                  const alreadySigned = ['firmado', 'suscrito', 'seguimiento_activo'].includes(s.status)
+                  const alreadyDone = pendingTransition === 'presentado'
+                    ? ['presentado', 'pendiente_firma', 'firmado', 'suscrito', 'seguimiento_activo'].includes(s.status)
+                    : ['firmado', 'suscrito', 'seguimiento_activo'].includes(s.status)
+                  const alreadySigned = alreadyDone
                   const SIcon = s.type === 'gas' ? Flame : s.type === 'telefonia' ? PhoneIcon : Zap
                   return (
                     <button
@@ -1939,7 +1996,9 @@ export default function SupplyDetailPage() {
                       </div>
 
                       {alreadySigned ? (
-                        <span className="text-[10px] text-success font-medium">Ya firmado</span>
+                        <span className="text-[10px] text-success font-medium">
+                          {pendingTransition === 'presentado' ? 'Ya presentado' : 'Ya firmado'}
+                        </span>
                       ) : (
                         <StatusBadge status={s.status} />
                       )}
@@ -1963,8 +2022,11 @@ export default function SupplyDetailPage() {
                     loading={bulkSigning}
                     disabled={bulkSignSelected.size === 0}
                   >
-                    <PenTool className="w-3.5 h-3.5" />
-                    Firmar seleccionados
+                    {pendingTransition === 'presentado' ? (
+                      <><ChevronRight className="w-3.5 h-3.5" /> Marcar presentados</>
+                    ) : (
+                      <><PenTool className="w-3.5 h-3.5" /> Firmar seleccionados</>
+                    )}
                   </Button>
                 </div>
               </div>

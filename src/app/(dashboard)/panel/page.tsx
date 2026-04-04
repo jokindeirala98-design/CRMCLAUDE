@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   Users, Zap, CreditCard, Euro, TrendingUp, AlertCircle,
   CheckCircle2, Clock, Activity, ChevronRight, FileBarChart2,
+  Circle, Check, Loader2,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Header } from '@/components/layout/Header'
@@ -297,6 +298,64 @@ export default function PanelPage() {
     }
   }, [user?.id])
 
+  // ── Dismiss notification (mark as read) ──
+  const [dismissingIds, setDismissingIds] = useState<Set<string>>(new Set())
+
+  const dismissNotification = async (notifId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setDismissingIds(prev => new Set(prev).add(notifId))
+    const supabase = createClient()
+
+    const notif = notifications.find(n => n.id === notifId)
+
+    // Mark notification as read
+    await supabase.from('notifications').update({ read: true }).eq('id', notifId)
+
+    // If it's an estudio_completado notification, auto-transition supply to presentado
+    if (notif?.type === 'estudio_completado' && (notif as any).metadata?.supply_id) {
+      const supplyId = (notif as any).metadata.supply_id
+      await supabase
+        .from('supplies')
+        .update({ status: 'presentado', updated_at: new Date().toISOString() })
+        .eq('id', supplyId)
+    }
+
+    // Remove from local state with animation
+    setNotifications(prev => prev.filter(n => n.id !== notifId))
+    setDismissingIds(prev => { const next = new Set(prev); next.delete(notifId); return next })
+  }
+
+  // ── Dismiss completed study (mark as presented) ──
+  const dismissStudy = async (study: any, e: React.MouseEvent) => {
+    e.stopPropagation()
+    const studyId = study.id
+    setDismissingIds(prev => new Set(prev).add(studyId))
+    const supabase = createClient()
+
+    // Transition supply to presentado
+    if (study.supply_id) {
+      await supabase
+        .from('supplies')
+        .update({ status: 'presentado', updated_at: new Date().toISOString() })
+        .eq('id', study.supply_id)
+
+      // Also mark any related estudio_completado notifications as read
+      await supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('type', 'estudio_completado')
+        .contains('metadata', { supply_id: study.supply_id })
+    }
+
+    // Remove from local state
+    setCompletedStudies(prev => prev.filter(s => s.id !== studyId))
+    // Also remove from notifications if duplicated there
+    setNotifications(prev => prev.filter(n =>
+      !(n.type === 'estudio_completado' && (n as any).metadata?.supply_id === study.supply_id)
+    ))
+    setDismissingIds(prev => { const next = new Set(prev); next.delete(studyId); return next })
+  }
+
   useEffect(() => {
     fetchMetrics()
     fetchTasks()
@@ -549,6 +608,7 @@ export default function PanelPage() {
                       key={notif.id}
                       initial={{ opacity: 0, x: -10 }}
                       animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: 20, height: 0 }}
                       className="p-3 bg-surface-container-low rounded-lg hover:bg-surface-container-high transition-colors cursor-pointer border border-transparent hover:border-outline-variant/20"
                       onClick={() => {
                         if (notif.link) {
@@ -557,7 +617,18 @@ export default function PanelPage() {
                       }}
                     >
                       <div className="flex items-start gap-3">
-                        <AlertCircle className="w-4 h-4 mt-0.5 text-amber-600 flex-shrink-0" />
+                        {/* Mark as done button */}
+                        <button
+                          onClick={(e) => dismissNotification(notif.id, e)}
+                          className="mt-0.5 flex-shrink-0 w-5 h-5 rounded-full border-2 border-amber-400 hover:bg-amber-400 hover:border-amber-400 flex items-center justify-center transition-all group/check"
+                          title="Marcar como hecho"
+                        >
+                          {dismissingIds.has(notif.id) ? (
+                            <Loader2 className="w-3 h-3 text-amber-400 animate-spin" />
+                          ) : (
+                            <Check className="w-3 h-3 text-transparent group-hover/check:text-white transition-colors" />
+                          )}
+                        </button>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-on-surface line-clamp-1">
                             {notif.title}
@@ -578,6 +649,7 @@ export default function PanelPage() {
                       key={study.id}
                       initial={{ opacity: 0, x: -10 }}
                       animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: 20, height: 0 }}
                       className="p-3 bg-green-50 rounded-lg hover:bg-green-100 transition-colors cursor-pointer border border-green-200/50 hover:border-green-300/50"
                       onClick={() => {
                         if (study.supply_id) {
@@ -586,7 +658,18 @@ export default function PanelPage() {
                       }}
                     >
                       <div className="flex items-start gap-3">
-                        <CheckCircle2 className="w-4 h-4 mt-0.5 text-green-600 flex-shrink-0" />
+                        {/* Mark as done button */}
+                        <button
+                          onClick={(e) => dismissStudy(study, e)}
+                          className="mt-0.5 flex-shrink-0 w-5 h-5 rounded-full border-2 border-green-500 hover:bg-green-500 hover:border-green-500 flex items-center justify-center transition-all group/check"
+                          title="Marcar como presentado"
+                        >
+                          {dismissingIds.has(study.id) ? (
+                            <Loader2 className="w-3 h-3 text-green-500 animate-spin" />
+                          ) : (
+                            <Check className="w-3 h-3 text-transparent group-hover/check:text-white transition-colors" />
+                          )}
+                        </button>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-green-900">
                             Estudio completado
@@ -631,19 +714,33 @@ export default function PanelPage() {
                   }}
                 >
                   <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-2">
-                        <FileBarChart2 className="w-5 h-5 text-green-600 flex-shrink-0" />
-                        <h3 className="font-semibold text-on-surface group-hover:text-primary transition-colors">
-                          Estudio Completado
-                        </h3>
+                    <div className="flex items-start gap-3 flex-1 min-w-0">
+                      {/* Mark as done button */}
+                      <button
+                        onClick={(e) => dismissStudy(study, e)}
+                        className="mt-1 flex-shrink-0 w-6 h-6 rounded-full border-2 border-green-500 hover:bg-green-500 hover:border-green-500 flex items-center justify-center transition-all group/check"
+                        title="Marcar como presentado"
+                      >
+                        {dismissingIds.has(study.id) ? (
+                          <Loader2 className="w-3.5 h-3.5 text-green-500 animate-spin" />
+                        ) : (
+                          <Check className="w-3.5 h-3.5 text-transparent group-hover/check:text-white transition-colors" />
+                        )}
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-2">
+                          <FileBarChart2 className="w-5 h-5 text-green-600 flex-shrink-0" />
+                          <h3 className="font-semibold text-on-surface group-hover:text-primary transition-colors">
+                            Estudio Completado
+                          </h3>
+                        </div>
+                        <p className="text-sm text-on-surface-variant mb-1">
+                          {study.supply?.client?.name || 'Cliente'}
+                        </p>
+                        <p className="text-xs font-mono text-on-surface-variant">
+                          {study.supply?.cups || 'CUPS desconocido'}
+                        </p>
                       </div>
-                      <p className="text-sm text-on-surface-variant mb-1">
-                        {study.supply?.client?.name || 'Cliente'}
-                      </p>
-                      <p className="text-xs font-mono text-on-surface-variant">
-                        {study.supply?.cups || 'CUPS desconocido'}
-                      </p>
                     </div>
                     <ChevronRight className="w-6 h-6 text-on-surface-variant group-hover:text-primary group-hover:translate-x-1 transition-all flex-shrink-0" />
                   </div>

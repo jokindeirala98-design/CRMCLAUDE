@@ -355,12 +355,17 @@ export async function analyzeInvoice(base64Data: string, mimeType: string): Prom
     if (tariff) {
       tariff = tariff.replace(/\s+/g, '').toUpperCase()
       const tariffMap: Record<string, string> = {
-        '2.0': '2.0TD', '20TD': '2.0TD', '2.0A': '2.0TD',
-        '3.0': '3.0TD', '30TD': '3.0TD', '3.0A': '3.0TD',
+        '2.0': '2.0TD', '20TD': '2.0TD', '2.0A': '2.0TD', '202020': '2.0TD', '2.0TD2.0TD': '2.0TD',
+        '3.0': '3.0TD', '30TD': '3.0TD', '3.0A': '3.0TD', '303030': '3.0TD',
         '6.1': '6.1TD', '61TD': '6.1TD', '6.1A': '6.1TD',
         '6.2': '6.2TD', '62TD': '6.2TD',
         '6.3': '6.3TD', '63TD': '6.3TD',
         '6.4': '6.4TD', '64TD': '6.4TD',
+        // Gas tariffs
+        'RL1': 'RL.1', 'RL.1': 'RL.1', 'RL01': 'RL.1',
+        'RL2': 'RL.2', 'RL.2': 'RL.2', 'RL02': 'RL.2',
+        'RL3': 'RL.3', 'RL.3': 'RL.3', 'RL03': 'RL.3',
+        'RL4': 'RL.4', 'RL.4': 'RL.4', 'RL04': 'RL.4',
       }
       tariff = tariffMap[tariff] || tariff
     }
@@ -372,6 +377,10 @@ export async function analyzeInvoice(base64Data: string, mimeType: string): Prom
       if (type.includes('electr') || type === 'electricidad') type = 'luz'
       if (type.includes('gas')) type = 'gas'
       if (type.includes('telef') || type.includes('fibra') || type.includes('movil')) type = 'telefonia'
+    }
+    // Auto-detect gas from RL tariffs if type wasn't set or was wrong
+    if (tariff && /^RL/i.test(tariff)) {
+      type = 'gas'
     }
 
     // Parse economics

@@ -265,9 +265,7 @@ function generateHTML(study: PowerStudyResult): string {
   .title-info .study-sub   { font-size:8pt; color:#444; }
   .header-date { font-size:8pt; color:#666; text-align:right; white-space:nowrap; }
 
-  .tables-wrap { display:flex; gap:10px; align-items:flex-start; }
-
-  table { border-collapse:collapse; font-size:7.5pt; }
+  table { border-collapse:collapse; font-size:7.5pt; width:100%; }
   th, td { border:1px solid #C8C8C8; padding:2px 4px; text-align:right; white-space:nowrap; }
   th { text-align:center; }
 
@@ -288,30 +286,31 @@ function generateHTML(study: PowerStudyResult): string {
   .legend-item { display:flex; align-items:center; gap:3px; }
   .legend-swatch { width:10px; height:10px; border-radius:2px; display:inline-block; }
 
-  .chart-wrap { margin-top:8px; page-break-inside:avoid; }
+  .page { page-break-after: always; }
+  .page:last-child { page-break-after: auto; }
+  .chart-wrap { page-break-inside:avoid; }
 
   @media print {
     body { padding:0; }
     * { print-color-adjust:exact !important; -webkit-print-color-adjust:exact !important; }
+    .page { page-break-after: always; }
+    .page:last-child { page-break-after: auto; }
   }
 </style>
 </head>
 <body>
 
-<!-- HEADER -->
-<div class="header-bar">
-  ${voltisLogoSVG()}
-  <div class="title-info">
-    <div class="study-title">ESTUDIO DE POTENCIAS Y CONSUMOS${study.clientName ? ' · ' + study.clientName : ''}</div>
-    <div class="study-sub">${study.cups || ''}</div>
+<!-- PAGE 1: CONSUMOS ACTIVA -->
+<div class="page">
+  <div class="header-bar">
+    ${voltisLogoSVG()}
+    <div class="title-info">
+      <div class="study-title">ESTUDIO DE POTENCIAS Y CONSUMOS${study.clientName ? ' · ' + study.clientName : ''}</div>
+      <div class="study-sub">${study.cups || ''}</div>
+    </div>
+    <div class="header-date">${new Date().toLocaleDateString('es-ES', { day:'2-digit', month:'2-digit', year:'numeric' })}</div>
   </div>
-  <div class="header-date">${new Date().toLocaleDateString('es-ES', { day:'2-digit', month:'2-digit', year:'numeric' })}</div>
-</div>
 
-<!-- TWO SIDE-BY-SIDE TABLES -->
-<div class="tables-wrap">
-
-  <!-- TABLE 1: CONSUMOS ACTIVA -->
   <table>
     <thead>
       <tr>
@@ -320,8 +319,6 @@ function generateHTML(study: PowerStudyResult): string {
         <th class="hdr-col" style="min-width:58px">F. Fin</th>
         ${PERIODS.map(p => `<th class="hdr-col">${p}</th>`).join('')}
       </tr>
-
-      <!-- CUPS + annual totals -->
       <tr>
         <td style="font-weight:700;text-align:left;font-size:6.5pt;font-family:monospace">${study.cups || ''}</td>
         <td></td>
@@ -331,8 +328,6 @@ function generateHTML(study: PowerStudyResult): string {
           return `<td style="${consumoBg(v, periodCs)};font-weight:700">${fmtKwh(v)}</td>`
         }).join('')}
       </tr>
-
-      <!-- Client name + % per period -->
       <tr>
         <td style="font-weight:700;text-align:left">${study.clientName || ''}</td>
         <td></td><td></td>
@@ -341,17 +336,14 @@ function generateHTML(study: PowerStudyResult): string {
           return `<td style="${cs(pctCs(pv))};font-weight:700">${pv.toFixed(2)}%</td>`
         }).join('')}
       </tr>
-
       ${recoBanner ? `<tr>
         <td colspan="3"></td>
         <td class="hdr-reco" colspan="6">${recoBanner}</td>
       </tr>` : ''}
     </thead>
-
     <tbody>
       ${consumoDataRows}
     </tbody>
-
     <tfoot>
       <tr class="total-row">
         <td style="font-weight:700">${fmtKwh(study.consumoTotal)}</td>
@@ -360,65 +352,76 @@ function generateHTML(study: PowerStudyResult): string {
       </tr>
     </tfoot>
   </table>
+</div>
 
-  ${hasMax ? `
-  <!-- TABLE 2: MAXÍMETROS -->
-  <div>
-    <table>
-      <thead>
-        <tr>
-          ${PERIODS.map(p => `<th class="hdr-max">${p}</th>`).join('')}
-        </tr>
-
-        <!-- Potencia Contratada -->
-        <tr>
-          ${PERIODS.map(p => {
-            const v = (pc as Record<string,number>)[p]
-            return `<td class="hdr-pc" style="color:#1565C0;font-weight:700;text-align:center">${v ? fmtKw(v) : '-'}</td>`
-          }).join('')}
-        </tr>
-
-        <!-- Max summary -->
-        <tr>
-          ${PERIODS.map(p => {
-            const val = study.maxPotencia?.[p] || 0
-            const con = (pc as Record<string,number>)[p] || 0
-            return `<td style="${maxCellStr(val, con, outOfRangeSet.has(p))}">${val > 0 ? fmtKw(val) : '-'}</td>`
-          }).join('')}
-        </tr>
-
-        <!-- Adjustment warning -->
-        <tr>
-          <td class="hdr-adj" colspan="6">${adjText}</td>
-        </tr>
-      </thead>
-
-      <tbody>
-        ${maxDataRows}
-      </tbody>
-
-      <tfoot>
-        <tr class="total-row">
-          ${totalMaxCells}
-        </tr>
-      </tfoot>
-    </table>
-
-    <!-- Legend -->
-    <div class="legend">
-      <div class="legend-item"><span class="legend-swatch" style="background:#6BA3D6;${PCA}"></span> Sin dato</div>
-      <div class="legend-item"><span class="legend-swatch" style="background:#F8C4C4;${PCA}"></span> &lt; 85% pot.</div>
-      <div class="legend-item"><span class="legend-swatch" style="background:#F8696B;${PCA}"></span> &ge; 85% pot.</div>
+${hasMax ? `
+<!-- PAGE 2: MAXÍMETROS -->
+<div class="page">
+  <div class="header-bar">
+    ${voltisLogoSVG()}
+    <div class="title-info">
+      <div class="study-title">MAXÍMETROS${study.clientName ? ' · ' + study.clientName : ''}</div>
+      <div class="study-sub">${study.cups || ''}</div>
     </div>
+    <div class="header-date">${new Date().toLocaleDateString('es-ES', { day:'2-digit', month:'2-digit', year:'numeric' })}</div>
   </div>
-  ` : ''}
 
-</div><!-- end tables-wrap -->
+  <table>
+    <thead>
+      <tr>
+        ${PERIODS.map(p => `<th class="hdr-max">${p}</th>`).join('')}
+      </tr>
+      <tr>
+        ${PERIODS.map(p => {
+          const v = (pc as Record<string,number>)[p]
+          return `<td class="hdr-pc" style="color:#1565C0;font-weight:700;text-align:center">${v ? fmtKw(v) : '-'}</td>`
+        }).join('')}
+      </tr>
+      <tr>
+        ${PERIODS.map(p => {
+          const val = study.maxPotencia?.[p] || 0
+          const con = (pc as Record<string,number>)[p] || 0
+          return `<td style="${maxCellStr(val, con, outOfRangeSet.has(p))}">${val > 0 ? fmtKw(val) : '-'}</td>`
+        }).join('')}
+      </tr>
+      <tr>
+        <td class="hdr-adj" colspan="6">${adjText}</td>
+      </tr>
+    </thead>
+    <tbody>
+      ${maxDataRows}
+    </tbody>
+    <tfoot>
+      <tr class="total-row">
+        ${totalMaxCells}
+      </tr>
+    </tfoot>
+  </table>
 
-${reactivaSection}
+  <div class="legend" style="margin-top:6px">
+    <div class="legend-item"><span class="legend-swatch" style="background:#6BA3D6;${PCA}"></span> Sin dato</div>
+    <div class="legend-item"><span class="legend-swatch" style="background:#F8C4C4;${PCA}"></span> &lt; 85% pot.</div>
+    <div class="legend-item"><span class="legend-swatch" style="background:#F8696B;${PCA}"></span> &ge; 85% pot.</div>
+  </div>
 
-<!-- BAR CHART -->
-${barChart ? `<div class="chart-wrap">${barChart}</div>` : ''}
+  ${reactivaSection}
+</div>
+` : reactivaSection ? `<div class="page">${reactivaSection}</div>` : ''}
+
+<!-- PAGE 3 (or 2 if no maximeters): BAR CHART -->
+${barChart ? `
+<div class="page">
+  <div class="header-bar">
+    ${voltisLogoSVG()}
+    <div class="title-info">
+      <div class="study-title">CONSUMO MENSUAL${study.clientName ? ' · ' + study.clientName : ''}</div>
+      <div class="study-sub">${study.cups || ''}</div>
+    </div>
+    <div class="header-date">${new Date().toLocaleDateString('es-ES', { day:'2-digit', month:'2-digit', year:'numeric' })}</div>
+  </div>
+  <div class="chart-wrap" style="margin-top:20px">${barChart}</div>
+</div>
+` : ''}
 
 <div style="margin-top:5px;font-size:6pt;color:#AAA;text-align:right">
   Voltis Energía · ${study.cups}${study.autoGenerated ? ' · Generado automáticamente desde SIPS' : ''}${!study.hasRealMaximetros ? ' · Sin maxímetros SIPS' : ''}

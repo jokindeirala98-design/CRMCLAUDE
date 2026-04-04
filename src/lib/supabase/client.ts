@@ -38,21 +38,13 @@ function getAccessToken(): string | null {
   }
 }
 
-// Data client - for all DB queries. Uses manual auth header to avoid lock issues.
+// Data client - for all DB queries.
 export function createClient() {
-  const token = getAccessToken()
-  const headers: Record<string, string> = {}
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`
-  }
-
   return supabaseCreateClient(supabaseUrl, supabaseAnonKey, {
     auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-    global: {
-      headers,
+      persistSession: true,
+      autoRefreshToken: true,
+      storageKey: AUTH_STORAGE_KEY,
     },
   })
 }

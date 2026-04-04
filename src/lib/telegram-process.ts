@@ -127,6 +127,12 @@ export async function processTelegramInboxItem(
   const holderCif = extractedData?.holder_cif || extractedData?.economics?.cif_titular || null
   const tariff = extractedData?.tariff || extractedData?.economics?.tarifa || null
   const address = extractedData?.supply_address || extractedData?.billing_address || null
+  // Detect supply type: gas if RL tariff, otherwise use extracted type or default to 'luz'
+  const rawType = extractedData?.type?.toLowerCase() || ''
+  const supplyType: string = tariff && /^RL/i.test(tariff) ? 'gas'
+    : rawType.includes('gas') ? 'gas'
+    : rawType.includes('telef') || rawType.includes('fibra') ? 'telefonia'
+    : 'luz'
 
   // 5. Try to find existing supply by CUPS
   let supplyId: string | null = null
@@ -244,7 +250,7 @@ export async function processTelegramInboxItem(
       .insert({
         client_id: clientId,
         cups: cups || null,
-        type: 'luz',
+        type: supplyType,
         tariff: tariff || '',
         address: address || '',
         status: 'estudio_en_curso',

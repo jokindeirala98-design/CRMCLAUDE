@@ -1273,9 +1273,9 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
             </div>
           </div>
 
-          {/* Precio Medio por Periodo bar */}
+          {/* Precio Medio por Periodo bar — hidden in print, visible in modal */}
           {averagePriceStats.some(p => p.totalKwh > 0) && (
-            <div className="rounded-2xl p-5 mt-6" style={glassStyle}>
+            <div className="rounded-2xl p-5 mt-6 no-print" style={glassStyle}>
               <p className="text-[#60a5fa] text-xs font-bold tracking-[0.3em] mb-4">PRECIO MEDIO POR PERIODO</p>
               <div className="grid grid-cols-6 gap-4 text-center">
                 {averagePriceStats.map(ps => (
