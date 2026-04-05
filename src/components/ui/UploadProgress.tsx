@@ -15,7 +15,7 @@ import {
  * Positioned above the mobile bottom nav (pb-20 on mobile).
  */
 export function UploadProgress() {
-  const { jobs, removeJob } = useUploadQueue()
+  const { jobs, removeJob, isProcessing } = useUploadQueue()
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set())
   const [minimized, setMinimized] = useState(false)
   const autoDismissTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
@@ -94,7 +94,7 @@ export function UploadProgress() {
             {activeJobs.length > 0 ? `${globalPct}%` : 'Listo'}
           </span>
           <span className="text-[10px] text-on-surface-variant">
-            {jobs.length} job{jobs.length !== 1 ? 's' : ''}
+            {jobs.length} proyecto{jobs.length !== 1 ? 's' : ''}
           </span>
         </motion.button>
       ) : (
@@ -112,15 +112,22 @@ export function UploadProgress() {
           )}
 
           <AnimatePresence mode="popLayout">
-            {jobs.map((job) => (
-              <JobCard
-                key={job.id}
-                job={job}
-                expanded={expandedJobs.has(job.id)}
-                onToggle={() => toggleJob(job.id)}
-                onRemove={() => removeJob(job.id)}
-              />
-            ))}
+            {jobs.map((job, idx) => {
+              // A job is "waiting" if it's active but there's another active job before it
+              const activeIdx = jobs.findIndex(j => j.status === 'uploading' || j.status === 'analyzing')
+              const isWaiting = (job.status === 'uploading' || job.status === 'analyzing') && idx > activeIdx && isProcessing
+
+              return (
+                <JobCard
+                  key={job.id}
+                  job={job}
+                  isWaiting={isWaiting}
+                  expanded={expandedJobs.has(job.id)}
+                  onToggle={() => toggleJob(job.id)}
+                  onRemove={() => removeJob(job.id)}
+                />
+              )
+            })}
           </AnimatePresence>
         </div>
       )}
@@ -134,11 +141,13 @@ export function UploadProgress() {
 
 function JobCard({
   job,
+  isWaiting,
   expanded,
   onToggle,
   onRemove,
 }: {
   job: UploadJob
+  isWaiting: boolean
   expanded: boolean
   onToggle: () => void
   onRemove: () => void
@@ -146,6 +155,7 @@ function JobCard({
   const total = job.files.length
   const done = job.files.filter((f) => f.status === 'done').length
   const errors = job.files.filter((f) => f.status === 'error').length
+  const uploading = job.files.filter((f) => f.status === 'uploading').length
   const analyzing = job.files.filter((f) => f.status === 'analyzing').length
   const finished = done + errors
   const pct = total > 0 ? Math.round((finished / total) * 100) : 0
@@ -156,20 +166,28 @@ function JobCard({
 
   let statusLabel = ''
   let statusIcon = <Loader2 className="w-4 h-4 animate-spin" />
-  if (job.status === 'uploading') statusLabel = 'Subiendo archivos...'
-  else if (job.status === 'analyzing') statusLabel = `Analizando ${analyzing} de ${total}...`
-  else if (job.status === 'grouping') statusLabel = 'Agrupando por CUPS...'
-  else if (job.status === 'creating') statusLabel = 'Creando suministros...'
-  else if (isDone) {
-    statusLabel = `${done} factura${done !== 1 ? 's' : ''} procesada${done !== 1 ? 's' : ''}`
+  
+  if (isWaiting) {
+    statusLabel = 'En cola...'
+    statusIcon = <Loader2 className="w-4 h-4 text-on-surface-variant/40" />
+  } else if (job.status === 'uploading') {
+    statusLabel = uploading > 0 ? `Subiendo ${uploading} de ${total}...` : 'Iniciando subida...'
+  } else if (job.status === 'analyzing') {
+    statusLabel = analyzing > 0 ? `Analizando ${analyzing}...` : `Procesando ${total} archivos...`
+  } else if (job.status === 'grouping') {
+    statusLabel = 'Agrupando por CUPS...'
+  } else if (job.status === 'creating') {
+    statusLabel = 'Finalizando proyecto...'
+  } else if (isDone) {
+    statusLabel = `${done} archivo${done !== 1 ? 's' : ''} procesado${done !== 1 ? 's' : ''}`
     statusIcon = <CheckCircle2 className="w-4 h-4 text-success" />
   } else if (isError) {
     statusLabel = job.errorMessage || 'Error'
     statusIcon = <AlertCircle className="w-4 h-4 text-error" />
   }
 
-  const ringColor = isDone ? 'border-success/30' : isError ? 'border-error/30' : 'border-secondary/30'
-  const barColor = isDone ? 'bg-success' : isError ? 'bg-error' : 'bg-secondary'
+  const ringColor = isDone ? 'border-success/30' : isError ? 'border-error/30' : isWorking && !isWaiting ? 'border-secondary/30' : 'border-outline-variant/20'
+  const barColor = isDone ? 'bg-success' : isError ? 'bg-error' : isWaiting ? 'bg-outline-variant/30' : 'bg-secondary'
 
   return (
     <motion.div
@@ -178,7 +196,7 @@ function JobCard({
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, x: 80, scale: 0.9 }}
       transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-      className={`bg-surface rounded-2xl shadow-ambient-lg border ${ringColor} overflow-hidden`}
+      className={`bg-surface rounded-2xl shadow-ambient-lg border ${ringColor} overflow-hidden transition-colors`}
       style={{ width: expanded ? 340 : 260 }}
     >
       {/* Header */}
@@ -190,11 +208,13 @@ function JobCard({
           {isWorking ? (
             <svg className="w-8 h-8 -rotate-90" viewBox="0 0 36 36">
               <circle cx="18" cy="18" r="15" fill="none" stroke="currentColor" strokeWidth="3" className="text-outline-variant/20" />
-              <circle cx="18" cy="18" r="15" fill="none" strokeWidth="3" className="text-secondary" stroke="currentColor"
-                strokeDasharray={`${pct * 0.94} 100`} strokeLinecap="round" style={{ transition: 'stroke-dasharray 0.5s ease' }}
-              />
+              {!isWaiting && (
+                <circle cx="18" cy="18" r="15" fill="none" strokeWidth="3" className="text-secondary" stroke="currentColor"
+                  strokeDasharray={`${pct * 0.94} 100`} strokeLinecap="round" style={{ transition: 'stroke-dasharray 0.5s ease' }}
+                />
+              )}
               <text x="18" y="19" textAnchor="middle" dominantBaseline="middle"
-                className="fill-on-surface text-[9px] font-bold"
+                className={`fill-on-surface text-[9px] font-bold ${isWaiting ? 'opacity-40' : ''}`}
                 style={{ transform: 'rotate(90deg)', transformOrigin: '18px 18px' }}
               >
                 {pct}
@@ -208,7 +228,7 @@ function JobCard({
         </div>
 
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold text-on-surface truncate">{job.clientName || 'Facturas'}</p>
+          <p className="text-xs font-semibold text-on-surface truncate">{job.clientName || 'Sin nombre'}</p>
           <p className="text-[11px] text-on-surface-variant truncate">{statusLabel}</p>
         </div>
 
@@ -247,9 +267,22 @@ function JobCard({
                 <div key={f.id} className="flex items-center gap-2 py-0.5 text-[11px]">
                   <FileText className="w-3 h-3 text-on-surface-variant flex-shrink-0" />
                   <span className="flex-1 truncate text-on-surface">{f.file.name}</span>
-                  {f.status === 'pending' && <span className="text-on-surface-variant">Cola</span>}
+                  
+                  {f.status === 'pending' && <span className="text-on-surface-variant opacity-50">Cola</span>}
+                  {f.status === 'uploading' && <span className="text-secondary animate-pulse">Subiendo...</span>}
+                  {f.status === 'classifying' && <span className="text-secondary">Escaneando...</span>}
                   {f.status === 'analyzing' && <Loader2 className="w-3 h-3 animate-spin text-secondary flex-shrink-0" />}
-                  {f.status === 'done' && !f.error && <Check className="w-3 h-3 text-success flex-shrink-0" />}
+                  
+                  {f.status === 'done' && !f.error && (
+                    <div className="flex items-center gap-1">
+                       {f.extractedData?.documentType !== 'factura' && (
+                         <span className="px-1 py-0.5 bg-secondary/10 text-secondary rounded text-[8px] font-bold uppercase">
+                           {f.extractedData?.documentType || 'Doc'}
+                         </span>
+                       )}
+                       <Check className="w-3 h-3 text-success flex-shrink-0" />
+                    </div>
+                  )}
                   {f.status === 'done' && f.error && <AlertCircle className="w-3 h-3 text-warning flex-shrink-0" />}
                   {f.status === 'error' && <AlertCircle className="w-3 h-3 text-error flex-shrink-0" />}
                 </div>
@@ -262,7 +295,7 @@ function JobCard({
                       Completado{errors > 0 ? ` · ${errors} con error` : ''}
                     </span>
                   ) : (
-                    <span>Creando suministros...</span>
+                    <span>Sincronizando con base de datos...</span>
                   )}
                 </div>
               )}

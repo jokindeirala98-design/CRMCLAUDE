@@ -10,7 +10,7 @@ export interface QueuedFile {
   file: File
   url: string
   storagePath: string
-  status: 'pending' | 'analyzing' | 'done' | 'error'
+  status: 'pending' | 'uploading' | 'classifying' | 'analyzing' | 'done' | 'error'
   extractedData?: any
   error?: string
 }
@@ -31,6 +31,8 @@ interface UploadQueueState {
   jobs: UploadJob[]
   /** Whether the widget is expanded or minimized */
   expanded: boolean
+  /** Global processing flag to ensure only one job runs at a time */
+  isProcessing: boolean
 
   // Actions
   addJob: (job: UploadJob) => void
@@ -39,6 +41,7 @@ interface UploadQueueState {
   removeJob: (jobId: string) => void
   toggleExpanded: () => void
   setExpanded: (v: boolean) => void
+  setIsProcessing: (v: boolean) => void
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
@@ -48,8 +51,15 @@ interface UploadQueueState {
 export const useUploadQueue = create<UploadQueueState>((set) => ({
   jobs: [],
   expanded: true,
+  isProcessing: false,
 
-  addJob: (job) => set((s) => ({ jobs: [...s.jobs, job], expanded: true })),
+  addJob: (job) => {
+    set((s) => ({ jobs: [...s.jobs, job], expanded: true }))
+    // Trigger processing
+    setTimeout(() => {
+      processQueue()
+    }, 100)
+  },
 
   updateJob: (jobId, patch) =>
     set((s) => ({
@@ -70,6 +80,7 @@ export const useUploadQueue = create<UploadQueueState>((set) => ({
 
   toggleExpanded: () => set((s) => ({ expanded: !s.expanded })),
   setExpanded: (v) => set({ expanded: v }),
+  setIsProcessing: (v) => set({ isProcessing: v }),
 }))
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
@@ -107,12 +118,39 @@ function normalizeTariff(raw: string): string {
 }
 
 /**
+ * Global queue processor
+ * Ensures only one job runs at a time
+ */
+export async function processQueue(): Promise<void> {
+  const { jobs, isProcessing, setIsProcessing } = useUploadQueue.getState()
+
+  if (isProcessing) {
+    console.log('[UploadQueue] Already processing a job, waiting...')
+    return
+  }
+
+  // Find next job that needs work (pending or partially done but not finished)
+  const nextJob = jobs.find((j) => j.status === 'uploading' || j.status === 'analyzing')
+  if (!nextJob) return
+
+  setIsProcessing(true)
+  try {
+    await processJobInBackground(nextJob.id)
+  } finally {
+    setIsProcessing(false)
+    // Check if there are more jobs after a short delay
+    setTimeout(() => {
+      processQueue()
+    }, 500)
+  }
+}
+
+/**
  * Processes an entire upload job in the background:
- *  1. Analyze each file with Gemini (parallel, CONCURRENCY at a time)
- *  2. Group by CUPS
- *  3. Create supplies + invoices
- *
- * Call this AFTER adding the job to the store — it reads/writes via the store.
+ *  1. Upload files to Storage (if not already done)
+ *  2. Analyze each file with Gemini (parallel, CONCURRENCY at a time)
+ *  3. Classify: if Invoice -> supply/invoice; if DC -> update client (TO BE IMPLEMENTED)
+ *  4. Group by CUPS (for invoices)
  */
 export async function processJobInBackground(jobId: string): Promise<void> {
   const { updateJob, updateFile } = useUploadQueue.getState()
@@ -121,12 +159,37 @@ export async function processJobInBackground(jobId: string): Promise<void> {
   const job = getJob()
   if (!job) return
 
-  // ── Phase 1: Analyze files ──
+  // ── Phase 1: Upload & Analyze files ──
   updateJob(jobId, { status: 'analyzing' })
 
-  const queue = [...job.files.filter((f) => f.status === 'pending')]
+  const queue = [...job.files.filter((f) => f.status === 'pending' || f.status === 'uploading')]
 
-  const analyzeOne = async (item: QueuedFile): Promise<void> => {
+  const processOne = async (item: QueuedFile): Promise<void> => {
+    // 1. Upload if needed
+    if (!item.url) {
+      updateFile(jobId, item.id, { status: 'uploading' })
+      try {
+        const { createClient } = await import('@/lib/supabase/client')
+        const supabase = createClient()
+        const ext = item.file.name.split('.').pop()
+        const storagePath = `invoices/${Date.now()}/${item.id}.${ext}`
+
+        const { data, error: uploadErr } = await supabase.storage
+          .from('documents')
+          .upload(storagePath, item.file, { cacheControl: '3600', upsert: false })
+
+        if (uploadErr) throw uploadErr
+
+        const { data: urlData } = supabase.storage.from('documents').getPublicUrl(data.path)
+        updateFile(jobId, item.id, { url: urlData.publicUrl, storagePath: data.path })
+        item.url = urlData.publicUrl
+      } catch (err: any) {
+        updateFile(jobId, item.id, { status: 'error', error: `Error subiendo: ${err.message}` })
+        return
+      }
+    }
+
+    // 2. Analyze
     updateFile(jobId, item.id, { status: 'analyzing' })
 
     try {
@@ -141,7 +204,7 @@ export async function processJobInBackground(jobId: string): Promise<void> {
       const timeout = setTimeout(() => controller.abort(), 120_000)
       const fileType = item.file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image'
 
-      const response = await fetch('/api/analyze-invoice', {
+      const response = await fetch('/api/analyze-document', { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ file_base64: base64, file_type: fileType, file_name: item.file.name }),
@@ -149,7 +212,7 @@ export async function processJobInBackground(jobId: string): Promise<void> {
       })
       clearTimeout(timeout)
 
-      if (!response.ok) throw new Error(`Error ${response.status}`)
+      if (!response.ok) throw new Error(`Error API ${response.status}`)
 
       const result = await response.json()
       updateFile(jobId, item.id, {
@@ -158,6 +221,7 @@ export async function processJobInBackground(jobId: string): Promise<void> {
         error: result.mode === 'manual' && result.error ? result.error : undefined,
       })
     } catch (err: any) {
+      console.error('[UploadQueue] File processing error:', err)
       updateFile(jobId, item.id, {
         status: 'error',
         error: err.name === 'AbortError' ? 'Timeout' : err.message || 'Error',
@@ -169,21 +233,115 @@ export async function processJobInBackground(jobId: string): Promise<void> {
   const runNext = async (): Promise<void> => {
     const next = queue.shift()
     if (!next) return
-    await analyzeOne(next)
+    await processOne(next)
     await runNext()
   }
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, () => runNext()))
 
-  // ── Phase 2: Group by CUPS ──
+  const { createClient } = await import('@/lib/supabase/client')
+  const supabase = createClient()
+  let currentJob = getJob()!
+
+  // ── Phase -1: Auto-Detect Client if missing ──
+  if (!currentJob.clientId) {
+    updateJob(jobId, { status: 'analyzing' }) // Keep analyzing status or show something else
+    
+    // Find holder metadata from any analyzed file (prefer invoices or CIF/NIF docs)
+    const bestMatch = currentJob.files.find(f => f.status === 'done' && f.extractedData?.mode === 'gemini')
+    const metadata = bestMatch?.extractedData
+
+    if (metadata) {
+      const cifNif = metadata.cif || metadata.nif || metadata.holder_cif_nif
+      const name = metadata.holder_name || metadata.account_holder || 'Cliente Nuevo'
+
+      if (cifNif) {
+        console.log(`[UploadQueue] Auto-detecting client for ${cifNif}...`)
+        // 1. Search for existing client
+        const { data: existing } = await supabase
+          .from('clients')
+          .select('id, name')
+          .or(`cif.eq.${cifNif},nif.eq.${cifNif}`)
+          .limit(1)
+          .single()
+
+        if (existing) {
+          console.log(`[UploadQueue] Found existing client: ${existing.name}`)
+          updateJob(jobId, { clientId: existing.id, clientName: existing.name })
+        } else {
+          // 2. Create new client
+          console.log(`[UploadQueue] Creating new client: ${name}`)
+          const isCIF = cifNif.match(/^[A-H]/i)
+          const { data: newClient, error: clientErr } = await supabase
+            .from('clients')
+            .insert({
+              name,
+              [isCIF ? 'cif' : 'nif']: cifNif,
+              status: 'activo'
+            })
+            .select('id, name')
+            .single()
+
+          if (newClient) {
+            updateJob(jobId, { clientId: newClient.id, clientName: newClient.name })
+          } else {
+            console.error('[UploadQueue] Client creation failed:', clientErr)
+          }
+        }
+      }
+    }
+    
+    // Re-read job state after potential updates
+    currentJob = getJob()!
+    if (!currentJob.clientId) {
+      // Fallback if still no client detected
+      updateJob(jobId, { status: 'error', errorMessage: 'No se pudo detectar ni crear el cliente. Por favor selecciónalo manualmente.' })
+      useUploadQueue.getState().setIsProcessing(false) // Fix: use store state
+      return
+    }
+  }
+
+  // ── Phase 0: Update Client Documents (DCs) ──
+  // Extract CIF, NIF, IBAN and update client profile if found
+  const clientDocs = currentJob.files.filter((f) => 
+    f.status === 'done' && 
+    f.extractedData?.mode === 'gemini' && 
+    ['cif', 'nif', 'iban'].includes(f.extractedData?.documentType)
+  )
+
+  if (clientDocs.length > 0) {
+    const updates: any = {}
+    for (const doc of clientDocs) {
+      const type = doc.extractedData.documentType
+      if (type === 'cif' && doc.extractedData.cif) {
+        updates.cif = doc.extractedData.cif
+        updates.cif_file_url = doc.url
+      } else if (type === 'nif' && doc.extractedData.nif) {
+        updates.nif = doc.extractedData.nif
+        updates.nif_file_url = doc.url
+      } else if (type === 'iban' && doc.extractedData.iban) {
+        updates.iban = doc.extractedData.iban
+        updates.iban_file_url = doc.url
+      }
+    }
+    if (Object.keys(updates).length > 0) {
+      console.log('[UploadQueue] Updating client DCs:', updates)
+      await supabase.from('clients').update(updates).eq('id', currentJob.clientId)
+    }
+  }
+
+  // ── Phase 2: Group by CUPS (Invoices only) ──
   updateJob(jobId, { status: 'grouping' })
 
-  const currentJob = getJob()!
-  const analyzed = currentJob.files.filter((f) => f.status === 'done' && f.extractedData?.mode === 'gemini')
+  const analyzedInvoices = currentJob.files.filter((f) => 
+    f.status === 'done' && 
+    f.extractedData?.mode === 'gemini' &&
+    f.extractedData?.documentType === 'factura'
+  )
 
   const cupsMap = new Map<string, QueuedFile[]>()
   const noCupsFiles: QueuedFile[] = []
 
-  for (const f of analyzed) {
+  for (const f of analyzedInvoices) {
     const cups = normalizeCups(f.extractedData?.cups || '')
     if (cups) {
       if (!cupsMap.has(cups)) cupsMap.set(cups, [])
@@ -193,13 +351,16 @@ export async function processJobInBackground(jobId: string): Promise<void> {
     }
   }
 
+  if (analyzedInvoices.length === 0 && clientDocs.length > 0) {
+    // Only DCs were uploaded, no invoices to group
+    updateJob(jobId, { status: 'done', finishedAt: Date.now() })
+    return
+  }
+
   // ── Phase 3: Create supplies + invoices ──
   updateJob(jobId, { status: 'creating' })
 
   try {
-    const { createClient } = await import('@/lib/supabase/client')
-    const supabase = createClient()
-
     const allGroups = [
       ...Array.from(cupsMap.entries()).map(([cups, files]) => ({ cups, files })),
       ...noCupsFiles.map((f) => ({ cups: '', files: [f] })),

@@ -545,15 +545,9 @@ export async function analyzeDocument(base64Data: string, mimeType: string, docT
   if (effectiveType === 'factura') {
     const invoiceResult = await analyzeInvoice(base64Data, mimeType)
     return {
-      mode: invoiceResult.mode,
       documentType: 'factura',
-      cif: invoiceResult.holder_cif_nif?.startsWith('B') || invoiceResult.holder_cif_nif?.startsWith('A')
-        ? invoiceResult.holder_cif_nif : undefined,
-      nif: invoiceResult.holder_cif_nif && !invoiceResult.holder_cif_nif.startsWith('B') && !invoiceResult.holder_cif_nif.startsWith('A')
-        ? invoiceResult.holder_cif_nif : undefined,
-      holder_name: invoiceResult.holder_name,
-      error: invoiceResult.error,
-    }
+      ...invoiceResult, // Spread full invoice result (CUPS, economics, etc.)
+    } as any
   }
 
   try {

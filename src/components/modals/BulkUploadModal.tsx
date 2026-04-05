@@ -94,10 +94,6 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
 
   // ── Submit: upload to storage, create job, close ──
   const handleSubmit = async () => {
-    if (!clientId) {
-      setError('Selecciona un cliente')
-      return
-    }
     if (localFiles.length === 0) {
       setError('Añade al menos un archivo')
       return
@@ -107,45 +103,23 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
     setError('')
 
     try {
-      const supabase = createClient()
-      const queuedFiles: QueuedFile[] = []
-
-      // Upload all files to Supabase Storage
-      for (const lf of localFiles) {
-        const ext = lf.file.name.split('.').pop()
-        const storagePath = `invoices/${Date.now()}/${lf.id}.${ext}`
-        let url = ''
-        let sp = ''
-
-        try {
-          const { data, error: uploadErr } = await supabase.storage
-            .from('documents')
-            .upload(storagePath, lf.file, { cacheControl: '3600', upsert: false })
-          if (!uploadErr && data) {
-            const { data: urlData } = supabase.storage.from('documents').getPublicUrl(data.path)
-            url = urlData.publicUrl
-            sp = data.path
-          }
-        } catch { /* continue */ }
-
-        queuedFiles.push({
-          id: lf.id,
-          file: lf.file,
-          url,
-          storagePath: sp,
-          status: 'pending',
-        })
-      }
+      const queuedFiles: QueuedFile[] = localFiles.map(lf => ({
+        id: lf.id,
+        file: lf.file,
+        url: '', // Will be filled in the background
+        storagePath: '', // Will be filled in the background
+        status: 'pending',
+      }))
 
       // Get client name for the widget
       const client = clients.find((c) => c.id === clientId)
-      const clientName = client?.name || ''
+      const clientName = client?.name || 'Auto-detectar cliente'
 
       // Create background job
       const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2)}`
       addJob({
         id: jobId,
-        clientId,
+        clientId: clientId || '', // Can be empty, processor will find/create it
         clientName,
         files: queuedFiles,
         status: 'uploading',
@@ -154,14 +128,11 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
 
       // Close modal immediately — user is free
       onClose()
-
-      // Launch background processing (fire-and-forget)
-      processJobInBackground(jobId).then(() => {
-        // Trigger refresh when done
-        onCreated()
-      })
+      
+      // OnCreated is still called to potentially refresh some parent state
+      onCreated()
     } catch (err: any) {
-      setError(err.message || 'Error subiendo archivos')
+      setError(err.message || 'Error al encolar archivos')
       setUploading(false)
     }
   }
@@ -207,16 +178,13 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
             {/* Content */}
             <div className="p-6 overflow-y-auto flex-1 space-y-5">
               {/* Client selector */}
-              {!preselectedClientId && (
                 <SearchableClientSelector
-                  label="Cliente *"
-                  required
+                  label="Cliente"
                   value={clientId}
                   onChange={setClientId}
                   clients={clients}
-                  placeholder="Buscar cliente..."
+                  placeholder="Buscar cliente (o dejar vacío para auto-detectar)"
                 />
-              )}
 
               {/* Drop zone */}
               <div

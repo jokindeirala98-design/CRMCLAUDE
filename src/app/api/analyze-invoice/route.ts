@@ -7,8 +7,8 @@ import {
 // Re-export types for backward compatibility
 export type { ExtractedInvoiceData } from '@/lib/gemini'
 
-// Vercel Hobby plan: max 10s per function
-export const maxDuration = 10
+// Vercel Hobby plan: max 10s per function (Pro supports 300s, but Next.js defaults to 30-15s)
+export const maxDuration = 30
 
 interface InvoiceAnalysisRequest {
   file_base64: string
