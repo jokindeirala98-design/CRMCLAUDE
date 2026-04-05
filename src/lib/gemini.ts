@@ -26,6 +26,7 @@ export interface ExtractedDocumentData {
   error?: string
   // Invoice specific
   cups?: string
+  supply_type?: 'luz' | 'gas' | 'telefonia'
   total_amount?: string
   tariff?: string
   comercializadora?: string
@@ -94,7 +95,7 @@ async function callGemini(prompt: string, base64Data: string, mimeType: string):
 const MASTER_PROMPT = `Analiza este documento y responde SOLO con JSON (sin markdown, sin texto adicional).
 1. Identifica "documentType": "factura", "cif", "nif", "iban", "contrato", o "otro".
 2. Extrae TODOS los campos disponibles según el tipo:
-   - "factura" (luz/gas): cups (código ES...), holder_name, holder_cif_nif, total_amount (número), tariff (ej: 2.0TD), comercializadora, supply_address, billing_period ("DD/MM/YYYY - DD/MM/YYYY"), economics: { fechaInicio (DD/MM/YYYY), fechaFin (DD/MM/YYYY), totalFactura (número), consumoTotalKwh (número si es luz), consumo (array), potencia (array), otrosConceptos (array) }
+   - "factura" (luz/gas): cups (código ES...), supply_type ("luz" o "gas"), holder_name, holder_cif_nif, total_amount (número), tariff (ej: 2.0TD), comercializadora, supply_address, billing_period ("DD/MM/YYYY - DD/MM/YYYY"), economics: { fechaInicio (DD/MM/YYYY), fechaFin (DD/MM/YYYY), totalFactura (número), consumoTotalKwh (número si es luz), consumo (array), potencia (array), otrosConceptos (array) }
    - "cif"/"nif": cif o nif, holder_name, fiscal_address.
    - "iban": iban, bank_name, account_holder.
    - "contrato": cups, holder_name, comercializadora.
@@ -107,6 +108,7 @@ Responde SOLO con JSON (sin markdown, sin texto adicional):
   "documentType": "factura",
   "extracted": {
     "cups": "ES...",
+    "supply_type": "luz",
     "holder_name": "Nombre del titular",
     "holder_cif_nif": "CIF o NIF del titular",
     "total_amount": 0.00,
@@ -146,6 +148,7 @@ export async function analyzeDocument(base64Data: string, mimeType: string, docT
       mode: 'gemini',
       documentType: detectedType,
       cups: normalizeCups(extracted.cups || '') || undefined,
+      supply_type: (['luz','gas','telefonia'].includes(extracted.supply_type) ? extracted.supply_type : undefined) as 'luz' | 'gas' | 'telefonia' | undefined,
       cif: clean(extracted.cif) || (detectedType !== 'factura' ? clean(extracted.holder_cif_nif) : undefined),
       nif: clean(extracted.nif) || (detectedType !== 'factura' ? clean(extracted.holder_cif_nif) : undefined),
       holder_name: clean(extracted.holder_name) || clean(extracted.account_holder),

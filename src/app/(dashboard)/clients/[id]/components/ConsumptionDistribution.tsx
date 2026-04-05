@@ -1,0 +1,292 @@
+'use client'
+
+import { useState, useEffect, useCallback } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import { ChevronDown, FileSpreadsheet, Plus, Download, FileText, RefreshCw, Upload } from 'lucide-react'
+import { Button } from '@/components/ui/Button'
+import { Card } from '@/components/ui/Card'
+import ConsumptionStats from './ConsumptionStats'
+import ConsumptionTable from './ConsumptionTable'
+import ImportConsumptionModal from './ImportConsumptionModal'
+import QuickEntryModal from './QuickEntryModal'
+import type { ConsumptionSnapshot } from '@/types/database'
+
+interface Props {
+  clientId: string
+  supplies: Array<{ id: string; cups: string | null; type: string; tariff: string }>
+}
+
+export default function ConsumptionDistribution({ clientId, supplies }: Props) {
+  const [rows, setRows] = useState<ConsumptionSnapshot[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showImport, setShowImport] = useState(false)
+  const [showQuickEntry, setShowQuickEntry] = useState(false)
+  const [showMenu, setShowMenu] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+
+  const fetchRows = useCallback(async () => {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('consumption_snapshots')
+      .select('*')
+      .eq('client_id', clientId)
+      .order('cups', { ascending: true })
+
+    setRows(data || [])
+    setLoading(false)
+  }, [clientId])
+
+  useEffect(() => {
+    fetchRows()
+  }, [fetchRows])
+
+  // Sync from existing invoices/supplies
+  const syncFromInvoices = async () => {
+    setSyncing(true)
+    try {
+      const supabase = createClient()
+
+      // Get all supplies with their invoices
+      const { data: clientSupplies } = await supabase
+        .from('supplies')
+        .select('*, invoices(*)')
+        .eq('client_id', clientId)
+
+      if (!clientSupplies) { setSyncing(false); return }
+
+      for (const supply of clientSupplies) {
+        // Check if snapshot already exists for this supply
+        const existing = rows.find(r => r.supply_id === supply.id)
+        if (existing) continue
+
+        // Get best invoice data
+        const completedInvoice = supply.invoices?.find((inv: any) => inv.extraction_status === 'completed')
+        const extractedData = completedInvoice?.extracted_data as Record<string, any> | null
+
+        const data: Record<string, any> = {
+          client_id: clientId,
+          supply_id: supply.id,
+          cups: supply.cups || '',
+          tariff: supply.tariff || extractedData?.detected_tariff || null,
+          supply_type: supply.type === 'gas' ? 'gas' : 'luz',
+          comercializadora: extractedData?.detected_comercializadora || null,
+          address: supply.address || extractedData?.supply_address || null,
+          source: 'invoice_extraction',
+          validation_status: supply.cups ? 'OK' : 'Incompleto',
+        }
+
+        // Extract power data if available
+        if (supply.power_data) {
+          const pd = supply.power_data as Record<string, any>
+          if (pd.potenciaContratada) {
+            const pot = pd.potenciaContratada
+            data.potencia_p1 = pot.P1 || null
+            data.potencia_p2 = pot.P2 || null
+            data.potencia_p3 = pot.P3 || null
+            data.potencia_p4 = pot.P4 || null
+            data.potencia_p5 = pot.P5 || null
+            data.potencia_p6 = pot.P6 || null
+          }
+        }
+
+        // Extract consumption from SIPS data if available
+        if (supply.consumption_data) {
+          const cd = supply.consumption_data as Record<string, any>
+          if (cd.history && Array.isArray(cd.history) && cd.history.length > 0) {
+            // Get most recent year
+            const latest = cd.history[cd.history.length - 1]
+            if (latest.consumoAnual) {
+              data.consumo_total = latest.consumoAnual
+            }
+          }
+        }
+
+        await supabase.from('consumption_snapshots').insert(data)
+      }
+
+      await fetchRows()
+    } catch (err) {
+      console.error('Error syncing from invoices:', err)
+    }
+    setSyncing(false)
+  }
+
+  // Export to Excel
+  const exportExcel = async () => {
+    const XLSX = await import('xlsx')
+    const exportData = rows.map(r => ({
+      'CUPS': r.cups,
+      'Tarifa': r.tariff,
+      'Tipo': r.supply_type === 'gas' ? 'Gas' : 'Electricidad',
+      'Comercializadora': r.comercializadora,
+      'Direccion': r.address,
+      'Pot. P1 (kW)': r.potencia_p1,
+      'Pot. P2 (kW)': r.potencia_p2,
+      'Pot. P3 (kW)': r.potencia_p3,
+      'Pot. P4 (kW)': r.potencia_p4,
+      'Pot. P5 (kW)': r.potencia_p5,
+      'Pot. P6 (kW)': r.potencia_p6,
+      'Cons. P1 (kWh)': r.consumo_p1,
+      'Cons. P2 (kWh)': r.consumo_p2,
+      'Cons. P3 (kWh)': r.consumo_p3,
+      'Cons. P4 (kWh)': r.consumo_p4,
+      'Cons. P5 (kWh)': r.consumo_p5,
+      'Cons. P6 (kWh)': r.consumo_p6,
+      'Consumo Total (kWh)': r.consumo_total,
+      'Estado': r.validation_status,
+      'Observaciones': r.observations,
+    }))
+
+    const ws = XLSX.utils.json_to_sheet(exportData)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Suministros')
+    XLSX.writeFile(wb, `distribucion_consumos_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
+  if (loading) {
+    return (
+      <Card>
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin w-6 h-6 border-2 border-secondary border-t-transparent rounded-full" />
+        </div>
+      </Card>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="font-display font-semibold text-lg text-on-surface">
+            Distribucion de consumo por suministro
+          </h2>
+          <p className="text-xs text-on-surface-variant mt-0.5">
+            {rows.length} suministros registrados
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={fetchRows} title="Actualizar">
+            <RefreshCw className="w-3.5 h-3.5" />
+          </Button>
+
+          {rows.length > 0 && (
+            <>
+              <Button variant="secondary" size="sm" onClick={exportExcel}>
+                <Download className="w-3.5 h-3.5" />
+                Exportar Excel
+              </Button>
+              <Button size="sm" onClick={() => window.location.href = `/clients/${clientId}/audit-report`}>
+                <FileText className="w-3.5 h-3.5" />
+                Generar informe
+              </Button>
+            </>
+          )}
+
+          {/* Add data menu */}
+          <div className="relative">
+            <Button size="sm" onClick={() => setShowMenu(!showMenu)}>
+              <Plus className="w-3.5 h-3.5" />
+              Datos
+              <ChevronDown className="w-3 h-3" />
+            </Button>
+            {showMenu && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
+                <div className="absolute right-0 mt-1 w-56 bg-white rounded-xl shadow-lg border border-outline-variant/15 py-1 z-20">
+                  <button
+                    onClick={() => { syncFromInvoices(); setShowMenu(false) }}
+                    disabled={syncing}
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-on-surface hover:bg-surface-container-low transition-colors text-left"
+                  >
+                    <Upload className="w-4 h-4 text-on-surface-variant" />
+                    <div>
+                      <p className="font-medium text-xs">Importar desde facturas CRM</p>
+                      <p className="text-[10px] text-on-surface-variant">Extrae de facturas ya procesadas</p>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => { setShowImport(true); setShowMenu(false) }}
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-on-surface hover:bg-surface-container-low transition-colors text-left"
+                  >
+                    <FileSpreadsheet className="w-4 h-4 text-on-surface-variant" />
+                    <div>
+                      <p className="font-medium text-xs">Importar Excel de consumos</p>
+                      <p className="text-[10px] text-on-surface-variant">Matching por CUPS</p>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => { setShowQuickEntry(true); setShowMenu(false) }}
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-on-surface hover:bg-surface-container-low transition-colors text-left"
+                  >
+                    <Plus className="w-4 h-4 text-on-surface-variant" />
+                    <div>
+                      <p className="font-medium text-xs">Anadir manualmente</p>
+                      <p className="text-[10px] text-on-surface-variant">Entrada rapida por suministro</p>
+                    </div>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Stats */}
+      {rows.length > 0 && <ConsumptionStats rows={rows} />}
+
+      {/* Table or empty state */}
+      {rows.length === 0 ? (
+        <Card>
+          <div className="text-center py-12">
+            <FileSpreadsheet className="w-10 h-10 text-on-surface-variant/30 mx-auto mb-3" />
+            <p className="text-sm font-medium text-on-surface">No hay datos de consumo todavia</p>
+            <p className="text-xs text-on-surface-variant mt-1 mb-4">
+              Importa datos desde las facturas del CRM, un Excel o anaade manualmente
+            </p>
+            <div className="flex justify-center gap-2">
+              <Button variant="secondary" size="sm" onClick={syncFromInvoices} loading={syncing}>
+                <Upload className="w-3.5 h-3.5" />
+                Importar desde facturas
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => setShowImport(true)}>
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                Importar Excel
+              </Button>
+              <Button size="sm" onClick={() => setShowQuickEntry(true)}>
+                <Plus className="w-3.5 h-3.5" />
+                Anadir manual
+              </Button>
+            </div>
+          </div>
+        </Card>
+      ) : (
+        <Card className="!p-3">
+          <ConsumptionTable
+            rows={rows}
+            onRowUpdated={fetchRows}
+            onRowDeleted={fetchRows}
+          />
+        </Card>
+      )}
+
+      {/* Modals */}
+      <ImportConsumptionModal
+        open={showImport}
+        onClose={() => setShowImport(false)}
+        clientId={clientId}
+        existingRows={rows}
+        onImported={fetchRows}
+      />
+
+      <QuickEntryModal
+        open={showQuickEntry}
+        onClose={() => setShowQuickEntry(false)}
+        clientId={clientId}
+        supplies={supplies}
+        onCreated={fetchRows}
+      />
+    </div>
+  )
+}

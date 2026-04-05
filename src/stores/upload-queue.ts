@@ -389,9 +389,18 @@ export async function processJobInBackground(jobId: string): Promise<void> {
     }
   }
 
-  if (analyzedInvoices.length === 0 && clientDocs.length > 0) {
-    // Only DCs were uploaded, no invoices to group
-    updateJob(jobId, { status: 'done', finishedAt: Date.now() })
+  if (analyzedInvoices.length === 0) {
+    if (clientDocs.length > 0) {
+      // Only document (CIF/NIF/IBAN) uploads, no invoices
+      updateJob(jobId, { status: 'done', finishedAt: Date.now() })
+    } else {
+      // Nothing was recognised — most likely all analyses failed
+      const failedFiles = currentJob.files.filter(f => f.status === 'error')
+      const errMsg = failedFiles.length > 0
+        ? `Gemini no pudo analizar ${failedFiles.length} archivo${failedFiles.length !== 1 ? 's' : ''}. Comprueba la API key.`
+        : 'Ningún archivo fue reconocido como factura. Verifica que sean facturas de luz o gas.'
+      updateJob(jobId, { status: 'error', errorMessage: errMsg, finishedAt: Date.now() })
+    }
     return
   }
 
@@ -407,7 +416,7 @@ export async function processJobInBackground(jobId: string): Promise<void> {
     for (const group of allGroups) {
       const first = group.files[0].extractedData!
       const cups = group.cups || null
-      const type = first.type || 'luz'
+      const type = first.supply_type || 'luz'
       const tariff = normalizeTariff(first.tariff || '2.0')
 
       // Check if supply already exists
