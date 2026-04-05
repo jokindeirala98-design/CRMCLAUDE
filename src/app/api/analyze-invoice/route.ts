@@ -7,8 +7,8 @@ import {
 // Re-export types for backward compatibility
 export type { ExtractedInvoiceData } from '@/lib/gemini'
 
-// Increase max duration for Gemini API calls (App Router)
-export const maxDuration = 60
+// Vercel Hobby plan: max 10s per function
+export const maxDuration = 10
 
 interface InvoiceAnalysisRequest {
   file_base64: string
