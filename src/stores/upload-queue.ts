@@ -87,7 +87,7 @@ export const useUploadQueue = create<UploadQueueState>((set) => ({
 /*  BACKGROUND PROCESSOR                                                     */
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
-const CONCURRENCY = 3
+const CONCURRENCY = 2
 
 /** Convert DD/MM/YYYY or DD/MM/YY to YYYY-MM-DD */
 function toIsoDate(raw: string | null | undefined): string | null {

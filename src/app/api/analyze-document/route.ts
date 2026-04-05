@@ -5,7 +5,8 @@ import {
 } from '@/lib/gemini'
 
 // Vercel Hobby plan: max 10s per function
-export const maxDuration = 30 
+// Max duration for Hobby/Pro plans (Vercel)
+export const maxDuration = 60
 
 interface DocumentAnalysisRequest {
   file_base64: string

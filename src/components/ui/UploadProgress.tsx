@@ -352,7 +352,14 @@ function JobCard({
                     </div>
                   )}
                   {f.status === 'done' && f.error && <AlertCircle className="w-3 h-3 text-warning flex-shrink-0" />}
-                  {f.status === 'error' && <AlertCircle className="w-3 h-3 text-error flex-shrink-0" />}
+                  {f.status === 'error' && (
+                    <div className="group relative">
+                      <AlertCircle className="w-3 h-3 text-error flex-shrink-0 cursor-help" />
+                      <div className="absolute bottom-full right-0 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-all pointer-events-none z-50 shadow-xl border border-white/10 leading-tight">
+                        {f.error || 'Error desconocido'}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
 
