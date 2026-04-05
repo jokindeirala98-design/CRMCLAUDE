@@ -164,6 +164,8 @@ export async function processJobInBackground(jobId: string): Promise<void> {
 
   const queue = [...job.files.filter((f) => f.status === 'pending' || f.status === 'uploading')]
 
+  const cleanIdentifier = (val: string | null | undefined) => val?.replace(/[^a-zA-Z0-9]/g, '').toUpperCase() || null
+
   const processOne = async (item: QueuedFile): Promise<void> => {
     // 1. Upload if needed
     if (!item.url) {
@@ -189,43 +191,64 @@ export async function processJobInBackground(jobId: string): Promise<void> {
       }
     }
 
-    // 2. Analyze
+    // 2. Analyze with retries
     updateFile(jobId, item.id, { status: 'analyzing' })
 
-    try {
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve((reader.result as string).split(',')[1])
-        reader.onerror = () => reject(new Error('Error leyendo archivo'))
-        reader.readAsDataURL(item.file)
-      })
+    let retries = 2
+    let lastError: any = null
 
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 120_000)
-      const fileType = item.file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image'
+    while (retries >= 0) {
+      try {
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve((reader.result as string).split(',')[1])
+          reader.onerror = () => reject(new Error('Error leyendo archivo'))
+          reader.readAsDataURL(item.file)
+        })
 
-      const response = await fetch('/api/analyze-document', { 
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file_base64: base64, file_type: fileType, file_name: item.file.name }),
-        signal: controller.signal,
-      })
-      clearTimeout(timeout)
+        const controller = new AbortController()
+        const timeout = setTimeout(() => controller.abort(), 60_000) // 1 min per attempt
+        const fileType = item.file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image'
 
-      if (!response.ok) throw new Error(`Error API ${response.status}`)
+        const response = await fetch('/api/analyze-document', { 
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ file_base64: base64, file_type: fileType, file_name: item.file.name }),
+          signal: controller.signal,
+        })
+        clearTimeout(timeout)
 
-      const result = await response.json()
-      updateFile(jobId, item.id, {
-        status: 'done',
-        extractedData: result,
-        error: result.mode === 'manual' && result.error ? result.error : undefined,
-      })
-    } catch (err: any) {
-      console.error('[UploadQueue] File processing error:', err)
-      updateFile(jobId, item.id, {
-        status: 'error',
-        error: err.name === 'AbortError' ? 'Timeout' : err.message || 'Error',
-      })
+        if (!response.ok) {
+          if (response.status >= 500 && retries > 0) {
+             throw new Error(`API ${response.status}`)
+          }
+          const errResult = await response.json().catch(() => ({}))
+          throw new Error(errResult.error || `Error API ${response.status}`)
+        }
+
+        const result = await response.json()
+        updateFile(jobId, item.id, {
+          status: 'done',
+          extractedData: result,
+          error: result.mode === 'manual' && result.error ? result.error : undefined,
+        })
+        
+        // Success! Break retry loop
+        break 
+      } catch (err: any) {
+        lastError = err
+        console.warn(`[UploadQueue] Attempt failed for ${item.file.name} (${retries} left):`, err.message)
+        if (retries === 0) {
+          updateFile(jobId, item.id, {
+            status: 'error',
+            error: err.name === 'AbortError' ? 'Timeout' : err.message || 'Error',
+          })
+        } else {
+          // Wait before retry
+          await new Promise(r => setTimeout(r, 1000 * (2 - retries)))
+        }
+        retries--
+      }
     }
   }
 
@@ -244,58 +267,70 @@ export async function processJobInBackground(jobId: string): Promise<void> {
 
   // ── Phase -1: Auto-Detect Client if missing ──
   if (!currentJob.clientId) {
-    updateJob(jobId, { status: 'analyzing' }) // Keep analyzing status or show something else
+    updateJob(jobId, { status: 'analyzing' })
     
-    // Find holder metadata from any analyzed file (prefer invoices or CIF/NIF docs)
-    const bestMatch = currentJob.files.find(f => f.status === 'done' && f.extractedData?.mode === 'gemini')
-    const metadata = bestMatch?.extractedData
-
-    if (metadata) {
-      const cifNif = metadata.cif || metadata.nif || metadata.holder_cif_nif
-      const name = metadata.holder_name || metadata.account_holder || 'Cliente Nuevo'
+    const analyzedFiles = currentJob.files.filter(f => f.status === 'done' && f.extractedData?.mode === 'gemini')
+    
+    // 1. Try to detect by CIF/NIF (best option)
+    for (const f of analyzedFiles) {
+      const meta = f.extractedData
+      const rawCifNif = meta.cif || meta.nif || meta.holder_cif_nif
+      const cifNif = cleanIdentifier(rawCifNif)
+      const name = meta.holder_name || meta.account_holder || 'Cliente Nuevo'
 
       if (cifNif) {
-        console.log(`[UploadQueue] Auto-detecting client for ${cifNif}...`)
-        // 1. Search for existing client
+        // Search by cleaned CIF/NIF
         const { data: existing } = await supabase
           .from('clients')
           .select('id, name')
           .or(`cif.eq.${cifNif},nif.eq.${cifNif}`)
           .limit(1)
-          .single()
+          .maybeSingle()
 
         if (existing) {
-          console.log(`[UploadQueue] Found existing client: ${existing.name}`)
           updateJob(jobId, { clientId: existing.id, clientName: existing.name })
-        } else {
-          // 2. Create new client
-          console.log(`[UploadQueue] Creating new client: ${name}`)
-          const isCIF = cifNif.match(/^[A-H]/i)
-          const { data: newClient, error: clientErr } = await supabase
-            .from('clients')
-            .insert({
-              name,
-              [isCIF ? 'cif' : 'nif']: cifNif,
-              status: 'activo'
-            })
-            .select('id, name')
-            .single()
+          break
+        }
+        
+        // If not found, try by name fuzzy match
+        const { data: nameMatch } = await supabase
+          .from('clients')
+          .select('id, name')
+          .ilike('name', `%${name.split(' ')[0]}%`)
+          .limit(1)
+          .maybeSingle()
+        
+        if (nameMatch) {
+          updateJob(jobId, { clientId: nameMatch.id, clientName: nameMatch.name })
+          break
+        }
 
-          if (newClient) {
-            updateJob(jobId, { clientId: newClient.id, clientName: newClient.name })
-          } else {
-            console.error('[UploadQueue] Client creation failed:', clientErr)
-          }
+        // If still not found, create new
+        const isCIF = cifNif.match(/^[A-Z]/i)
+        const { data: newClient } = await supabase
+          .from('clients')
+          .insert({
+            name,
+            [isCIF ? 'cif' : 'nif']: cifNif,
+            status: 'activo'
+          })
+          .select('id, name')
+          .single()
+
+        if (newClient) {
+          updateJob(jobId, { clientId: newClient.id, clientName: newClient.name })
+          break
         }
       }
     }
     
-    // Re-read job state after potential updates
     currentJob = getJob()!
     if (!currentJob.clientId) {
-      // Fallback if still no client detected
-      updateJob(jobId, { status: 'error', errorMessage: 'No se pudo detectar ni crear el cliente. Por favor selecciónalo manualmente.' })
-      useUploadQueue.getState().setIsProcessing(false) // Fix: use store state
+      updateJob(jobId, { 
+        status: 'error', 
+        errorMessage: 'No se pudo detectar ni crear el cliente. Por favor selecciónalo manualmente en el widget.' 
+      })
+      useUploadQueue.getState().setIsProcessing(false)
       return
     }
   }

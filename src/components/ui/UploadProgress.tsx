@@ -139,6 +139,10 @@ export function UploadProgress() {
 /*  JOB CARD                                                                 */
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
+import { SearchableClientSelector } from './SearchableClientSelector'
+import { createClient } from '@/lib/supabase/client'
+import { processJobInBackground } from '@/stores/upload-queue'
+
 function JobCard({
   job,
   isWaiting,
@@ -152,6 +156,38 @@ function JobCard({
   onToggle: () => void
   onRemove: () => void
 }) {
+  const { updateJob } = useUploadQueue()
+  const [clients, setClients] = useState<{ id: string; name: string }[]>([])
+  const [isSelecting, setIsSelecting] = useState(false)
+
+  // Fetch clients only if needed
+  useEffect(() => {
+    if (isSelecting && clients.length === 0) {
+      const fetchClients = async () => {
+        const supabase = createClient()
+        const { data } = await supabase.from('clients').select('id, name').order('name')
+        if (data) setClients(data)
+      }
+      fetchClients()
+    }
+  }, [isSelecting, clients.length])
+
+  const handleSelectClient = async (clientId: string) => {
+    const client = clients.find(c => c.id === clientId)
+    if (!client) return
+    
+    updateJob(job.id, { 
+      clientId, 
+      clientName: client.name,
+      status: 'analyzing', // Resume
+      errorMessage: undefined 
+    })
+    setIsSelecting(false)
+    
+    // Re-trigger global queue
+    const { processQueue } = await import('@/stores/upload-queue')
+    processQueue()
+  }
   const total = job.files.length
   const done = job.files.filter((f) => f.status === 'done').length
   const errors = job.files.filter((f) => f.status === 'error').length
@@ -188,6 +224,8 @@ function JobCard({
 
   const ringColor = isDone ? 'border-success/30' : isError ? 'border-error/30' : isWorking && !isWaiting ? 'border-secondary/30' : 'border-outline-variant/20'
   const barColor = isDone ? 'bg-success' : isError ? 'bg-error' : isWaiting ? 'bg-outline-variant/30' : 'bg-secondary'
+
+  const isAutoDetectFail = isError && !job.clientId && job.errorMessage?.includes('detectar')
 
   return (
     <motion.div
@@ -249,6 +287,36 @@ function JobCard({
       {isWorking && (
         <div className="h-1 bg-surface-container-low">
           <div className={`h-full ${barColor} transition-all duration-500 ease-out`} style={{ width: `${pct}%` }} />
+        </div>
+      )}
+
+      {/* Manual Selection Fallback */}
+      {isAutoDetectFail && !isSelecting && (
+        <div className="px-3.5 py-2.5 bg-error-container/10 border-t border-error/5">
+          <button
+            onClick={(e) => { e.stopPropagation(); setIsSelecting(true) }}
+            className="w-full py-2 bg-error text-white rounded-xl text-[10px] font-bold uppercase tracking-wider hover:bg-error/90 transition-colors shadow-sm"
+          >
+            Seleccionar Cliente Manualmente
+          </button>
+        </div>
+      )}
+
+      {isSelecting && (
+        <div className="p-3 bg-surface border-t border-outline-variant/20 pointer-events-auto">
+          <SearchableClientSelector
+            clients={clients}
+            value=""
+            onChange={handleSelectClient}
+            placeholder="Escribe el nombre..."
+            label="Asignar Cliente"
+          />
+          <button 
+            onClick={() => setIsSelecting(false)}
+            className="w-full mt-2 py-1 text-[10px] text-on-surface-variant hover:text-on-surface"
+          >
+            Cancelar
+          </button>
         </div>
       )}
 
