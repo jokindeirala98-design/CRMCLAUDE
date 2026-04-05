@@ -394,11 +394,25 @@ export async function processJobInBackground(jobId: string): Promise<void> {
       // Only document (CIF/NIF/IBAN) uploads, no invoices
       updateJob(jobId, { status: 'done', finishedAt: Date.now() })
     } else {
-      // Nothing was recognised — most likely all analyses failed
+      // Collect the most informative error from failed/manual files
       const failedFiles = currentJob.files.filter(f => f.status === 'error')
-      const errMsg = failedFiles.length > 0
-        ? `Gemini no pudo analizar ${failedFiles.length} archivo${failedFiles.length !== 1 ? 's' : ''}. Comprueba la API key.`
-        : 'Ningún archivo fue reconocido como factura. Verifica que sean facturas de luz o gas.'
+      const manualFiles = currentJob.files.filter(f => f.status === 'done' && f.extractedData?.mode === 'manual')
+      const sampleError = manualFiles[0]?.extractedData?.error || failedFiles[0]?.error
+
+      let errMsg: string
+      if (sampleError?.includes('API key') || sampleError?.includes('no configurada')) {
+        errMsg = 'API key de Gemini no configurada. Revisa las variables de entorno en Vercel.'
+      } else if (sampleError?.includes('no longer available') || sampleError?.includes('deprecated')) {
+        errMsg = `Modelo Gemini no disponible: ${sampleError}`
+      } else if (sampleError?.includes('quota') || sampleError?.includes('RESOURCE_EXHAUSTED')) {
+        errMsg = 'Cuota de Gemini agotada. Intenta más tarde o cambia el plan.'
+      } else if (sampleError) {
+        errMsg = `Error Gemini: ${sampleError}`
+      } else if (failedFiles.length > 0) {
+        errMsg = `${failedFiles.length} archivo${failedFiles.length !== 1 ? 's' : ''} fallaron al analizarse.`
+      } else {
+        errMsg = 'Ningún archivo fue reconocido como factura. Verifica que sean facturas de luz o gas.'
+      }
       updateJob(jobId, { status: 'error', errorMessage: errMsg, finishedAt: Date.now() })
     }
     return
