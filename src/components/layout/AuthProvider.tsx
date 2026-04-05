@@ -105,17 +105,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [setUser, setLoading, router])
 
-  // Show nothing until auth is checked — prevents flash of dashboard without user
   if (!authChecked) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-surface">
-        <div className="w-8 h-8 border-3 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    )
-  }
-
-  // Not authenticated — don't render dashboard children (redirect is in progress)
-  if (!authenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-surface">
         <div className="w-8 h-8 border-3 border-primary border-t-transparent rounded-full animate-spin" />

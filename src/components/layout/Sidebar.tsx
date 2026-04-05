@@ -158,10 +158,10 @@ export function Sidebar() {
           {!collapsed && (
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-on-surface truncate">
-                {getUserInitials(user?.full_name || user?.email)}
+                {user ? (user.full_name || user.email) : 'Cargando...'}
               </p>
               <p className="text-[11px] text-on-surface-variant capitalize">
-                {user?.role || 'commercial'}
+                {user?.role || 'Iniciando...'}
               </p>
             </div>
           )}

@@ -38,13 +38,20 @@ function getAccessToken(): string | null {
   }
 }
 
-// Data client - for all DB queries.
+// Data client - for all DB queries. Singleton to prevent session conflicts.
+let dataClient: any = null
+
 export function createClient() {
-  return supabaseCreateClient(supabaseUrl, supabaseAnonKey, {
+  if (typeof window !== 'undefined' && dataClient) return dataClient
+
+  const client = supabaseCreateClient(supabaseUrl, supabaseAnonKey, {
     auth: {
       persistSession: true,
       autoRefreshToken: true,
       storageKey: AUTH_STORAGE_KEY,
     },
   })
+
+  if (typeof window !== 'undefined') dataClient = client
+  return client
 }

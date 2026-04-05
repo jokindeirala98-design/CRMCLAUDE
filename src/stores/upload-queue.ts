@@ -261,6 +261,9 @@ export async function processJobInBackground(jobId: string): Promise<void> {
   }
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, () => runNext()))
 
+  // Small pause to allow UI to breathe
+  await new Promise(r => setTimeout(r, 500))
+
   const { createClient } = await import('@/lib/supabase/client')
   const supabase = createClient()
   let currentJob = getJob()!
@@ -429,7 +432,7 @@ export async function processJobInBackground(jobId: string): Promise<void> {
             .select('id, name')
             .eq('active', true)
           if (coms) {
-            const match = coms.find((c) => c.name.toLowerCase().includes(comName.toLowerCase()))
+            const match = coms.find((c: any) => c.name.toLowerCase().includes(comName.toLowerCase()))
             if (match) comId = match.id
           }
         }
