@@ -46,12 +46,12 @@ export function UploadProgress() {
         autoDismissTimers.current.set(job.id, timer)
       }
     }
-    for (const [id, timer] of autoDismissTimers.current) {
+    Array.from(autoDismissTimers.current.entries()).forEach(([id, timer]) => {
       if (!jobs.find((j) => j.id === id)) {
         clearTimeout(timer)
         autoDismissTimers.current.delete(id)
       }
-    }
+    })
   }, [jobs, removeJob])
 
   const toggleJob = (jobId: string) => {
