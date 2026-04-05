@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { X } from 'lucide-react'
+import { X, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 
 export interface ClientOption {
@@ -21,6 +21,8 @@ interface SearchableClientSelectorProps {
   required?: boolean
   error?: string
   disabled?: boolean
+  /** Show an "auto-detect" option at the top (for BulkUpload) */
+  showAutoDetect?: boolean
 }
 
 export const SearchableClientSelector = ({
@@ -32,6 +34,7 @@ export const SearchableClientSelector = ({
   required = false,
   error,
   disabled = false,
+  showAutoDetect = false,
 }: SearchableClientSelectorProps) => {
   const [search, setSearch] = useState('')
   const [isOpen, setIsOpen] = useState(false)
@@ -46,19 +49,27 @@ export const SearchableClientSelector = ({
     return normalizedSearch === '' || nameMatch || cifMatch
   })
 
-  // Close dropdown when clicking outside
+  // Close dropdown when clicking outside — clear unmatched search text
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setIsOpen(false)
+        // If no client selected and user left unmatched text, clear it
+        if (!selectedClient) setSearch('')
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
+  }, [selectedClient])
 
   const handleSelect = (client: ClientOption) => {
     onChange(client.id)
+    setSearch('')
+    setIsOpen(false)
+  }
+
+  const handleSelectAutoDetect = () => {
+    onChange('')
     setSearch('')
     setIsOpen(false)
   }
@@ -111,8 +122,26 @@ export const SearchableClientSelector = ({
         </div>
 
         {/* Dropdown */}
-        {isOpen && filteredClients.length > 0 && (
+        {isOpen && (filteredClients.length > 0 || showAutoDetect) && (
           <div className="absolute z-10 top-full mt-1 w-full bg-surface-container-lowest border border-outline-variant/30 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+            {/* Auto-detect option */}
+            {showAutoDetect && (
+              <button
+                onClick={handleSelectAutoDetect}
+                className={cn(
+                  'w-full text-left px-4 py-2.5 hover:bg-surface-container-high transition-all border-b border-outline-variant/10',
+                  'flex items-center gap-2',
+                  !value && 'bg-secondary/10'
+                )}
+                type="button"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-secondary flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-secondary">Detectar automáticamente</p>
+                  <p className="text-xs text-on-surface-variant">Desde el CIF/NIF de la factura</p>
+                </div>
+              </button>
+            )}
             {filteredClients.map((client) => (
               <button
                 key={client.id}
@@ -138,9 +167,26 @@ export const SearchableClientSelector = ({
         )}
 
         {/* No results message */}
-        {isOpen && search && filteredClients.length === 0 && (
+        {isOpen && search && filteredClients.length === 0 && !showAutoDetect && (
           <div className="absolute z-10 top-full mt-1 w-full bg-surface-container-lowest border border-outline-variant/30 rounded-xl shadow-lg p-3 text-center">
             <p className="text-sm text-on-surface-variant">No se encontraron clientes</p>
+          </div>
+        )}
+
+        {/* No results with auto-detect hint */}
+        {isOpen && search && filteredClients.length === 0 && showAutoDetect && (
+          <div className="absolute z-10 top-full mt-1 w-full bg-surface-container-lowest border border-outline-variant/30 rounded-xl shadow-lg overflow-hidden">
+            <button
+              onClick={handleSelectAutoDetect}
+              className="w-full text-left px-4 py-2.5 hover:bg-surface-container-high transition-all flex items-center gap-2"
+              type="button"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-secondary flex-shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-secondary">Detectar automáticamente</p>
+                <p className="text-xs text-on-surface-variant">El cliente se detectará desde el CIF/NIF de la factura</p>
+              </div>
+            </button>
           </div>
         )}
       </div>

@@ -179,11 +179,12 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
             <div className="p-6 overflow-y-auto flex-1 space-y-5">
               {/* Client selector */}
                 <SearchableClientSelector
-                  label="Cliente"
+                  label="Cliente (opcional)"
                   value={clientId}
                   onChange={setClientId}
                   clients={clients}
-                  placeholder="Buscar cliente (o dejar vacío para auto-detectar)"
+                  placeholder="Buscar cliente existente..."
+                  showAutoDetect
                 />
 
               {/* Drop zone */}
