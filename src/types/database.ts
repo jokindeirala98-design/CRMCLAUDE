@@ -362,6 +362,58 @@ export interface Notification {
   metadata?: Record<string, unknown> | null
 }
 
+// ─── Consumption & Audit types (Ayuntamiento module) ───
+
+export type ConsumptionSource = 'invoice_extraction' | 'excel_import' | 'sips' | 'manual'
+export type ConsumptionValidation = 'OK' | 'Revisar' | 'Incompleto'
+export type AuditReportStatus = 'draft' | 'published' | 'stale'
+
+export interface ConsumptionSnapshot {
+  id: string
+  client_id: string
+  supply_id: string
+  cups: string
+  tariff: string | null
+  supply_type: 'luz' | 'gas' | null
+  comercializadora: string | null
+  address: string | null
+  potencia_p1: number | null
+  potencia_p2: number | null
+  potencia_p3: number | null
+  potencia_p4: number | null
+  potencia_p5: number | null
+  potencia_p6: number | null
+  consumo_p1: number | null
+  consumo_p2: number | null
+  consumo_p3: number | null
+  consumo_p4: number | null
+  consumo_p5: number | null
+  consumo_p6: number | null
+  consumo_total: number | null
+  source: ConsumptionSource
+  validation_status: ConsumptionValidation
+  observations: string | null
+  confidence_json: Record<string, unknown> | null
+  periodo: string | null
+  created_at: string
+  updated_at: string
+  created_by: string | null
+}
+
+export interface AuditReport {
+  id: string
+  client_id: string
+  title: string
+  status: AuditReportStatus
+  rows_snapshot: ConsumptionSnapshot[] | null
+  cover_image_url: string | null
+  informe_breve: string | null
+  notas_optimizacion: Record<string, unknown> | null
+  generated_by: string | null
+  created_at: string
+  updated_at: string
+}
+
 // Helper types for Supabase table definitions
 type TableDef<T> = {
   Row: T
@@ -392,6 +444,8 @@ export interface Database {
       commissions: TableDef<Commission>
       task_notes: TableDef<TaskNote>
       activity_log: TableDef<ActivityLog>
+      consumption_snapshots: TableDef<ConsumptionSnapshot>
+      audit_reports: TableDef<AuditReport>
     }
   }
 }

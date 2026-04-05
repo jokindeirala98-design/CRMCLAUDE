@@ -13,19 +13,20 @@ import { Header } from '@/components/layout/Header'
 import { Card } from '@/components/ui/Card'
 import { StatusBadge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
-import { NewSupplyModal } from '@/components/modals/NewSupplyModal'
+import { BulkUploadModal } from '@/components/modals/BulkUploadModal'
 import { QuickContractModal } from '@/components/modals/QuickContractModal'
 import { NewIncidentModal } from '@/components/modals/NewIncidentModal'
 import { createClient } from '@/lib/supabase/client'
 import { formatDate, formatCurrency, calculateVAT, getUserInitials } from '@/lib/utils/format'
 import { getViewUrl } from '@/lib/utils/storage'
+import ConsumptionDistribution from './components/ConsumptionDistribution'
 
 export default function ClientDetailPage() {
   const { id } = useParams()
   const router = useRouter()
   const [client, setClient] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [showNewSupply, setShowNewSupply] = useState(false)
+  const [showBulkUpload, setShowBulkUpload] = useState(false)
   const [showQuickContract, setShowQuickContract] = useState(false)
   const [showNewIncident, setShowNewIncident] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -388,10 +389,12 @@ export default function ClientDetailPage() {
             <h2 className="font-display font-semibold text-lg text-on-surface">
               Suministros ({client.supplies?.length || 0})
             </h2>
-            <Button size="sm" onClick={() => setShowNewSupply(true)}>
-              <Plus className="w-4 h-4" />
-              Anadir suministro
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button size="sm" onClick={() => setShowBulkUpload(true)}>
+                <Plus className="w-4 h-4" />
+                Importar facturas
+              </Button>
+            </div>
           </div>
 
           {(!client.supplies || client.supplies.length === 0) ? (
@@ -538,6 +541,21 @@ export default function ClientDetailPage() {
           )}
         </div>
 
+        {/* ─── Consumption Distribution (Ayuntamientos only) ─── */}
+        {client.type === 'ayuntamiento' && (
+          <div className="mt-6">
+            <ConsumptionDistribution
+              clientId={id as string}
+              supplies={(client.supplies || []).map((s: any) => ({
+                id: s.id,
+                cups: s.cups,
+                type: s.type,
+                tariff: s.tariff,
+              }))}
+            />
+          </div>
+        )}
+
         {/* ─── Subscription History ─── */}
         {client.subscriptions && client.subscriptions.length > 0 && (
           <div className="mt-6">
@@ -666,9 +684,9 @@ export default function ClientDetailPage() {
         )}
       </div>
 
-      <NewSupplyModal
-        open={showNewSupply}
-        onClose={() => setShowNewSupply(false)}
+      <BulkUploadModal
+        open={showBulkUpload}
+        onClose={() => setShowBulkUpload(false)}
         onCreated={fetchClient}
         preselectedClientId={id as string}
       />

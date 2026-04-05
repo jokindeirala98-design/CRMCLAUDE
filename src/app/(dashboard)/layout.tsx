@@ -7,6 +7,7 @@ import { MobileDrawer } from '@/components/layout/MobileDrawer'
 import { AuthProvider } from '@/components/layout/AuthProvider'
 import { ToastProvider } from '@/components/ui/Toast'
 import { GlobalSearch } from '@/components/layout/GlobalSearch'
+import { UploadProgress } from '@/components/ui/UploadProgress'
 import { motion, AnimatePresence } from 'framer-motion'
 import { usePathname } from 'next/navigation'
 
@@ -45,6 +46,7 @@ export default function DashboardLayout({
           <MobileDrawer isOpen={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} />
           
           <GlobalSearch />
+          <UploadProgress />
         </div>
       </ToastProvider>
     </AuthProvider>

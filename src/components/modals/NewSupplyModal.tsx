@@ -322,9 +322,24 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
         const filePath = `invoices/${Date.now()}/${fileId}.${ext}`
         const { data, error: uploadError } = await supabase.storage
           .from('documents')
-          .upload(filePath, file)
+          .upload(filePath, file, {
+            cacheControl: '3600',
+            upsert: false,
+          })
 
-        if (uploadError) throw uploadError
+        if (uploadError) {
+          console.error('Supabase upload error:', uploadError)
+          // Continue with analysis even if storage upload fails — file is still in memory
+          const uploadedFile: UploadedFile = {
+            id: fileId,
+            file,
+            url: '',
+            storagePath: '',
+            analyzing: true,
+          }
+          newFiles.push(uploadedFile)
+          continue
+        }
 
         const { data: urlData } = supabase.storage.from('documents').getPublicUrl(data.path)
 
@@ -339,7 +354,15 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
         newFiles.push(uploadedFile)
       } catch (err: any) {
         console.error('Upload error:', err)
-        setError(`Error subiendo ${file.name}: ${err.message}`)
+        // Don't block analysis — still add file for Gemini processing
+        const uploadedFile: UploadedFile = {
+          id: fileId,
+          file,
+          url: '',
+          storagePath: '',
+          analyzing: true,
+        }
+        newFiles.push(uploadedFile)
       }
     }
 
@@ -363,6 +386,9 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
           reader.readAsDataURL(uploadedFile.file)
         })
 
+        const controller = new AbortController()
+        const timeout = setTimeout(() => controller.abort(), 120000) // 2 min timeout
+
         const response = await fetch('/api/analyze-invoice', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -371,7 +397,15 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
             file_type: fileType,
             file_name: uploadedFile.file.name,
           }),
+          signal: controller.signal,
         })
+
+        clearTimeout(timeout)
+
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => 'Error del servidor')
+          throw new Error(`Error ${response.status}: ${errorText.substring(0, 200)}`)
+        }
 
         const result = (await response.json()) as ExtractedInvoiceData
         console.log('[Invoice Analysis] Result for', uploadedFile.file.name, ':', JSON.stringify(result))
@@ -390,13 +424,18 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
         )
       } catch (err: any) {
         console.error('Analysis error:', err)
+        const errorMsg = err.name === 'AbortError'
+          ? 'Tiempo de espera agotado. El archivo puede ser demasiado grande.'
+          : err.message === 'Failed to fetch'
+            ? 'Error de conexion. Verifica tu conexion a internet e intenta de nuevo.'
+            : err.message || 'Error al analizar'
         setUploadedFiles((prev) =>
           prev.map((f) =>
             f.id === uploadedFile.id
               ? {
                   ...f,
                   analyzing: false,
-                  error: err.message || 'Error al analizar',
+                  error: errorMsg,
                 }
               : f
           )
@@ -564,8 +603,27 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
           .select('id')
           .single()
 
-        if (supplyError) throw supplyError
-        targetSupplyId = supplyData.id
+        if (supplyError) {
+          // Handle unique constraint conflict (race condition with Telegram/email)
+          if (normalizedCups && (supplyError.code === '23505' || supplyError.message?.includes('unique') || supplyError.message?.includes('duplicate'))) {
+            const { data: existing } = await supabase
+              .from('supplies')
+              .select('id')
+              .eq('cups', normalizedCups)
+              .limit(1)
+              .single()
+            if (existing) {
+              targetSupplyId = existing.id
+              isExistingSupply = true
+            } else {
+              throw supplyError
+            }
+          } else {
+            throw supplyError
+          }
+        } else {
+          targetSupplyId = supplyData.id
+        }
       }
 
       // ── Attach invoices to targetSupplyId (new or existing) ──

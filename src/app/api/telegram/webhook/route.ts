@@ -490,19 +490,23 @@ async function handleDocumentFile(msg: TelegramMessage) {
       return sendMessage(chatId, `❌ Error guardando: ${insertError?.message || 'Error DB'}`)
     }
 
-    // Send "Recibido" immediately before processing starts
+    // ── Debounced "Recibido" notification ──
+    // When rapid-firing files, only send one "Recibido" per 5-second window
     const convo = await getConvo(chatId) || { step: 'idle', data: {}, expiresAt: 0 }
-    const DEBOUNCE_MS = 2500
+    const DEBOUNCE_MS = 5000
     const lastNotifAt = convo.data?.last_notif_at || 0
+    const fileCount = (convo.data?.pending_file_count || 0) + 1
     const now = Date.now()
 
     if (now - lastNotifAt > DEBOUNCE_MS) {
-      await setConvo(chatId, convo.step, { ...(convo.data || {}), last_notif_at: now })
-      // Don't await sendMessage — let it fly while we start processing
-      sendMessage(chatId, `📥 Recibido ✓ — Procesando automaticamente...`).catch(() => {})
+      await setConvo(chatId, convo.step, { ...(convo.data || {}), last_notif_at: now, pending_file_count: 1 })
+      sendMessage(chatId, `📥 Recibido ✓ — Procesando automáticamente...`).catch(() => {})
+    } else {
+      // Just increment counter silently
+      await setConvo(chatId, convo.step, { ...(convo.data || {}), pending_file_count: fileCount })
     }
 
-    // Process inline — pass base64 + item data we already have to avoid re-downloading & re-querying
+    // ── Process inline ──
     const base64 = Buffer.from(buffer).toString('base64')
     const mimeType = fileType === 'pdf' ? 'application/pdf' : 'image/jpeg'
 
@@ -520,9 +524,43 @@ async function handleDocumentFile(msg: TelegramMessage) {
       )
       console.log(`[Telegram] Process result for ${insertedRow.id}:`, JSON.stringify(result))
 
-      // Notify user of result
+      // ── Smart notification: debounce rapid results too ──
+      // For rapid-fire sends, batch results into a single summary notification
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
+      const convoAfter = await getConvo(chatId) || { step: 'idle', data: {}, expiresAt: 0 }
+      const lastResultAt = convoAfter.data?.last_result_at || 0
+      const RESULT_DEBOUNCE = 4000
+
       if (result.ok && !result.skipped) {
-        sendMessage(chatId, `✅ Factura procesada → ${result.cups || 'sin CUPS'} (${result.is_existing_supply ? 'suministro existente' : 'nuevo suministro'})`).catch(() => {})
+        if (now - lastResultAt > RESULT_DEBOUNCE) {
+          // First result in window — send detailed notification
+          await setConvo(chatId, convoAfter.step, { ...(convoAfter.data || {}), last_result_at: now, batch_count: 1 })
+          try {
+            const supabaseNotif = createBotSupabase()
+            const { data: cl } = await supabaseNotif.from('clients').select('name, type').eq('id', result.client_id!).single()
+            const clientName = cl?.name || ''
+            const isAyto = cl?.type === 'ayuntamiento'
+            const emoji = result.is_existing_supply ? '📂' : '🆕'
+            const typeLabel = result.is_existing_supply ? 'Añadida a suministro existente' : 'Nuevo suministro creado'
+            const aytoTag = isAyto ? ' 🏛' : ''
+            sendMessage(chatId,
+              `${emoji} <b>${typeLabel}</b>${aytoTag}\n\n` +
+              `👤 ${clientName}\n` +
+              `🔌 <code>${result.cups || 'Sin CUPS'}</code>\n\n` +
+              `<a href="${appUrl}/supplies/${result.supply_id}">Ver suministro →</a>`
+            ).catch(() => {})
+          } catch {
+            sendMessage(chatId, `✅ Factura procesada → ${result.cups || 'sin CUPS'}`).catch(() => {})
+          }
+        } else {
+          // Subsequent results in rapid window — just increment counter, send summary later
+          const batchCount = (convoAfter.data?.batch_count || 1) + 1
+          await setConvo(chatId, convoAfter.step, { ...(convoAfter.data || {}), batch_count: batchCount })
+          // Every 5th result, send a compact summary
+          if (batchCount % 5 === 0) {
+            sendMessage(chatId, `📊 ${batchCount} facturas procesadas... Seguimos analizando.`).catch(() => {})
+          }
+        }
       } else if (!result.ok) {
         sendMessage(chatId, `⚠️ Error procesando: ${result.error || 'desconocido'}`).catch(() => {})
       }

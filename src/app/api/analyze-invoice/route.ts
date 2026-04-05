@@ -7,6 +7,9 @@ import {
 // Re-export types for backward compatibility
 export type { ExtractedInvoiceData } from '@/lib/gemini'
 
+// Increase max duration for Gemini API calls (App Router)
+export const maxDuration = 60
+
 interface InvoiceAnalysisRequest {
   file_base64: string
   file_type: string

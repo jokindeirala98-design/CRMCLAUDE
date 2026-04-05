@@ -20,6 +20,21 @@ function getSupabase() {
 const LEGAL_SUFFIXES = /\b(s\.?l\.?u?\.?|s\.?a\.?|s\.?c\.?|s\.?coop\.?|c\.?b\.?|sociedad|limitada|anonima|anónima|cooperativa|comunidad\s+de\s+bienes)\b/gi
 const FILLER_WORDS = /\b(de|del|la|las|los|el|y|e|en|con)\b/gi
 
+/** Convert DD/MM/YYYY or DD/MM/YY to YYYY-MM-DD for PostgreSQL. */
+function toIsoDate(raw: string | null | undefined): string | null {
+  if (!raw) return null
+  const s = raw.trim()
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+  const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/)
+  if (m) {
+    const day = m[1].padStart(2, '0')
+    const month = m[2].padStart(2, '0')
+    const year = m[3].length === 2 ? `20${m[3]}` : m[3]
+    return `${year}-${month}-${day}`
+  }
+  return null
+}
+
 function extractKeywords(text: string): string[] {
   const cleaned = text
     .replace(LEGAL_SUFFIXES, '')
@@ -202,13 +217,18 @@ export async function processTelegramInboxItem(
       ? holderName
       : (item.file_name || 'Cliente Telegram')
 
+    // Auto-detect client type: ayuntamiento, empresa, or particular
+    const isAyuntamiento = /ayuntamiento|ajuntament|concello|diputaci[oó]n|consejo\s+comarcal|mancomunidad/i.test(clientName)
+    const isParticular = holderCif ? /^\d/.test(holderCif.trim()) : false
+    const clientType = isAyuntamiento ? 'ayuntamiento' : isParticular ? 'particular' : 'empresa'
+
     // Try with 'telegram' origin first; if the enum value doesn't exist yet, fallback to 'captacion'
     let newClient: any = null
     let clientErr: any = null
 
     const clientPayload = {
       name: clientName,
-      type: 'empresa',
+      type: clientType,
       commercial_id: item.user_id,
       cif_nif: holderCif || null,
       marketing_consent: false,
@@ -243,7 +263,10 @@ export async function processTelegramInboxItem(
     console.log(`[TelegramProcess] Created new client: ${clientName} (${clientId})`)
   }
 
-  // 9. Create new supply if none exists
+  // 9. Create new supply if none exists — with race-condition protection
+  //    The DB has a unique partial index on supplies.cups (WHERE cups IS NOT NULL).
+  //    If two channels try to create the same CUPS simultaneously, one INSERT will
+  //    fail with a unique constraint violation. We catch that and look up the winner.
   if (!supplyId) {
     const { data: newSupply, error: supplyErr } = await supabase
       .from('supplies')
@@ -258,39 +281,74 @@ export async function processTelegramInboxItem(
       .select('id')
       .single()
 
-    if (supplyErr || !newSupply) {
-      console.error(`[TelegramProcess] Failed to create supply:`, supplyErr)
-      await supabase.from('telegram_inbox').update({ status: 'error' }).eq('id', inboxId)
-      return { ok: false, error: 'Failed to create supply' }
-    }
+    if (supplyErr) {
+      // Unique constraint conflict — another channel already created this CUPS
+      if (cups && (supplyErr.code === '23505' || supplyErr.message?.includes('unique') || supplyErr.message?.includes('duplicate'))) {
+        console.log(`[TelegramProcess] CUPS ${cups} conflict — looking up existing supply`)
+        const { data: existing } = await supabase
+          .from('supplies')
+          .select('id, client_id')
+          .eq('cups', cups)
+          .limit(1)
+          .single()
 
-    supplyId = newSupply.id
-    console.log(`[TelegramProcess] Created new supply: ${supplyId}`)
+        if (existing) {
+          supplyId = existing.id
+          clientId = existing.client_id
+          isExistingSupply = true
+          console.log(`[TelegramProcess] Resolved conflict → existing supply ${supplyId}`)
+        } else {
+          console.error(`[TelegramProcess] Conflict but supply not found for ${cups}`)
+          await supabase.from('telegram_inbox').update({ status: 'error' }).eq('id', inboxId)
+          return { ok: false, error: 'Supply conflict — could not resolve' }
+        }
+      } else {
+        console.error(`[TelegramProcess] Failed to create supply:`, supplyErr)
+        await supabase.from('telegram_inbox').update({ status: 'error' }).eq('id', inboxId)
+        return { ok: false, error: 'Failed to create supply: ' + supplyErr.message }
+      }
+    } else if (newSupply) {
+      supplyId = newSupply.id
+      console.log(`[TelegramProcess] Created new supply: ${supplyId}`)
 
-    // Create prescoring for non-2.0 tariffs
-    const tariffNorm = (tariff || '').replace(/\s+/g, '').toUpperCase()
-    const skip20 = tariffNorm.startsWith('2.0') || tariffNorm === '20TD' || tariffNorm === '20'
-    if (!skip20 && tariff) {
-      await supabase.from('prescorings').insert({
-        supply_id: supplyId,
-        client_name: holderName || 'Telegram',
-        cups: cups,
-        tariff: tariff,
-        status: 'pending',
-        requested_by: item.user_id,
-      }).then(r => {
-        if (r.error) console.error('[TelegramProcess] Prescoring error:', r.error)
-      })
+      // Create prescoring for non-2.0 tariffs
+      const tariffNorm = (tariff || '').replace(/\s+/g, '').toUpperCase()
+      const skip20 = tariffNorm.startsWith('2.0') || tariffNorm === '20TD' || tariffNorm === '20'
+      if (!skip20 && tariff) {
+        await supabase.from('prescorings').insert({
+          supply_id: supplyId,
+          client_name: holderName || 'Telegram',
+          cups: cups,
+          tariff: tariff,
+          status: 'pending',
+          requested_by: item.user_id,
+        }).then(r => {
+          if (r.error) console.error('[TelegramProcess] Prescoring error:', r.error)
+        })
+      }
     }
   }
 
-  // 10. Create invoice record
+  // 10. Create invoice record (with full period dates and amount)
+  const eco = extractedData?.economics
+  const periodStart = eco?.fechaInicio
+    ? toIsoDate(eco.fechaInicio)
+    : toIsoDate(extractedData?.billing_period?.split(/\s*[-–]\s*/)?.[0])
+  const periodEnd = eco?.fechaFin
+    ? toIsoDate(eco.fechaFin)
+    : toIsoDate(extractedData?.billing_period?.split(/\s*[-–]\s*/)?.[1])
+  const totalAmount = eco?.totalFactura
+    ?? (extractedData?.total_amount ? parseFloat(extractedData.total_amount) : null)
+
   const { error: invoiceErr } = await supabase.from('invoices').insert({
     supply_id: supplyId,
     file_url: item.file_url,
     file_type: item.file_type === 'pdf' ? 'pdf' : 'image',
     extraction_status: 'completed',
     extracted_data: extractedData,
+    period_start: periodStart,
+    period_end: periodEnd,
+    total_amount: totalAmount,
   })
 
   if (invoiceErr) {

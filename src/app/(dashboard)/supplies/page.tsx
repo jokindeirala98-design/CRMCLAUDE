@@ -7,7 +7,7 @@ import { Header } from '@/components/layout/Header'
 import { Button } from '@/components/ui/Button'
 import { DataTable } from '@/components/ui/DataTable'
 import { Badge, StatusBadge } from '@/components/ui/Badge'
-import { NewSupplyModal } from '@/components/modals/NewSupplyModal'
+import { BulkUploadModal } from '@/components/modals/BulkUploadModal'
 import { createClient } from '@/lib/supabase/client'
 
 /** Normalize tariff strings for display — handles messy DB values */
@@ -168,9 +168,9 @@ export default function SuppliesPage() {
         title="Suministros"
         subtitle={`${supplies.length} suministros registrados`}
         actions={
-          <Button onClick={() => setShowNewModal(true)}>
+          <Button onClick={() => setShowNewModal(true)} title="Importar facturas y crear suministros en segundo plano">
             <Plus className="w-4 h-4" />
-            Nuevo Suministro
+            Importar Facturas
           </Button>
         }
       />
@@ -239,7 +239,7 @@ export default function SuppliesPage() {
         />
       </div>
 
-      <NewSupplyModal
+      <BulkUploadModal
         open={showNewModal}
         onClose={() => setShowNewModal(false)}
         onCreated={fetchSupplies}
