@@ -19,7 +19,6 @@ import { NewIncidentModal } from '@/components/modals/NewIncidentModal'
 import { createClient } from '@/lib/supabase/client'
 import { formatDate, formatCurrency, calculateVAT, getUserInitials } from '@/lib/utils/format'
 import { getViewUrl } from '@/lib/utils/storage'
-import ConsumptionDistribution from './components/ConsumptionDistribution'
 
 export default function ClientDetailPage() {
   const { id } = useParams()
@@ -542,19 +541,7 @@ export default function ClientDetailPage() {
         </div>
 
         {/* ─── Consumption Distribution (Ayuntamientos only) ─── */}
-        {client.type === 'ayuntamiento' && (
-          <div className="mt-6">
-            <ConsumptionDistribution
-              clientId={id as string}
-              supplies={(client.supplies || []).map((s: any) => ({
-                id: s.id,
-                cups: s.cups,
-                type: s.type,
-                tariff: s.tariff,
-              }))}
-            />
-          </div>
-        )}
+        {/* TODO: ConsumptionDistribution — requires local components not yet in git */}
 
         {/* ─── Subscription History ─── */}
         {client.subscriptions && client.subscriptions.length > 0 && (
