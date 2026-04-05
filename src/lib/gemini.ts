@@ -17,6 +17,7 @@ export interface ExtractedDocumentData {
   cif?: string
   nif?: string
   holder_name?: string
+  holder_cif_nif?: string
   fiscal_address?: string
   iban?: string
   bank_name?: string
@@ -28,6 +29,7 @@ export interface ExtractedDocumentData {
   total_amount?: string
   tariff?: string
   comercializadora?: string
+  supply_address?: string
   billing_period?: string
   economics?: any
 }
@@ -66,7 +68,7 @@ async function callGemini(prompt: string, base64Data: string, mimeType: string):
   if (!apiKey) throw new Error('GEMINI_API_KEY no configurada')
 
   const response = await fetch(
-    'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent',
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
@@ -89,28 +91,38 @@ async function callGemini(prompt: string, base64Data: string, mimeType: string):
 /*  PROMPTS                                                                  */
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
-const MASTER_PROMPT = `Analiza este documento y responde SOLO con un JSON.
-1. Identifica el "documentType": "factura", "cif", "nif", "iban", "contrato", o "otro".
-2. Extrae:
-   - "factura": cups (ES...), holder_name, holder_cif_nif, total_amount, tariff, comercializadora.
+const MASTER_PROMPT = `Analiza este documento y responde SOLO con JSON (sin markdown, sin texto adicional).
+1. Identifica "documentType": "factura", "cif", "nif", "iban", "contrato", o "otro".
+2. Extrae TODOS los campos disponibles según el tipo:
+   - "factura" (luz/gas): cups (código ES...), holder_name, holder_cif_nif, total_amount (número), tariff (ej: 2.0TD), comercializadora, supply_address, billing_period ("DD/MM/YYYY - DD/MM/YYYY"), economics: { fechaInicio (DD/MM/YYYY), fechaFin (DD/MM/YYYY), totalFactura (número), consumoTotalKwh (número si es luz), consumo (array), potencia (array), otrosConceptos (array) }
    - "cif"/"nif": cif o nif, holder_name, fiscal_address.
    - "iban": iban, bank_name, account_holder.
    - "contrato": cups, holder_name, comercializadora.
 
 JSON: {"documentType": "...", "extracted": { ... }}`
 
-const INVOICE_PROMPT = `Extrae datos de esta factura de energia (LUZ/GAS) con precision.
-Responde SOLO con JSON:
+const INVOICE_PROMPT = `Extrae todos los datos de esta factura de energia (LUZ o GAS) con maxima precision.
+Responde SOLO con JSON (sin markdown, sin texto adicional):
 {
   "documentType": "factura",
   "extracted": {
-    "cups": "ES...", 
-    "holder_name": "...", 
-    "holder_cif_nif": "...", 
+    "cups": "ES...",
+    "holder_name": "Nombre del titular",
+    "holder_cif_nif": "CIF o NIF del titular",
     "total_amount": 0.00,
-    "tariff": "...",
-    "comercializadora": "...",
-    "economics": { "consumo": [], "potencia": [], "otrosConceptos": [], "totalFactura": 0.00 }
+    "tariff": "2.0TD",
+    "comercializadora": "Nombre comercializadora",
+    "supply_address": "Direccion del suministro",
+    "billing_period": "01/01/2024 - 31/01/2024",
+    "economics": {
+      "fechaInicio": "01/01/2024",
+      "fechaFin": "31/01/2024",
+      "totalFactura": 0.00,
+      "consumoTotalKwh": 0.00,
+      "consumo": [],
+      "potencia": [],
+      "otrosConceptos": []
+    }
   }
 }`
 
@@ -134,13 +146,16 @@ export async function analyzeDocument(base64Data: string, mimeType: string, docT
       mode: 'gemini',
       documentType: detectedType,
       cups: normalizeCups(extracted.cups || '') || undefined,
-      cif: clean(extracted.cif) || clean(extracted.holder_cif_nif),
-      nif: clean(extracted.nif) || clean(extracted.holder_cif_nif),
+      cif: clean(extracted.cif) || (detectedType !== 'factura' ? clean(extracted.holder_cif_nif) : undefined),
+      nif: clean(extracted.nif) || (detectedType !== 'factura' ? clean(extracted.holder_cif_nif) : undefined),
       holder_name: clean(extracted.holder_name) || clean(extracted.account_holder),
-      total_amount: String(extracted.total_amount || ''),
+      holder_cif_nif: clean(extracted.holder_cif_nif),
+      total_amount: extracted.total_amount != null ? String(extracted.total_amount) : '',
       tariff: clean(extracted.tariff),
       comercializadora: clean(extracted.comercializadora),
-      economics: extracted.economics,
+      supply_address: clean(extracted.supply_address),
+      billing_period: clean(extracted.billing_period),
+      economics: extracted.economics || null,
       iban: clean(extracted.iban),
       bank_name: clean(extracted.bank_name),
       account_holder: clean(extracted.account_holder),
