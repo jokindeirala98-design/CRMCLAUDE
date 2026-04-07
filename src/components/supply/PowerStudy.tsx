@@ -246,6 +246,17 @@ export function buildMaximetrosSVG(
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${el.join('')}</svg>`
 }
 
+/** Voltis logo SVG — usada en Excel y PDF */
+export function buildVoltisLogoSVG(): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="320" viewBox="0 0 480 320">
+    <rect width="480" height="320" fill="#FFFFFF"/>
+    <text x="240" y="145" text-anchor="middle" font-family="Arial Black,Arial,sans-serif" font-weight="900" font-size="96" fill="#1A3A8C">Voltis</text>
+    <polygon points="305,170 332,170 350,60 323,60" fill="#2E75B6" opacity="0.85"/>
+    <text x="240" y="210" text-anchor="middle" font-family="Arial,sans-serif" font-size="36" fill="#2E75B6" font-weight="400">energía</text>
+    <polygon points="390,240 465,198 465,218 410,260 390,260" fill="#2E75B6" opacity="0.45"/>
+  </svg>`
+}
+
 /** Convierte un SVG string a PNG base64 usando el Canvas API del navegador */
 function svgToPngDataUrl(svgStr: string, w: number, h: number): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -378,9 +389,9 @@ export function PowerStudy({
     if (!study) return
     try {
       // Generar gráficas en el navegador como PNG antes de enviar al servidor
-      const [consumptionPng, maximetrosPng] = await Promise.all([
+      const [consumptionPng, logoPng] = await Promise.all([
         svgToPngDataUrl(buildConsumptionSVG(study.meses ?? []), 900, 320).catch(() => undefined),
-        svgToPngDataUrl(buildMaximetrosSVG(study.meses ?? [], study.potenciaContratada as Record<string,number>|undefined), 480, 320).catch(() => undefined),
+        svgToPngDataUrl(buildVoltisLogoSVG(), 480, 320).catch(() => undefined),
       ])
 
       const res = await fetch('/api/power-study-excel', {
@@ -388,7 +399,7 @@ export function PowerStudy({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           study,
-          charts: { consumption: consumptionPng, maximetros: maximetrosPng },
+          charts: { consumption: consumptionPng, logo: logoPng },
         }),
       })
       if (!res.ok) throw new Error('Error Excel')

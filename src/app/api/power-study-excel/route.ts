@@ -28,7 +28,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const body = await request.json()
     const study: PowerStudyResult = body.study ?? body
     const consumptionB64: string | undefined = body.charts?.consumption
-    const maximetrosB64: string | undefined = body.charts?.maximetros
+    const logoB64: string | undefined = body.charts?.logo
 
     // ── Cargar plantilla ──────────────────────────────────────────────────────
     const templatePath = path.join(process.cwd(), 'public', 'templates', 'estudio-potencias-template.xlsx')
@@ -134,9 +134,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       zip.file('xl/media/image2.png', Buffer.from(b64, 'base64'))
     }
 
-    // Gráfica de maxímetros → reemplaza image1.jpeg → image1.png
-    if (maximetrosB64) {
-      const b64 = maximetrosB64.replace(/^data:image\/png;base64,/, '')
+    // Logo Voltis → reemplaza image1.jpeg → image1.png
+    if (logoB64) {
+      const b64 = logoB64.replace(/^data:image\/png;base64,/, '')
       zip.remove('xl/media/image1.jpeg')
       zip.file('xl/media/image1.png', Buffer.from(b64, 'base64'))
 

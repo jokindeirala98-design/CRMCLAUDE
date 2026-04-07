@@ -69,13 +69,15 @@ function makeScale(allVals: number[], cs: CS3): (v: number) => string {
   }
 }
 
-// ── Maximetro cell colour ─────────────────────────────────────────────────
-// Dark red ONLY when that column's max exceeds ±15% of contracted power.
-function maxCellStr(val: number, contracted: number, columnOutOfRange: boolean): string {
-  if (val <= 0) return `background-color:#6BA3D6;color:#fff;${PCA}`
+// ── Maximetro cell colour (matches PowerStudy.tsx classifyMaximetro) ──────
+function maxCellStyle(val: number, contracted: number): string {
+  if (val <= 0) return `background-color:#DDEEFF;color:#4A6FA5;${PCA}`
   if (contracted <= 0) return `background-color:#F8C4C4;${PCA}`
-  if (columnOutOfRange) return `background-color:#F8696B;color:#7B1A1A;font-weight:700;${PCA}`
-  return `background-color:#F8C4C4;${PCA}`
+  const ratio = val / contracted
+  if (ratio > 1.0) return `background-color:#F8696B;color:#7B0000;font-weight:700;${PCA}`
+  if (ratio >= 0.85) return `background-color:#FFC7CE;color:#9C0006;${PCA}`
+  if (ratio >= 0.50) return `background-color:#BDD7EE;color:#1F4E79;${PCA}`
+  return `background-color:#2E75B6;color:#fff;font-weight:700;${PCA}`
 }
 
 // ── Voltis Energía logo ───────────────────────────────────────────────────
@@ -143,87 +145,86 @@ function generateBarChartSVG(meses: any[]): string {
 
 // ═══════════════════════════════════════════════════════════════════════════
 function generateHTML(study: PowerStudyResult): string {
-  const hasMax = study.hasRealMaximetros !== false && Object.values(study.maxPotencia).some(v => v > 0)
-  const top    = study.topConsumoPeriods || []
+  const hasMax = meses_hasMax(study)
   const pc     = study.potenciaContratada ?? {}
   const meses  = study.meses ?? []
 
-  // ── Adjustment warning (±15% live recompute) ─────────────────────────────
-  const periodsOutOfRange = PERIODS.filter(p => {
-    const max = study.maxPotencia?.[p] || 0
-    const con = (pc as Record<string,number>)[p] || 0
-    if (!con || !max) return false
-    const r = max / con; return r > 1.15 || r < 0.85
+  // ── ColorScale per-column (matches app: relative within each column) ─────
+  function makeColScale(vals: number[]) { return makeScale(vals, GYR) }
+
+  const totalCs = makeColScale(meses.map(m => m.consumoTotal || 0))
+  const periodoScales: Record<string, (v:number)=>string> = {}
+  PERIODS.forEach(p => {
+    periodoScales[p] = makeColScale(meses.map(m => m.consumo?.[p] || 0))
   })
-  const outOfRangeSet = new Set(periodsOutOfRange)
-  const needsAdj  = periodsOutOfRange.length > 0
-  const adjText   = needsAdj ? `OBLIGATORIO AJUSTAR ${periodsOutOfRange.join(' · ')}` : 'Potencias dentro de rango'
-  const adjBg     = needsAdj ? '#FFFF00' : '#E2F0D9'
-  const adjColor  = needsAdj ? '#C00000' : '#375623'
-  const recoBanner = top.length ? 'PRIORIZAR CONSUMO ' + top.join(' - ') : ''
+  const periodoTotal: Record<string, number> = {}
+  PERIODS.forEach(p => {
+    periodoTotal[p] = meses.reduce((s, m) => s + (m.consumo?.[p] || 0), 0)
+  })
+  const consumoTotal = meses.reduce((s, m) => s + (m.consumoTotal || 0), 0)
+  const pctScale = makeColScale(PERIODS.map(p => consumoTotal > 0 ? periodoTotal[p] / consumoTotal : 0))
+  const annualScale = makeColScale(PERIODS.map(p => periodoTotal[p]))
 
-  // ── Build colorScale functions from ALL data in each range ────────────────
-  // Matches Excel colorScale CF ranges exactly:
-  //   A-col (monthly totals), D-I (period consumption), K-P (maximetros), D3:I3 (%)
-  const allTotals   = meses.map(m => m.consumoTotal || 0)
-  const allPeriod   = meses.flatMap(m => PERIODS.map(p => m.consumo?.[p] || 0))
-  const allPct      = PERIODS.map(p => (study.consumoPorcentaje?.[p] || 0) * 100)
+  const maxPotencia: Record<string, number> = {}
+  PERIODS.forEach(p => { maxPotencia[p] = Math.max(...meses.map(m => m.maximetro?.[p] || 0), 0) })
 
-  const totalCs  = makeScale(allTotals,  GYR)
-  const periodCs = makeScale(allPeriod,  GYR)
-  const pctCs    = makeScale(allPct,     GYR)
+  const cs = (color: string) => color !== 'transparent' ? `background-color:${color};${PCA}` : ''
+  const bgC = (v: number, scale: (n:number)=>string) => v > 0 ? cs(scale(v)) : `background-color:#63BE7B;${PCA}`
 
-  // Consumption cells: v=0 → green (#63BE7B), v>0 → colorScale
-  const consumoBg = (v: number, scale: (n: number) => string): string =>
-    v > 0 ? cs(scale(v)) : `background-color:#63BE7B;${PCA}`
+  // ── Adjustment / priority messages ──────────────────────────────────────
+  const periodsExcess = PERIODS.filter(p => {
+    const cont = (pc as any)[p] || 0
+    return cont > 0 && (maxPotencia[p] || 0) > cont
+  })
+  const periodsLow = PERIODS.filter(p => {
+    const cont = (pc as any)[p] || 0
+    const mx = maxPotencia[p] || 0
+    return cont > 0 && mx > 0 && mx < cont * 0.85 && !periodsExcess.includes(p)
+  })
+  let adjText: string, adjBg: string, adjColor: string
+  if (periodsExcess.length > 0) {
+    adjText = `AJUSTAR POTENCIAS ${periodsExcess.join(' · ')}`
+    adjBg = '#FFFF00'; adjColor = '#C00000'
+  } else if (periodsLow.length > 0) {
+    adjText = `POSIBLE REDUCCION EN ${periodsLow.join(' · ')}`
+    adjBg = '#BDD7EE'; adjColor = '#1F4E79'
+  } else {
+    adjText = 'POTENCIAS DENTRO DE RANGO'
+    adjBg = '#E2F0D9'; adjColor = '#375623'
+  }
 
-  const cs = (color: string) =>
-    color !== 'transparent'
-      ? `background-color:${color};${PCA}`
-      : ''
+  const activePeriods = PERIODS.filter(p => periodoTotal[p] > 0)
+    .sort((a, b) => periodoTotal[b] - periodoTotal[a])
+  const prioMsg = activePeriods.length > 0 ? 'PRIORIZAR CONSUMO ' + activePeriods.slice(0,3).join(' - ') : ''
 
-  // ── Consumption data rows ───────────────────────────────────────────────
-  const consumoDataRows = meses.map(m => {
-    const totVal = m.consumoTotal || 0
-    const totColor = consumoBg(totVal, totalCs)
-    const activaCells = PERIODS.map(p => {
+  // ── Separator column ─────────────────────────────────────────────────────
+  const SEP = `<td style="width:4px;min-width:4px;padding:0;background:#E0E0E0;border:none" rowspan="1"></td>`
+  const SEP_TH = `<th style="width:4px;min-width:4px;padding:0;background:#E0E0E0;border:none"></th>`
+
+  // ── Data rows ─────────────────────────────────────────────────────────────
+  const dataRows = meses.map(m => {
+    const tot = m.consumoTotal || 0
+    const consumoCells = PERIODS.map(p => {
       const v = m.consumo?.[p] || 0
-      return `<td style="${consumoBg(v, periodCs)}">${fmtKwh(v)}</td>`
+      return `<td style="${bgC(v, periodoScales[p])}">${fmtKwh(v)}</td>`
     }).join('')
-    return `<tr>
-        <td style="${totColor};font-weight:700">${fmtKwh(totVal)}</td>
-        <td style="text-align:center">${fmtDate(m.fechaInicio)}</td>
-        <td style="text-align:center">${fmtDate(m.fechaFin)}</td>
-        ${activaCells}
-      </tr>`
-  }).join('')
-
-  // ── Maximeter data rows ───────────────────────────────────────────────────
-  const maxDataRows = hasMax ? meses.map(m => {
-    const maxCells = PERIODS.map(p => {
+    const maxCells = hasMax ? PERIODS.map(p => {
       const val = m.maximetro?.[p] || 0
-      const con = (pc as Record<string,number>)[p] || 0
-      return `<td style="${maxCellStr(val, con, outOfRangeSet.has(p))}">${val > 0 ? fmtKw(val) : '-'}</td>`
-    }).join('')
-    return `<tr>${maxCells}</tr>`
-  }).join('') : ''
-
-  // ── Total rows ────────────────────────────────────────────────────────────
-  const totalActivaCells = PERIODS.map(p => {
-    const v = study.consumoPorPeriodo?.[p] || 0
-    return `<td style="${consumoBg(v, periodCs)};font-weight:700">${fmtKwh(v)}</td>`
+      const con = (pc as any)[p] || 0
+      return `<td style="${maxCellStyle(val, con)};text-align:center">${val > 0 ? fmtKw(val) : '-'}</td>`
+    }).join('') : ''
+    return `<tr>
+      <td style="${bgC(tot, totalCs)};font-weight:700">${fmtKwh(tot)}</td>
+      <td style="text-align:center;color:#444">${fmtDate(m.fechaInicio)}</td>
+      <td style="text-align:center;color:#444">${fmtDate(m.fechaFin)}</td>
+      ${consumoCells}${SEP}${maxCells}
+    </tr>`
   }).join('')
-  const totalMaxCells = hasMax ? PERIODS.map(p => {
-    const val = study.maxPotencia?.[p] || 0
-    const con = (pc as Record<string,number>)[p] || 0
-    return `<td style="${maxCellStr(val, con, outOfRangeSet.has(p))}">${val > 0 ? fmtKw(val) : '-'}</td>`
-  }).join('') : ''
 
-  // ── Reactiva: solo alerta, sin tabla ─────────────────────────────────────
-  const hasReactiva = study.hasRelevantReactiva
-  const reactivaAlert = hasReactiva
+  // ── Reactiva alert ────────────────────────────────────────────────────────
+  const reactivaAlert = study.hasRelevantReactiva
     ? `<div style="display:flex;align-items:center;gap:6px;margin-top:8px;padding:6px 10px;background:#FEF3E2;border:1.5px solid #FAD7A0;border-radius:4px;${PCA}">
-        <span style="font-size:9pt;font-weight:700;color:#7B3F00;">&#9888; CHECKEAR REACTIVAS — se detectan valores superiores a 1.000 kvarh</span>
+        <span style="font-size:8pt;font-weight:700;color:#7B3F00;">&#9888; CHECKEAR REACTIVAS — se detectan valores superiores a 1.000 kvarh</span>
        </div>`
     : ''
 
@@ -247,39 +248,22 @@ function generateHTML(study: PowerStudyResult): string {
   .title-info .study-sub   { font-size:8pt; color:#444; }
   .header-date { font-size:8pt; color:#666; text-align:right; white-space:nowrap; }
 
-  table { border-collapse:collapse; font-size:7.5pt; width:100%; }
+  table { border-collapse:collapse; font-size:7pt; }
   th, td { border:1px solid #C8C8C8; padding:2px 4px; text-align:right; white-space:nowrap; }
   th { text-align:center; }
 
+  .hdr-dark { background-color:#404040;${PCA}; color:#fff; font-weight:700; text-align:center; font-size:7.5pt; letter-spacing:0.04em; }
   .hdr-col  { background-color:#595959;${PCA}; color:#fff; font-weight:700; text-align:center; }
-  .hdr-max  { background-color:#1A4A7A;${PCA}; color:#fff; font-weight:700; text-align:center; font-size:7pt; text-transform:uppercase; letter-spacing:0.05em; }
-  .hdr-pc   { background-color:#EBF5FB;${PCA}; font-weight:700; }
-
-  .hdr-reco { background-color:#FAD7A0;${PCA}; color:#1F3864; font-weight:700; text-align:center; }
-  .hdr-adj  { background-color:${adjBg};${PCA}; color:${adjColor}; font-weight:700; text-align:center; }
-
-  .total-row{ background-color:#F2F2F2;${PCA}; font-weight:700; border-top:2px solid #888; }
-
-  .legend { display:flex; gap:10px; margin-top:4px; font-size:6.5pt; color:#555; }
-  .legend-item { display:flex; align-items:center; gap:3px; }
-  .legend-swatch { width:10px; height:10px; border-radius:2px; display:inline-block; }
-
-  .page { page-break-after: always; }
-  .page:last-child { page-break-after: auto; }
-  .chart-wrap { page-break-inside:avoid; }
+  .total-row{ background-color:#D9D9D9;${PCA}; font-weight:700; border-top:2px solid #595959; }
+  .chart-wrap { page-break-inside:avoid; margin-top:10px; }
 
   @media print {
-    body { padding:0; }
     * { print-color-adjust:exact !important; -webkit-print-color-adjust:exact !important; }
-    .page { page-break-after: always; }
-    .page:last-child { page-break-after: auto; }
   }
 </style>
 </head>
 <body>
 
-<!-- PAGE 1: CONSUMOS ACTIVA -->
-<div class="page">
   <div class="header-bar">
     ${voltisLogoSVG()}
     <div class="title-info">
@@ -290,123 +274,104 @@ function generateHTML(study: PowerStudyResult): string {
   </div>
 
   <table>
+    <colgroup>
+      <col style="min-width:76px"/>
+      <col style="min-width:60px"/>
+      <col style="min-width:60px"/>
+      ${PERIODS.map(() => `<col style="min-width:52px"/>`).join('')}
+      <col style="width:4px"/>
+      ${hasMax ? PERIODS.map(() => `<col style="min-width:58px"/>`).join('') : ''}
+    </colgroup>
     <thead>
+      <!-- Row 0: section labels -->
       <tr>
-        <th class="hdr-col" style="text-align:left;min-width:95px">kWh</th>
-        <th class="hdr-col" style="min-width:58px">F. Inicio</th>
-        <th class="hdr-col" style="min-width:58px">F. Fin</th>
+        <th class="hdr-dark" colspan="3" style="text-align:left;padding-left:8px">${study.clientName || study.cups || 'PUNTO DE SUMINISTRO'}</th>
+        <th class="hdr-dark" colspan="6" style="font-size:7pt;letter-spacing:0.06em">&#9889; CONSUMOS ACTIVA (kWh)</th>
+        ${SEP_TH}
+        ${hasMax ? `<th class="hdr-dark" colspan="6" style="font-size:7pt;letter-spacing:0.06em">MAXÍMETROS (kW)</th>` : ''}
+      </tr>
+      <!-- Row 1: column labels -->
+      <tr>
+        <th class="hdr-col" style="text-align:right">kWh Total</th>
+        <th class="hdr-col">F. Inicio</th>
+        <th class="hdr-col">F. Fin</th>
         ${PERIODS.map(p => `<th class="hdr-col">${p}</th>`).join('')}
+        ${SEP_TH}
+        ${hasMax ? PERIODS.map(p => `<th class="hdr-col">${p}</th>`).join('') : ''}
       </tr>
+      <!-- Row 2: annual totals -->
       <tr>
-        <td style="font-weight:700;text-align:left;font-size:6.5pt;font-family:monospace">${study.cups || ''}</td>
-        <td></td>
-        <td style="text-align:center;font-weight:700">${fmtKwh(study.consumoTotal)}</td>
+        <td style="background-color:#C6EFCE;${PCA};color:#1F5C2E;font-weight:700;text-align:right;font-size:9pt">${fmtKwh(consumoTotal)}</td>
+        <td style="background-color:#E2F0D9;${PCA};font-style:italic;font-size:6.5pt;color:#555;text-align:center">${(study.cups||'').slice(0,22)}</td>
+        <td style="background-color:#E2F0D9;${PCA};font-weight:700;text-align:center;font-size:7pt;color:#375623">ANUAL</td>
+        ${PERIODS.map(p => `<td style="${cs(annualScale(periodoTotal[p]))};font-weight:700;color:#1F3864">${fmtKwh(periodoTotal[p])}</td>`).join('')}
+        ${SEP}
+        ${hasMax ? PERIODS.map(p => {
+          const mx = maxPotencia[p]; const con = (pc as any)[p] || 0
+          return `<td style="${maxCellStyle(mx,con)};font-weight:700;text-align:center">${mx>0?fmtKw(mx):'-'}</td>`
+        }).join('') : ''}
+      </tr>
+      <!-- Row 3: % per period + contracted power -->
+      <tr>
+        <td style="background-color:#F2F2F2;${PCA};font-weight:700;text-align:right;color:#555">100.00%</td>
+        <td colspan="2" style="background-color:#F2F2F2;${PCA};text-align:center;font-weight:700;color:#555">% POR PERIODO</td>
         ${PERIODS.map(p => {
-          const v = study.consumoPorPeriodo?.[p] || 0
-          return `<td style="${consumoBg(v, periodCs)};font-weight:700">${fmtKwh(v)}</td>`
+          const pct = consumoTotal > 0 ? periodoTotal[p]/consumoTotal : 0
+          const bg = pct > 0 ? cs(pctScale(pct)) : `background-color:#F2F2F2;${PCA}`
+          return `<td style="${bg};font-weight:700;color:#1F3864">${pct>0?(pct*100).toFixed(2)+'%':'-'}</td>`
         }).join('')}
+        ${SEP}
+        ${hasMax ? PERIODS.map(p => {
+          const con = (pc as any)[p] || 0
+          return `<td style="background-color:#D9E1F2;${PCA};font-weight:700;color:#1F3864;text-align:center">${con>0?fmtKw(con):'-'}</td>`
+        }).join('') : ''}
       </tr>
+      <!-- Row 4: priority + adjustment messages -->
       <tr>
-        <td style="font-weight:700;text-align:left">${study.clientName || ''}</td>
-        <td></td><td></td>
-        ${PERIODS.map(p => {
-          const pv = (study.consumoPorcentaje?.[p] || 0) * 100
-          return `<td style="${cs(pctCs(pv))};font-weight:700">${pv.toFixed(2)}%</td>`
-        }).join('')}
-      </tr>
-      ${recoBanner ? `<tr>
-        <td colspan="3"></td>
-        <td class="hdr-reco" colspan="6">${recoBanner}</td>
-      </tr>` : ''}
-    </thead>
-    <tbody>
-      ${consumoDataRows}
-    </tbody>
-    <tfoot>
-      <tr class="total-row">
-        <td style="font-weight:700">${fmtKwh(study.consumoTotal)}</td>
-        <td colspan="2" style="text-align:center;font-weight:700">TOTAL</td>
-        ${totalActivaCells}
-      </tr>
-    </tfoot>
-  </table>
-</div>
-
-${hasMax ? `
-<!-- PAGE 2: MAXÍMETROS -->
-<div class="page">
-  <div class="header-bar">
-    ${voltisLogoSVG()}
-    <div class="title-info">
-      <div class="study-title">MAXÍMETROS${study.clientName ? ' · ' + study.clientName : ''}</div>
-      <div class="study-sub">${study.cups || ''}</div>
-    </div>
-    <div class="header-date">${new Date().toLocaleDateString('es-ES', { day:'2-digit', month:'2-digit', year:'numeric' })}</div>
-  </div>
-
-  <table>
-    <thead>
-      <tr>
-        ${PERIODS.map(p => `<th class="hdr-max">${p}</th>`).join('')}
-      </tr>
-      <tr>
-        ${PERIODS.map(p => {
-          const v = (pc as Record<string,number>)[p]
-          return `<td class="hdr-pc" style="color:#1565C0;font-weight:700;text-align:center">${v ? fmtKw(v) : '-'}</td>`
-        }).join('')}
-      </tr>
-      <tr>
-        ${PERIODS.map(p => {
-          const val = study.maxPotencia?.[p] || 0
-          const con = (pc as Record<string,number>)[p] || 0
-          return `<td style="${maxCellStr(val, con, outOfRangeSet.has(p))}">${val > 0 ? fmtKw(val) : '-'}</td>`
-        }).join('')}
-      </tr>
-      <tr>
-        <td class="hdr-adj" colspan="6">${adjText}</td>
+        <td colspan="9" style="background-color:${prioMsg?'#FAD7A0':'#F5F5F5'};${PCA};color:#7B3F00;font-weight:700;text-align:center;font-size:7.5pt;padding:3px 8px">${prioMsg||''}</td>
+        ${SEP}
+        ${hasMax ? `<td colspan="6" style="background-color:${adjBg};${PCA};color:${adjColor};font-weight:700;text-align:center;font-size:7pt;padding:3px 8px">${adjText}</td>` : ''}
       </tr>
     </thead>
     <tbody>
-      ${maxDataRows}
+      ${dataRows}
     </tbody>
     <tfoot>
       <tr class="total-row">
-        ${totalMaxCells}
+        <td>${fmtKwh(consumoTotal)}</td>
+        <td colspan="2" style="text-align:center">TOTAL</td>
+        ${PERIODS.map(p => `<td>${fmtKwh(periodoTotal[p])}</td>`).join('')}
+        ${SEP}
+        ${hasMax ? PERIODS.map(p => {
+          const mx = maxPotencia[p]; const con = (pc as any)[p] || 0
+          return `<td style="${maxCellStyle(mx,con)};font-weight:700;text-align:center;border-top:2px solid #595959">${mx>0?fmtKw(mx):'-'}</td>`
+        }).join('') : ''}
       </tr>
     </tfoot>
   </table>
 
-  <div class="legend" style="margin-top:6px">
-    <div class="legend-item"><span class="legend-swatch" style="background:#6BA3D6;${PCA}"></span> Sin dato</div>
-    <div class="legend-item"><span class="legend-swatch" style="background:#F8C4C4;${PCA}"></span> &lt; 85% pot.</div>
-    <div class="legend-item"><span class="legend-swatch" style="background:#F8696B;${PCA}"></span> &ge; 85% pot.</div>
-  </div>
+  ${hasMax ? `<div style="display:flex;gap:8px;margin-top:5px;font-size:6.5pt;color:#555;flex-wrap:wrap">
+    <span style="display:flex;align-items:center;gap:3px"><span style="width:10px;height:10px;background:#F8696B;${PCA};display:inline-block;border-radius:2px"></span>Exceso (&gt;contratada)</span>
+    <span style="display:flex;align-items:center;gap:3px"><span style="width:10px;height:10px;background:#FFC7CE;${PCA};display:inline-block;border-radius:2px"></span>Dentro de rango (±15%)</span>
+    <span style="display:flex;align-items:center;gap:3px"><span style="width:10px;height:10px;background:#BDD7EE;${PCA};display:inline-block;border-radius:2px"></span>Infrautilizado (&lt;85%)</span>
+    <span style="display:flex;align-items:center;gap:3px"><span style="width:10px;height:10px;background:#2E75B6;${PCA};display:inline-block;border-radius:2px"></span>Muy bajo (&lt;50%)</span>
+    <span style="display:flex;align-items:center;gap:3px"><span style="width:10px;height:10px;background:#DDEEFF;${PCA};display:inline-block;border-radius:2px"></span>Sin dato</span>
+  </div>` : ''}
 
   ${reactivaAlert}
-  ${barChart ? `<div class="chart-wrap" style="margin-top:12px">${barChart}</div>` : ''}
-</div>
-` : `
-<div class="page">
-  <div class="header-bar">
-    ${voltisLogoSVG()}
-    <div class="title-info">
-      <div class="study-title">CONSUMO MENSUAL${study.clientName ? ' · ' + study.clientName : ''}</div>
-      <div class="study-sub">${study.cups || ''}</div>
-    </div>
-    <div class="header-date">${new Date().toLocaleDateString('es-ES', { day:'2-digit', month:'2-digit', year:'numeric' })}</div>
-  </div>
-  ${reactivaAlert}
-  ${barChart ? `<div class="chart-wrap" style="margin-top:12px">${barChart}</div>` : ''}
-</div>
-`}
+  ${barChart ? `<div class="chart-wrap">${barChart}</div>` : ''}
 
-<div style="margin-top:5px;font-size:6pt;color:#AAA;text-align:right">
-  Voltis Energía · ${study.cups}${study.autoGenerated ? ' · Generado automáticamente desde SIPS' : ''}${!study.hasRealMaximetros ? ' · Sin maxímetros SIPS' : ''}
-</div>
+  <div style="margin-top:5px;font-size:6pt;color:#AAA;text-align:right">
+    Voltis Energía · ${study.cups}${study.autoGenerated ? ' · Generado automáticamente desde SIPS' : ''}${!study.hasRealMaximetros ? ' · Sin maxímetros SIPS' : ''}
+  </div>
 
 <script>window.onload=function(){setTimeout(function(){window.print()},500)}</script>
 </body>
 </html>`
+}
+
+function meses_hasMax(study: PowerStudyResult): boolean {
+  return study.hasRealMaximetros !== false && Object.values(study.maxPotencia ?? {}).some(v => (v as number) > 0)
 }
 
 export async function POST(request: NextRequest) {
