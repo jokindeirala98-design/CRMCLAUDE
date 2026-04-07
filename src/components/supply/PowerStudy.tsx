@@ -116,33 +116,34 @@ function fmtDate(s: string): string {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   SHARED TABLE STYLES  (Excel-faithful)
+   SHARED TABLE STYLES — fieles al template Excel (Aptos Narrow,
+   fondos blancos, bordes inferiores gruesos, sin gris en headers)
 ══════════════════════════════════════════════════════════════ */
+const FONT = '"Arial Narrow", "Calibri", Arial, sans-serif'
 const CELL: React.CSSProperties = {
   padding: '2px 5px',
-  border: '1px solid #BFBFBF',
+  border: '1px solid #D0D0D0',
   fontSize: 10,
-  fontFamily: 'Calibri, Arial, sans-serif',
+  fontFamily: FONT,
   whiteSpace: 'nowrap',
+  background: '#FFFFFF',
 }
-const HDR_DARK: React.CSSProperties = {
+/** Header con borde inferior grueso (cols D-I y K-P en Excel) */
+const HDR_COL: React.CSSProperties = {
   ...CELL,
-  background: '#404040',
-  color: '#fff',
+  fontWeight: 700,
+  textAlign: 'center',
+  minWidth: 54,
+  borderBottom: '2.5px solid #000000',
+}
+/** Header sin borde inferior (cols A, C en Excel) */
+const HDR_PLAIN: React.CSSProperties = {
+  ...CELL,
   fontWeight: 700,
   textAlign: 'center',
 }
-const HDR_COL: React.CSSProperties = {
-  ...CELL, background: '#595959', color: '#fff', fontWeight: 700, textAlign: 'center', minWidth: 54,
-}
 const SEP_CELL: React.CSSProperties = {
-  padding: 0, width: 6, minWidth: 6, background: '#e0e0e0', border: 'none',
-}
-const TOTAL_ROW: React.CSSProperties = {
-  ...CELL,
-  background: '#D9D9D9',
-  fontWeight: 700,
-  textAlign: 'right',
+  padding: 0, width: 6, minWidth: 6, background: '#F0F0F0', border: 'none',
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -498,12 +499,46 @@ export function PowerStudy({
     periodoPct[p] = consumoTotal > 0 ? periodoTotal[p] / consumoTotal : 0
   })
 
-  // ── PER-COLUMN HEATMAP SCALES (relative within each column) ──
-  const totalScale = makeColumnScale(meses.map(m => m.consumoTotal || 0))
+  // ── PER-COLUMN HEATMAP SCALES — idéntico al colorScale CF del Excel ──
+  // Consumo: verde→amarillo→rojo  |  Maxímetros: azul→blanco→rojo
+  const C0='#63BE7B', C1='#FFEB84', C2='#F8696B'
+  const M0='#5A8AC6', M1='#FCFCFF', M2='#F8696B'
+  function makeColScaleGYR(vals: number[]) {
+    const pos = vals.filter(v=>v>0)
+    if(!pos.length) return () => C0
+    const lo=Math.min(...pos), hi=Math.max(...pos)
+    if(lo===hi) return () => C1
+    const sorted=[...pos].sort((a,b)=>a-b)
+    const mid=sorted[Math.floor((sorted.length-1)/2)]
+    return (v:number):string => {
+      if(v<=0) return C0
+      if(v<=lo) return C0; if(v>=hi) return C2
+      if(v<=mid) { const t=mid>lo?(v-lo)/(mid-lo):0; return lerpHex(C0,C1,t) }
+      const t=hi>mid?(v-mid)/(hi-mid):1; return lerpHex(C1,C2,t)
+    }
+  }
+  function makeColScaleBWR(vals: number[]) {
+    const pos = vals.filter(v=>v>0)
+    if(!pos.length) return () => M0
+    const lo=Math.min(...pos), hi=Math.max(...pos)
+    if(lo===hi) return () => M1
+    const sorted=[...pos].sort((a,b)=>a-b)
+    const mid=sorted[Math.floor((sorted.length-1)/2)]
+    return (v:number):string => {
+      if(v<=0) return '#DDEEFF'
+      if(v<=lo) return M0; if(v>=hi) return M2
+      if(v<=mid) { const t=mid>lo?(v-lo)/(mid-lo):0; return lerpHex(M0,M1,t) }
+      const t=hi>mid?(v-mid)/(hi-mid):1; return lerpHex(M1,M2,t)
+    }
+  }
+  const totalScale = makeColScaleGYR(meses.map(m => m.consumoTotal || 0))
   const periodoScales: Record<Period, (v: number) => string> = {} as any
   PERIODS.forEach(p => {
-    periodoScales[p] = makeColumnScale(meses.map(m => m.consumo?.[p] || 0))
+    periodoScales[p] = makeColScaleGYR(meses.map(m => m.consumo?.[p] || 0))
   })
+  // Escala maxímetros: azul→blanco→rojo sobre TODOS los valores (igual que Excel K5:P39)
+  const allMaxVals = meses.flatMap(m => PERIODS.map(p => m.maximetro?.[p] || 0))
+  const maxScale = makeColScaleBWR(allMaxVals)
 
   // ── NEW: Scales for percentage and annual totals ──
   const pctScale = makeColumnScale(PERIODS.map(p => periodoPct[p]))
@@ -622,51 +657,50 @@ export function PowerStudy({
             {hasMaximetros && PERIODS.map(p => <col key={`m${p}`} style={{ minWidth: 62 }} />)}
           </colgroup>
           <thead>
-            {/* ── Fila 1: cabeceras de columna (= Excel fila 1) ── */}
+            {/* ── Fila 1: cabeceras — blanco+negrita+borde inferior (= Excel fila 1) ── */}
             <tr>
-              <th style={{ ...HDR_COL, textAlign: 'left', paddingLeft: 6 }}>CUPS</th>
-              <th style={HDR_COL}></th>
-              <th style={{ ...HDR_COL, minWidth: 80 }}>CONSUMO TOTAL</th>
-              {PERIODS.map(p => <th key={p} style={HDR_COL}>{p}</th>)}
+              <th style={{ ...HDR_PLAIN, textAlign: 'left', paddingLeft: 6, minWidth: 140 }}>CUPS</th>
+              <th style={HDR_PLAIN}></th>
+              <th style={{ ...HDR_PLAIN, minWidth: 90 }}>CONSUMO TOTAL</th>
+              {PERIODS.map(p => <th key={p} style={HDR_COL}>{p} Activa</th>)}
               <td style={SEP_CELL} />
-              {hasMaximetros && PERIODS.map(p => <th key={`m${p}`} style={HDR_COL}>{p}</th>)}
+              {hasMaximetros && PERIODS.map(p => <th key={`m${p}`} style={HDR_COL}>{p} Maxímetro</th>)}
             </tr>
-            {/* ── Fila 2: CUPS value + totales anuales + MAX (= Excel fila 2) ── */}
+            {/* ── Fila 2: CUPS + totales anuales 12pt + MAX ── */}
             <tr>
-              <td style={{ ...CELL, fontStyle: 'italic', fontSize: 8, color: '#555', textAlign: 'left' }}>
-                {(study.cups || '').slice(0, 22)}
+              <td style={{ ...CELL, fontSize: 9, color: '#555', textAlign: 'left' }}>
+                {(study.cups || '').slice(0, 26)}
               </td>
               <td style={CELL}></td>
-              <td style={{ ...CELL, background: '#C6EFCE', color: '#1F5C2E', fontWeight: 700, textAlign: 'right', fontSize: 11 }}>
+              <td style={{ ...CELL, background: annualScale(consumoTotal), fontWeight: 700, textAlign: 'center', fontSize: 12, borderBottom: '2px solid #000' }}>
                 {fmtKwh(consumoTotal)}
               </td>
               {PERIODS.map(p => (
-                <td key={p} style={{ ...CELL, background: annualScale(periodoTotal[p]), fontWeight: 700, textAlign: 'right', color: '#1F3864' }}>
+                <td key={p} style={{ ...CELL, background: annualScale(periodoTotal[p]), fontWeight: 700, textAlign: 'center', fontSize: 12, borderBottom: '2px solid #000' }}>
                   {fmtKwh(periodoTotal[p])}
                 </td>
               ))}
               <td style={SEP_CELL} />
               {hasMaximetros && PERIODS.map(p => {
                 const mx = maxPotencia[p]
-                const cls = classifyMaximetro(mx, (pc as any)[p] || 0)
                 return (
-                  <td key={`m${p}`} style={{ ...CELL, background: cls.bg, color: cls.color, fontWeight: 700, textAlign: 'center' }}>
+                  <td key={`m${p}`} style={{ ...CELL, background: mx > 0 ? maxScale(mx) : '#DDEEFF', fontWeight: 700, textAlign: 'center', fontSize: 12, borderBottom: '2px solid #000' }}>
                     {mx > 0 ? fmtKw(mx) : '-'}
                   </td>
                 )
               })}
             </tr>
-            {/* ── Fila 3: clientName + % + mensaje ajuste rowspan=2 (= Excel fila 3) ── */}
+            {/* ── Fila 3: clientName 16pt + % + mensaje ajuste rowspan=2 ── */}
             <tr>
-              <td style={{ ...CELL, background: '#E8E8E8', fontWeight: 700, fontSize: 9, color: '#333', textAlign: 'left' }}>
+              <td style={{ ...CELL, fontWeight: 700, fontSize: 14, textAlign: 'left', color: '#111' }}>
                 {study.clientName || ''}
               </td>
-              <td style={{ ...CELL, background: '#F2F2F2' }}></td>
-              <td style={{ ...CELL, background: '#F2F2F2' }}></td>
+              <td style={CELL}></td>
+              <td style={CELL}></td>
               {PERIODS.map(p => {
                 const pct = periodoPct[p]
                 return (
-                  <td key={p} style={{ ...CELL, background: pct > 0 ? pctScale(pct) : '#F2F2F2', fontWeight: 700, textAlign: 'right', color: '#1F3864' }}>
+                  <td key={p} style={{ ...CELL, background: pct > 0 ? pctScale(pct) : '#fff', fontWeight: 700, textAlign: 'center', fontSize: 12, borderBottom: '2px solid #000' }}>
                     {pct > 0 ? fmtPct(pct) : '-'}
                   </td>
                 )
@@ -679,19 +713,20 @@ export function PowerStudy({
                   color: adjColor,
                   fontWeight: 700,
                   textAlign: 'center',
-                  fontSize: 9,
+                  fontSize: 12,
                   padding: '4px 8px',
                   verticalAlign: 'middle',
+                  borderBottom: '2px solid #000',
                 }}>
                   {adjText}
                 </td>
               )}
             </tr>
-            {/* ── Fila 4: mensaje priorizar (= Excel fila 4, sep+adj cubiertos por rowspan) ── */}
+            {/* ── Fila 4: mensaje priorizar ── */}
             <tr>
-              <td style={{ ...CELL, background: '#F5F5F5' }}></td>
-              <td style={{ ...CELL, background: '#F5F5F5' }}></td>
-              <td style={{ ...CELL, background: '#F5F5F5' }}></td>
+              <td style={CELL}></td>
+              <td style={CELL}></td>
+              <td style={CELL}></td>
               {prioMsg ? (
                 <td colSpan={6} style={{
                   ...CELL,
@@ -700,13 +735,13 @@ export function PowerStudy({
                   fontWeight: 700,
                   textAlign: 'center',
                   padding: '3px 8px',
-                  fontSize: 10,
-                  letterSpacing: '0.04em',
+                  fontSize: 11,
+                  borderBottom: '2px solid #000',
                 }}>
                   {prioMsg}
                 </td>
               ) : (
-                PERIODS.map(p => <td key={p} style={{ ...CELL, background: '#F5F5F5' }}></td>)
+                PERIODS.map(p => <td key={p} style={{ ...CELL, borderBottom: '2px solid #000' }}></td>)
               )}
             </tr>
           </thead>
@@ -735,13 +770,10 @@ export function PowerStudy({
                   <td style={SEP_CELL} />
                   {hasMaximetros && PERIODS.map(p => {
                     const val = m.maximetro?.[p] || 0
-                    const cls = classifyMaximetro(val, (pc as any)[p] || 0)
                     return (
                       <td key={`m${p}`} style={{
                         ...CELL,
-                        background: val > 0 ? cls.bg : '#DDEEFF',
-                        color: val > 0 ? cls.color : '#4A6FA5',
-                        fontWeight: cls.fontWeight,
+                        background: val > 0 ? maxScale(val) : '#DDEEFF',
                         textAlign: 'center',
                       }}>
                         {val > 0 ? fmtKw(val) : '-'}
@@ -754,16 +786,6 @@ export function PowerStudy({
           </tbody>
         </table>
 
-        {/* ── Legend (below table) ── */}
-        {hasMaximetros && (
-          <div style={{ display: 'flex', gap: 8, marginTop: 6, fontSize: 8.5, color: '#555', fontFamily: 'Calibri,Arial,sans-serif', flexWrap: 'wrap' }}>
-            <LegendDot color="#F8696B" label="Exceso (>contratada)" />
-            <LegendDot color="#FFC7CE" label="Dentro de rango (±15%)" />
-            <LegendDot color="#BDD7EE" label="Infrautilizado (<85%)" />
-            <LegendDot color="#2E75B6" textColor="#fff" label="Muy bajo (<50%)" />
-            <LegendDot color="#DDEEFF" label="Sin dato" />
-          </div>
-        )}
 
         {/* ── Alerta reactivas ── */}
         {hasReactiva && (

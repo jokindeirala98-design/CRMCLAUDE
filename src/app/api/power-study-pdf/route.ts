@@ -69,15 +69,9 @@ function makeScale(allVals: number[], cs: CS3): (v: number) => string {
   }
 }
 
-// ── Maximetro cell colour (matches PowerStudy.tsx classifyMaximetro) ──────
-function maxCellStyle(val: number, contracted: number): string {
-  if (val <= 0) return `background-color:#DDEEFF;color:#4A6FA5;${PCA}`
-  if (contracted <= 0) return `background-color:#F8C4C4;${PCA}`
-  const ratio = val / contracted
-  if (ratio > 1.0) return `background-color:#F8696B;color:#7B0000;font-weight:700;${PCA}`
-  if (ratio >= 0.85) return `background-color:#FFC7CE;color:#9C0006;${PCA}`
-  if (ratio >= 0.50) return `background-color:#BDD7EE;color:#1F4E79;${PCA}`
-  return `background-color:#2E75B6;color:#fff;font-weight:700;${PCA}`
+/** Maxímetro color: azul→blanco→rojo relativo (= Excel colorScale K5:P39) */
+function makeMaxScale(allVals: number[]) {
+  return makeScale(allVals, BWR)
 }
 
 // ── Voltis Energía logo ───────────────────────────────────────────────────
@@ -149,7 +143,7 @@ function generateHTML(study: PowerStudyResult): string {
   const pc     = study.potenciaContratada ?? {}
   const meses  = study.meses ?? []
 
-  // ── ColorScale per-column (matches app: relative within each column) ─────
+  // ── ColorScale: GYR para consumo, BWR para maxímetros (= Excel CF) ──────
   function makeColScale(vals: number[]) { return makeScale(vals, GYR) }
 
   const totalCs = makeColScale(meses.map(m => m.consumoTotal || 0))
@@ -157,6 +151,8 @@ function generateHTML(study: PowerStudyResult): string {
   PERIODS.forEach(p => {
     periodoScales[p] = makeColScale(meses.map(m => m.consumo?.[p] || 0))
   })
+  const allMaxVals = meses.flatMap(m => PERIODS.map(p => m.maximetro?.[p] || 0))
+  const maxCs = makeMaxScale(allMaxVals)
   const periodoTotal: Record<string, number> = {}
   PERIODS.forEach(p => {
     periodoTotal[p] = meses.reduce((s, m) => s + (m.consumo?.[p] || 0), 0)
@@ -210,8 +206,8 @@ function generateHTML(study: PowerStudyResult): string {
     }).join('')
     const maxCells = hasMax ? PERIODS.map(p => {
       const val = m.maximetro?.[p] || 0
-      const con = (pc as any)[p] || 0
-      return `<td style="${maxCellStyle(val, con)};text-align:center">${val > 0 ? fmtKw(val) : '-'}</td>`
+      const bgMax = val > 0 ? cs(maxCs(val)) : 'background-color:#DDEEFF;'+PCA
+      return `<td style="${bgMax};text-align:center">${val > 0 ? fmtKw(val) : '-'}</td>`
     }).join('') : ''
     return `<tr>
       <td style="${bgC(tot, totalCs)};font-weight:700">${fmtKwh(tot)}</td>
@@ -248,11 +244,13 @@ function generateHTML(study: PowerStudyResult): string {
   .title-info .study-sub   { font-size:8pt; color:#444; }
   .header-date { font-size:8pt; color:#666; text-align:right; white-space:nowrap; }
 
-  table { border-collapse:collapse; font-size:7pt; }
-  th, td { border:1px solid #C8C8C8; padding:2px 4px; text-align:right; white-space:nowrap; }
+  table { border-collapse:collapse; font-size:7pt; font-family:"Arial Narrow",Arial,Calibri,sans-serif; }
+  th, td { border:1px solid #D0D0D0; padding:2px 4px; text-align:right; white-space:nowrap; background:#fff; }
   th { text-align:center; }
 
-  .hdr-col  { background-color:#595959;${PCA}; color:#fff; font-weight:700; text-align:center; }
+  /* Headers blancos+negrita+borde inferior grueso = Excel */
+  .hdr-col  { font-weight:700; text-align:center; border-bottom:2.5px solid #000; }
+  .hdr-plain{ font-weight:700; text-align:center; }
   .chart-wrap { page-break-inside:avoid; margin-top:10px; }
 
   @media print {
@@ -281,48 +279,47 @@ function generateHTML(study: PowerStudyResult): string {
       ${hasMax ? PERIODS.map(() => `<col style="min-width:58px"/>`).join('') : ''}
     </colgroup>
     <thead>
-      <!-- Row 1: column headers (= Excel row 1) -->
+      <!-- Row 1: column headers — white+bold+thick border (= Excel row 1) -->
       <tr>
-        <th class="hdr-col" style="text-align:left;padding-left:5px">CUPS</th>
-        <th class="hdr-col"></th>
-        <th class="hdr-col">CONSUMO TOTAL</th>
-        ${PERIODS.map(p => `<th class="hdr-col">${p}</th>`).join('')}
-        <th style="width:4px;padding:0;background:#E0E0E0;border:none"></th>
-        ${hasMax ? PERIODS.map(p => `<th class="hdr-col">${p}</th>`).join('') : ''}
+        <th class="hdr-plain" style="text-align:left;padding-left:5px;min-width:100px">CUPS</th>
+        <th class="hdr-plain"></th>
+        <th class="hdr-plain" style="min-width:72px">CONSUMO TOTAL</th>
+        ${PERIODS.map(p => `<th class="hdr-col">${p} Activa</th>`).join('')}
+        <th style="width:4px;padding:0;background:#F0F0F0;border:none"></th>
+        ${hasMax ? PERIODS.map(p => `<th class="hdr-col">${p} Maxímetro</th>`).join('') : ''}
       </tr>
-      <!-- Row 2: CUPS value + annual totals + max summary (= Excel row 2) -->
+      <!-- Row 2: CUPS + annual totals 12pt + MAX (= Excel row 2) -->
       <tr>
-        <td style="font-style:italic;font-size:6.5pt;color:#555;text-align:left">${(study.cups||'').slice(0,22)}</td>
+        <td style="font-size:6.5pt;color:#555;text-align:left">${(study.cups||'').slice(0,26)}</td>
         <td></td>
-        <td style="background-color:#C6EFCE;${PCA};color:#1F5C2E;font-weight:700;font-size:9pt;text-align:right">${fmtKwh(consumoTotal)}</td>
-        ${PERIODS.map(p => `<td style="${cs(annualScale(periodoTotal[p]))};font-weight:700;color:#1F3864">${fmtKwh(periodoTotal[p])}</td>`).join('')}
-        <td style="width:4px;padding:0;background:#E0E0E0;border:none"></td>
+        <td style="${cs(annualScale(consumoTotal))};font-weight:700;font-size:10pt;text-align:center;border-bottom:2px solid #000">${fmtKwh(consumoTotal)}</td>
+        ${PERIODS.map(p => `<td style="${cs(annualScale(periodoTotal[p]))};font-weight:700;font-size:10pt;text-align:center;border-bottom:2px solid #000">${fmtKwh(periodoTotal[p])}</td>`).join('')}
+        <td style="width:4px;padding:0;background:#F0F0F0;border:none"></td>
         ${hasMax ? PERIODS.map(p => {
-          const mx = maxPotencia[p]; const con = (pc as any)[p] || 0
-          return `<td style="${maxCellStyle(mx,con)};font-weight:700;text-align:center">${mx>0?fmtKw(mx):'-'}</td>`
+          const mx = maxPotencia[p]
+          const bgMax = mx > 0 ? cs(maxCs(mx)) : 'background-color:#DDEEFF;'+PCA
+          return `<td style="${bgMax};font-weight:700;font-size:10pt;text-align:center;border-bottom:2px solid #000">${mx>0?fmtKw(mx):'-'}</td>`
         }).join('') : ''}
       </tr>
-      <!-- Row 3: clientName + % + adj message rowspan=2 (= Excel row 3) -->
+      <!-- Row 3: clientName 14pt + % + adj message rowspan=2 (= Excel row 3) -->
       <tr>
-        <td style="background-color:#E8E8E8;${PCA};font-weight:700;font-size:6.5pt;color:#333;text-align:left">${study.clientName||''}</td>
-        <td style="background-color:#F2F2F2;${PCA}"></td>
-        <td style="background-color:#F2F2F2;${PCA}"></td>
+        <td style="font-weight:700;font-size:11pt;text-align:left;color:#111">${study.clientName||''}</td>
+        <td></td>
+        <td></td>
         ${PERIODS.map(p => {
           const pct = consumoTotal > 0 ? periodoTotal[p]/consumoTotal : 0
-          const bg = pct > 0 ? cs(pctScale(pct)) : `background-color:#F2F2F2;${PCA}`
-          return `<td style="${bg};font-weight:700;color:#1F3864">${pct>0?(pct*100).toFixed(2)+'%':'-'}</td>`
+          const bg = pct > 0 ? cs(pctScale(pct)) : ''
+          return `<td style="${bg};font-weight:700;font-size:10pt;text-align:center;border-bottom:2px solid #000">${pct>0?(pct*100).toFixed(2)+'%':'-'}</td>`
         }).join('')}
-        <td style="width:4px;padding:0;background:#E0E0E0;border:none" rowspan="2"></td>
-        ${hasMax ? `<td colspan="6" rowspan="2" style="background-color:${adjBg};${PCA};color:${adjColor};font-weight:700;text-align:center;font-size:7pt;padding:4px 8px;vertical-align:middle">${adjText}</td>` : ''}
+        <td style="width:4px;padding:0;background:#F0F0F0;border:none" rowspan="2"></td>
+        ${hasMax ? `<td colspan="6" rowspan="2" style="background-color:${adjBg};${PCA};color:${adjColor};font-weight:700;text-align:center;font-size:9pt;padding:4px 8px;vertical-align:middle;border-bottom:2px solid #000">${adjText}</td>` : ''}
       </tr>
-      <!-- Row 4: priority message (sep + adj covered by rowspan) (= Excel row 4) -->
+      <!-- Row 4: priority message (= Excel row 4) -->
       <tr>
-        <td style="background-color:#F5F5F5;${PCA}"></td>
-        <td style="background-color:#F5F5F5;${PCA}"></td>
-        <td style="background-color:#F5F5F5;${PCA}"></td>
+        <td></td><td></td><td></td>
         ${prioMsg
-          ? `<td colspan="6" style="background-color:#FAD7A0;${PCA};color:#7B3F00;font-weight:700;text-align:center;padding:3px 8px;font-size:7.5pt;letter-spacing:0.04em">${prioMsg}</td>`
-          : PERIODS.map(() => `<td style="background-color:#F5F5F5;${PCA}"></td>`).join('')
+          ? `<td colspan="6" style="background-color:#FAD7A0;${PCA};color:#7B3F00;font-weight:700;text-align:center;padding:3px 8px;font-size:8.5pt;border-bottom:2px solid #000">${prioMsg}</td>`
+          : PERIODS.map(() => `<td style="border-bottom:2px solid #000"></td>`).join('')
         }
       </tr>
     </thead>
