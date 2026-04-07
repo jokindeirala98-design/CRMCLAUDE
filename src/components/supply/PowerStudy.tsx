@@ -170,6 +170,129 @@ const TOTAL_ROW: React.CSSProperties = {
 }
 
 /* ══════════════════════════════════════════════════════════════
+   CHART SVG GENERATORS — string pura, usable en browser y en route
+   Datos: 100 % de PowerStudyResult (origen SIPS)
+══════════════════════════════════════════════════════════════ */
+
+function escXml(s: string) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+}
+function niceScale(maxVal: number, ticks = 5) {
+  const raw = (maxVal * 1.15) / ticks
+  if (raw <= 0) return { step: 1, effMax: ticks }
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)))
+  const step = Math.ceil(raw / mag) * mag
+  return { step, effMax: step * ticks }
+}
+function fmtK(v: number) {
+  if (v >= 1_000_000) return `${(v/1_000_000).toFixed(1)}M`
+  if (v >= 1_000)     return `${(v/1_000).toFixed(0)}k`
+  return String(Math.round(v))
+}
+
+export function buildConsumptionSVG(meses: PowerStudyResult['meses']): string {
+  const W = 900, H = 320, mL = 62, mR = 14, mT = 36, mB = 52
+  const cW = W-mL-mR, cH = H-mT-mB
+  const vals = meses.map(m => m.consumoTotal ?? 0)
+  const maxV = Math.max(...vals.filter(v=>v>0), 1)
+  const { step, effMax } = niceScale(maxV)
+  const n = meses.length
+  const slotW = cW / Math.max(n,1)
+  const barW = Math.max(slotW-4, 2)
+  const el: string[] = []
+  el.push(`<rect width="${W}" height="${H}" fill="#F8FAFC" rx="6"/>`)
+  el.push(`<text x="${W/2}" y="22" text-anchor="middle" font-size="13" font-weight="bold" fill="#1A3A8C" font-family="Calibri,Arial,sans-serif">Consumo mensual normalizado (kWh)</text>`)
+  for (let i=0;i<=5;i++) {
+    const v=i*step, y=mT+cH-(v/effMax)*cH
+    el.push(`<line x1="${mL}" y1="${y.toFixed(1)}" x2="${W-mR}" y2="${y.toFixed(1)}" stroke="#E2E8F0" stroke-width="${i===0?1:0.7}"/>`)
+    el.push(`<text x="${mL-5}" y="${(y+3.5).toFixed(1)}" text-anchor="end" font-size="8" fill="#64748B" font-family="Calibri,Arial,sans-serif">${fmtK(v)}</text>`)
+  }
+  el.push(`<line x1="${mL}" y1="${mT}" x2="${mL}" y2="${mT+cH}" stroke="#94A3B8" stroke-width="1.2"/>`)
+  el.push(`<line x1="${mL}" y1="${mT+cH}" x2="${W-mR}" y2="${mT+cH}" stroke="#94A3B8" stroke-width="1.2"/>`)
+  meses.forEach((m,i) => {
+    const v = m.consumoTotal ?? 0
+    const bH = Math.max(v>0?(v/effMax)*cH:0,0)
+    const bx = mL+i*slotW+(slotW-barW)/2, by=mT+cH-bH, cx=bx+barW/2
+    el.push(`<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(bH,0).toFixed(1)}" fill="#2E75B6" rx="1.5" opacity="0.9"/>`)
+    if (bH>20) el.push(`<text x="${cx.toFixed(1)}" y="${(by-3).toFixed(1)}" text-anchor="middle" font-size="6.5" fill="#1E3A5F" font-family="Calibri,Arial,sans-serif">${v.toLocaleString('es-ES')}</text>`)
+    let lbl=''
+    try { const d=new Date(m.fechaFin||m.fechaInicio||''); if(!isNaN(d.getTime())) { const mn=d.toLocaleDateString('es-ES',{month:'short'}); lbl=`${mn[0].toUpperCase()}${mn.slice(1,3)}'${d.getFullYear().toString().slice(2)}` } } catch {}
+    const ly=mT+cH+12
+    if(n>24) el.push(`<text x="${cx.toFixed(1)}" y="${ly}" text-anchor="end" font-size="6.5" fill="#475569" transform="rotate(-45 ${cx.toFixed(1)} ${ly})" font-family="Calibri,Arial,sans-serif">${escXml(lbl)}</text>`)
+    else     el.push(`<text x="${cx.toFixed(1)}" y="${ly}" text-anchor="middle" font-size="7" fill="#475569" font-family="Calibri,Arial,sans-serif">${escXml(lbl)}</text>`)
+  })
+  el.push(`<text x="${W-mR}" y="${H-2}" text-anchor="end" font-size="7" fill="#94A3B8" font-family="Calibri,Arial,sans-serif">Fuente: SIPS · VOLTIS</text>`)
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${el.join('')}</svg>`
+}
+
+export function buildMaximetrosSVG(
+  meses: PowerStudyResult['meses'],
+  potenciaContratada?: Record<string, number>
+): string {
+  const W = 480, H = 320, mL = 52, mR = 14, mT = 36, mB = 52
+  const cW = W-mL-mR, cH = H-mT-mB
+  const pc = potenciaContratada ?? {}
+  const AP = PERIODS.filter(p => meses.some(m => (m.maximetro?.[p]??0) > 0))
+  const pC: Record<Period, string> = { P1:'#C00000',P2:'#FF6600',P3:'#FFC000',P4:'#70AD47',P5:'#00B0F0',P6:'#7030A0' }
+  const allV = meses.flatMap(m => AP.map(p => m.maximetro?.[p]??0))
+  const contV = AP.map(p => pc[p]??0).filter(v=>v>0)
+  const maxV = Math.max(...allV,...contV,1)
+  const { step, effMax } = niceScale(maxV)
+  const n = meses.length, nP = Math.max(AP.length,1)
+  const slotW = cW/Math.max(n,1), barW = Math.max((slotW-4)/nP,1.5)
+  const el: string[] = []
+  el.push(`<rect width="${W}" height="${H}" fill="#F8FAFC" rx="6"/>`)
+  el.push(`<text x="${W/2}" y="22" text-anchor="middle" font-size="13" font-weight="bold" fill="#1A3A8C" font-family="Calibri,Arial,sans-serif">Maxímetros registrados (kW)</text>`)
+  for (let i=0;i<=5;i++) {
+    const v=i*step, y=mT+cH-(v/effMax)*cH
+    el.push(`<line x1="${mL}" y1="${y.toFixed(1)}" x2="${W-mR}" y2="${y.toFixed(1)}" stroke="#E2E8F0" stroke-width="${i===0?1:0.7}"/>`)
+    el.push(`<text x="${mL-5}" y="${(y+3.5).toFixed(1)}" text-anchor="end" font-size="8" fill="#64748B" font-family="Calibri,Arial,sans-serif">${v.toFixed(0)}</text>`)
+  }
+  el.push(`<line x1="${mL}" y1="${mT}" x2="${mL}" y2="${mT+cH}" stroke="#94A3B8" stroke-width="1.2"/>`)
+  el.push(`<line x1="${mL}" y1="${mT+cH}" x2="${W-mR}" y2="${mT+cH}" stroke="#94A3B8" stroke-width="1.2"/>`)
+  AP.forEach(p => { const c=pc[p]??0; if(c>0) { const y=mT+cH-(c/effMax)*cH; el.push(`<line x1="${mL}" y1="${y.toFixed(1)}" x2="${W-mR}" y2="${y.toFixed(1)}" stroke="${pC[p]}" stroke-width="1" stroke-dasharray="4,3" opacity="0.65"/>`) } })
+  meses.forEach((m,i) => {
+    const sx=mL+i*slotW
+    AP.forEach((p,pi) => {
+      const v=m.maximetro?.[p]??0; if(v<=0) return
+      const bH=(v/effMax)*cH, bx=sx+pi*barW+(slotW-nP*barW)/2, by=mT+cH-bH
+      el.push(`<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${barW.toFixed(1)}" height="${bH.toFixed(1)}" fill="${pC[p]}" rx="1" opacity="0.85"/>`)
+    })
+    let lbl=''
+    try { const d=new Date(m.fechaFin||m.fechaInicio||''); if(!isNaN(d.getTime())) { const mn=d.toLocaleDateString('es-ES',{month:'short'}); lbl=`${mn[0].toUpperCase()}${mn.slice(1,3)}'${d.getFullYear().toString().slice(2)}` } } catch {}
+    const cx=sx+slotW/2, ly=mT+cH+12
+    if(n>16) el.push(`<text x="${cx.toFixed(1)}" y="${ly}" text-anchor="end" font-size="6.5" fill="#475569" transform="rotate(-45 ${cx.toFixed(1)} ${ly})" font-family="Calibri,Arial,sans-serif">${escXml(lbl)}</text>`)
+    else     el.push(`<text x="${cx.toFixed(1)}" y="${ly}" text-anchor="middle" font-size="7" fill="#475569" font-family="Calibri,Arial,sans-serif">${escXml(lbl)}</text>`)
+  })
+  let lx=mL; AP.forEach(p => { el.push(`<rect x="${lx}" y="${H-21}" width="9" height="9" fill="${pC[p]}" rx="1"/>`); el.push(`<text x="${lx+11}" y="${H-13}" font-size="7.5" fill="#333" font-family="Calibri,Arial,sans-serif">${p}</text>`); lx+=32 })
+  if(contV.length>0) { el.push(`<line x1="${lx}" y1="${H-17}" x2="${lx+14}" y2="${H-17}" stroke="#555" stroke-width="1.2" stroke-dasharray="4,3"/>`); el.push(`<text x="${lx+16}" y="${H-13}" font-size="7.5" fill="#333" font-family="Calibri,Arial,sans-serif">Contratada</text>`) }
+  el.push(`<text x="${W-mR}" y="${H-2}" text-anchor="end" font-size="7" fill="#94A3B8" font-family="Calibri,Arial,sans-serif">Fuente: SIPS · VOLTIS</text>`)
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${el.join('')}</svg>`
+}
+
+/** Convierte un SVG string a PNG base64 usando el Canvas API del navegador */
+function svgToPngDataUrl(svgStr: string, w: number, h: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' })
+    const url  = URL.createObjectURL(blob)
+    const img  = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = w * 2; canvas.height = h * 2   // 2× para resolución HiDPI
+      const ctx = canvas.getContext('2d')!
+      ctx.scale(2, 2)
+      ctx.fillStyle = '#FFFFFF'
+      ctx.fillRect(0, 0, w, h)
+      ctx.drawImage(img, 0, 0, w, h)
+      URL.revokeObjectURL(url)
+      resolve(canvas.toDataURL('image/png'))
+    }
+    img.onerror = (e) => { URL.revokeObjectURL(url); reject(e) }
+    img.src = url
+  })
+}
+
+/* ══════════════════════════════════════════════════════════════
    INLINE BAR CHART (SVG)
 ══════════════════════════════════════════════════════════════ */
 function ConsumoBars({ meses }: { meses: PowerStudyResult['meses'] }) {
@@ -278,8 +401,19 @@ export function PowerStudy({
   const handleExportExcel = async () => {
     if (!study) return
     try {
+      // Generar gráficas en el navegador como PNG antes de enviar al servidor
+      const [consumptionPng, maximetrosPng] = await Promise.all([
+        svgToPngDataUrl(buildConsumptionSVG(study.meses ?? []), 900, 320).catch(() => undefined),
+        svgToPngDataUrl(buildMaximetrosSVG(study.meses ?? [], study.potenciaContratada as Record<string,number>|undefined), 480, 320).catch(() => undefined),
+      ])
+
       const res = await fetch('/api/power-study-excel', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(study),
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          study,
+          charts: { consumption: consumptionPng, maximetros: maximetrosPng },
+        }),
       })
       if (!res.ok) throw new Error('Error Excel')
       const blob = await res.blob()
