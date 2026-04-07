@@ -622,40 +622,23 @@ export function PowerStudy({
             {hasMaximetros && PERIODS.map(p => <col key={`m${p}`} style={{ minWidth: 62 }} />)}
           </colgroup>
           <thead>
-            {/* ── Fila 0: spans de sección ── */}
+            {/* ── Fila 1: cabeceras de columna (= Excel fila 1) ── */}
             <tr>
-              <th colSpan={3} style={{ ...HDR_COL, textAlign: 'left', paddingLeft: 8, background: '#404040' }}>
-                {study.clientName || study.cups || 'PUNTO DE SUMINISTRO'}
-              </th>
-              <th colSpan={6} style={{ ...HDR_COL, background: '#404040', letterSpacing: '0.06em', fontSize: 9 }}>
-                ⚡ CONSUMOS ACTIVA (kWh)
-              </th>
-              <td style={SEP_CELL} />
-              {hasMaximetros && (
-                <th colSpan={6} style={{ ...HDR_COL, background: '#404040', letterSpacing: '0.06em', fontSize: 9 }}>
-                  📊 MAXÍMETROS (kW)
-                </th>
-              )}
-            </tr>
-            {/* ── Fila 1: etiquetas columnas (gris uniforme) ── */}
-            <tr>
-              <th style={{ ...HDR_COL, textAlign: 'right' }}>kWh Total</th>
-              <th style={HDR_COL}>F. Inicio</th>
-              <th style={HDR_COL}>F. Fin</th>
+              <th style={{ ...HDR_COL, textAlign: 'left', paddingLeft: 6 }}>CUPS</th>
+              <th style={HDR_COL}></th>
+              <th style={{ ...HDR_COL, minWidth: 80 }}>CONSUMO TOTAL</th>
               {PERIODS.map(p => <th key={p} style={HDR_COL}>{p}</th>)}
               <td style={SEP_CELL} />
               {hasMaximetros && PERIODS.map(p => <th key={`m${p}`} style={HDR_COL}>{p}</th>)}
             </tr>
-            {/* ── Fila 2: totales anuales (verde) + max global ── */}
+            {/* ── Fila 2: CUPS value + totales anuales + MAX (= Excel fila 2) ── */}
             <tr>
-              <td style={{ ...CELL, background: '#C6EFCE', color: '#1F5C2E', fontWeight: 700, textAlign: 'right', fontSize: 11 }}>
-                {fmtKwh(consumoTotal)}
-              </td>
-              <td style={{ ...CELL, background: '#E2F0D9', fontStyle: 'italic', fontSize: 9, color: '#555', textAlign: 'center' }}>
+              <td style={{ ...CELL, fontStyle: 'italic', fontSize: 8, color: '#555', textAlign: 'left' }}>
                 {(study.cups || '').slice(0, 22)}
               </td>
-              <td style={{ ...CELL, background: '#E2F0D9', fontWeight: 700, textAlign: 'center', fontSize: 9, color: '#375623' }}>
-                ANUAL
+              <td style={CELL}></td>
+              <td style={{ ...CELL, background: '#C6EFCE', color: '#1F5C2E', fontWeight: 700, textAlign: 'right', fontSize: 11 }}>
+                {fmtKwh(consumoTotal)}
               </td>
               {PERIODS.map(p => (
                 <td key={p} style={{ ...CELL, background: annualScale(periodoTotal[p]), fontWeight: 700, textAlign: 'right', color: '#1F3864' }}>
@@ -665,7 +648,7 @@ export function PowerStudy({
               <td style={SEP_CELL} />
               {hasMaximetros && PERIODS.map(p => {
                 const mx = maxPotencia[p]
-                const cls = classifyMaximetro(mx, pc[p])
+                const cls = classifyMaximetro(mx, (pc as any)[p] || 0)
                 return (
                   <td key={`m${p}`} style={{ ...CELL, background: cls.bg, color: cls.color, fontWeight: 700, textAlign: 'center' }}>
                     {mx > 0 ? fmtKw(mx) : '-'}
@@ -673,10 +656,13 @@ export function PowerStudy({
                 )
               })}
             </tr>
-            {/* ── Fila 3: % por periodo + potencia contratada ── */}
+            {/* ── Fila 3: clientName + % + mensaje ajuste rowspan=2 (= Excel fila 3) ── */}
             <tr>
-              <td style={{ ...CELL, background: '#F2F2F2', fontWeight: 700, textAlign: 'right', color: '#555' }}>100.00%</td>
-              <td colSpan={2} style={{ ...CELL, background: '#F2F2F2', textAlign: 'center', fontWeight: 700, fontSize: 9, color: '#555' }}>% POR PERIODO</td>
+              <td style={{ ...CELL, background: '#E8E8E8', fontWeight: 700, fontSize: 9, color: '#333', textAlign: 'left' }}>
+                {study.clientName || ''}
+              </td>
+              <td style={{ ...CELL, background: '#F2F2F2' }}></td>
+              <td style={{ ...CELL, background: '#F2F2F2' }}></td>
               {PERIODS.map(p => {
                 const pct = periodoPct[p]
                 return (
@@ -685,40 +671,42 @@ export function PowerStudy({
                   </td>
                 )
               })}
-              <td style={SEP_CELL} />
-              {hasMaximetros && PERIODS.map(p => (
-                <td key={`c${p}`} style={{ ...CELL, background: '#D9E1F2', fontWeight: 700, color: '#1F3864', textAlign: 'center' }}>
-                  {(pc as any)[p] > 0 ? fmtKw((pc as any)[p]) : '-'}
-                </td>
-              ))}
-            </tr>
-            {/* ── Fila 4: mensajes priorizar + ajustar ── */}
-            <tr>
-              <td colSpan={9} style={{
-                ...CELL,
-                background: prioMsg ? '#FAD7A0' : '#F5F5F5',
-                color: '#7B3F00',
-                fontWeight: 700,
-                textAlign: 'center',
-                padding: '3px 8px',
-                fontSize: 10,
-                letterSpacing: '0.04em',
-              }}>
-                {prioMsg || ''}
-              </td>
-              <td style={SEP_CELL} />
+              <td style={{ ...SEP_CELL }} rowSpan={2} />
               {hasMaximetros && (
-                <td colSpan={6} style={{
+                <td colSpan={6} rowSpan={2} style={{
                   ...CELL,
                   background: adjBg,
                   color: adjColor,
                   fontWeight: 700,
                   textAlign: 'center',
                   fontSize: 9,
-                  padding: '3px 8px',
+                  padding: '4px 8px',
+                  verticalAlign: 'middle',
                 }}>
                   {adjText}
                 </td>
+              )}
+            </tr>
+            {/* ── Fila 4: mensaje priorizar (= Excel fila 4, sep+adj cubiertos por rowspan) ── */}
+            <tr>
+              <td style={{ ...CELL, background: '#F5F5F5' }}></td>
+              <td style={{ ...CELL, background: '#F5F5F5' }}></td>
+              <td style={{ ...CELL, background: '#F5F5F5' }}></td>
+              {prioMsg ? (
+                <td colSpan={6} style={{
+                  ...CELL,
+                  background: '#FAD7A0',
+                  color: '#7B3F00',
+                  fontWeight: 700,
+                  textAlign: 'center',
+                  padding: '3px 8px',
+                  fontSize: 10,
+                  letterSpacing: '0.04em',
+                }}>
+                  {prioMsg}
+                </td>
+              ) : (
+                PERIODS.map(p => <td key={p} style={{ ...CELL, background: '#F5F5F5' }}></td>)
               )}
             </tr>
           </thead>
@@ -764,25 +752,6 @@ export function PowerStudy({
               )
             })}
           </tbody>
-          <tfoot>
-            <tr style={{ borderTop: '2px solid #595959' }}>
-              <td style={TOTAL_ROW}>{fmtKwh(consumoTotal)}</td>
-              <td colSpan={2} style={{ ...TOTAL_ROW, textAlign: 'center' }}>TOTAL</td>
-              {PERIODS.map(p => (
-                <td key={p} style={TOTAL_ROW}>{fmtKwh(periodoTotal[p])}</td>
-              ))}
-              <td style={SEP_CELL} />
-              {hasMaximetros && PERIODS.map(p => {
-                const mx = maxPotencia[p]
-                const cls = classifyMaximetro(mx, (pc as any)[p] || 0)
-                return (
-                  <td key={`m${p}`} style={{ ...CELL, background: mx > 0 ? cls.bg : '#DDEEFF', color: mx > 0 ? cls.color : '#4A6FA5', fontWeight: 700, textAlign: 'center', borderTop: '2px solid #595959' }}>
-                    {mx > 0 ? fmtKw(mx) : '-'}
-                  </td>
-                )
-              })}
-            </tr>
-          </tfoot>
         </table>
 
         {/* ── Legend (below table) ── */}
