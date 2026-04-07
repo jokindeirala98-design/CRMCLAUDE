@@ -568,8 +568,8 @@ export function PowerStudy({
     adjBg = '#F5F5F5'; adjColor = '#666'
   }
 
-  // ── REACTIVA ──
-  const hasReactiva = study.hasRelevantReactiva && study.reactivaPorPeriodo
+  // ── REACTIVA: solo alerta, sin tabla ──
+  const hasReactiva = study.hasRelevantReactiva
 
   return (
     <div className="border border-outline-variant/30 rounded-2xl overflow-hidden">
@@ -893,70 +893,17 @@ export function PowerStudy({
           )}
         </div>{/* end flex */}
 
-        {/* ════════════════════════════════════════════
-            REACTIVA (si hay penalización)
-        ════════════════════════════════════════════ */}
+        {/* ── Alerta reactivas ── */}
         {hasReactiva && (
-          <div style={{ marginTop: 12 }}>
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              background: '#FEF3E2', border: '1px solid #FAD7A0', borderRadius: 6,
-              padding: '5px 10px', marginBottom: 6,
-            }}>
-              <AlertTriangle style={{ width: 13, height: 13, color: '#C55A11', flexShrink: 0 }} />
-              <span style={{ fontSize: 10, fontWeight: 700, color: '#7B3F00', fontFamily: 'Calibri,Arial,sans-serif' }}>
-                Energía Reactiva — Penalización detectada. Algún periodo supera 1.000 kvarh.
-              </span>
-            </div>
-            <table style={{ borderCollapse: 'collapse', fontSize: 10, fontFamily: 'Calibri,Arial,sans-serif', width: '100%' }}>
-              <thead>
-                <tr>
-                  <th style={{ ...CELL, background: '#C55A11', color: '#fff', fontWeight: 700 }}>F. Inicio</th>
-                  <th style={{ ...CELL, background: '#C55A11', color: '#fff', fontWeight: 700 }}>F. Fin</th>
-                  {PERIODS.map(p => (
-                    <th key={p} style={{ ...CELL, background: '#C55A11', color: '#fff', fontWeight: 700 }}>React. {p}</th>
-                  ))}
-                  <th style={{ ...CELL, background: '#C55A11', color: '#fff', fontWeight: 700 }}>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {meses.map((m, i) => {
-                  const rv = (m.reactiva || {}) as Record<string, number>
-                  const rowT = PERIODS.reduce((s, p) => s + (rv[p] || 0), 0)
-                  const pen = PERIODS.some(p => (rv[p] || 0) > 1000)
-                  return (
-                    <tr key={i} style={{ background: pen ? '#FEF3E2' : i % 2 === 0 ? '#fff' : '#FAFAFA' }}>
-                      <td style={{ ...CELL, textAlign: 'center' }}>{m.fechaInicio ? fmtDate(m.fechaInicio) : '-'}</td>
-                      <td style={{ ...CELL, textAlign: 'center' }}>{m.fechaFin ? fmtDate(m.fechaFin) : '-'}</td>
-                      {PERIODS.map(p => {
-                        const v = rv[p] || 0
-                        return (
-                          <td key={p} style={{ ...CELL, textAlign: 'right', color: v > 1000 ? '#C00000' : 'inherit', fontWeight: v > 1000 ? 700 : 400 }}>
-                            {v > 0 ? v.toLocaleString('es-ES') : '-'}
-                          </td>
-                        )
-                      })}
-                      <td style={{ ...CELL, textAlign: 'right', fontWeight: pen ? 700 : 400, color: pen ? '#C00000' : 'inherit' }}>
-                        {rowT > 0 ? rowT.toLocaleString('es-ES') : '-'}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-              <tfoot>
-                <tr style={{ background: '#FEF3E2', fontWeight: 700, borderTop: '2px solid #C55A11' }}>
-                  <td colSpan={2} style={{ ...CELL, textAlign: 'center', fontWeight: 700 }}>TOTAL</td>
-                  {PERIODS.map(p => (
-                    <td key={p} style={{ ...CELL, textAlign: 'right', fontWeight: 700 }}>
-                      {((study.reactivaPorPeriodo?.[p as Period] as number) || 0).toLocaleString('es-ES')}
-                    </td>
-                  ))}
-                  <td style={{ ...CELL, textAlign: 'right', fontWeight: 700 }}>
-                    {PERIODS.reduce((s, p) => s + ((study.reactivaPorPeriodo?.[p as Period] as number) || 0), 0).toLocaleString('es-ES')}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 6, marginTop: 10,
+            background: '#FEF3E2', border: '1.5px solid #FAD7A0', borderRadius: 6,
+            padding: '6px 12px',
+          }}>
+            <AlertTriangle style={{ width: 14, height: 14, color: '#C55A11', flexShrink: 0 }} />
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#7B3F00', fontFamily: 'Calibri,Arial,sans-serif' }}>
+              ⚠ CHECKEAR REACTIVAS — se detectan valores superiores a 1.000 kvarh
+            </span>
           </div>
         )}
 
