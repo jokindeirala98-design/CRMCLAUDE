@@ -1,11 +1,15 @@
 'use client'
 
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useCallback } from 'react'
 import {
-  AlertTriangle, CheckCircle2, Download, Loader2,
-  BarChart3, FileSpreadsheet, TrendingDown, TrendingUp, Zap,
+  Upload, Download, FileText, AlertTriangle, CheckCircle2,
+  Zap, TrendingUp, BarChart3, Loader2, RefreshCw,
 } from 'lucide-react'
 import type { PowerStudyResult } from '@/app/api/power-study/route'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TYPES & CONSTANTS
+// ─────────────────────────────────────────────────────────────────────────────
 
 interface PowerStudyProps {
   supplyId: string
@@ -19,11 +23,48 @@ interface PowerStudyProps {
 const PERIODS = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'] as const
 type Period = typeof PERIODS[number]
 
-/* ══════════════════════════════════════════════════════════════
-   COLOR SCALE — per-column heatmap (replicates Excel colorScale CF)
-   Verde (#63BE7B) → Amarillo (#FFEB84) → Rojo (#F8696B)
-   Scale is RELATIVE within each column, not global
-══════════════════════════════════════════════════════════════ */
+/** Excel-default chart palette for P1–P6 */
+const PERIOD_COLORS: Record<Period, string> = {
+  P1: '#4472C4',
+  P2: '#ED7D31',
+  P3: '#A9D18E',
+  P4: '#FFC000',
+  P5: '#5B9BD5',
+  P6: '#70AD47',
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FORMATTERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function fmtKwh(v: number): string {
+  if (v === 0) return '0'
+  return v.toLocaleString('es-ES')
+}
+function fmtKw(v: number): string {
+  if (v === 0) return '-'
+  return v.toFixed(3).replace(/\.?0+$/, '') || '0'
+}
+function fmtPct(v: number): string {
+  return (v * 100).toFixed(1) + '%'
+}
+function fmtDate(s: string): string {
+  try {
+    const d = new Date(s)
+    return d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' })
+  } catch { return s?.slice(0, 10) || '' }
+}
+function monthLabel(fechaFin: string): string {
+  try {
+    const d = new Date(fechaFin)
+    return d.toLocaleDateString('es-ES', { month: 'short', year: '2-digit' })
+  } catch { return fechaFin?.slice(0, 7) || '' }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COLOR SCALES (replicates Excel colorScale conditional formatting)
+// ─────────────────────────────────────────────────────────────────────────────
+
 function lerpHex(c1: string, c2: string, t: number): string {
   const h = (s: string) => [
     parseInt(s.slice(1, 3), 16),
@@ -37,789 +78,821 @@ function lerpHex(c1: string, c2: string, t: number): string {
   return `#${ch(r1, r2)}${ch(g1, g2)}${ch(b1, b2)}`
 }
 
-function makeColumnScale(vals: number[]): (v: number) => string {
-  const C0 = '#63BE7B', C1 = '#FFEB84', C2 = '#F8696B'
+function make3PointScale(colors: [string, string, string], vals: number[]): (v: number) => string {
   const pos = vals.filter(v => v > 0)
-  if (!pos.length) return () => C0
+  if (!pos.length) return () => 'transparent'
   const lo = Math.min(...pos)
   const hi = Math.max(...pos)
-  if (lo === hi) return () => C1
+  if (lo === hi) return () => colors[1]
   const sorted = [...pos].sort((a, b) => a - b)
   const mid = sorted[Math.floor((sorted.length - 1) / 2)]
   return (v: number): string => {
-    if (v <= 0) return C0
-    if (v <= lo) return C0
-    if (v >= hi) return C2
-    if (v <= mid) {
-      const t = mid > lo ? (v - lo) / (mid - lo) : 0
-      return lerpHex(C0, C1, t)
+    if (v <= 0) return 'transparent'
+    if (v <= lo) return colors[0]
+    if (v >= hi) return colors[2]
+    if (v <= mid) return lerpHex(colors[0], colors[1], mid > lo ? (v - lo) / (mid - lo) : 0)
+    return lerpHex(colors[1], colors[2], hi > mid ? (v - mid) / (hi - mid) : 1)
+  }
+}
+
+// GYR: green→yellow→red (consumo — low is better)
+const GYR: [string, string, string] = ['#63BE7B', '#FFEB84', '#F8696B']
+// BWR: blue→white→red (maxímetros — deviation from center is bad)
+const BWR: [string, string, string] = ['#5A8AC6', '#FCFCFF', '#F8696B']
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OPTIMIZATION LOGIC
+// Rule: max(maxímetro[P]) must be >15% above OR <15% below contracted power[P]
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface PeriodAdjustment {
+  period: Period
+  maxRegistrado: number
+  contracted: number
+  desvPct: number        // positive = excess, negative = under
+  needsAdjust: boolean
+  direction: 'excess' | 'under' | 'ok'
+}
+
+function calcAdjustments(
+  maxPotencia: Record<string, number>,
+  potenciaContratada: Record<string, number> | undefined
+): PeriodAdjustment[] {
+  return PERIODS.map(p => {
+    const max = maxPotencia?.[p] ?? 0
+    const cont = potenciaContratada?.[p] ?? 0
+    const desvPct = cont > 0 ? ((max - cont) / cont) * 100 : 0
+    const needsAdjust = cont > 0 && max > 0 && Math.abs(desvPct) > 15
+    return {
+      period: p,
+      maxRegistrado: max,
+      contracted: cont,
+      desvPct,
+      needsAdjust,
+      direction: needsAdjust ? (desvPct > 0 ? 'excess' : 'under') : 'ok',
     }
-    const t = hi > mid ? (v - mid) / (hi - mid) : 1
-    return lerpHex(C1, C2, t)
-  }
+  })
 }
 
-/* ══════════════════════════════════════════════════════════════
-   MAXÍMETRO CELL COLORING
-   > contracted * 1.00 → ROJO OSCURO (exceso — facturación penalizada)
-   > contracted * 0.85 → ROSA (dentro de rango superior, ok)
-   > contracted * 0.50 → AZUL CLARO (infrautilización — oportunidad de reducir)
-   ≤ contracted * 0.50 → AZUL OSCURO (muy infrautilizado)
-   val = 0             → GRIS (sin dato)
-══════════════════════════════════════════════════════════════ */
-interface MaxCellResult {
-  bg: string
-  color: string
-  fontWeight: number
-  flag: 'excess' | 'ok' | 'low' | 'very-low' | 'no-data'
-}
-
-function classifyMaximetro(val: number, contracted: number): MaxCellResult {
-  if (val <= 0) {
-    return { bg: '#DDEEFF', color: '#4A6FA5', fontWeight: 400, flag: 'no-data' }
-  }
-  if (contracted <= 0) {
-    return { bg: '#F8C4C4', color: '#333', fontWeight: 400, flag: 'ok' }
-  }
-  const ratio = val / contracted
-  if (ratio > 1.0) {
-    return { bg: '#F8696B', color: '#7B0000', fontWeight: 700, flag: 'excess' }
-  }
-  if (ratio >= 0.85) {
-    return { bg: '#FFC7CE', color: '#9C0006', fontWeight: 400, flag: 'ok' }
-  }
-  if (ratio >= 0.50) {
-    return { bg: '#BDD7EE', color: '#1F4E79', fontWeight: 400, flag: 'low' }
-  }
-  return { bg: '#2E75B6', color: '#fff', fontWeight: 700, flag: 'very-low' }
-}
-
-/* ══════════════════════════════════════════════════════════════
-   FORMATTERS
-══════════════════════════════════════════════════════════════ */
-function fmtKwh(v: number): string {
-  if (v === 0) return '0'
-  return v.toLocaleString('es-ES', { maximumFractionDigits: 0 })
-}
-function fmtKw(v: number): string {
-  if (v <= 0) return '-'
-  return v.toLocaleString('es-ES', { minimumFractionDigits: 3, maximumFractionDigits: 3 })
-}
-function fmtPct(v: number): string {
-  return (v * 100).toFixed(2) + '%'
-}
-function fmtDate(s: string): string {
-  try {
-    const d = new Date(s)
-    return d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' })
-  } catch { return s?.slice(0, 10) || '' }
-}
-
-/* ══════════════════════════════════════════════════════════════
-   SHARED TABLE STYLES — fieles al template Excel (Aptos Narrow,
-   fondos blancos, bordes inferiores gruesos, sin gris en headers)
-══════════════════════════════════════════════════════════════ */
-const FONT = '"Arial Narrow", "Calibri", Arial, sans-serif'
-const CELL: React.CSSProperties = {
-  padding: '2px 5px',
-  border: '1px solid #D0D0D0',
-  fontSize: 10,
-  fontFamily: FONT,
-  whiteSpace: 'nowrap',
-  background: '#FFFFFF',
-}
-/** Header con borde inferior grueso (cols D-I y K-P en Excel) */
-const HDR_COL: React.CSSProperties = {
-  ...CELL,
-  fontWeight: 700,
-  textAlign: 'center',
-  minWidth: 54,
-  borderBottom: '2.5px solid #000000',
-}
-/** Header sin borde inferior (cols A, C en Excel) */
-const HDR_PLAIN: React.CSSProperties = {
-  ...CELL,
-  fontWeight: 700,
-  textAlign: 'center',
-}
-const SEP_CELL: React.CSSProperties = {
-  padding: 0, width: 6, minWidth: 6, background: '#F0F0F0', border: 'none',
-}
-
-/* ══════════════════════════════════════════════════════════════
-   CHART SVG GENERATORS — string pura, usable en browser y en route
-   Datos: 100 % de PowerStudyResult (origen SIPS)
-══════════════════════════════════════════════════════════════ */
-
-function escXml(s: string) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
-}
-function niceScale(maxVal: number, ticks = 5) {
-  const raw = (maxVal * 1.15) / ticks
-  if (raw <= 0) return { step: 1, effMax: ticks }
-  const mag = Math.pow(10, Math.floor(Math.log10(raw)))
-  const step = Math.ceil(raw / mag) * mag
-  return { step, effMax: step * ticks }
-}
-function fmtK(v: number) {
-  if (v >= 1_000_000) return `${(v/1_000_000).toFixed(1)}M`
-  if (v >= 1_000)     return `${(v/1_000).toFixed(0)}k`
-  return String(Math.round(v))
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// SVG CHART BUILDERS (pure functions → reusable in PDF/Excel export)
+// ─────────────────────────────────────────────────────────────────────────────
 
 export function buildConsumptionSVG(meses: PowerStudyResult['meses']): string {
-  const W = 900, H = 320, mL = 62, mR = 14, mT = 36, mB = 52
-  const cW = W-mL-mR, cH = H-mT-mB
-  const vals = meses.map(m => m.consumoTotal ?? 0)
-  const maxV = Math.max(...vals.filter(v=>v>0), 1)
-  const { step, effMax } = niceScale(maxV)
-  const n = meses.length
-  const slotW = cW / Math.max(n,1)
-  const barW = Math.max(slotW-4, 2)
-  const el: string[] = []
-  el.push(`<rect width="${W}" height="${H}" fill="#F8FAFC" rx="6"/>`)
-  el.push(`<text x="${W/2}" y="22" text-anchor="middle" font-size="13" font-weight="bold" fill="#1A3A8C" font-family="Calibri,Arial,sans-serif">Consumo mensual normalizado (kWh)</text>`)
-  for (let i=0;i<=5;i++) {
-    const v=i*step, y=mT+cH-(v/effMax)*cH
-    el.push(`<line x1="${mL}" y1="${y.toFixed(1)}" x2="${W-mR}" y2="${y.toFixed(1)}" stroke="#E2E8F0" stroke-width="${i===0?1:0.7}"/>`)
-    el.push(`<text x="${mL-5}" y="${(y+3.5).toFixed(1)}" text-anchor="end" font-size="8" fill="#64748B" font-family="Calibri,Arial,sans-serif">${fmtK(v)}</text>`)
+  const W = 820, H = 300
+  const m = { top: 24, right: 20, bottom: 80, left: 64 }
+  const cW = W - m.left - m.right
+  const cH = H - m.top - m.bottom
+
+  if (!meses?.length) return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"></svg>`
+
+  // Active periods (have any data)
+  const activePeriods = PERIODS.filter(p => meses.some(mes => (mes.consumo?.[p] ?? 0) > 0))
+
+  // Y-axis scale
+  const maxMonthly = Math.max(...meses.map(m => m.consumoTotal ?? 0), 1)
+  const yMax = Math.ceil(maxMonthly / 1000) * 1000 + 500
+  const yScale = (v: number) => cH - (v / yMax) * cH
+
+  // X positioning
+  const barW = Math.max(8, Math.min(40, cW / meses.length * 0.65))
+  const slotW = cW / meses.length
+  const xOf = (i: number) => m.left + slotW * i + slotW / 2
+
+  let paths = ''
+  // Stacked bars
+  for (let i = 0; i < meses.length; i++) {
+    let stackY = cH
+    for (const p of activePeriods) {
+      const v = meses[i].consumo?.[p] ?? 0
+      if (v <= 0) continue
+      const barH = (v / yMax) * cH
+      stackY -= barH
+      const x = xOf(i) - barW / 2
+      paths += `<rect x="${x.toFixed(1)}" y="${(m.top + stackY).toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${PERIOD_COLORS[p]}" />`
+    }
   }
-  el.push(`<line x1="${mL}" y1="${mT}" x2="${mL}" y2="${mT+cH}" stroke="#94A3B8" stroke-width="1.2"/>`)
-  el.push(`<line x1="${mL}" y1="${mT+cH}" x2="${W-mR}" y2="${mT+cH}" stroke="#94A3B8" stroke-width="1.2"/>`)
-  meses.forEach((m,i) => {
-    const v = m.consumoTotal ?? 0
-    const bH = Math.max(v>0?(v/effMax)*cH:0,0)
-    const bx = mL+i*slotW+(slotW-barW)/2, by=mT+cH-bH, cx=bx+barW/2
-    el.push(`<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(bH,0).toFixed(1)}" fill="#2E75B6" rx="1.5" opacity="0.9"/>`)
-    if (bH>20) el.push(`<text x="${cx.toFixed(1)}" y="${(by-3).toFixed(1)}" text-anchor="middle" font-size="6.5" fill="#1E3A5F" font-family="Calibri,Arial,sans-serif">${v.toLocaleString('es-ES')}</text>`)
-    let lbl=''
-    try { const d=new Date(m.fechaFin||m.fechaInicio||''); if(!isNaN(d.getTime())) { const mn=d.toLocaleDateString('es-ES',{month:'short'}); lbl=`${mn[0].toUpperCase()}${mn.slice(1,3)}'${d.getFullYear().toString().slice(2)}` } } catch {}
-    const ly=mT+cH+12
-    if(n>24) el.push(`<text x="${cx.toFixed(1)}" y="${ly}" text-anchor="end" font-size="6.5" fill="#475569" transform="rotate(-45 ${cx.toFixed(1)} ${ly})" font-family="Calibri,Arial,sans-serif">${escXml(lbl)}</text>`)
-    else     el.push(`<text x="${cx.toFixed(1)}" y="${ly}" text-anchor="middle" font-size="7" fill="#475569" font-family="Calibri,Arial,sans-serif">${escXml(lbl)}</text>`)
-  })
-  el.push(`<text x="${W-mR}" y="${H-2}" text-anchor="end" font-size="7" fill="#94A3B8" font-family="Calibri,Arial,sans-serif">Fuente: SIPS · VOLTIS</text>`)
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${el.join('')}</svg>`
+
+  // Y grid lines & labels
+  const yTicks = 5
+  let gridLines = ''
+  for (let t = 0; t <= yTicks; t++) {
+    const v = Math.round((yMax * t) / yTicks)
+    const y = m.top + yScale(v)
+    gridLines += `<line x1="${m.left}" y1="${y.toFixed(1)}" x2="${m.left + cW}" y2="${y.toFixed(1)}" stroke="#E5E7EB" stroke-width="1" />`
+    gridLines += `<text x="${(m.left - 6).toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="end" font-size="10" fill="#6B7280" font-family="Arial, sans-serif">${v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v}</text>`
+  }
+
+  // X labels (month)
+  let xLabels = ''
+  for (let i = 0; i < meses.length; i++) {
+    const x = xOf(i)
+    const label = monthLabel(meses[i].fechaFin)
+    const skip = meses.length > 20 ? i % 2 !== 0 : false
+    if (!skip) {
+      xLabels += `<text x="${x.toFixed(1)}" y="${(m.top + cH + 18).toFixed(1)}" text-anchor="middle" font-size="9" fill="#374151" font-family="Arial, sans-serif" transform="rotate(-45,${x.toFixed(1)},${(m.top + cH + 18).toFixed(1)})">${label}</text>`
+    }
+  }
+
+  // Y axis label
+  const yAxisLabel = `<text x="${(m.left - 44).toFixed(1)}" y="${(m.top + cH / 2).toFixed(1)}" text-anchor="middle" font-size="10" fill="#6B7280" font-family="Arial, sans-serif" transform="rotate(-90,${(m.left - 44).toFixed(1)},${(m.top + cH / 2).toFixed(1)})">kWh</text>`
+
+  // Legend
+  let legend = ''
+  const legendX = m.left
+  const legendY = H - 22
+  let lx = legendX
+  for (const p of activePeriods) {
+    legend += `<rect x="${lx}" y="${legendY - 7}" width="10" height="10" fill="${PERIOD_COLORS[p]}" />`
+    legend += `<text x="${lx + 13}" y="${legendY + 2}" font-size="10" fill="#374151" font-family="Arial, sans-serif">${p}</text>`
+    lx += 42
+  }
+
+  // Title
+  const title = `<text x="${W / 2}" y="16" text-anchor="middle" font-size="12" font-weight="bold" fill="#111827" font-family="Arial, sans-serif">CONSUMO MENSUAL (kWh)</text>`
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" style="background:#fff">
+  ${title}
+  ${gridLines}
+  ${paths}
+  <line x1="${m.left}" y1="${m.top}" x2="${m.left}" y2="${m.top + cH}" stroke="#9CA3AF" stroke-width="1"/>
+  <line x1="${m.left}" y1="${m.top + cH}" x2="${m.left + cW}" y2="${m.top + cH}" stroke="#9CA3AF" stroke-width="1"/>
+  ${xLabels}
+  ${yAxisLabel}
+  ${legend}
+</svg>`
 }
 
-export function buildMaximetrosSVG(
+export function buildMaximetroSVG(
   meses: PowerStudyResult['meses'],
   potenciaContratada?: Record<string, number>
 ): string {
-  const W = 480, H = 320, mL = 52, mR = 14, mT = 36, mB = 52
-  const cW = W-mL-mR, cH = H-mT-mB
-  const pc = potenciaContratada ?? {}
-  const AP = PERIODS.filter(p => meses.some(m => (m.maximetro?.[p]??0) > 0))
-  const pC: Record<Period, string> = { P1:'#C00000',P2:'#FF6600',P3:'#FFC000',P4:'#70AD47',P5:'#00B0F0',P6:'#7030A0' }
-  const allV = meses.flatMap(m => AP.map(p => m.maximetro?.[p]??0))
-  const contV = AP.map(p => pc[p]??0).filter(v=>v>0)
-  const maxV = Math.max(...allV,...contV,1)
-  const { step, effMax } = niceScale(maxV)
-  const n = meses.length, nP = Math.max(AP.length,1)
-  const slotW = cW/Math.max(n,1), barW = Math.max((slotW-4)/nP,1.5)
-  const el: string[] = []
-  el.push(`<rect width="${W}" height="${H}" fill="#F8FAFC" rx="6"/>`)
-  el.push(`<text x="${W/2}" y="22" text-anchor="middle" font-size="13" font-weight="bold" fill="#1A3A8C" font-family="Calibri,Arial,sans-serif">Maxímetros registrados (kW)</text>`)
-  for (let i=0;i<=5;i++) {
-    const v=i*step, y=mT+cH-(v/effMax)*cH
-    el.push(`<line x1="${mL}" y1="${y.toFixed(1)}" x2="${W-mR}" y2="${y.toFixed(1)}" stroke="#E2E8F0" stroke-width="${i===0?1:0.7}"/>`)
-    el.push(`<text x="${mL-5}" y="${(y+3.5).toFixed(1)}" text-anchor="end" font-size="8" fill="#64748B" font-family="Calibri,Arial,sans-serif">${v.toFixed(0)}</text>`)
-  }
-  el.push(`<line x1="${mL}" y1="${mT}" x2="${mL}" y2="${mT+cH}" stroke="#94A3B8" stroke-width="1.2"/>`)
-  el.push(`<line x1="${mL}" y1="${mT+cH}" x2="${W-mR}" y2="${mT+cH}" stroke="#94A3B8" stroke-width="1.2"/>`)
-  AP.forEach(p => { const c=pc[p]??0; if(c>0) { const y=mT+cH-(c/effMax)*cH; el.push(`<line x1="${mL}" y1="${y.toFixed(1)}" x2="${W-mR}" y2="${y.toFixed(1)}" stroke="${pC[p]}" stroke-width="1" stroke-dasharray="4,3" opacity="0.65"/>`) } })
-  meses.forEach((m,i) => {
-    const sx=mL+i*slotW
-    AP.forEach((p,pi) => {
-      const v=m.maximetro?.[p]??0; if(v<=0) return
-      const bH=(v/effMax)*cH, bx=sx+pi*barW+(slotW-nP*barW)/2, by=mT+cH-bH
-      el.push(`<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${barW.toFixed(1)}" height="${bH.toFixed(1)}" fill="${pC[p]}" rx="1" opacity="0.85"/>`)
-    })
-    let lbl=''
-    try { const d=new Date(m.fechaFin||m.fechaInicio||''); if(!isNaN(d.getTime())) { const mn=d.toLocaleDateString('es-ES',{month:'short'}); lbl=`${mn[0].toUpperCase()}${mn.slice(1,3)}'${d.getFullYear().toString().slice(2)}` } } catch {}
-    const cx=sx+slotW/2, ly=mT+cH+12
-    if(n>16) el.push(`<text x="${cx.toFixed(1)}" y="${ly}" text-anchor="end" font-size="6.5" fill="#475569" transform="rotate(-45 ${cx.toFixed(1)} ${ly})" font-family="Calibri,Arial,sans-serif">${escXml(lbl)}</text>`)
-    else     el.push(`<text x="${cx.toFixed(1)}" y="${ly}" text-anchor="middle" font-size="7" fill="#475569" font-family="Calibri,Arial,sans-serif">${escXml(lbl)}</text>`)
-  })
-  let lx=mL; AP.forEach(p => { el.push(`<rect x="${lx}" y="${H-21}" width="9" height="9" fill="${pC[p]}" rx="1"/>`); el.push(`<text x="${lx+11}" y="${H-13}" font-size="7.5" fill="#333" font-family="Calibri,Arial,sans-serif">${p}</text>`); lx+=32 })
-  if(contV.length>0) { el.push(`<line x1="${lx}" y1="${H-17}" x2="${lx+14}" y2="${H-17}" stroke="#555" stroke-width="1.2" stroke-dasharray="4,3"/>`); el.push(`<text x="${lx+16}" y="${H-13}" font-size="7.5" fill="#333" font-family="Calibri,Arial,sans-serif">Contratada</text>`) }
-  el.push(`<text x="${W-mR}" y="${H-2}" text-anchor="end" font-size="7" fill="#94A3B8" font-family="Calibri,Arial,sans-serif">Fuente: SIPS · VOLTIS</text>`)
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${el.join('')}</svg>`
-}
+  const W = 820, H = 300
+  const m = { top: 24, right: 20, bottom: 80, left: 64 }
+  const cW = W - m.left - m.right
+  const cH = H - m.top - m.bottom
 
-/** Voltis logo SVG — usada en Excel y PDF */
-export function buildVoltisLogoSVG(): string {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="320" viewBox="0 0 480 320">
-    <rect width="480" height="320" fill="#FFFFFF"/>
-    <text x="240" y="145" text-anchor="middle" font-family="Arial Black,Arial,sans-serif" font-weight="900" font-size="96" fill="#1A3A8C">Voltis</text>
-    <polygon points="305,170 332,170 350,60 323,60" fill="#2E75B6" opacity="0.85"/>
-    <text x="240" y="210" text-anchor="middle" font-family="Arial,sans-serif" font-size="36" fill="#2E75B6" font-weight="400">energía</text>
-    <polygon points="390,240 465,198 465,218 410,260 390,260" fill="#2E75B6" opacity="0.45"/>
-  </svg>`
-}
+  if (!meses?.length) return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"></svg>`
 
-/** Convierte un SVG string a PNG base64 usando el Canvas API del navegador */
-function svgToPngDataUrl(svgStr: string, w: number, h: number): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' })
-    const url  = URL.createObjectURL(blob)
-    const img  = new Image()
-    img.onload = () => {
-      const canvas = document.createElement('canvas')
-      canvas.width = w * 2; canvas.height = h * 2   // 2× para resolución HiDPI
-      const ctx = canvas.getContext('2d')!
-      ctx.scale(2, 2)
-      ctx.fillStyle = '#FFFFFF'
-      ctx.fillRect(0, 0, w, h)
-      ctx.drawImage(img, 0, 0, w, h)
-      URL.revokeObjectURL(url)
-      resolve(canvas.toDataURL('image/png'))
-    }
-    img.onerror = (e) => { URL.revokeObjectURL(url); reject(e) }
-    img.src = url
-  })
-}
-
-/* ══════════════════════════════════════════════════════════════
-   INLINE BAR CHART (SVG)
-══════════════════════════════════════════════════════════════ */
-function ConsumoBars({ meses }: { meses: PowerStudyResult['meses'] }) {
-  const W = 800, H = 200
-  const mL = 60, mR = 12, mT = 26, mB = 46
-  const cW = W - mL - mR, cH = H - mT - mB
-  const vals = meses.map(m => m.consumoTotal || 0)
-  const maxV = Math.max(...vals, 1)
-  const n = meses.length
-  const slotW = cW / Math.max(n, 1)
-  const barW = Math.max(slotW - 6, 4)
-  const steps = 5
-  const step = Math.ceil((maxV * 1.1) / steps / 500) * 500 || 100
-  const effMax = step * steps
-
-  return (
-    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`}
-      style={{ display: 'block', width: '100%', height: 'auto', marginTop: 8 }}>
-      <text x={W / 2} y={16} textAnchor="middle" fontSize={11} fontWeight="bold"
-        fill="#1A3A8C" fontFamily="Calibri,Arial,sans-serif">
-        Consumo mensual normalizado (kWh)
-      </text>
-      {Array.from({ length: steps + 1 }, (_, i) => {
-        const v = i * step
-        const y = mT + cH - (v / effMax) * cH
-        return (
-          <g key={i}>
-            <line x1={mL} y1={y} x2={W - mR} y2={y} stroke="#E5E5E5" strokeWidth={0.7} />
-            <text x={mL - 4} y={y + 3.5} textAnchor="end" fontSize={7.5} fill="#666">
-              {v.toLocaleString('es-ES')}
-            </text>
-          </g>
-        )
-      })}
-      <line x1={mL} y1={mT} x2={mL} y2={mT + cH} stroke="#AAA" strokeWidth={1} />
-      <line x1={mL} y1={mT + cH} x2={W - mR} y2={mT + cH} stroke="#AAA" strokeWidth={1} />
-      {meses.map((m, i) => {
-        const v = m.consumoTotal || 0
-        const bH = Math.max(v > 0 ? (v / effMax) * cH : 0, 0)
-        const bx = mL + i * slotW + (slotW - barW) / 2
-        const by = mT + cH - bH
-        let lbl = ''
-        try {
-          const d = new Date(m.fechaFin || m.fechaInicio || '')
-          const mn = d.toLocaleDateString('es-ES', { month: 'short' })
-          lbl = `${mn[0].toUpperCase()}${mn.slice(1, 3)}'${d.getFullYear().toString().slice(2)}`
-        } catch { lbl = '' }
-        const cx = bx + barW / 2
-        const ly = mT + cH + 11
-        const rot = n > 20 ? `rotate(-40 ${cx} ${ly})` : undefined
-        return (
-          <g key={i}>
-            <rect x={bx} y={by} width={barW} height={bH} fill="#2E75B6" rx={1} />
-            {bH > 18 && (
-              <text x={cx} y={by - 2} textAnchor="middle" fontSize={6} fill="#222">
-                {v.toLocaleString('es-ES')}
-              </text>
-            )}
-            <text x={cx} y={ly} textAnchor={rot ? 'end' : 'middle'} fontSize={7} fill="#555"
-              transform={rot}>
-              {lbl}
-            </text>
-          </g>
-        )
-      })}
-    </svg>
+  const activePeriods = PERIODS.filter(p =>
+    meses.some(mes => (mes.maximetro?.[p] ?? 0) > 0)
   )
+  if (!activePeriods.length) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" style="background:#fff">
+      <text x="${W/2}" y="${H/2}" text-anchor="middle" font-size="13" fill="#9CA3AF" font-family="Arial, sans-serif">Sin datos de maxímetro</text>
+    </svg>`
+  }
+
+  // Y scale
+  const allMax = meses.flatMap(mes => activePeriods.map(p => mes.maximetro?.[p] ?? 0))
+  const contrMax = activePeriods.map(p => potenciaContratada?.[p] ?? 0)
+  const allVals = [...allMax, ...contrMax].filter(v => v > 0)
+  const yMax = Math.ceil(Math.max(...allVals, 1) * 1.15 / 10) * 10
+  const yScale = (v: number) => cH - (v / yMax) * cH
+
+  // X positioning — group by month, then by active period
+  const groupW = cW / meses.length
+  const barsPerGroup = activePeriods.length
+  const barW = Math.max(4, Math.min(20, groupW / barsPerGroup * 0.75))
+  const groupPad = (groupW - barW * barsPerGroup) / 2
+
+  let bars = ''
+  for (let i = 0; i < meses.length; i++) {
+    for (let pi = 0; pi < activePeriods.length; pi++) {
+      const p = activePeriods[pi]
+      const v = meses[i].maximetro?.[p] ?? 0
+      if (v <= 0) continue
+      const x = m.left + i * groupW + groupPad + pi * barW
+      const barH = (v / yMax) * cH
+      const y = m.top + yScale(v)
+      bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${PERIOD_COLORS[p]}" opacity="0.85" />`
+    }
+  }
+
+  // Y grid lines & labels
+  const yTicks = 5
+  let gridLines = ''
+  for (let t = 0; t <= yTicks; t++) {
+    const v = (yMax * t) / yTicks
+    const y = m.top + yScale(v)
+    gridLines += `<line x1="${m.left}" y1="${y.toFixed(1)}" x2="${m.left + cW}" y2="${y.toFixed(1)}" stroke="#E5E7EB" stroke-width="1" />`
+    gridLines += `<text x="${(m.left - 6).toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="end" font-size="10" fill="#6B7280" font-family="Arial, sans-serif">${v.toFixed(0)}</text>`
+  }
+
+  // Contracted power reference lines per period
+  let refLines = ''
+  if (potenciaContratada) {
+    for (const p of activePeriods) {
+      const cont = potenciaContratada[p] ?? 0
+      if (cont <= 0) continue
+      const y = m.top + yScale(cont)
+      refLines += `<line x1="${m.left}" y1="${y.toFixed(1)}" x2="${m.left + cW}" y2="${y.toFixed(1)}" stroke="${PERIOD_COLORS[p]}" stroke-width="1.5" stroke-dasharray="6,3" opacity="0.7" />`
+      refLines += `<text x="${m.left + cW + 3}" y="${(y + 4).toFixed(1)}" font-size="9" fill="${PERIOD_COLORS[p]}" font-family="Arial, sans-serif">${p}: ${cont}kW</text>`
+    }
+  }
+
+  // X labels
+  let xLabels = ''
+  for (let i = 0; i < meses.length; i++) {
+    const x = m.left + i * groupW + groupW / 2
+    const label = monthLabel(meses[i].fechaFin)
+    const skip = meses.length > 20 ? i % 2 !== 0 : false
+    if (!skip) {
+      xLabels += `<text x="${x.toFixed(1)}" y="${(m.top + cH + 18).toFixed(1)}" text-anchor="middle" font-size="9" fill="#374151" font-family="Arial, sans-serif" transform="rotate(-45,${x.toFixed(1)},${(m.top + cH + 18).toFixed(1)})">${label}</text>`
+    }
+  }
+
+  // Y axis label
+  const yAxisLabel = `<text x="${(m.left - 44).toFixed(1)}" y="${(m.top + cH / 2).toFixed(1)}" text-anchor="middle" font-size="10" fill="#6B7280" font-family="Arial, sans-serif" transform="rotate(-90,${(m.left - 44).toFixed(1)},${(m.top + cH / 2).toFixed(1)})">kW</text>`
+
+  // Legend
+  let legend = ''
+  let lx = m.left
+  const legendY = H - 22
+  for (const p of activePeriods) {
+    legend += `<rect x="${lx}" y="${legendY - 7}" width="10" height="10" fill="${PERIOD_COLORS[p]}" />`
+    legend += `<text x="${lx + 13}" y="${legendY + 2}" font-size="10" fill="#374151" font-family="Arial, sans-serif">${p}</text>`
+    lx += 42
+  }
+  if (potenciaContratada) {
+    legend += `<line x1="${lx}" y1="${legendY - 2}" x2="${lx + 16}" y2="${legendY - 2}" stroke="#6B7280" stroke-width="1.5" stroke-dasharray="5,3"/>`
+    legend += `<text x="${lx + 20}" y="${legendY + 2}" font-size="10" fill="#374151" font-family="Arial, sans-serif">Contratada</text>`
+  }
+
+  const title = `<text x="${W / 2}" y="16" text-anchor="middle" font-size="12" font-weight="bold" fill="#111827" font-family="Arial, sans-serif">MAXÍMETROS MENSUALES (kW)</text>`
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" style="background:#fff">
+  ${title}
+  ${gridLines}
+  ${refLines}
+  ${bars}
+  <line x1="${m.left}" y1="${m.top}" x2="${m.left}" y2="${m.top + cH}" stroke="#9CA3AF" stroke-width="1"/>
+  <line x1="${m.left}" y1="${m.top + cH}" x2="${m.left + cW}" y2="${m.top + cH}" stroke="#9CA3AF" stroke-width="1"/>
+  ${xLabels}
+  ${yAxisLabel}
+  ${legend}
+</svg>`
 }
 
-/* ══════════════════════════════════════════════════════════════
-   MAIN COMPONENT
-══════════════════════════════════════════════════════════════ */
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN COMPONENT
+// ─────────────────────────────────────────────────────────────────────────────
+
 export function PowerStudy({
   supplyId, cups, clientName, potenciaContratada, existingStudy, onStudyGenerated,
 }: PowerStudyProps) {
-  const [study, setStudy] = useState<PowerStudyResult | null>(existingStudy || null)
-  const [uploading, setUploading] = useState(false)
-  const [error, setError] = useState('')
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const printRef = useRef<HTMLDivElement>(null)
+  const [study, setStudy] = useState<PowerStudyResult | null>(existingStudy ?? null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [exporting, setExporting] = useState<'pdf' | 'excel' | null>(null)
+  const [dragOver, setDragOver] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const chartConsumoRef = useRef<HTMLDivElement>(null)
+  const chartMaxRef = useRef<HTMLDivElement>(null)
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setUploading(true); setError('')
+  const pc = study?.potenciaContratada ?? potenciaContratada
+
+  // ── Process SIPS file ────────────────────────────────────────────────────
+  const processFile = useCallback(async (file: File) => {
+    setLoading(true)
+    setError(null)
     try {
       const fd = new FormData()
       fd.append('file', file)
-      fd.append('clientName', clientName || '')
-      if (potenciaContratada) fd.append('potenciaContratada', JSON.stringify(potenciaContratada))
+      if (clientName) fd.append('clientName', clientName)
+      if (pc) fd.append('potenciaContratada', JSON.stringify(pc))
       const res = await fetch('/api/power-study', { method: 'POST', body: fd })
-      const result = await res.json()
-      if (!res.ok) throw new Error(result.error || 'Error procesando archivo')
-      if (cups) result.cups = cups
-      if (potenciaContratada) result.potenciaContratada = potenciaContratada
-      setStudy(result)
-      onStudyGenerated?.(result)
-    } catch (err: any) {
-      setError(err.message || 'Error al procesar')
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Error procesando archivo')
+      setStudy(data)
+      onStudyGenerated?.(data)
+    } catch (e: any) {
+      setError(e.message || 'Error al procesar el archivo SIPS')
     } finally {
-      setUploading(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
+      setLoading(false)
+    }
+  }, [clientName, pc, onStudyGenerated])
+
+  // ── Convert SVG div to PNG base64 ───────────────────────────────────────
+  async function svgDivToPng(divRef: React.RefObject<HTMLDivElement | null>): Promise<string | undefined> {
+    const svg = divRef.current?.querySelector('svg')
+    if (!svg) return undefined
+    const svgStr = new XMLSerializer().serializeToString(svg)
+    const blob = new Blob([svgStr], { type: 'image/svg+xml' })
+    const url = URL.createObjectURL(blob)
+    return new Promise(resolve => {
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        canvas.width = 820; canvas.height = 300
+        const ctx = canvas.getContext('2d')!
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, 820, 300)
+        ctx.drawImage(img, 0, 0)
+        URL.revokeObjectURL(url)
+        resolve(canvas.toDataURL('image/png'))
+      }
+      img.src = url
+    })
+  }
+
+  // ── Export PDF ───────────────────────────────────────────────────────────
+  const handleExportPDF = async () => {
+    if (!study) return
+    setExporting('pdf')
+    try {
+      const [consumptionPng, maximetroPng] = await Promise.all([
+        svgDivToPng(chartConsumoRef),
+        svgDivToPng(chartMaxRef),
+      ])
+      const res = await fetch('/api/power-study-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...study, charts: { consumption: consumptionPng, maximetro: maximetroPng } }),
+      })
+      if (!res.ok) throw new Error('Error generando PDF')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const win = window.open(url, '_blank')
+      if (win) win.focus()
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setExporting(null)
     }
   }
 
+  // ── Export Excel ─────────────────────────────────────────────────────────
   const handleExportExcel = async () => {
     if (!study) return
+    setExporting('excel')
     try {
-      // Generar gráficas en el navegador como PNG antes de enviar al servidor
-      const [consumptionPng, logoPng] = await Promise.all([
-        svgToPngDataUrl(buildConsumptionSVG(study.meses ?? []), 900, 320).catch(() => undefined),
-        svgToPngDataUrl(buildVoltisLogoSVG(), 480, 320).catch(() => undefined),
+      const [consumptionPng, maximetroPng] = await Promise.all([
+        svgDivToPng(chartConsumoRef),
+        svgDivToPng(chartMaxRef),
       ])
-
       const res = await fetch('/api/power-study-excel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          study,
-          charts: { consumption: consumptionPng, logo: logoPng },
-        }),
+        body: JSON.stringify({ study, charts: { consumption: consumptionPng, maximetro: maximetroPng } }),
       })
-      if (!res.ok) throw new Error('Error Excel')
+      if (!res.ok) throw new Error('Error generando Excel')
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
-      const slug = (study.clientName || study.cups || 'estudio').replace(/[^a-zA-Z0-9]/g, '_').slice(0, 40)
-      a.href = url; a.download = `Estudio_Potencias_${slug}.xlsx`; a.click()
+      a.href = url
+      a.download = `Estudio_Potencias_${study.cups || 'CUPS'}.xlsx`
+      a.click()
       URL.revokeObjectURL(url)
-    } catch (err: any) { setError(err.message) }
-  }
-
-  const handleExportPDF = async () => {
-    if (!study) return
-    try {
-      const res = await fetch('/api/power-study-pdf', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(study),
-      })
-      if (!res.ok) throw new Error('Error PDF')
-      const html = await res.text()
-      const w = window.open('', '_blank')
-      if (w) { w.document.write(html); w.document.close() }
-    } catch {
-      if (printRef.current) {
-        const w = window.open('', '_blank')
-        if (w) {
-          w.document.write(`<!DOCTYPE html><html><body>${printRef.current.innerHTML}</body></html>`)
-          w.document.close(); setTimeout(() => w.print(), 300)
-        }
-      }
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setExporting(null)
     }
   }
 
-  /* ── No study ── */
-  if (!study) {
-    return (
-      <div className="border border-outline-variant/30 rounded-2xl overflow-hidden">
-        <div className="flex items-center gap-3 px-4 py-3 bg-surface-container-low border-b border-outline-variant/20">
-          <div className="w-9 h-9 rounded-xl bg-amber-50 flex items-center justify-center">
-            <BarChart3 className="w-5 h-5 text-amber-600" />
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold text-on-surface">Estudio de Potencias y Consumos</h3>
-            <p className="text-xs text-on-surface-variant">Se genera automáticamente al consultar SIPS</p>
-          </div>
-        </div>
-        <div className="p-4 space-y-3">
-          {!potenciaContratada && (
-            <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
-              Consulta datos SIPS primero para generar el estudio automáticamente.
-            </p>
-          )}
-          {potenciaContratada && (
-            <div className="flex items-center gap-2 text-xs text-on-surface-variant bg-surface-container-low rounded-lg px-3 py-2">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              El estudio se generará automáticamente con los datos de SIPS...
-            </div>
-          )}
-          <input ref={fileInputRef} type="file" accept=".xls,.xlsx,.csv,.tsv" onChange={handleFileUpload} className="hidden" />
-          <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
-            className="w-full flex items-center justify-center gap-2 p-3 border border-dashed border-outline-variant/30 rounded-xl hover:border-secondary/40 hover:bg-secondary/5 transition-all text-xs text-on-surface-variant">
-            {uploading
-              ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Procesando...</>
-              : <><FileSpreadsheet className="w-3.5 h-3.5" />Subir Excel de comercializadora manualmente (opcional)</>}
-          </button>
-          {error && (
-            <div className="flex items-center gap-2 text-xs text-error bg-error-container/30 rounded-lg px-3 py-2">
-              <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />{error}
-            </div>
-          )}
-        </div>
-      </div>
-    )
-  }
+  // ── Drag & drop handlers ─────────────────────────────────────────────────
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+    const file = e.dataTransfer.files[0]
+    if (file) processFile(file)
+  }, [processFile])
 
-  /* ══════════════════════════════════════════════════════════════
-     CALCULATIONS — deterministic, Excel-faithful
-  ══════════════════════════════════════════════════════════════ */
-  const meses = study.meses ?? []
-  const pc = study.potenciaContratada ?? { P1: 0, P2: 0, P3: 0, P4: 0, P5: 0, P6: 0 }
-  const hasPotencia = PERIODS.some(p => (pc[p] || 0) > 0)
+  // ── Adjustment analysis ──────────────────────────────────────────────────
+  const adjustments = study ? calcAdjustments(study.maxPotencia ?? {}, pc) : []
+  const periodsToAdjust = adjustments.filter(a => a.needsAdjust)
+  const hasMaxData = study?.meses?.some(m => PERIODS.some(p => (m.maximetro?.[p] ?? 0) > 0))
 
-  // ── CONSUMO: totals ──
-  // consumoTotal = SUM of all meses.consumoTotal
-  const consumoTotal = meses.reduce((s, m) => s + (m.consumoTotal || 0), 0)
-
-  // Per-period totals = SUM of each period across all months
-  const periodoTotal: Record<Period, number> = {} as any
-  PERIODS.forEach(p => {
-    periodoTotal[p] = meses.reduce((s, m) => s + (m.consumo?.[p] || 0), 0)
-  })
-
-  // Per-period % = periodoTotal[p] / consumoTotal
-  const periodoPct: Record<Period, number> = {} as any
-  PERIODS.forEach(p => {
-    periodoPct[p] = consumoTotal > 0 ? periodoTotal[p] / consumoTotal : 0
-  })
-
-  // ── PER-COLUMN HEATMAP SCALES — idéntico al colorScale CF del Excel ──
-  // Consumo: verde→amarillo→rojo  |  Maxímetros: azul→blanco→rojo
-  const C0='#63BE7B', C1='#FFEB84', C2='#F8696B'
-  const M0='#5A8AC6', M1='#FCFCFF', M2='#F8696B'
-  function makeColScaleGYR(vals: number[]) {
-    const pos = vals.filter(v=>v>0)
-    if(!pos.length) return () => C0
-    const lo=Math.min(...pos), hi=Math.max(...pos)
-    if(lo===hi) return () => C1
-    const sorted=[...pos].sort((a,b)=>a-b)
-    const mid=sorted[Math.floor((sorted.length-1)/2)]
-    return (v:number):string => {
-      if(v<=0) return C0
-      if(v<=lo) return C0; if(v>=hi) return C2
-      if(v<=mid) { const t=mid>lo?(v-lo)/(mid-lo):0; return lerpHex(C0,C1,t) }
-      const t=hi>mid?(v-mid)/(hi-mid):1; return lerpHex(C1,C2,t)
-    }
-  }
-  function makeColScaleBWR(vals: number[]) {
-    const pos = vals.filter(v=>v>0)
-    if(!pos.length) return () => M0
-    const lo=Math.min(...pos), hi=Math.max(...pos)
-    if(lo===hi) return () => M1
-    const sorted=[...pos].sort((a,b)=>a-b)
-    const mid=sorted[Math.floor((sorted.length-1)/2)]
-    return (v:number):string => {
-      if(v<=0) return '#DDEEFF'
-      if(v<=lo) return M0; if(v>=hi) return M2
-      if(v<=mid) { const t=mid>lo?(v-lo)/(mid-lo):0; return lerpHex(M0,M1,t) }
-      const t=hi>mid?(v-mid)/(hi-mid):1; return lerpHex(M1,M2,t)
-    }
-  }
-  const totalScale = makeColScaleGYR(meses.map(m => m.consumoTotal || 0))
-  const periodoScales: Record<Period, (v: number) => string> = {} as any
-  PERIODS.forEach(p => {
-    periodoScales[p] = makeColScaleGYR(meses.map(m => m.consumo?.[p] || 0))
-  })
-  // Escala maxímetros: azul→blanco→rojo sobre TODOS los valores (igual que Excel K5:P39)
-  const allMaxVals = meses.flatMap(m => PERIODS.map(p => m.maximetro?.[p] || 0))
-  const maxScale = makeColScaleBWR(allMaxVals)
-
-  // ── NEW: Scales for percentage and annual totals ──
-  const pctScale = makeColumnScale(PERIODS.map(p => periodoPct[p]))
-  const annualScale = makeColumnScale(PERIODS.map(p => periodoTotal[p]))
-  const hasMaximetros = meses.some(m => PERIODS.some(p => (m.maximetro?.[p] || 0) > 0))
-
-  // ── PRIORITY MESSAGE ──
-  // Sort active periods by total descending → "PRIORIZAR CONSUMO P6 - P4 - P2"
-  const activePeriods = PERIODS
-    .filter(p => periodoTotal[p] > 0)
-    .sort((a, b) => periodoTotal[b] - periodoTotal[a])
-  const prioMsg = activePeriods.length > 0
-    ? 'PRIORIZAR CONSUMO ' + activePeriods.slice(0, 3).join(' - ')
-    : ''
-
-  // ── MAXÍMETROS ──
-  // maxPotencia[p] = MAX of all meses.maximetro[p]
-  const maxPotencia: Record<Period, number> = {} as any
-  PERIODS.forEach(p => {
-    maxPotencia[p] = Math.max(...meses.map(m => m.maximetro?.[p] || 0), 0)
-  })
-
-  // Periods needing adjustment = where ANY month maximetro > contracted
-  const periodsToAdjust = PERIODS.filter(p => {
-    const cont = pc[p] || 0
-    if (cont <= 0) return false
-    return meses.some(m => (m.maximetro?.[p] || 0) > cont)
-  })
-  const hasExcess = periodsToAdjust.length > 0
-
-  // Periods with opportunity to reduce
-  const periodsToReduce = PERIODS.filter(p => {
-    const cont = pc[p] || 0
-    const max = maxPotencia[p]
-    if (cont <= 0 || max <= 0) return false
-    return max < cont * 0.85 && !periodsToAdjust.includes(p)
-  })
-
-  // Adjustment message
-  let adjText: string
-  let adjBg: string
-  let adjColor: string
-  if (hasExcess) {
-    adjText = `⚠ OBLIGATORIO AJUSTAR ${periodsToAdjust.join(' · ')}`
-    adjBg = '#FFFF00'; adjColor = '#C00000'
-  } else if (periodsToReduce.length > 0) {
-    adjText = `💡 POSIBLE REDUCCIÓN EN ${periodsToReduce.join(' · ')}`
-    adjBg = '#BDD7EE'; adjColor = '#1F4E79'
-  } else if (hasPotencia) {
-    adjText = '✓ Potencias dentro de rango'
-    adjBg = '#E2F0D9'; adjColor = '#375623'
-  } else {
-    adjText = 'Sin potencia contratada de referencia'
-    adjBg = '#F5F5F5'; adjColor = '#666'
-  }
-
-  // ── REACTIVA: solo alerta, sin tabla ──
-  const hasReactiva = study.hasRelevantReactiva
-
+  // ── Render ───────────────────────────────────────────────────────────────
   return (
-    <div className="border border-outline-variant/30 rounded-2xl overflow-hidden">
+    <div style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
 
-      {/* ── Header ── */}
-      <div className={`flex items-center justify-between px-4 py-3 border-b border-outline-variant/20 ${hasExcess ? 'bg-red-50' : 'bg-green-50'}`}>
-        <div className="flex items-center gap-3">
-          <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${hasExcess ? 'bg-red-100' : 'bg-green-100'}`}>
-            {hasExcess
-              ? <AlertTriangle className="w-5 h-5 text-red-600" />
-              : <CheckCircle2 className="w-5 h-5 text-green-600" />}
+      {/* ── Upload area ──────────────────────────────────────────────────── */}
+      <div
+        onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={handleDrop}
+        onClick={() => fileRef.current?.click()}
+        style={{
+          border: `2px dashed ${dragOver ? '#3B82F6' : '#D1D5DB'}`,
+          borderRadius: 12,
+          padding: '24px 32px',
+          textAlign: 'center',
+          cursor: 'pointer',
+          background: dragOver ? '#EFF6FF' : '#F9FAFB',
+          marginBottom: 20,
+          transition: 'all 0.15s',
+        }}
+      >
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".xlsx,.xls,.csv,.html,.htm"
+          style={{ display: 'none' }}
+          onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f) }}
+        />
+        {loading ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, color: '#3B82F6' }}>
+            <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />
+            <span style={{ fontSize: 14, fontWeight: 500 }}>Procesando SIPS...</span>
           </div>
-          <div>
-            <h3 className="text-sm font-semibold text-on-surface">Estudio de Potencias y Consumos</h3>
-            <p className={`text-xs font-semibold ${hasExcess ? 'text-red-700' : 'text-green-700'}`}>
-              {hasExcess
-                ? `OBLIGATORIO AJUSTAR ${periodsToAdjust.join(' · ')}`
-                : periodsToReduce.length > 0
-                  ? `Posible reducción en ${periodsToReduce.join(' · ')}`
-                  : 'Potencias dentro de rango'}
-            </p>
-            {prioMsg && (
-              <p className="text-[10px] text-amber-700 font-medium">{prioMsg}</p>
-            )}
-            {study.autoGenerated && (
-              <p className="text-[10px] text-on-surface-variant mt-0.5">
-                Generado automáticamente desde SIPS{study.hasRealMaximetros ? '' : ' · Sin maxímetros reales'}
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, color: '#6B7280' }}>
+            <Upload size={22} />
+            <div style={{ textAlign: 'left' }}>
+              <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#374151' }}>
+                {study ? 'Cargar nuevo SIPS' : 'Cargar exportación SIPS (Lidera / Greening)'}
               </p>
-            )}
+              <p style={{ margin: '2px 0 0', fontSize: 12 }}>
+                Arrastra o haz clic · .xlsx, .csv, .html
+              </p>
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={handleExportExcel}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-green-700 bg-green-50 border border-green-200 rounded-lg hover:shadow-md transition-all active:scale-[0.97]">
-            <Download className="w-3.5 h-3.5" /><span className="hidden sm:inline">Excel</span>
-          </button>
-          <button onClick={handleExportPDF}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-on-surface bg-white border border-outline-variant/20 rounded-lg hover:shadow-md transition-all active:scale-[0.97]">
-            <Download className="w-3.5 h-3.5" /><span className="hidden sm:inline">PDF</span>
-          </button>
-          <input ref={fileInputRef} type="file" accept=".xls,.xlsx,.csv,.tsv" onChange={handleFileUpload} className="hidden" />
-          <button onClick={() => fileInputRef.current?.click()}
-            className="p-2 rounded-lg text-on-surface-variant hover:bg-white/50 transition-all" title="Subir Excel manualmente">
-            <FileSpreadsheet className="w-4 h-4" />
-          </button>
-        </div>
+        )}
       </div>
 
-      {/* ── Tables ── */}
-      <div ref={printRef} className="overflow-x-auto p-3 bg-white">
-        <table style={{ borderCollapse: 'collapse', fontSize: 10, fontFamily: 'Calibri,Arial,sans-serif' }}>
-          <colgroup>
-            <col style={{ minWidth: 72 }} />
-            <col style={{ minWidth: 66 }} />
-            <col style={{ minWidth: 66 }} />
-            {PERIODS.map(p => <col key={p} style={{ minWidth: 56 }} />)}
-            <col style={{ width: 6 }} />
-            {hasMaximetros && PERIODS.map(p => <col key={`m${p}`} style={{ minWidth: 62 }} />)}
-          </colgroup>
-          <thead>
-            {/* ── Fila 1: cabeceras — blanco+negrita+borde inferior (= Excel fila 1) ── */}
-            <tr>
-              <th style={{ ...HDR_PLAIN, textAlign: 'left', paddingLeft: 6, minWidth: 140 }}>CUPS</th>
-              <th style={HDR_PLAIN}></th>
-              <th style={{ ...HDR_PLAIN, minWidth: 90 }}>CONSUMO TOTAL</th>
-              {PERIODS.map(p => <th key={p} style={HDR_COL}>{p} Activa</th>)}
-              <td style={SEP_CELL} />
-              {hasMaximetros && PERIODS.map(p => <th key={`m${p}`} style={HDR_COL}>{p} Maxímetro</th>)}
-            </tr>
-            {/* ── Fila 2: CUPS + totales anuales 12pt + MAX ── */}
-            <tr>
-              <td style={{ ...CELL, fontSize: 9, color: '#555', textAlign: 'left' }}>
-                {(study.cups || '').slice(0, 26)}
-              </td>
-              <td style={CELL}></td>
-              <td style={{ ...CELL, background: annualScale(consumoTotal), fontWeight: 700, textAlign: 'center', fontSize: 12, borderBottom: '2px solid #000' }}>
-                {fmtKwh(consumoTotal)}
-              </td>
-              {PERIODS.map(p => (
-                <td key={p} style={{ ...CELL, background: annualScale(periodoTotal[p]), fontWeight: 700, textAlign: 'center', fontSize: 12, borderBottom: '2px solid #000' }}>
-                  {fmtKwh(periodoTotal[p])}
-                </td>
-              ))}
-              <td style={SEP_CELL} />
-              {hasMaximetros && PERIODS.map(p => {
-                const mx = maxPotencia[p]
-                return (
-                  <td key={`m${p}`} style={{ ...CELL, background: mx > 0 ? maxScale(mx) : '#DDEEFF', fontWeight: 700, textAlign: 'center', fontSize: 12, borderBottom: '2px solid #000' }}>
-                    {mx > 0 ? fmtKw(mx) : '-'}
-                  </td>
-                )
-              })}
-            </tr>
-            {/* ── Fila 3: clientName 16pt + % + mensaje ajuste rowspan=2 ── */}
-            <tr>
-              <td style={{ ...CELL, fontWeight: 700, fontSize: 14, textAlign: 'left', color: '#111' }}>
-                {study.clientName || ''}
-              </td>
-              <td style={CELL}></td>
-              <td style={CELL}></td>
-              {PERIODS.map(p => {
-                const pct = periodoPct[p]
-                return (
-                  <td key={p} style={{ ...CELL, background: pct > 0 ? pctScale(pct) : '#fff', fontWeight: 700, textAlign: 'center', fontSize: 12, borderBottom: '2px solid #000' }}>
-                    {pct > 0 ? fmtPct(pct) : '-'}
-                  </td>
-                )
-              })}
-              <td style={{ ...SEP_CELL }} rowSpan={2} />
-              {hasMaximetros && (
-                <td colSpan={6} rowSpan={2} style={{
-                  ...CELL,
-                  background: adjBg,
-                  color: adjColor,
-                  fontWeight: 700,
-                  textAlign: 'center',
-                  fontSize: 12,
-                  padding: '4px 8px',
-                  verticalAlign: 'middle',
-                  borderBottom: '2px solid #000',
-                }}>
-                  {adjText}
-                </td>
-              )}
-            </tr>
-            {/* ── Fila 4: mensaje priorizar ── */}
-            <tr>
-              <td style={CELL}></td>
-              <td style={CELL}></td>
-              <td style={CELL}></td>
-              {prioMsg ? (
-                <td colSpan={6} style={{
-                  ...CELL,
-                  background: '#FAD7A0',
-                  color: '#7B3F00',
-                  fontWeight: 700,
-                  textAlign: 'center',
-                  padding: '3px 8px',
-                  fontSize: 11,
-                  borderBottom: '2px solid #000',
-                }}>
-                  {prioMsg}
-                </td>
+      {error && (
+        <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8, padding: '10px 14px', marginBottom: 16, color: '#991B1B', fontSize: 13 }}>
+          <AlertTriangle size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+          {error}
+        </div>
+      )}
+
+      {/* ── Study content ─────────────────────────────────────────────────── */}
+      {study && (
+        <>
+          {/* ── KPI Cards ──────────────────────────────────────────────── */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 20 }}>
+            {/* Card 1: Total consumo */}
+            <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 10, padding: '14px 18px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <div style={{ background: '#EFF6FF', borderRadius: 6, padding: 6, display: 'flex' }}>
+                  <Zap size={16} color="#3B82F6" />
+                </div>
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Consumo Total
+                </span>
+              </div>
+              <p style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#111827' }}>
+                {fmtKwh(study.consumoTotal)} <span style={{ fontSize: 13, fontWeight: 400, color: '#6B7280' }}>kWh</span>
+              </p>
+              <p style={{ margin: '4px 0 0', fontSize: 12, color: '#9CA3AF' }}>
+                {study.meses?.length ?? 0} meses · {PERIODS.filter(p => (study.consumoPorPeriodo?.[p] ?? 0) > 0).join(', ')}
+              </p>
+            </div>
+
+            {/* Card 2: Max maxímetro */}
+            <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 10, padding: '14px 18px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <div style={{ background: '#F0FDF4', borderRadius: 6, padding: 6, display: 'flex' }}>
+                  <TrendingUp size={16} color="#22C55E" />
+                </div>
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Maxímetro Máx.
+                </span>
+              </div>
+              {hasMaxData ? (
+                <>
+                  <p style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#111827' }}>
+                    {fmtKw(Math.max(...PERIODS.map(p => study.maxPotencia?.[p] ?? 0)))}{' '}
+                    <span style={{ fontSize: 13, fontWeight: 400, color: '#6B7280' }}>kW</span>
+                  </p>
+                  <p style={{ margin: '4px 0 0', fontSize: 12, color: '#9CA3AF' }}>
+                    Período {PERIODS.find(p => study.maxPotencia?.[p] === Math.max(...PERIODS.map(pp => study.maxPotencia?.[pp] ?? 0)))}
+                  </p>
+                </>
               ) : (
-                PERIODS.map(p => <td key={p} style={{ ...CELL, borderBottom: '2px solid #000' }}></td>)
+                <p style={{ margin: 0, fontSize: 14, color: '#9CA3AF' }}>Sin datos de maxímetro</p>
               )}
-            </tr>
-          </thead>
-          <tbody>
-            {meses.map((m, i) => {
-              const tot = m.consumoTotal || 0
-              return (
-                <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#F9F9F9' }}>
-                  <td style={{ ...CELL, background: totalScale(tot), fontWeight: 700, textAlign: 'right' }}>
-                    {fmtKwh(tot)}
-                  </td>
-                  <td style={{ ...CELL, textAlign: 'center', color: '#444' }}>
-                    {m.fechaInicio ? fmtDate(m.fechaInicio) : '-'}
-                  </td>
-                  <td style={{ ...CELL, textAlign: 'center', color: '#444' }}>
-                    {m.fechaFin ? fmtDate(m.fechaFin) : '-'}
-                  </td>
-                  {PERIODS.map(p => {
-                    const v = m.consumo?.[p] || 0
-                    return (
-                      <td key={p} style={{ ...CELL, background: periodoScales[p](v), textAlign: 'right' }}>
-                        {v > 0 ? fmtKwh(v) : '0'}
-                      </td>
-                    )
-                  })}
-                  <td style={SEP_CELL} />
-                  {hasMaximetros && PERIODS.map(p => {
-                    const val = m.maximetro?.[p] || 0
-                    return (
-                      <td key={`m${p}`} style={{
-                        ...CELL,
-                        background: val > 0 ? maxScale(val) : '#DDEEFF',
-                        textAlign: 'center',
-                      }}>
-                        {val > 0 ? fmtKw(val) : '-'}
-                      </td>
-                    )
-                  })}
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+            </div>
 
-
-        {/* ── Alerta reactivas ── */}
-        {hasReactiva && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 6, marginTop: 10,
-            background: '#FEF3E2', border: '1.5px solid #FAD7A0', borderRadius: 6,
-            padding: '6px 12px',
-          }}>
-            <AlertTriangle style={{ width: 14, height: 14, color: '#C55A11', flexShrink: 0 }} />
-            <span style={{ fontSize: 11, fontWeight: 700, color: '#7B3F00', fontFamily: 'Calibri,Arial,sans-serif' }}>
-              ⚠ CHECKEAR REACTIVAS — se detectan valores superiores a 1.000 kvarh
-            </span>
+            {/* Card 3: Optimization recommendation */}
+            <div style={{
+              background: periodsToAdjust.length > 0 ? '#FFFBEB' : '#F0FDF4',
+              border: `1px solid ${periodsToAdjust.length > 0 ? '#FCD34D' : '#86EFAC'}`,
+              borderRadius: 10,
+              padding: '14px 18px',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <div style={{
+                  background: periodsToAdjust.length > 0 ? '#FEF3C7' : '#DCFCE7',
+                  borderRadius: 6, padding: 6, display: 'flex',
+                }}>
+                  {periodsToAdjust.length > 0
+                    ? <AlertTriangle size={16} color="#D97706" />
+                    : <CheckCircle2 size={16} color="#16A34A" />}
+                </div>
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Optimización
+                </span>
+              </div>
+              {periodsToAdjust.length > 0 ? (
+                <>
+                  <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#92400E' }}>
+                    Ajustar {periodsToAdjust.map(a => a.period).join(', ')}
+                  </p>
+                  <p style={{ margin: '4px 0 0', fontSize: 11, color: '#B45309' }}>
+                    {periodsToAdjust.filter(a => a.direction === 'excess').map(a => `${a.period}: +${a.desvPct.toFixed(0)}%`).join(' · ')}
+                    {periodsToAdjust.filter(a => a.direction === 'under').map(a => ` ${a.period}: ${a.desvPct.toFixed(0)}%`).join(' · ')}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#15803D' }}>Potencias OK</p>
+                  <p style={{ margin: '4px 0 0', fontSize: 11, color: '#16A34A' }}>Desviación &lt;15% en todos los períodos</p>
+                </>
+              )}
+            </div>
           </div>
-        )}
 
-        {/* ── Bar Chart ── */}
-        {meses.length > 0 && <ConsumoBars meses={meses} />}
+          {/* ── CUPS header ─────────────────────────────────────────────── */}
+          <div style={{ background: '#1E3A5F', borderRadius: '10px 10px 0 0', padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <span style={{ color: '#fff', fontSize: 13, fontWeight: 700, fontFamily: 'monospace' }}>
+                {study.cups || cups || '—'}
+              </span>
+              {(study.clientName || clientName) && (
+                <span style={{ color: '#93C5FD', fontSize: 12, marginLeft: 14 }}>
+                  {study.clientName || clientName}
+                </span>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={handleExportExcel}
+                disabled={!!exporting}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  background: '#166534', color: '#fff', border: 'none',
+                  borderRadius: 6, padding: '5px 12px', fontSize: 12, fontWeight: 600,
+                  cursor: exporting ? 'not-allowed' : 'pointer', opacity: exporting ? 0.6 : 1,
+                }}
+              >
+                {exporting === 'excel' ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <FileText size={13} />}
+                Excel
+              </button>
+              <button
+                onClick={handleExportPDF}
+                disabled={!!exporting}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  background: '#7F1D1D', color: '#fff', border: 'none',
+                  borderRadius: 6, padding: '5px 12px', fontSize: 12, fontWeight: 600,
+                  cursor: exporting ? 'not-allowed' : 'pointer', opacity: exporting ? 0.6 : 1,
+                }}
+              >
+                {exporting === 'pdf' ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={13} />}
+                PDF
+              </button>
+            </div>
+          </div>
 
-        {error && (
-          <p style={{ marginTop: 8, fontSize: 11, color: '#C00000', display: 'flex', alignItems: 'center', gap: 4 }}>
-            <AlertTriangle style={{ width: 12, height: 12 }} />{error}
-          </p>
-        )}
-      </div>
+          {/* ── Data table (replicates Excel template) ──────────────────── */}
+          <DataTable study={study} pc={pc} adjustments={adjustments} />
+
+          {/* ── Charts ──────────────────────────────────────────────────── */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 20 }}>
+            <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 10, padding: 12, overflow: 'hidden' }}>
+              <div
+                ref={chartConsumoRef}
+                dangerouslySetInnerHTML={{ __html: buildConsumptionSVG(study.meses) }}
+                style={{ width: '100%', overflowX: 'auto' }}
+              />
+            </div>
+            <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 10, padding: 12, overflow: 'hidden' }}>
+              <div
+                ref={chartMaxRef}
+                dangerouslySetInnerHTML={{ __html: buildMaximetroSVG(study.meses, pc) }}
+                style={{ width: '100%', overflowX: 'auto' }}
+              />
+            </div>
+          </div>
+
+          {/* ── Period breakdown ────────────────────────────────────────── */}
+          {hasMaxData && adjustments.some(a => a.contracted > 0) && (
+            <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 10, padding: '14px 18px', marginTop: 16 }}>
+              <p style={{ margin: '0 0 12px', fontSize: 13, fontWeight: 700, color: '#374151' }}>
+                <BarChart3 size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+                Análisis de maxímetros por período
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 8 }}>
+                {adjustments.map(a => {
+                  if (a.contracted <= 0 && a.maxRegistrado <= 0) return null
+                  const color = a.needsAdjust
+                    ? (a.direction === 'excess' ? '#DC2626' : '#2563EB')
+                    : '#16A34A'
+                  const bg = a.needsAdjust
+                    ? (a.direction === 'excess' ? '#FEF2F2' : '#EFF6FF')
+                    : '#F0FDF4'
+                  return (
+                    <div key={a.period} style={{ background: bg, borderRadius: 8, padding: '10px 8px', textAlign: 'center', border: `1px solid ${color}22` }}>
+                      <div style={{ width: 10, height: 10, borderRadius: 2, background: PERIOD_COLORS[a.period], margin: '0 auto 4px' }} />
+                      <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#111827' }}>{a.period}</p>
+                      <p style={{ margin: '2px 0', fontSize: 11, color: '#6B7280' }}>
+                        Máx: <strong style={{ color: '#111827' }}>{fmtKw(a.maxRegistrado)} kW</strong>
+                      </p>
+                      {a.contracted > 0 && (
+                        <p style={{ margin: '2px 0', fontSize: 11, color: '#6B7280' }}>
+                          Cont: {fmtKw(a.contracted)} kW
+                        </p>
+                      )}
+                      {a.contracted > 0 && a.maxRegistrado > 0 && (
+                        <p style={{ margin: '4px 0 0', fontSize: 12, fontWeight: 700, color }}>
+                          {a.desvPct > 0 ? '+' : ''}{a.desvPct.toFixed(1)}%
+                          {a.needsAdjust && <span style={{ display: 'block', fontSize: 10 }}>{a.direction === 'excess' ? '▲ EXCESO' : '▼ REDUCIBLE'}</span>}
+                        </p>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   )
 }
 
-/* ── Leyenda dot helper ── */
-function LegendDot({ color, textColor = '#333', label }: { color: string; textColor?: string; label: string }) {
+// ─────────────────────────────────────────────────────────────────────────────
+// DATA TABLE — replicates Excel template structure exactly
+// ─────────────────────────────────────────────────────────────────────────────
+
+function DataTable({
+  study, pc, adjustments,
+}: {
+  study: PowerStudyResult
+  pc: Record<string, number> | undefined
+  adjustments: PeriodAdjustment[]
+}) {
+  const meses = study.meses ?? []
+  const hasMax = meses.some(m => PERIODS.some(p => (m.maximetro?.[p] ?? 0) > 0))
+
+  // Color scales — computed from all data
+  const allConsumoVals = meses.flatMap(m => PERIODS.map(p => m.consumo?.[p] ?? 0))
+  const consumoCs = make3PointScale(GYR, allConsumoVals)
+
+  const allMaxVals = meses.flatMap(m => PERIODS.map(p => m.maximetro?.[p] ?? 0))
+  const maxCs = make3PointScale(BWR, allMaxVals)
+
+  const FONT = '"Arial Narrow", "Calibri", Arial, sans-serif'
+  const BASE: React.CSSProperties = {
+    padding: '2px 5px', border: '1px solid #D0D0D0', fontSize: 10,
+    fontFamily: FONT, whiteSpace: 'nowrap', background: '#fff',
+  }
+  const HDR: React.CSSProperties = {
+    ...BASE, fontWeight: 700, textAlign: 'center', background: '#fff',
+    borderBottom: '2px solid #000',
+  }
+  const SEP: React.CSSProperties = {
+    padding: 0, width: 6, minWidth: 6, background: '#F0F0F0', border: 'none',
+  }
+
+  // Summary row values
+  const consumoTotalPeriod: Record<string, number> = {}
+  for (const p of PERIODS) {
+    consumoTotalPeriod[p] = meses.reduce((s, m) => s + (m.consumo?.[p] ?? 0), 0)
+  }
+  const grandTotal = PERIODS.reduce((s, p) => s + consumoTotalPeriod[p], 0)
+
+  // Period consumption percentage
+  const pctOf = (p: Period) => grandTotal > 0 ? consumoTotalPeriod[p] / grandTotal : 0
+
+  // Max maxímetro per period
+  const maxPerPeriod: Record<string, number> = {}
+  for (const p of PERIODS) {
+    maxPerPeriod[p] = Math.max(...meses.map(m => m.maximetro?.[p] ?? 0), 0)
+  }
+
+  // Adjustment message for K3
+  const periodsExcess = adjustments.filter(a => a.direction === 'excess')
+  const periodsUnder = adjustments.filter(a => a.direction === 'under')
+  let adjMsg = 'POTENCIAS DENTRO DE RANGO'
+  let adjBg = '#E2F0D9'; let adjColor = '#375623'
+  if (periodsExcess.length > 0) {
+    adjMsg = `AJUSTAR POTENCIAS ${periodsExcess.map(a => a.period).join(' · ')}`
+    adjBg = '#FFFF00'; adjColor = '#C00000'
+  } else if (periodsUnder.length > 0) {
+    adjMsg = `POSIBLE REDUCCIÓN EN ${periodsUnder.map(a => a.period).join(' · ')}`
+    adjBg = '#BDD7EE'; adjColor = '#1F4E79'
+  }
+
+  // PRIORIZAR message for D4
+  const activePeriodsSorted = PERIODS
+    .filter(p => consumoTotalPeriod[p] > 0)
+    .sort((a, b) => consumoTotalPeriod[b] - consumoTotalPeriod[a])
+  const priorizarMsg = activePeriodsSorted.length > 0
+    ? 'PRIORIZAR CONSUMO ' + activePeriodsSorted.slice(0, 3).join(' - ')
+    : ''
+
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-      <span style={{ display: 'inline-block', width: 11, height: 11, background: color, borderRadius: 2, border: '1px solid rgba(0,0,0,0.15)', flexShrink: 0 }} />
-      <span style={{ color: textColor === '#333' ? '#555' : textColor }}>{label}</span>
+    <div style={{ overflowX: 'auto', borderLeft: '1px solid #D0D0D0', borderRight: '1px solid #D0D0D0', borderBottom: '1px solid #D0D0D0', marginBottom: 4 }}>
+      <table style={{ borderCollapse: 'collapse', fontSize: 10, fontFamily: FONT, minWidth: 900 }}>
+        <thead>
+          {/* Row 1: Column headers */}
+          <tr>
+            <th colSpan={2} style={{ ...HDR, textAlign: 'left', minWidth: 120 }}>CUPS</th>
+            <th style={{ ...HDR, minWidth: 80 }}>CONSUMO TOTAL</th>
+            {PERIODS.map(p => <th key={p} style={{ ...HDR, minWidth: 54 }}>{p} Activa</th>)}
+            {hasMax && <td style={SEP} />}
+            {hasMax && PERIODS.map(p => <th key={`m${p}`} style={{ ...HDR, minWidth: 54 }}>{p} Maxímetro</th>)}
+          </tr>
+          {/* Row 2: Summary values */}
+          <tr>
+            <td colSpan={2} style={{ ...BASE, fontFamily: 'monospace', fontSize: 9 }}>{study.cups || ''}</td>
+            <td style={{ ...BASE, textAlign: 'right', fontWeight: 700 }}>{fmtKwh(grandTotal)}</td>
+            {PERIODS.map(p => (
+              <td key={p} style={{ ...BASE, textAlign: 'right', background: consumoCs(consumoTotalPeriod[p]) }}>
+                {consumoTotalPeriod[p] > 0 ? fmtKwh(consumoTotalPeriod[p]) : ''}
+              </td>
+            ))}
+            {hasMax && <td style={SEP} />}
+            {hasMax && PERIODS.map(p => (
+              <td key={`m${p}`} style={{ ...BASE, textAlign: 'right', background: maxCs(maxPerPeriod[p]) }}>
+                {maxPerPeriod[p] > 0 ? fmtKw(maxPerPeriod[p]) : ''}
+              </td>
+            ))}
+          </tr>
+          {/* Row 3: Client name + percentages + adjustment message */}
+          <tr>
+            <td colSpan={2} style={{ ...BASE, fontSize: 11, fontWeight: 700 }}>
+              {study.clientName || ''}
+            </td>
+            <td style={BASE} />
+            {PERIODS.map(p => (
+              <td key={p} style={{ ...BASE, textAlign: 'center', color: '#555' }}>
+                {consumoTotalPeriod[p] > 0 ? fmtPct(pctOf(p)) : ''}
+              </td>
+            ))}
+            {hasMax && <td style={SEP} />}
+            {hasMax && (
+              <td
+                colSpan={6}
+                rowSpan={2}
+                style={{
+                  ...BASE, fontWeight: 700, textAlign: 'center', fontSize: 11,
+                  background: adjBg, color: adjColor, verticalAlign: 'middle',
+                }}
+              >
+                {adjMsg}
+              </td>
+            )}
+          </tr>
+          {/* Row 4: PRIORIZAR */}
+          <tr>
+            <td colSpan={3} style={BASE} />
+            <td
+              colSpan={6}
+              style={{ ...BASE, fontWeight: 700, textAlign: 'center', background: '#FCE4D6', color: '#843C0C', fontSize: 10 }}
+            >
+              {priorizarMsg}
+            </td>
+            {!hasMax && null}
+          </tr>
+        </thead>
+        <tbody>
+          {meses.map((mes, i) => (
+            <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#F9FAFB' }}>
+              <td style={{ ...BASE, textAlign: 'right', minWidth: 44 }}>
+                {fmtKwh(mes.consumoTotal ?? 0)}
+              </td>
+              <td style={{ ...BASE, textAlign: 'center', fontSize: 9, color: '#555' }}>
+                {fmtDate(mes.fechaInicio)} – {fmtDate(mes.fechaFin)}
+              </td>
+              <td style={BASE} />
+              {PERIODS.map(p => (
+                <td key={p} style={{ ...BASE, textAlign: 'right', background: consumoCs(mes.consumo?.[p] ?? 0) }}>
+                  {(mes.consumo?.[p] ?? 0) > 0 ? fmtKwh(mes.consumo[p]) : ''}
+                </td>
+              ))}
+              {hasMax && <td style={SEP} />}
+              {hasMax && PERIODS.map(p => (
+                <td key={`m${p}`} style={{ ...BASE, textAlign: 'right', background: maxCs(mes.maximetro?.[p] ?? 0) }}>
+                  {(mes.maximetro?.[p] ?? 0) > 0 ? fmtKw(mes.maximetro[p]) : ''}
+                </td>
+              ))}
+            </tr>
+          ))}
+          {/* Contracted power row */}
+          {pc && PERIODS.some(p => (pc[p] ?? 0) > 0) && (
+            <tr style={{ background: '#DEEAF1' }}>
+              <td colSpan={3} style={{ ...BASE, fontWeight: 700, color: '#1F4E79' }}>Potencia Contratada (kW)</td>
+              {PERIODS.map(p => (
+                <td key={p} style={{ ...BASE, textAlign: 'right', background: '#DEEAF1', fontWeight: 600, color: '#1F4E79' }}>
+                  {(pc[p] ?? 0) > 0 ? fmtKw(pc[p]) : ''}
+                </td>
+              ))}
+              {hasMax && <td style={SEP} />}
+              {hasMax && PERIODS.map(p => (
+                <td key={`m${p}`} style={{ ...BASE, background: '#DEEAF1' }} />
+              ))}
+            </tr>
+          )}
+        </tbody>
+      </table>
     </div>
   )
 }
