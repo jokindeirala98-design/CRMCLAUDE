@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useRef, useCallback } from 'react'
+import React, { useState, useRef, useCallback, useEffect } from 'react'
 import {
   Upload, Download, FileText, AlertTriangle, CheckCircle2,
   Zap, TrendingUp, BarChart3, Loader2, RefreshCw,
@@ -343,6 +343,7 @@ export function PowerStudy({
 }: PowerStudyProps) {
   const [study, setStudy] = useState<PowerStudyResult | null>(existingStudy ?? null)
   const [loading, setLoading] = useState(false)
+  const [loadSource, setLoadSource] = useState<string>('') // what's loading
   const [error, setError] = useState<string | null>(null)
   const [exporting, setExporting] = useState<'pdf' | 'excel' | null>(null)
   const [dragOver, setDragOver] = useState(false)
@@ -352,9 +353,67 @@ export function PowerStudy({
 
   const pc = study?.potenciaContratada ?? potenciaContratada
 
-  // ── Process SIPS file ────────────────────────────────────────────────────
+  // ── Auto-load from Greening/Lidera API on mount ──────────────────────────
+  const loadFromAPI = useCallback(async () => {
+    if (!cups) return
+    setLoading(true)
+    setLoadSource('Cargando datos de Lidera…')
+    setError(null)
+    try {
+      // 1. Fetch SIPS from Greening API
+      const sipsRes = await fetch('/api/sips', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cups }),
+      })
+      const sipsJson = await sipsRes.json()
+      if (!sipsRes.ok || !sipsJson.success) {
+        throw new Error(sipsJson.error || 'No se pudo obtener datos de Lidera')
+      }
+      const sipsData = sipsJson.data
+
+      if (!sipsData.consumptionHistory?.length) {
+        throw new Error('Lidera no devolvió historial de consumo para este CUPS')
+      }
+
+      // 2. Build study from SIPS data
+      setLoadSource('Generando estudio…')
+      const studyRes = await fetch('/api/power-study-auto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cups,
+          clientName: clientName || undefined,
+          potenciaContratada: sipsData.potenciaContratada ?? potenciaContratada ?? {},
+          consumptionHistory: sipsData.consumptionHistory,
+          maximetroHistory: sipsData.maximetroHistory ?? [],
+          reactivaHistory: sipsData.reactivaHistory ?? [],
+        }),
+      })
+      const studyData = await studyRes.json()
+      if (!studyRes.ok) throw new Error(studyData.error || 'Error generando estudio')
+
+      setStudy(studyData)
+      onStudyGenerated?.(studyData)
+    } catch (e: any) {
+      setError(e.message || 'Error cargando datos de Lidera')
+    } finally {
+      setLoading(false)
+      setLoadSource('')
+    }
+  }, [cups, clientName, potenciaContratada, onStudyGenerated])
+
+  // Auto-load on mount if no existing study
+  useEffect(() => {
+    if (!existingStudy && cups) {
+      loadFromAPI()
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Process SIPS file (fallback manual upload) ───────────────────────────
   const processFile = useCallback(async (file: File) => {
     setLoading(true)
+    setLoadSource('Procesando archivo…')
     setError(null)
     try {
       const fd = new FormData()
@@ -370,6 +429,7 @@ export function PowerStudy({
       setError(e.message || 'Error al procesar el archivo SIPS')
     } finally {
       setLoading(false)
+      setLoadSource('')
     }
   }, [clientName, pc, onStudyGenerated])
 
@@ -468,54 +528,47 @@ export function PowerStudy({
   return (
     <div style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
 
-      {/* ── Upload area ──────────────────────────────────────────────────── */}
-      <div
-        onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={handleDrop}
-        onClick={() => fileRef.current?.click()}
-        style={{
-          border: `2px dashed ${dragOver ? '#3B82F6' : '#D1D5DB'}`,
-          borderRadius: 12,
-          padding: '24px 32px',
-          textAlign: 'center',
-          cursor: 'pointer',
-          background: dragOver ? '#EFF6FF' : '#F9FAFB',
-          marginBottom: 20,
-          transition: 'all 0.15s',
-        }}
-      >
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".xlsx,.xls,.csv,.html,.htm"
-          style={{ display: 'none' }}
-          onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f) }}
-        />
-        {loading ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, color: '#3B82F6' }}>
-            <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />
-            <span style={{ fontSize: 14, fontWeight: 500 }}>Procesando SIPS...</span>
+      {/* ── Loading state ────────────────────────────────────────────────── */}
+      {loading && (
+        <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 10, padding: '16px 20px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Loader2 size={20} color="#3B82F6" style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />
+          <div>
+            <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#1D4ED8' }}>{loadSource || 'Cargando…'}</p>
+            <p style={{ margin: '2px 0 0', fontSize: 12, color: '#3B82F6' }}>Obteniendo datos directamente de Lidera</p>
           </div>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, color: '#6B7280' }}>
-            <Upload size={22} />
-            <div style={{ textAlign: 'left' }}>
-              <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#374151' }}>
-                {study ? 'Cargar nuevo SIPS' : 'Cargar exportación SIPS (Lidera / Greening)'}
-              </p>
-              <p style={{ margin: '2px 0 0', fontSize: 12 }}>
-                Arrastra o haz clic · .xlsx, .csv, .html
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {error && (
-        <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8, padding: '10px 14px', marginBottom: 16, color: '#991B1B', fontSize: 13 }}>
-          <AlertTriangle size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />
-          {error}
+        <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8, padding: '10px 14px', marginBottom: 12, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+          <AlertTriangle size={14} color="#DC2626" style={{ marginTop: 1, flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>
+            <p style={{ margin: 0, fontSize: 13, color: '#991B1B', fontWeight: 600 }}>Error cargando datos de Lidera</p>
+            <p style={{ margin: '2px 0 0', fontSize: 12, color: '#B91C1C' }}>{error}</p>
+            <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                onClick={loadFromAPI}
+                style={{ fontSize: 12, padding: '4px 10px', border: '1px solid #FCA5A5', borderRadius: 5, background: '#fff', color: '#DC2626', cursor: 'pointer', fontWeight: 600 }}
+              >
+                <RefreshCw size={11} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+                Reintentar Lidera
+              </button>
+              <span
+                onClick={() => fileRef.current?.click()}
+                style={{ fontSize: 12, padding: '4px 10px', border: '1px solid #D1D5DB', borderRadius: 5, background: '#fff', color: '#6B7280', cursor: 'pointer' }}
+              >
+                <Upload size={11} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+                Subir archivo SIPS manual
+              </span>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".xlsx,.xls,.csv,.html,.htm"
+                style={{ display: 'none' }}
+                onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f) }}
+              />
+            </div>
+          </div>
         </div>
       )}
 
@@ -607,7 +660,7 @@ export function PowerStudy({
           </div>
 
           {/* ── CUPS header ─────────────────────────────────────────────── */}
-          <div style={{ background: '#1E3A5F', borderRadius: '10px 10px 0 0', padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ background: '#1E3A5F', borderRadius: '10px 10px 0 0', padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
             <div>
               <span style={{ color: '#fff', fontSize: 13, fontWeight: 700, fontFamily: 'monospace' }}>
                 {study.cups || cups || '—'}
@@ -618,7 +671,42 @@ export function PowerStudy({
                 </span>
               )}
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              {/* Reload from Lidera */}
+              <button
+                onClick={loadFromAPI}
+                disabled={loading || !!exporting}
+                title="Recargar datos directamente de Lidera"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  background: 'rgba(255,255,255,0.12)', color: '#CBD5E1', border: '1px solid rgba(255,255,255,0.2)',
+                  borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 500,
+                  cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1,
+                }}
+              >
+                {loading
+                  ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} />
+                  : <RefreshCw size={11} />}
+                Recargar Lidera
+              </button>
+              {/* Manual upload fallback */}
+              <label title="Subir archivo .xlsx de Lidera manualmente" style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                background: 'rgba(255,255,255,0.08)', color: '#94A3B8', border: '1px solid rgba(255,255,255,0.15)',
+                borderRadius: 6, padding: '4px 10px', fontSize: 11,
+                cursor: 'pointer',
+              }}>
+                <Upload size={11} />
+                Subir .xlsx
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv,.html,.htm"
+                  style={{ display: 'none' }}
+                  onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f) }}
+                />
+              </label>
+              <div style={{ width: 1, height: 18, background: 'rgba(255,255,255,0.2)' }} />
               <button
                 onClick={handleExportExcel}
                 disabled={!!exporting}
@@ -800,7 +888,7 @@ function DataTable({
             {hasMax && <td style={SEP} />}
             {hasMax && PERIODS.map(p => <th key={`m${p}`} style={{ ...HDR, minWidth: 54 }}>{p} Maxímetro</th>)}
           </tr>
-          {/* Row 2: Summary values */}
+          {/* Row 2: Summary values (totals + max maxímetro) */}
           <tr>
             <td colSpan={2} style={{ ...BASE, fontFamily: 'monospace', fontSize: 9 }}>{study.cups || ''}</td>
             <td style={{ ...BASE, textAlign: 'right', fontWeight: 700 }}>{fmtKwh(grandTotal)}</td>
@@ -816,6 +904,28 @@ function DataTable({
               </td>
             ))}
           </tr>
+          {/* Row 2b: Contracted power per period (new prominent row) */}
+          {pc && PERIODS.some(p => (pc[p] ?? 0) > 0) && (
+            <tr>
+              <td colSpan={2} style={{ ...BASE, fontWeight: 700, color: '#1F4E79', background: '#DEEAF1', fontSize: 9 }}>
+                Potencia Contratada (kW)
+              </td>
+              <td style={{ ...BASE, background: '#DEEAF1' }} />
+              {PERIODS.map(p => (
+                <td key={p} style={{ ...BASE, background: '#DEEAF1' }} />
+              ))}
+              {hasMax && <td style={{ ...SEP, background: '#C9D9E8' }} />}
+              {hasMax && PERIODS.map(p => (
+                <td key={`c${p}`} style={{
+                  ...BASE, textAlign: 'right', fontWeight: 700,
+                  background: '#DEEAF1', color: '#1F4E79',
+                  borderBottom: '2px solid #1F4E79',
+                }}>
+                  {(pc[p] ?? 0) > 0 ? fmtKw(pc[p]) : ''}
+                </td>
+              ))}
+            </tr>
+          )}
           {/* Row 3: Client name + percentages + adjustment message */}
           <tr>
             <td colSpan={2} style={{ ...BASE, fontSize: 11, fontWeight: 700 }}>
@@ -876,21 +986,6 @@ function DataTable({
               ))}
             </tr>
           ))}
-          {/* Contracted power row */}
-          {pc && PERIODS.some(p => (pc[p] ?? 0) > 0) && (
-            <tr style={{ background: '#DEEAF1' }}>
-              <td colSpan={3} style={{ ...BASE, fontWeight: 700, color: '#1F4E79' }}>Potencia Contratada (kW)</td>
-              {PERIODS.map(p => (
-                <td key={p} style={{ ...BASE, textAlign: 'right', background: '#DEEAF1', fontWeight: 600, color: '#1F4E79' }}>
-                  {(pc[p] ?? 0) > 0 ? fmtKw(pc[p]) : ''}
-                </td>
-              ))}
-              {hasMax && <td style={SEP} />}
-              {hasMax && PERIODS.map(p => (
-                <td key={`m${p}`} style={{ ...BASE, background: '#DEEAF1' }} />
-              ))}
-            </tr>
-          )}
         </tbody>
       </table>
     </div>
