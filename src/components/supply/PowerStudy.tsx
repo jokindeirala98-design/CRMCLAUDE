@@ -132,35 +132,11 @@ const HDR_DARK: React.CSSProperties = {
   fontWeight: 700,
   textAlign: 'center',
 }
-const HDR_GREEN: React.CSSProperties = {
-  ...CELL,
-  background: '#375623',
-  color: '#fff',
-  fontWeight: 700,
-  textAlign: 'center',
+const HDR_COL: React.CSSProperties = {
+  ...CELL, background: '#595959', color: '#fff', fontWeight: 700, textAlign: 'center', minWidth: 54,
 }
-const HDR_BLUE: React.CSSProperties = {
-  ...CELL,
-  background: '#1A4A7A',
-  color: '#fff',
-  fontWeight: 700,
-  textAlign: 'center',
-}
-const HDR_PERIOD_GREEN: React.CSSProperties = {
-  ...CELL,
-  background: '#4E7A28',
-  color: '#fff',
-  fontWeight: 700,
-  textAlign: 'center',
-  minWidth: 54,
-}
-const HDR_PERIOD_BLUE: React.CSSProperties = {
-  ...CELL,
-  background: '#17375E',
-  color: '#fff',
-  fontWeight: 700,
-  textAlign: 'center',
-  minWidth: 62,
+const SEP_CELL: React.CSSProperties = {
+  padding: 0, width: 6, minWidth: 6, background: '#e0e0e0', border: 'none',
 }
 const TOTAL_ROW: React.CSSProperties = {
   ...CELL,
@@ -518,6 +494,11 @@ export function PowerStudy({
     periodoScales[p] = makeColumnScale(meses.map(m => m.consumo?.[p] || 0))
   })
 
+  // ── NEW: Scales for percentage and annual totals ──
+  const pctScale = makeColumnScale(PERIODS.map(p => periodoPct[p]))
+  const annualScale = makeColumnScale(PERIODS.map(p => periodoTotal[p]))
+  const hasMaximetros = meses.some(m => PERIODS.some(p => (m.maximetro?.[p] || 0) > 0))
+
   // ── PRIORITY MESSAGE ──
   // Sort active periods by total descending → "PRIORIZAR CONSUMO P6 - P4 - P2"
   const activePeriods = PERIODS
@@ -620,278 +601,189 @@ export function PowerStudy({
 
       {/* ── Tables ── */}
       <div ref={printRef} className="overflow-x-auto p-3 bg-white">
-        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-
-          {/* ════════════════════════════════════════════
-              BLOQUE IZQUIERDA — CONSUMO
-          ════════════════════════════════════════════ */}
-          <div style={{ flexShrink: 0 }}>
-            <table style={{ borderCollapse: 'collapse', fontSize: 10, fontFamily: 'Calibri,Arial,sans-serif' }}>
-
-              {/* ── Sección header ── */}
-              <thead>
-                <tr>
-                  <th colSpan={3} style={{ ...HDR_DARK, textAlign: 'left', paddingLeft: 8 }}>
-                    {study.clientName || 'PUNTO DE SUMINISTRO'}
-                  </th>
-                  <th colSpan={6} style={{ ...HDR_GREEN, letterSpacing: '0.08em', fontSize: 9 }}>
-                    ⚡ CONSUMOS ACTIVA (kWh)
-                  </th>
-                </tr>
-
-                {/* ── Column headers ── */}
-                <tr>
-                  <th style={{ ...HDR_DARK, minWidth: 68, textAlign: 'right' }}>kWh Total</th>
-                  <th style={{ ...HDR_DARK, minWidth: 62 }}>F. Inicio</th>
-                  <th style={{ ...HDR_DARK, minWidth: 62 }}>F. Fin</th>
-                  {PERIODS.map(p => (
-                    <th key={p} style={HDR_PERIOD_GREEN}>{p}</th>
-                  ))}
-                </tr>
-
-                {/* ── CABECERA: Totals anuales ── */}
-                <tr style={{ background: '#E2F0D9' }}>
-                  <td style={{ ...CELL, fontWeight: 700, textAlign: 'right', background: '#C6EFCE', color: '#1F5C2E', fontSize: 11 }}>
-                    {fmtKwh(consumoTotal)}
+        <table style={{ borderCollapse: 'collapse', fontSize: 10, fontFamily: 'Calibri,Arial,sans-serif' }}>
+          <colgroup>
+            <col style={{ minWidth: 72 }} />
+            <col style={{ minWidth: 66 }} />
+            <col style={{ minWidth: 66 }} />
+            {PERIODS.map(p => <col key={p} style={{ minWidth: 56 }} />)}
+            <col style={{ width: 6 }} />
+            {hasMaximetros && PERIODS.map(p => <col key={`m${p}`} style={{ minWidth: 62 }} />)}
+          </colgroup>
+          <thead>
+            {/* ── Fila 0: spans de sección ── */}
+            <tr>
+              <th colSpan={3} style={{ ...HDR_COL, textAlign: 'left', paddingLeft: 8, background: '#404040' }}>
+                {study.clientName || study.cups || 'PUNTO DE SUMINISTRO'}
+              </th>
+              <th colSpan={6} style={{ ...HDR_COL, background: '#404040', letterSpacing: '0.06em', fontSize: 9 }}>
+                ⚡ CONSUMOS ACTIVA (kWh)
+              </th>
+              <td style={SEP_CELL} />
+              {hasMaximetros && (
+                <th colSpan={6} style={{ ...HDR_COL, background: '#404040', letterSpacing: '0.06em', fontSize: 9 }}>
+                  📊 MAXÍMETROS (kW)
+                </th>
+              )}
+            </tr>
+            {/* ── Fila 1: etiquetas columnas (gris uniforme) ── */}
+            <tr>
+              <th style={{ ...HDR_COL, textAlign: 'right' }}>kWh Total</th>
+              <th style={HDR_COL}>F. Inicio</th>
+              <th style={HDR_COL}>F. Fin</th>
+              {PERIODS.map(p => <th key={p} style={HDR_COL}>{p}</th>)}
+              <td style={SEP_CELL} />
+              {hasMaximetros && PERIODS.map(p => <th key={`m${p}`} style={HDR_COL}>{p}</th>)}
+            </tr>
+            {/* ── Fila 2: totales anuales (verde) + max global ── */}
+            <tr>
+              <td style={{ ...CELL, background: '#C6EFCE', color: '#1F5C2E', fontWeight: 700, textAlign: 'right', fontSize: 11 }}>
+                {fmtKwh(consumoTotal)}
+              </td>
+              <td style={{ ...CELL, background: '#E2F0D9', fontStyle: 'italic', fontSize: 9, color: '#555', textAlign: 'center' }}>
+                {(study.cups || '').slice(0, 22)}
+              </td>
+              <td style={{ ...CELL, background: '#E2F0D9', fontWeight: 700, textAlign: 'center', fontSize: 9, color: '#375623' }}>
+                ANUAL
+              </td>
+              {PERIODS.map(p => (
+                <td key={p} style={{ ...CELL, background: annualScale(periodoTotal[p]), fontWeight: 700, textAlign: 'right', color: '#1F3864' }}>
+                  {fmtKwh(periodoTotal[p])}
+                </td>
+              ))}
+              <td style={SEP_CELL} />
+              {hasMaximetros && PERIODS.map(p => {
+                const mx = maxPotencia[p]
+                const cls = classifyMaximetro(mx, pc[p])
+                return (
+                  <td key={`m${p}`} style={{ ...CELL, background: cls.bg, color: cls.color, fontWeight: 700, textAlign: 'center' }}>
+                    {mx > 0 ? fmtKw(mx) : '-'}
                   </td>
-                  <td style={{ ...CELL, background: '#E2F0D9', fontStyle: 'italic', fontSize: 9, color: '#555', textAlign: 'center' }}>
-                    {study.cups?.slice(0, 22) || ''}
+                )
+              })}
+            </tr>
+            {/* ── Fila 3: % por periodo + potencia contratada ── */}
+            <tr>
+              <td style={{ ...CELL, background: '#F2F2F2', fontWeight: 700, textAlign: 'right', color: '#555' }}>100.00%</td>
+              <td colSpan={2} style={{ ...CELL, background: '#F2F2F2', textAlign: 'center', fontWeight: 700, fontSize: 9, color: '#555' }}>% POR PERIODO</td>
+              {PERIODS.map(p => {
+                const pct = periodoPct[p]
+                return (
+                  <td key={p} style={{ ...CELL, background: pct > 0 ? pctScale(pct) : '#F2F2F2', fontWeight: 700, textAlign: 'right', color: '#1F3864' }}>
+                    {pct > 0 ? fmtPct(pct) : '-'}
                   </td>
-                  <td style={{ ...CELL, background: '#E2F0D9', fontWeight: 700, textAlign: 'center', letterSpacing: '0.05em', fontSize: 9, color: '#375623' }}>
-                    ANUAL
+                )
+              })}
+              <td style={SEP_CELL} />
+              {hasMaximetros && PERIODS.map(p => (
+                <td key={`c${p}`} style={{ ...CELL, background: '#D9E1F2', fontWeight: 700, color: '#1F3864', textAlign: 'center' }}>
+                  {(pc as any)[p] > 0 ? fmtKw((pc as any)[p]) : '-'}
+                </td>
+              ))}
+            </tr>
+            {/* ── Fila 4: mensajes priorizar + ajustar ── */}
+            <tr>
+              <td colSpan={9} style={{
+                ...CELL,
+                background: prioMsg ? '#FAD7A0' : '#F5F5F5',
+                color: '#7B3F00',
+                fontWeight: 700,
+                textAlign: 'center',
+                padding: '3px 8px',
+                fontSize: 10,
+                letterSpacing: '0.04em',
+              }}>
+                {prioMsg || ''}
+              </td>
+              <td style={SEP_CELL} />
+              {hasMaximetros && (
+                <td colSpan={6} style={{
+                  ...CELL,
+                  background: adjBg,
+                  color: adjColor,
+                  fontWeight: 700,
+                  textAlign: 'center',
+                  fontSize: 9,
+                  padding: '3px 8px',
+                }}>
+                  {adjText}
+                </td>
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {meses.map((m, i) => {
+              const tot = m.consumoTotal || 0
+              return (
+                <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#F9F9F9' }}>
+                  <td style={{ ...CELL, background: totalScale(tot), fontWeight: 700, textAlign: 'right' }}>
+                    {fmtKwh(tot)}
                   </td>
-                  {PERIODS.map(p => (
-                    <td key={p} style={{
-                      ...CELL,
-                      background: periodoTotal[p] > 0 ? makeColumnScale(PERIODS.map(pp => periodoTotal[pp]))(periodoTotal[p]) : '#C6EFCE',
-                      fontWeight: 700,
-                      textAlign: 'right',
-                      color: '#1F3864',
-                    }}>
-                      {fmtKwh(periodoTotal[p])}
-                    </td>
-                  ))}
-                </tr>
-
-                {/* ── CABECERA: % por periodo ── */}
-                <tr style={{ background: '#F2F2F2' }}>
-                  <td style={{ ...CELL, fontWeight: 700, textAlign: 'right', background: '#F2F2F2', color: '#555' }}>
-                    100.00%
+                  <td style={{ ...CELL, textAlign: 'center', color: '#444' }}>
+                    {m.fechaInicio ? fmtDate(m.fechaInicio) : '-'}
                   </td>
-                  <td colSpan={2} style={{ ...CELL, background: '#F2F2F2', textAlign: 'center', fontWeight: 700, fontSize: 9, color: '#555' }}>
-                    % POR PERIODO
+                  <td style={{ ...CELL, textAlign: 'center', color: '#444' }}>
+                    {m.fechaFin ? fmtDate(m.fechaFin) : '-'}
                   </td>
                   {PERIODS.map(p => {
-                    const pct = periodoPct[p]
-                    const bg = pct > 0 ? makeColumnScale(PERIODS.map(pp => periodoPct[pp]))(pct) : '#F2F2F2'
+                    const v = m.consumo?.[p] || 0
                     return (
-                      <td key={p} style={{ ...CELL, background: bg, fontWeight: 700, textAlign: 'right', color: '#1F3864' }}>
-                        {pct > 0 ? fmtPct(pct) : '-'}
+                      <td key={p} style={{ ...CELL, background: periodoScales[p](v), textAlign: 'right' }}>
+                        {v > 0 ? fmtKwh(v) : '0'}
+                      </td>
+                    )
+                  })}
+                  <td style={SEP_CELL} />
+                  {hasMaximetros && PERIODS.map(p => {
+                    const val = m.maximetro?.[p] || 0
+                    const cls = classifyMaximetro(val, (pc as any)[p] || 0)
+                    return (
+                      <td key={`m${p}`} style={{
+                        ...CELL,
+                        background: val > 0 ? cls.bg : '#DDEEFF',
+                        color: val > 0 ? cls.color : '#4A6FA5',
+                        fontWeight: cls.fontWeight,
+                        textAlign: 'center',
+                      }}>
+                        {val > 0 ? fmtKw(val) : '-'}
                       </td>
                     )
                   })}
                 </tr>
+              )
+            })}
+          </tbody>
+          <tfoot>
+            <tr style={{ borderTop: '2px solid #595959' }}>
+              <td style={TOTAL_ROW}>{fmtKwh(consumoTotal)}</td>
+              <td colSpan={2} style={{ ...TOTAL_ROW, textAlign: 'center' }}>TOTAL</td>
+              {PERIODS.map(p => (
+                <td key={p} style={TOTAL_ROW}>{fmtKwh(periodoTotal[p])}</td>
+              ))}
+              <td style={SEP_CELL} />
+              {hasMaximetros && PERIODS.map(p => {
+                const mx = maxPotencia[p]
+                const cls = classifyMaximetro(mx, (pc as any)[p] || 0)
+                return (
+                  <td key={`m${p}`} style={{ ...CELL, background: mx > 0 ? cls.bg : '#DDEEFF', color: mx > 0 ? cls.color : '#4A6FA5', fontWeight: 700, textAlign: 'center', borderTop: '2px solid #595959' }}>
+                    {mx > 0 ? fmtKw(mx) : '-'}
+                  </td>
+                )
+              })}
+            </tr>
+          </tfoot>
+        </table>
 
-                {/* ── Mensaje de prioridad ── */}
-                {prioMsg && (
-                  <tr>
-                    <td colSpan={9} style={{
-                      ...CELL,
-                      background: '#FAD7A0',
-                      color: '#7B3F00',
-                      fontWeight: 700,
-                      textAlign: 'center',
-                      fontSize: 10,
-                      letterSpacing: '0.04em',
-                      padding: '4px 8px',
-                    }}>
-                      {prioMsg}
-                    </td>
-                  </tr>
-                )}
-              </thead>
-
-              {/* ── TABLA MENSUAL ── */}
-              <tbody>
-                {meses.map((m, i) => {
-                  const tot = m.consumoTotal || 0
-                  return (
-                    <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#F9F9F9' }}>
-                      {/* Total mensual */}
-                      <td style={{ ...CELL, background: totalScale(tot), fontWeight: 700, textAlign: 'right' }}>
-                        {fmtKwh(tot)}
-                      </td>
-                      {/* Fechas */}
-                      <td style={{ ...CELL, textAlign: 'center', color: '#444' }}>
-                        {m.fechaInicio ? fmtDate(m.fechaInicio) : '-'}
-                      </td>
-                      <td style={{ ...CELL, textAlign: 'center', color: '#444' }}>
-                        {m.fechaFin ? fmtDate(m.fechaFin) : '-'}
-                      </td>
-                      {/* P1–P6 con heatmap POR COLUMNA */}
-                      {PERIODS.map(p => {
-                        const v = m.consumo?.[p] || 0
-                        return (
-                          <td key={p} style={{
-                            ...CELL,
-                            background: periodoScales[p](v),
-                            textAlign: 'right',
-                          }}>
-                            {v > 0 ? fmtKwh(v) : '0'}
-                          </td>
-                        )
-                      })}
-                    </tr>
-                  )
-                })}
-              </tbody>
-
-              {/* ── Fila TOTAL ── */}
-              <tfoot>
-                <tr style={{ borderTop: '2px solid #595959' }}>
-                  <td style={{ ...TOTAL_ROW }}>{fmtKwh(consumoTotal)}</td>
-                  <td colSpan={2} style={{ ...TOTAL_ROW, textAlign: 'center', letterSpacing: '0.06em' }}>TOTAL</td>
-                  {PERIODS.map(p => (
-                    <td key={p} style={{ ...TOTAL_ROW }}>{fmtKwh(periodoTotal[p])}</td>
-                  ))}
-                </tr>
-              </tfoot>
-            </table>
+        {/* ── Legend (below table) ── */}
+        {hasMaximetros && (
+          <div style={{ display: 'flex', gap: 8, marginTop: 6, fontSize: 8.5, color: '#555', fontFamily: 'Calibri,Arial,sans-serif', flexWrap: 'wrap' }}>
+            <LegendDot color="#F8696B" label="Exceso (>contratada)" />
+            <LegendDot color="#FFC7CE" label="Dentro de rango (±15%)" />
+            <LegendDot color="#BDD7EE" label="Infrautilizado (<85%)" />
+            <LegendDot color="#2E75B6" textColor="#fff" label="Muy bajo (<50%)" />
+            <LegendDot color="#DDEEFF" label="Sin dato" />
           </div>
-
-          {/* ════════════════════════════════════════════
-              BLOQUE DERECHA — MAXÍMETROS
-          ════════════════════════════════════════════ */}
-          {hasPotencia && (
-            <div style={{ flexShrink: 0 }}>
-              <table style={{ borderCollapse: 'collapse', fontSize: 10, fontFamily: 'Calibri,Arial,sans-serif' }}>
-
-                <thead>
-                  {/* ── Sección header ── */}
-                  <tr>
-                    <th colSpan={6} style={{ ...HDR_BLUE, letterSpacing: '0.08em', fontSize: 9 }}>
-                      📊 MAXÍMETROS (kW)
-                    </th>
-                  </tr>
-
-                  {/* ── Column headers P1–P6 ── */}
-                  <tr>
-                    {PERIODS.map(p => (
-                      <th key={p} style={HDR_PERIOD_BLUE}>{p}</th>
-                    ))}
-                  </tr>
-
-                  {/* ── Potencia Contratada ── */}
-                  <tr>
-                    {PERIODS.map(p => (
-                      <td key={p} style={{ ...CELL, background: '#D9E1F2', fontWeight: 700, color: '#1F3864', textAlign: 'center' }}>
-                        {pc[p] > 0 ? fmtKw(pc[p]) : '-'}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <td colSpan={6} style={{ ...CELL, background: '#4472C4', color: '#fff', textAlign: 'center', fontWeight: 700, fontSize: 8.5, letterSpacing: '0.05em' }}>
-                      POTENCIA CONTRATADA (kW)
-                    </td>
-                  </tr>
-
-                  {/* ── MAX global row ── */}
-                  <tr>
-                    {PERIODS.map(p => {
-                      const mx = maxPotencia[p]
-                      const cls = classifyMaximetro(mx, pc[p])
-                      return (
-                        <td key={p} style={{
-                          ...CELL,
-                          background: cls.bg,
-                          color: cls.color,
-                          fontWeight: 700,
-                          textAlign: 'center',
-                        }}>
-                          {mx > 0 ? fmtKw(mx) : '-'}
-                        </td>
-                      )
-                    })}
-                  </tr>
-                  <tr>
-                    <td colSpan={6} style={{ ...CELL, background: '#17375E', color: '#fff', textAlign: 'center', fontWeight: 700, fontSize: 8.5, letterSpacing: '0.05em' }}>
-                      MAX REGISTRADO (kW)
-                    </td>
-                  </tr>
-
-                  {/* ── Mensaje ajuste ── */}
-                  <tr>
-                    <td colSpan={6} style={{
-                      ...CELL,
-                      background: adjBg,
-                      color: adjColor,
-                      fontWeight: 700,
-                      textAlign: 'center',
-                      fontSize: 9,
-                      padding: '4px 8px',
-                      letterSpacing: '0.02em',
-                    }}>
-                      {adjText}
-                    </td>
-                  </tr>
-                </thead>
-
-                {/* ── TABLA MENSUAL MAXÍMETROS ── */}
-                <tbody>
-                  {meses.map((m, i) => (
-                    <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#F9F9F9' }}>
-                      {PERIODS.map(p => {
-                        const val = m.maximetro?.[p] || 0
-                        const cls = classifyMaximetro(val, pc[p])
-                        return (
-                          <td key={p} style={{
-                            ...CELL,
-                            background: val > 0 ? cls.bg : '#DDEEFF',
-                            color: val > 0 ? cls.color : '#4A6FA5',
-                            fontWeight: cls.fontWeight,
-                            textAlign: 'center',
-                          }}>
-                            {val > 0 ? fmtKw(val) : '-'}
-                          </td>
-                        )
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-
-                {/* ── MAX footer ── */}
-                <tfoot>
-                  <tr style={{ borderTop: '2px solid #1A4A7A' }}>
-                    {PERIODS.map(p => {
-                      const mx = maxPotencia[p]
-                      const cls = classifyMaximetro(mx, pc[p])
-                      return (
-                        <td key={p} style={{
-                          ...CELL,
-                          background: mx > 0 ? cls.bg : '#DDEEFF',
-                          color: mx > 0 ? cls.color : '#4A6FA5',
-                          fontWeight: 700,
-                          textAlign: 'center',
-                        }}>
-                          {mx > 0 ? fmtKw(mx) : '-'}
-                        </td>
-                      )
-                    })}
-                  </tr>
-                </tfoot>
-              </table>
-
-              {/* ── Leyenda maxímetros ── */}
-              <div style={{ display: 'flex', gap: 8, marginTop: 6, fontSize: 8.5, color: '#555', fontFamily: 'Calibri,Arial,sans-serif', flexWrap: 'wrap' }}>
-                <LegendDot color="#F8696B" label="Exceso (>contratada)" />
-                <LegendDot color="#FFC7CE" label="Dentro de rango (±15%)" />
-                <LegendDot color="#BDD7EE" label="Infrautilizado (<85%)" />
-                <LegendDot color="#2E75B6" textColor="#fff" label="Muy bajo (<50%)" />
-                <LegendDot color="#DDEEFF" label="Sin dato" />
-              </div>
-            </div>
-          )}
-        </div>{/* end flex */}
+        )}
 
         {/* ── Alerta reactivas ── */}
         {hasReactiva && (
