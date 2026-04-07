@@ -295,17 +295,37 @@ export async function processJobInBackground(jobId: string): Promise<void> {
           break
         }
         
-        // If not found, try by name fuzzy match
-        const { data: nameMatch } = await supabase
+        // If CIF/NIF not found → try full name match (exact phrase in DB)
+        // This avoids incorrect matches like "Ayuntamiento de Aoiz" → "Ayuntamiento de Liedena"
+        const { data: fullNameMatch } = await supabase
           .from('clients')
           .select('id, name')
-          .ilike('name', `%${name.split(' ')[0]}%`)
+          .ilike('name', `%${name}%`)
           .limit(1)
           .maybeSingle()
-        
-        if (nameMatch) {
-          updateJob(jobId, { clientId: nameMatch.id, clientName: nameMatch.name })
+
+        if (fullNameMatch) {
+          updateJob(jobId, { clientId: fullNameMatch.id, clientName: fullNameMatch.name })
           break
+        }
+
+        // Last resort: match on the LAST distinctive word only (e.g. "Aoiz" from "Ayuntamiento de Aoiz")
+        // Only use if exactly ONE client matches to avoid wrong assignments
+        const stopWords = new Set(['de', 'del', 'la', 'las', 'los', 'el', 'y', 'e', 'o', 'en', 'por'])
+        const words = name.split(/\s+/).filter(w => w.length > 3 && !stopWords.has(w.toLowerCase()))
+        const keyWord = words.length > 0 ? words[words.length - 1] : null
+
+        if (keyWord) {
+          const { data: keyWordMatches } = await supabase
+            .from('clients')
+            .select('id, name')
+            .ilike('name', `%${keyWord}%`)
+            .limit(2)
+          // Only trust match if unique — multiple matches means too ambiguous
+          if (keyWordMatches?.length === 1) {
+            updateJob(jobId, { clientId: keyWordMatches[0].id, clientName: keyWordMatches[0].name })
+            break
+          }
         }
 
         // If still not found, create new
@@ -469,7 +489,7 @@ export async function processJobInBackground(jobId: string): Promise<void> {
             tariff,
             address: first.supply_address || null,
             comercializadora_id: comId,
-            status: 'facturas_recibidas',
+            status: 'esperando_informes',
           })
           .select('id')
           .single()

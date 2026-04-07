@@ -160,52 +160,111 @@ async function callGemini(prompt: string, base64Data: string, mimeType: string):
 /*  PROMPTS                                                                  */
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
-const INVOICE_PROMPT = `Eres un extractor experto de facturas de energía españolas (luz y gas).
-Analiza este documento y extrae TODOS los datos disponibles.
-Responde ÚNICAMENTE con JSON válido, sin markdown ni texto adicional.
+const INVOICE_PROMPT = `Eres un extractor experto de facturas de energía eléctrica y gas natural en España.
+Tu tarea es extraer TODOS los datos disponibles del documento con la máxima precisión.
+Responde ÚNICAMENTE con JSON válido. Sin markdown, sin texto adicional, sin comentarios.
 
-Si es una factura de energía, devuelve:
+════════════════════════════════════
+SI ES UNA FACTURA DE ENERGÍA (luz o gas):
+════════════════════════════════════
+
 {
   "documentType": "factura",
   "extracted": {
-    "cups": "ES1234...",
+    "cups": "ES0000000000000000XX",
     "supply_type": "luz",
-    "holder_name": "Nombre completo del titular",
-    "holder_cif_nif": "CIF o NIF del titular (ej: B12345678 o 12345678A)",
+    "holder_name": "NOMBRE COMPLETO DEL TITULAR TAL COMO APARECE EN LA FACTURA",
+    "holder_cif_nif": "B12345678",
     "total_amount": 123.45,
     "tariff": "2.0TD",
-    "comercializadora": "Nombre de la comercializadora",
-    "supply_address": "Dirección completa del suministro",
+    "comercializadora": "Nombre de la comercializadora emisora",
+    "supply_address": "Dirección completa del punto de suministro",
     "billing_period": "01/01/2024 - 31/01/2024",
     "economics": {
       "fechaInicio": "01/01/2024",
       "fechaFin": "31/01/2024",
       "totalFactura": 123.45,
+      "baseImponible": 102.06,
+      "iva": 21.43,
+      "ivaPct": 21,
+      "impuestoElectrico": 3.15,
+      "impuestoElectricoPct": 5.11269,
       "consumoTotalKwh": 456.78,
-      "consumo": [{"concepto": "Energía activa P1", "cantidad": 100, "precio": 0.15, "importe": 15.00}],
-      "potencia": [{"concepto": "Potencia P1", "cantidad": 4.4, "precio": 38.04, "importe": 5.21}],
-      "otrosConceptos": [{"concepto": "Impuesto eléctrico", "importe": 1.23}]
+      "consumo": [
+        {
+          "periodo": "P1",
+          "concepto": "Energía activa P1",
+          "cantidad": 100.00,
+          "unidad": "kWh",
+          "precio": 0.150000,
+          "importe": 15.00
+        },
+        {
+          "periodo": "P2",
+          "concepto": "Energía activa P2",
+          "cantidad": 200.00,
+          "unidad": "kWh",
+          "precio": 0.080000,
+          "importe": 16.00
+        }
+      ],
+      "potencia": [
+        {
+          "periodo": "P1",
+          "concepto": "Término de potencia P1",
+          "cantidad": 4.40,
+          "unidad": "kW",
+          "dias": 31,
+          "precio": 38.043426,
+          "importe": 14.48
+        }
+      ],
+      "otrosConceptos": [
+        {
+          "concepto": "Alquiler de equipos de medida",
+          "importe": 1.22
+        },
+        {
+          "concepto": "Impuesto sobre electricidad (5.11269%)",
+          "importe": 3.15
+        },
+        {
+          "concepto": "Descuento comercial",
+          "importe": -5.00
+        }
+      ],
+      "descuentos": [
+        {
+          "concepto": "Descuento por permanencia",
+          "importe": -2.50
+        }
+      ]
     }
   }
 }
 
-Si NO es una factura de energía (es CIF, NIF, IBAN, contrato u otro documento), devuelve:
+INSTRUCCIONES CRÍTICAS para la extracción:
+1. holder_name: copia el nombre EXACTAMENTE como aparece en la factura (ej: "AYUNTAMIENTO DE AOIZ", no "Ayuntamiento")
+2. cups: siempre empieza por "ES", incluye todos los caracteres
+3. supply_type: exactamente "luz" o "gas" (nunca "electricidad" ni "eléctrico")
+4. consumo: extrae CADA línea de energía activa/reactiva por periodo (P1, P2, P3...)
+5. potencia: extrae CADA término de potencia por periodo (P1, P2...)
+6. otrosConceptos: incluye impuestos, alquileres de equipos, descuentos, recargos, etc.
+7. Todos los importes deben ser números decimales (no strings)
+8. Si un periodo no aparece en la factura, no lo incluyas en el array
+9. Para facturas de GAS: consumoTotalKwh puede ser en m³ o kWh según la factura
+
+════════════════════════════════════
+SI NO ES UNA FACTURA DE ENERGÍA:
+════════════════════════════════════
+
 {
-  "documentType": "cif" | "nif" | "iban" | "contrato" | "otro",
-  "extracted": {
-    "holder_name": "...",
-    "cif": "...",
-    "nif": "...",
-    "iban": "...",
-    "fiscal_address": "..."
-  }
+  "documentType": "cif",
+  "extracted": { "holder_name": "...", "cif": "B12345678", "fiscal_address": "..." }
 }
 
-IMPORTANTE:
-- supply_type debe ser exactamente "luz" o "gas"
-- cups empieza siempre por "ES"
-- Si un campo no está presente, omítelo (no pongas null ni "N/A")
-- totalFactura debe ser número decimal, no string`
+Tipos válidos: "cif", "nif", "iban", "contrato", "otro"
+Para IBAN: { "iban": "ES76...", "bank_name": "...", "account_holder": "..." }`
 
 const MASTER_PROMPT = `Analiza este documento y responde SOLO con JSON (sin markdown, sin texto adicional).
 1. Identifica "documentType": "factura", "cif", "nif", "iban", "contrato", o "otro".
