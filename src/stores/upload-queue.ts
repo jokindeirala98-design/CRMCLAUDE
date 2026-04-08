@@ -543,6 +543,9 @@ export async function processJobInBackground(jobId: string): Promise<void> {
       ...noCupsFiles.map((f) => ({ cups: '', files: [f] })),
     ]
 
+    // Track newly-created supplies that need background SIPS fetch
+    const newSuppliesForSips: Array<{ supplyId: string; cups: string; holderName: string }> = []
+
     for (const group of allGroups) {
       const first = group.files[0].extractedData!
       const cups = group.cups || null
@@ -618,6 +621,14 @@ export async function processJobInBackground(jobId: string): Promise<void> {
           }
         } else {
           supplyId = newSupply.id
+          // Queue this newly-created supply for background SIPS fetch (only if it has a CUPS)
+          if (cups && supplyId) {
+            newSuppliesForSips.push({
+              supplyId,
+              cups,
+              holderName: first.holder_name || currentJob.clientName || '',
+            })
+          }
         }
       }
 
@@ -645,8 +656,109 @@ export async function processJobInBackground(jobId: string): Promise<void> {
     }
 
     updateJob(jobId, { status: 'done', finishedAt: Date.now() })
+
+    // ── Phase 4: Background SIPS fetch for all newly-created supplies ──
+    // Fire-and-forget — we don't block the UI. Each supply gets its consumption_data
+    // populated automatically so annual consumption and reports work without
+    // the user needing to visit the SIPS tab manually.
+    for (const { supplyId, cups, holderName } of newSuppliesForSips) {
+      fetchSipsForSupply(supplyId, cups, holderName).catch((err) => {
+        console.error(`[UploadQueue] Background SIPS fetch failed for ${cups}:`, err)
+      })
+    }
   } catch (err: any) {
     console.error('[UploadQueue] Background job error:', err)
     updateJob(jobId, { status: 'error', errorMessage: err.message || 'Error creando suministros', finishedAt: Date.now() })
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  BACKGROUND SIPS FETCH                                                    */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Fetch SIPS data (Lidera/Greening) for a freshly-created supply and persist
+ * it to supplies.consumption_data. Also generates the power study when
+ * potenciaContratada + consumptionHistory are available.
+ * Runs as fire-and-forget; errors are logged but don't block the user.
+ */
+async function fetchSipsForSupply(supplyId: string, cups: string, holderName: string) {
+  const { createClient } = await import('@/lib/supabase/client')
+  const supabase = createClient()
+
+  const sipsRes = await fetch('/api/sips', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cups }),
+  })
+  if (!sipsRes.ok) return
+  const sipsResult = await sipsRes.json()
+  if (!sipsResult.success || !sipsResult.data) return
+  const d = sipsResult.data
+
+  const consumption_data = {
+    source: 'greening_sips',
+    fetched_at: new Date().toISOString(),
+    total: d.totalConsumption,
+    totalKwh: d.totalConsumptionKwh,
+    sips_tariff: d.tariff,
+    consumoPeriodos: d.consumoPeriodos,
+    potenciaContratada: d.potenciaContratada,
+    history: (d.consumptionHistory || []).map((h: any) => ({
+      fecha: h.fecha, fechaInicio: h.fechaInicio, fechaFin: h.fechaFin,
+      P1: h.P1, P2: h.P2, P3: h.P3, P4: h.P4, P5: h.P5, P6: h.P6, total: h.total,
+    })),
+    maximetroHistory: (d.maximetroHistory || []).map((h: any) => ({
+      fecha: h.fecha, fechaInicio: h.fechaInicio, fechaFin: h.fechaFin,
+      P1: h.P1, P2: h.P2, P3: h.P3, P4: h.P4, P5: h.P5, P6: h.P6,
+    })),
+    reactivaHistory: (d.reactivaHistory || []).map((h: any) => ({
+      fecha: h.fecha, fechaInicio: h.fechaInicio, fechaFin: h.fechaFin,
+      P1: h.P1, P2: h.P2, P3: h.P3, P4: h.P4, P5: h.P5, P6: h.P6,
+    })),
+    distribuidora: d.distribuidora,
+    codigoPostal: d.codigoPostal,
+    provincia: d.provincia,
+    municipio: d.municipio,
+    cnae: d.cnae,
+    tension: d.tension,
+    fechaAlta: d.fechaAlta,
+    fechaUltimaLectura: d.fechaUltimaLectura,
+  }
+
+  await supabase
+    .from('supplies')
+    .update({
+      consumption_data,
+      ...(d.tariff ? { tariff: d.tariff } : {}),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', supplyId)
+
+  // Auto-generate power study if we have the required data
+  if (d.consumptionHistory?.length > 0 && d.potenciaContratada) {
+    try {
+      const studyRes = await fetch('/api/power-study-auto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cups,
+          clientName: holderName,
+          potenciaContratada: d.potenciaContratada,
+          consumptionHistory: d.consumptionHistory,
+          maximetroHistory: d.maximetroHistory || [],
+          reactivaHistory: d.reactivaHistory || [],
+        }),
+      })
+      if (studyRes.ok) {
+        const studyResult = await studyRes.json()
+        await supabase
+          .from('supplies')
+          .update({ power_study_result: studyResult })
+          .eq('id', supplyId)
+      }
+    } catch (err) {
+      console.error('[UploadQueue] Power study auto-generate failed:', err)
+    }
   }
 }
