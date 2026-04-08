@@ -18,6 +18,8 @@ interface PowerStudyProps {
   potenciaContratada?: { P1: number; P2: number; P3: number; P4: number; P5: number; P6: number }
   existingStudy?: PowerStudyResult | null
   onStudyGenerated?: (study: PowerStudyResult) => void
+  /** Consumo anual oficial SIPS (kWh). Se muestra en la tarjeta "Consumo Total". */
+  sipsAnnualKwh?: number | null
 }
 
 const PERIODS = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'] as const
@@ -339,7 +341,7 @@ export function buildMaximetroSVG(
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function PowerStudy({
-  supplyId, cups, clientName, potenciaContratada, existingStudy, onStudyGenerated,
+  supplyId, cups, clientName, potenciaContratada, existingStudy, onStudyGenerated, sipsAnnualKwh,
 }: PowerStudyProps) {
   const [study, setStudy] = useState<PowerStudyResult | null>(existingStudy ?? null)
   const [loading, setLoading] = useState(false)
@@ -588,10 +590,12 @@ export function PowerStudy({
                 </span>
               </div>
               <p style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#111827' }}>
-                {fmtKwh(study.consumoTotal)} <span style={{ fontSize: 13, fontWeight: 400, color: '#6B7280' }}>kWh</span>
+                {fmtKwh(Math.round(sipsAnnualKwh && sipsAnnualKwh > 0 ? sipsAnnualKwh : study.consumoTotal))} <span style={{ fontSize: 13, fontWeight: 400, color: '#6B7280' }}>kWh</span>
               </p>
               <p style={{ margin: '4px 0 0', fontSize: 12, color: '#9CA3AF' }}>
-                {study.meses?.length ?? 0} meses · {PERIODS.filter(p => (study.consumoPorPeriodo?.[p] ?? 0) > 0).join(', ')}
+                {sipsAnnualKwh && sipsAnnualKwh > 0
+                  ? 'Último año · fuente SIPS'
+                  : `${study.meses?.length ?? 0} meses · ${PERIODS.filter(p => (study.consumoPorPeriodo?.[p] ?? 0) > 0).join(', ')}`}
               </p>
             </div>
 

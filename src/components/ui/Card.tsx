@@ -1,15 +1,16 @@
 import { cn } from '@/lib/utils/cn'
 
-interface CardProps {
+interface CardProps extends Omit<React.HTMLAttributes<HTMLDivElement>, 'onClick'> {
   children: React.ReactNode
   className?: string
   accent?: boolean
-  onClick?: () => void
+  onClick?: (e: React.MouseEvent<HTMLDivElement>) => void
 }
 
-export function Card({ children, className, accent, onClick }: CardProps) {
+export function Card({ children, className, accent, onClick, ...rest }: CardProps) {
   return (
     <div
+      {...rest}
       onClick={onClick}
       className={cn(
         'bg-surface-container-lowest rounded-2xl p-5 shadow-ambient-sm transition-all duration-200',

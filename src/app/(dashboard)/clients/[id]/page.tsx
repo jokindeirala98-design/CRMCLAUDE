@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import {
   ArrowLeft, Building2, Mail, Phone, MapPin, FileText,
   CreditCard, Zap, Edit2, Trash2, Plus, ExternalLink, FileCheck,
-  Send, Sparkles, AlertTriangle, ChevronDown, ChevronUp, FileImage, File,
+  Send, Sparkles, AlertTriangle,
   Check, XCircle, Clock, DollarSign, Pencil, X, Flame, Phone as PhoneIcon,
   Loader2
 } from 'lucide-react'
@@ -29,21 +29,11 @@ export default function ClientDetailPage() {
   const [showQuickContract, setShowQuickContract] = useState(false)
   const [showNewIncident, setShowNewIncident] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [expandedSupplies, setExpandedSupplies] = useState<Set<string>>(new Set())
   const [clientBillings, setClientBillings] = useState<any[]>([])
   const [editingSupplyName, setEditingSupplyName] = useState<string | null>(null)
   const [supplyNameValue, setSupplyNameValue] = useState('')
   const [clientTasks, setClientTasks] = useState<any[]>([])
   const [dismissingTaskIds, setDismissingTaskIds] = useState<Set<string>>(new Set())
-
-  const toggleSupply = (supplyId: string) => {
-    setExpandedSupplies(prev => {
-      const next = new Set(prev)
-      if (next.has(supplyId)) next.delete(supplyId)
-      else next.add(supplyId)
-      return next
-    })
-  }
 
   const fetchClient = useCallback(async () => {
     const supabase = createClient()
@@ -61,10 +51,6 @@ export default function ClientDetailPage() {
 
     setClient(data)
     setLoading(false)
-    // Auto-expand all supplies
-    if (data?.supplies?.length) {
-      setExpandedSupplies(new Set(data.supplies.map((s: any) => s.id)))
-    }
     // Fetch billing records for this client
     if (data) {
       const { data: bills } = await supabase
@@ -136,21 +122,6 @@ export default function ClientDetailPage() {
     )
   }
 
-  const getDocIcon = (url: string) => {
-    if (url.includes('.pdf')) return <FileText className="w-4 h-4 text-error" />
-    if (url.match(/\.(jpg|jpeg|png|webp|gif)/i)) return <FileImage className="w-4 h-4 text-secondary-light" />
-    return <File className="w-4 h-4 text-on-surface-variant" />
-  }
-
-  const getDocName = (url: string) => {
-    try {
-      const parts = url.split('/')
-      const raw = parts[parts.length - 1]
-      // Remove timestamp prefix
-      return raw.replace(/^\d+_/, '')
-    } catch { return 'documento' }
-  }
-
   const completeClientTask = async (taskId: string) => {
     setDismissingTaskIds(prev => new Set(prev).add(taskId))
     const supabase = createClient()
@@ -161,6 +132,25 @@ export default function ClientDetailPage() {
     setClientTasks(prev => prev.filter(t => t.id !== taskId))
     setDismissingTaskIds(prev => { const next = new Set(prev); next.delete(taskId); return next })
   }
+
+  // ── Annual consumption helper ────────────────────────────────────────────
+  // ÚNICA FUENTE: datos SIPS de Lidera (consumption_data.totalKwh), obtenidos
+  // al dar de alta el suministro con el CUPS. NO se calcula a partir de facturas.
+  const getSupplyAnnualConsumption = (supply: any): number => {
+    const cd = supply?.consumption_data as any
+    if (!cd) return 0
+    const kwh = Number(cd.totalKwh ?? cd.total ?? 0)
+    return Number.isFinite(kwh) && kwh > 0 ? kwh : 0
+  }
+
+  const fmtKwh = (n: number) =>
+    n >= 1000 ? `${(n / 1000).toLocaleString('es-ES', { maximumFractionDigits: 1 })} MWh/año`
+              : `${n.toLocaleString('es-ES', { maximumFractionDigits: 0 })} kWh/año`
+
+  // Sorted copy of supplies (highest annual consumption first)
+  const sortedSupplies: any[] = [...(client.supplies || [])].sort(
+    (a, b) => getSupplyAnnualConsumption(b) - getSupplyAnnualConsumption(a)
+  )
 
   const typeIcons: Record<string, string> = { luz: '⚡', gas: '🔥', telefonia: '📞' }
   const supplyTypeIconComponents: Record<string, React.ElementType> = { luz: Zap, gas: Flame, telefonia: PhoneIcon }
@@ -402,45 +392,59 @@ export default function ClientDetailPage() {
             </Card>
           ) : (
             <div className="space-y-3">
-              {client.supplies.map((supply: any) => {
-                const isExpanded = expandedSupplies.has(supply.id)
+              {sortedSupplies.map((supply: any) => {
                 const invoiceCount = supply.invoices?.length || 0
+                const annualKwh = getSupplyAnnualConsumption(supply)
+                const isEditingName = editingSupplyName === supply.id
                 return (
-                  <Card key={supply.id} className="!p-0 overflow-hidden">
-                    {/* Supply header - clickable to expand */}
-                    <div className="flex items-center gap-4 px-5 py-4 hover:bg-surface-container-low/50 transition-all">
-                      <button
-                        onClick={() => toggleSupply(supply.id)}
-                        className="flex items-center gap-4 flex-1 min-w-0 text-left"
-                      >
-                        <div className="w-10 h-10 rounded-xl bg-primary/8 flex items-center justify-center flex-shrink-0 text-lg">
-                          {typeIcons[supply.type] || '⚡'}
+                  <Card
+                    key={supply.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => { if (!isEditingName) router.push(`/supplies/${supply.id}`) }}
+                    onKeyDown={(e) => {
+                      if (isEditingName) return
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        router.push(`/supplies/${supply.id}`)
+                      }
+                    }}
+                    className="!p-0 overflow-hidden cursor-pointer hover:bg-surface-container-low/50 hover:shadow-md transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                  >
+                    {/* Supply header */}
+                    <div className="flex items-center gap-4 px-5 py-4">
+                      <div className="w-10 h-10 rounded-xl bg-primary/8 flex items-center justify-center flex-shrink-0 text-lg">
+                        {typeIcons[supply.type] || '⚡'}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                          {supply.name && (
+                            <span className="text-xs text-on-surface font-semibold">{supply.name}</span>
+                          )}
+                          <span className="font-mono text-xs text-on-surface font-medium">{supply.cups || 'Sin CUPS'}</span>
+                          <StatusBadge status={supply.status} />
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-0.5">
-                            {supply.name && (
-                              <span className="text-xs text-on-surface font-semibold">{supply.name}</span>
-                            )}
-                            <span className="font-mono text-xs text-on-surface font-medium">{supply.cups || 'Sin CUPS'}</span>
-                            <StatusBadge status={supply.status} />
-                          </div>
-                          <div className="flex items-center gap-3 text-xs text-on-surface-variant">
-                            <span className="capitalize">{supply.type}</span>
-                            <span>·</span>
-                            <span>Tarifa: <strong className="text-on-surface">{supply.tariff || '?'}</strong></span>
-                            {supply.comercializadora?.name && (<><span>·</span><span>{supply.comercializadora.name}</span></>)}
-                            {invoiceCount > 0 && (<><span>·</span><span className="text-primary font-medium">{invoiceCount} doc(s)</span></>)}
-                          </div>
+                        <div className="flex items-center gap-3 text-xs text-on-surface-variant flex-wrap">
+                          <span className="capitalize">{supply.type}</span>
+                          <span>·</span>
+                          <span>Tarifa: <strong className="text-on-surface">{supply.tariff || '?'}</strong></span>
+                          {supply.comercializadora?.name && (<><span>·</span><span>{supply.comercializadora.name}</span></>)}
+                          {invoiceCount > 0 && (<><span>·</span><span className="text-primary font-medium">{invoiceCount} doc(s)</span></>)}
+                          {annualKwh > 0 && (<><span>·</span><span className="text-success font-semibold">{fmtKwh(annualKwh)}</span></>)}
                         </div>
-                      </button>
+                        {supply.address && (
+                          <div className="mt-1 text-xs text-on-surface-variant truncate">{supply.address}</div>
+                        )}
+                      </div>
                       {/* Editable name inline */}
-                      {editingSupplyName === supply.id ? (
+                      {isEditingName ? (
                         <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
                           <input
                             type="text"
                             value={supplyNameValue}
                             onChange={e => setSupplyNameValue(e.target.value)}
                             onKeyDown={e => {
+                              e.stopPropagation()
                               if (e.key === 'Enter') handleSaveSupplyName(supply.id)
                               if (e.key === 'Escape') setEditingSupplyName(null)
                             }}
@@ -448,10 +452,10 @@ export default function ClientDetailPage() {
                             className="w-32 px-2 py-0.5 text-xs bg-surface-container-high rounded-lg outline-none focus:focus-glow"
                             autoFocus
                           />
-                          <button onClick={() => handleSaveSupplyName(supply.id)} className="p-1 text-success hover:bg-success/10 rounded">
+                          <button onClick={(e) => { e.stopPropagation(); handleSaveSupplyName(supply.id) }} className="p-1 text-success hover:bg-success/10 rounded">
                             <Check className="w-3.5 h-3.5" />
                           </button>
-                          <button onClick={() => setEditingSupplyName(null)} className="p-1 text-error hover:bg-error/10 rounded">
+                          <button onClick={(e) => { e.stopPropagation(); setEditingSupplyName(null) }} className="p-1 text-error hover:bg-error/10 rounded">
                             <X className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -464,75 +468,7 @@ export default function ClientDetailPage() {
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
                       )}
-                      <button onClick={() => toggleSupply(supply.id)} className="flex-shrink-0">
-                        {isExpanded ? <ChevronUp className="w-4 h-4 text-on-surface-variant" /> : <ChevronDown className="w-4 h-4 text-on-surface-variant" />}
-                      </button>
                     </div>
-
-                    {/* Expanded content */}
-                    {isExpanded && (
-                      <div className="border-t border-outline-variant/15">
-                        {/* Supply details */}
-                        <div className="px-5 py-3 grid grid-cols-2 lg:grid-cols-4 gap-4 bg-surface-container-low/30">
-                          <div>
-                            <p className="text-[10px] text-on-surface-variant uppercase font-semibold mb-0.5">Direccion</p>
-                            <p className="text-sm text-on-surface">{supply.address || 'Sin direccion'}</p>
-                          </div>
-                          <div>
-                            <p className="text-[10px] text-on-surface-variant uppercase font-semibold mb-0.5">Tipo</p>
-                            <p className="text-sm text-on-surface capitalize">{supply.type}</p>
-                          </div>
-                          <div>
-                            <p className="text-[10px] text-on-surface-variant uppercase font-semibold mb-0.5">Tarifa</p>
-                            <p className="text-sm text-on-surface">{supply.tariff || 'Sin definir'}</p>
-                          </div>
-                          <div>
-                            <p className="text-[10px] text-on-surface-variant uppercase font-semibold mb-0.5">Comercializadora</p>
-                            <p className="text-sm text-on-surface">{supply.comercializadora?.name || 'Sin asignar'}</p>
-                          </div>
-                        </div>
-
-                        {/* Documents / Invoices */}
-                        <div className="px-5 py-3">
-                          <p className="text-[10px] text-on-surface-variant uppercase font-semibold mb-2">
-                            Documentos ({invoiceCount})
-                          </p>
-                          {invoiceCount > 0 ? (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                              {supply.invoices.map((inv: any) => (
-                                <a
-                                  key={inv.id}
-                                  href={getViewUrl(inv.file_url)}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-surface-container-low hover:bg-surface-container-high border border-outline-variant/10 transition-all group"
-                                >
-                                  {getDocIcon(inv.file_url)}
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-xs text-on-surface font-medium truncate">{getDocName(inv.file_url)}</p>
-                                    <p className="text-[10px] text-on-surface-variant">
-                                      {inv.file_type === 'pdf' ? 'PDF' : 'Imagen'}
-                                      {inv.extraction_status === 'completed' && ' · Analizado'}
-                                    </p>
-                                  </div>
-                                  <ExternalLink className="w-3.5 h-3.5 text-on-surface-variant/30 group-hover:text-primary transition-colors" />
-                                </a>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="text-xs text-on-surface-variant italic">Sin documentos adjuntos</p>
-                          )}
-                        </div>
-
-                        {/* Action bar */}
-                        <div className="px-5 py-2.5 border-t border-outline-variant/10 flex justify-end gap-2">
-                          <Button variant="ghost" size="sm" onClick={() => router.push(`/supplies/${supply.id}`)}>
-                            Ver detalle
-                            <ArrowLeft className="w-3.5 h-3.5 rotate-180" />
-                          </Button>
-                        </div>
-                      </div>
-                    )}
                   </Card>
                 )
               })}

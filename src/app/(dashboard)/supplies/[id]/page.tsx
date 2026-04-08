@@ -1907,6 +1907,7 @@ export default function SupplyDetailPage() {
             clientName={supply.client?.name}
             potenciaContratada={supply.consumption_data?.potenciaContratada}
             existingStudy={supply.power_study_result || null}
+            sipsAnnualKwh={supply.consumption_data?.totalKwh ?? null}
             onStudyGenerated={async (result) => {
               const supabase = createClient()
               await supabase

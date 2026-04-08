@@ -651,7 +651,22 @@ export default function ClientsPage() {
                     return (
                       <div
                         key={supply.id}
-                        className="rounded-xl bg-surface-container-lowest border border-outline-variant/10 overflow-hidden hover:shadow-ambient-sm transition-all"
+                        role="button"
+                        tabIndex={confirmDeleteSupplyId === supply.id || isEditing ? -1 : 0}
+                        onClick={() => {
+                          if (confirmDeleteSupplyId === supply.id || isEditing) return
+                          setSelectedClient(null)
+                          router.push(`/supplies/${supply.id}`)
+                        }}
+                        onKeyDown={(e) => {
+                          if (confirmDeleteSupplyId === supply.id || isEditing) return
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            setSelectedClient(null)
+                            router.push(`/supplies/${supply.id}`)
+                          }
+                        }}
+                        className="rounded-xl bg-surface-container-lowest border border-outline-variant/10 overflow-hidden hover:shadow-ambient-sm hover:bg-surface-container-low/40 transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
                       >
                         {/* Confirmation dialog for supply deletion */}
                         {confirmDeleteSupplyId === supply.id ? (
@@ -659,13 +674,13 @@ export default function ClientsPage() {
                             <div className="flex items-center gap-2">
                               <span className="text-sm text-on-surface flex-1">¿Eliminar?</span>
                               <button
-                                onClick={() => setConfirmDeleteSupplyId(null)}
+                                onClick={(e) => { e.stopPropagation(); setConfirmDeleteSupplyId(null) }}
                                 className="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white/70 text-xs font-medium transition-colors"
                               >
                                 Cancelar
                               </button>
                               <button
-                                onClick={() => handleDeleteSupply(supply.id)}
+                                onClick={(e) => { e.stopPropagation(); handleDeleteSupply(supply.id) }}
                                 disabled={deletingSupply}
                                 className="px-3 py-1 rounded-lg bg-red-500 hover:bg-red-600 text-white text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                               >
@@ -688,7 +703,9 @@ export default function ClientsPage() {
                                       type="text"
                                       value={supplyNameValue}
                                       onChange={e => setSupplyNameValue(e.target.value)}
+                                      onClick={e => e.stopPropagation()}
                                       onKeyDown={e => {
+                                        e.stopPropagation()
                                         if (e.key === 'Enter') handleSaveSupplyName(supply.id)
                                         if (e.key === 'Escape') setEditingSupplyName(null)
                                       }}
@@ -697,13 +714,13 @@ export default function ClientsPage() {
                                       autoFocus
                                     />
                                     <button
-                                      onClick={() => handleSaveSupplyName(supply.id)}
+                                      onClick={(e) => { e.stopPropagation(); handleSaveSupplyName(supply.id) }}
                                       className="p-1 rounded text-success hover:bg-success/10"
                                     >
                                       <Check className="w-3.5 h-3.5" />
                                     </button>
                                     <button
-                                      onClick={() => setEditingSupplyName(null)}
+                                      onClick={(e) => { e.stopPropagation(); setEditingSupplyName(null) }}
                                       className="p-1 rounded text-error hover:bg-error/10"
                                     >
                                       <X className="w-3.5 h-3.5" />
@@ -716,6 +733,7 @@ export default function ClientsPage() {
                                     </p>
                                     <button
                                       onClick={e => {
+                                        e.preventDefault()
                                         e.stopPropagation()
                                         setEditingSupplyName(supply.id)
                                         setSupplyNameValue(supply.name || '')
@@ -738,19 +756,10 @@ export default function ClientsPage() {
 
                               {/* Delete button */}
                               <button
-                                onClick={() => setConfirmDeleteSupplyId(supply.id)}
+                                onClick={(e) => { e.stopPropagation(); setConfirmDeleteSupplyId(supply.id) }}
                                 className="w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-red-400 transition-colors flex-shrink-0"
                               >
                                 <Trash2 className="w-4 h-4" />
-                              </button>
-
-                              {/* Go to supply */}
-                              <button
-                                onClick={() => { setSelectedClient(null); router.push(`/supplies/${supply.id}`) }}
-                                className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary/8 text-primary text-xs font-medium hover:bg-primary/15 transition-colors"
-                              >
-                                Ver
-                                <ArrowRight className="w-3 h-3" />
                               </button>
                             </div>
 

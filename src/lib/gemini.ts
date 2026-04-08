@@ -160,103 +160,163 @@ async function callGemini(prompt: string, base64Data: string, mimeType: string):
 /*  PROMPTS                                                                  */
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
-const INVOICE_PROMPT = `Eres un extractor experto de facturas de energía eléctrica y gas natural en España.
-Tu tarea es extraer TODOS los datos disponibles del documento con la máxima precisión.
+const INVOICE_PROMPT = `Eres un experto en auditoría energética española (luz y gas natural). Tu tarea es extraer datos de facturas con PRECISIÓN MATEMÁTICA TOTAL.
 Responde ÚNICAMENTE con JSON válido. Sin markdown, sin texto adicional, sin comentarios.
 
-════════════════════════════════════
-SI ES UNA FACTURA DE ENERGÍA (luz o gas):
-════════════════════════════════════
+════════════════════════════════════════════════════════════════════════════
+PASO 0 — DETECCIÓN DE TIPO DE DOCUMENTO
+════════════════════════════════════════════════════════════════════════════
+
+Identifica "documentType": "factura" | "cif" | "nif" | "iban" | "contrato" | "otro".
+Si NO es factura de energía → responde con formato simple (ver FINAL).
+Si es factura → detecta "supply_type": "luz" o "gas" (las tarifas RL.x son SIEMPRE gas).
+
+════════════════════════════════════════════════════════════════════════════
+REGLAS CRÍTICAS DE EXTRACCIÓN (V3.0) — APLICAN A FACTURAS DE LUZ Y GAS
+════════════════════════════════════════════════════════════════════════════
+
+0. **CUPS (MANDATORIO):** Extrae el código CUPS completo (empieza por ES). Es fundamental e innegociable.
+
+1. **DATOS DE TITULAR Y SUMINISTRO (MANDATORIO):**
+   - holder_name: nombre EXACTO del titular tal como aparece (ej: "AYUNTAMIENTO DE AOIZ", no "Ayuntamiento").
+   - holder_cif_nif: CIF o NIF del titular tal como aparece.
+   - supply_address: DIRECCIÓN COMPLETA del punto de suministro (calle, número, CP, municipio).
+   - comercializadora: nombre de la empresa emisora.
+   - tariff: tarifa exacta (2.0TD, 3.0TD, 6.1TD, RL.1, RL.2, etc.).
+
+2. **FACTURAS DE ANULACIÓN / ABONOS:** Si la factura es rectificativa o abono, devuelve TODOS los valores en NEGATIVO.
+
+════════════════════════════════════════════════════════════════════════════
+REGLAS ESPECÍFICAS PARA FACTURAS DE ELECTRICIDAD
+════════════════════════════════════════════════════════════════════════════
+
+LUZ-1. **Periodos P1 a P6:** Extrae cada periodo existente (kwh, precioKwh, total). Si no hay consumo en un periodo, omítelo.
+
+LUZ-2. **Cálculos Faltantes:** Si solo aparece Total y kWh, calcula precioKwh = Total / kWh. Si hay precio fijo, ponlo en todos los periodos facturados.
+
+LUZ-3. **AGRUPACIÓN ESTRICTA Y NOMBRES CANÓNICOS (OBLIGATORIO):**
+   Usa EXACTAMENTE estos nombres para agrupar conceptos similares en otrosConceptos:
+   - 'BONO SOCIAL' — cualquier variante de bono social.
+   - 'ALQUILER DE EQUIPOS' — alquiler de equipos, contadores, gestión de medida.
+   - 'PEAJES Y TRANSPORTES' — peajes y cargos desglosados fuera de energía/potencia.
+   - 'COMPENSACIÓN EXCEDENTES' — energía vertida (negativo si resta).
+   - 'IMPUESTO ELÉCTRICO' — impuesto de electricidad.
+   - 'IVA / IGIC' — IVA o IGIC.
+   - 'EXCESO DE POTENCIA' — penalizaciones, excesos de potencia, método cuarto horario o puntas.
+
+LUZ-4. **DESGLOSE DE ENERGÍA Y DESCUENTOS:**
+   - costeBrutoConsumo = suma total de términos de energía (kWh × precio) ANTES de descuentos.
+   - descuentoEnergia = descuentos (porcentuales o fijos) aplicados EXCLUSIVAMENTE al término de consumo.
+   - costeNetoConsumo = costeBrutoConsumo − descuentoEnergia.
+   - costeTotalConsumo = costeNetoConsumo (alias para compatibilidad).
+   - MANDATORIO: los descuentos de energía NO deben aparecer en otrosConceptos.
+
+LUZ-5. **AUDITORÍA DE POTENCIA INDUSTRIAL:**
+   - Busca "Resumen de Factura" o "Detalle de Potencia".
+   - costeTotalPotencia = SOLO el término fijo por potencia contratada.
+   - CUALQUIER penalización/exceso de potencia DEBE ir a otrosConceptos como 'EXCESO DE POTENCIA'.
+
+LUZ-6. **BUCLE DE AUTOCONTROL MATEMÁTICO (REGLA DE ORO):**
+   - Paso A: extrae totalFactura del "Total a Pagar" impreso.
+   - Paso B: suma (costeNetoConsumo + costeTotalPotencia + Σ otrosConceptos).
+   - Paso C: compara B contra A.
+   - Paso D: si |B − A| > 0.05€, RE-ESCANEA buscando conceptos omitidos hasta que coincida.
+
+════════════════════════════════════════════════════════════════════════════
+REGLAS ESPECÍFICAS PARA FACTURAS DE GAS NATURAL
+════════════════════════════════════════════════════════════════════════════
+
+GAS-1. **DESGLOSE DE CONSUMO:**
+   - consumoKwh exactos facturados.
+   - precioKwh (término variable). Si no explícito: precioKwh = costeBrutoConsumo / consumoKwh.
+   - costeBrutoConsumo = consumoKwh × precioKwh.
+
+GAS-2. **CLASIFICACIÓN TÉCNICA DE DESCUENTOS (CRÍTICO, 3 CATEGORÍAS):**
+   - descuentoEnergia — aplicados EXCLUSIVAMENTE al consumo (% sobre energía, bonificación consumo).
+   - descuentoTerminoFijo — aplicados al término fijo / cuota de servicio.
+   - descuentoOtros — sobre el total de la factura o promociones genéricas.
+
+GAS-3. **CÁLCULO NETO ENERGÉTICO:**
+   - costeNetoConsumo = costeBrutoConsumo − descuentoEnergia.
+   - costeTotalConsumo = costeNetoConsumo (alias).
+
+GAS-4. **OTROS CONCEPTOS FIJOS:**
+   - terminoFijoTotal (cuota fija / término fijo).
+   - impuestoHidrocarbTotal (impuesto sobre hidrocarburos).
+   - alquilerTotal (alquiler de contador).
+   - ivaPorcentaje, ivaTotal.
+
+GAS-5. **BUCLE DE AUTOCONTROL MATEMÁTICO:**
+   - Paso A: extrae totalFactura del "Total a Pagar" impreso.
+   - Paso B: suma (costeBrutoConsumo + terminoFijoTotal + impuestoHidrocarbTotal + alquilerTotal) − (descuentoEnergia + descuentoTerminoFijo + descuentoOtros) + ivaTotal.
+   - Paso C: si |B − A| > 0.05€, RE-ESCANEA.
+
+════════════════════════════════════════════════════════════════════════════
+FORMATO JSON DE RESPUESTA PARA FACTURAS
+════════════════════════════════════════════════════════════════════════════
 
 {
   "documentType": "factura",
   "extracted": {
     "cups": "ES0000000000000000XX",
     "supply_type": "luz",
-    "holder_name": "NOMBRE COMPLETO DEL TITULAR TAL COMO APARECE EN LA FACTURA",
-    "holder_cif_nif": "B12345678",
+    "holder_name": "AYUNTAMIENTO DE AOIZ",
+    "holder_cif_nif": "P3120300F",
     "total_amount": 123.45,
-    "tariff": "2.0TD",
-    "comercializadora": "Nombre de la comercializadora emisora",
-    "supply_address": "Dirección completa del punto de suministro",
+    "tariff": "3.0TD",
+    "comercializadora": "Endesa",
+    "supply_address": "C/ Mayor 1, 31430 Aoiz, Navarra",
     "billing_period": "01/01/2024 - 31/01/2024",
     "economics": {
       "fechaInicio": "01/01/2024",
       "fechaFin": "31/01/2024",
-      "totalFactura": 123.45,
-      "baseImponible": 102.06,
-      "iva": 21.43,
-      "ivaPct": 21,
-      "impuestoElectrico": 3.15,
-      "impuestoElectricoPct": 5.11269,
+      "titular": "AYUNTAMIENTO DE AOIZ",
+      "comercializadora": "Endesa",
+      "cups": "ES0000000000000000XX",
+      "tarifa": "3.0TD",
       "consumoTotalKwh": 456.78,
       "consumo": [
-        {
-          "periodo": "P1",
-          "concepto": "Energía activa P1",
-          "cantidad": 100.00,
-          "unidad": "kWh",
-          "precio": 0.150000,
-          "importe": 15.00
-        },
-        {
-          "periodo": "P2",
-          "concepto": "Energía activa P2",
-          "cantidad": 200.00,
-          "unidad": "kWh",
-          "precio": 0.080000,
-          "importe": 16.00
-        }
+        { "periodo": "P1", "kwh": 100.0, "precioKwh": 0.1500, "total": 15.00 },
+        { "periodo": "P2", "kwh": 200.0, "precioKwh": 0.0800, "total": 16.00 }
       ],
       "potencia": [
-        {
-          "periodo": "P1",
-          "concepto": "Término de potencia P1",
-          "cantidad": 4.40,
-          "unidad": "kW",
-          "dias": 31,
-          "precio": 38.043426,
-          "importe": 14.48
-        }
+        { "periodo": "P1", "kw": 4.4, "precioKwDia": 0.10423, "dias": 31, "total": 14.22 }
       ],
+      "costeBrutoConsumo": 31.00,
+      "descuentoEnergia": 2.50,
+      "costeNetoConsumo": 28.50,
+      "costeTotalConsumo": 28.50,
+      "costeTotalPotencia": 14.22,
       "otrosConceptos": [
-        {
-          "concepto": "Alquiler de equipos de medida",
-          "importe": 1.22
-        },
-        {
-          "concepto": "Impuesto sobre electricidad (5.11269%)",
-          "importe": 3.15
-        },
-        {
-          "concepto": "Descuento comercial",
-          "importe": -5.00
-        }
+        { "concepto": "ALQUILER DE EQUIPOS", "total": 1.22 },
+        { "concepto": "IMPUESTO ELÉCTRICO", "total": 3.15 },
+        { "concepto": "IVA / IGIC", "total": 21.43 },
+        { "concepto": "EXCESO DE POTENCIA", "total": 5.50 },
+        { "concepto": "BONO SOCIAL", "total": 0.35 }
       ],
-      "descuentos": [
-        {
-          "concepto": "Descuento por permanencia",
-          "importe": -2.50
-        }
-      ]
+      "totalFactura": 123.45,
+      "gasPricing": null
     }
   }
 }
 
-INSTRUCCIONES CRÍTICAS para la extracción:
-1. holder_name: copia el nombre EXACTAMENTE como aparece en la factura (ej: "AYUNTAMIENTO DE AOIZ", no "Ayuntamiento")
-2. cups: siempre empieza por "ES", incluye todos los caracteres
-3. supply_type: exactamente "luz" o "gas" (nunca "electricidad" ni "eléctrico")
-4. consumo: extrae CADA línea de energía activa/reactiva por periodo (P1, P2, P3...)
-5. potencia: extrae CADA término de potencia por periodo (P1, P2...)
-6. otrosConceptos: incluye impuestos, alquileres de equipos, descuentos, recargos, etc.
-7. Todos los importes deben ser números decimales (no strings)
-8. Si un periodo no aparece en la factura, no lo incluyas en el array
-9. Para facturas de GAS: consumoTotalKwh puede ser en m³ o kWh según la factura
+Para GAS, incluye ADICIONALMENTE en economics:
+  "gasPricing": {
+    "precioKwh": 0.065,
+    "terminoFijoDiario": 0.15,
+    "diasFacturados": 31,
+    "terminoFijoTotal": 4.65,
+    "impuestoHidrocarbTotal": 2.30,
+    "alquilerTotal": 1.20,
+    "ivaPorcentaje": 21,
+    "ivaTotal": 12.45,
+    "descuentoTerminoFijo": 0,
+    "descuentoOtros": 0
+  }
 
-════════════════════════════════════
-SI NO ES UNA FACTURA DE ENERGÍA:
-════════════════════════════════════
+════════════════════════════════════════════════════════════════════════════
+SI NO ES FACTURA DE ENERGÍA
+════════════════════════════════════════════════════════════════════════════
 
 {
   "documentType": "cif",
@@ -275,6 +335,72 @@ const MASTER_PROMPT = `Analiza este documento y responde SOLO con JSON (sin mark
    - "contrato": cups, holder_name, comercializadora.
 
 JSON: {"documentType": "...", "extracted": { ... }}`
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  POST-PROCESSING (V3.0)                                                   */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Normalize economics block after extraction:
+ * 1) Deduplicate otrosConceptos (same canonical concept → sum totals)
+ * 2) Map costeNetoConsumo → costeTotalConsumo for backward compat
+ * 3) Compute costeMedioKwhNeto from consumoTotalKwh
+ */
+function postProcessEconomics(economics: any): any {
+  if (!economics || typeof economics !== 'object') return economics
+  const eco = { ...economics }
+
+  // Numeric coercion helper
+  const num = (v: any): number => {
+    if (v == null) return 0
+    const n = typeof v === 'number' ? v : parseFloat(String(v).replace(',', '.'))
+    return Number.isFinite(n) ? n : 0
+  }
+
+  // 1) Deduplicate otrosConceptos by canonical name
+  if (Array.isArray(eco.otrosConceptos)) {
+    const map = new Map<string, { concepto: string; total: number }>()
+    for (const c of eco.otrosConceptos) {
+      if (!c || !c.concepto) continue
+      const key = String(c.concepto).trim().toUpperCase()
+      const total = num(c.total)
+      const existing = map.get(key)
+      if (existing) {
+        existing.total += total
+      } else {
+        map.set(key, { concepto: String(c.concepto).trim(), total })
+      }
+    }
+    eco.otrosConceptos = Array.from(map.values()).map(c => ({
+      concepto: c.concepto,
+      total: Math.round(c.total * 100) / 100,
+    }))
+  }
+
+  // 2) Map costeNetoConsumo → costeTotalConsumo (backward compat)
+  if (eco.costeNetoConsumo != null && eco.costeTotalConsumo == null) {
+    eco.costeTotalConsumo = eco.costeNetoConsumo
+  }
+  if (eco.costeTotalConsumo != null && eco.costeNetoConsumo == null) {
+    eco.costeNetoConsumo = eco.costeTotalConsumo
+  }
+
+  // If costeBrutoConsumo missing but we have consumo items, compute it
+  if (eco.costeBrutoConsumo == null && Array.isArray(eco.consumo)) {
+    const brute = eco.consumo.reduce((s: number, p: any) => s + num(p.total), 0)
+    if (brute > 0) eco.costeBrutoConsumo = Math.round(brute * 100) / 100
+  }
+
+  // 3) Compute costeMedioKwhNeto
+  const consumoKwh = num(eco.consumoTotalKwh)
+  const costeNeto = num(eco.costeNetoConsumo ?? eco.costeTotalConsumo)
+  if (consumoKwh > 0 && costeNeto > 0) {
+    eco.costeMedioKwhNeto = Math.round((costeNeto / consumoKwh) * 10000) / 10000
+    if (eco.costeMedioKwh == null) eco.costeMedioKwh = eco.costeMedioKwhNeto
+  }
+
+  return eco
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
 /*  ANALYSIS                                                                 */
@@ -306,7 +432,7 @@ export async function analyzeDocument(base64Data: string, mimeType: string, docT
       comercializadora: clean(extracted.comercializadora),
       supply_address: clean(extracted.supply_address),
       billing_period: clean(extracted.billing_period),
-      economics: extracted.economics || null,
+      economics: extracted.economics ? postProcessEconomics(extracted.economics) : null,
       iban: clean(extracted.iban),
       bank_name: clean(extracted.bank_name),
       account_holder: clean(extracted.account_holder),
@@ -316,6 +442,16 @@ export async function analyzeDocument(base64Data: string, mimeType: string, docT
     console.error('[Gemini] Analysis failed:', error.message)
     return { mode: 'manual', documentType: docType || 'otro', error: error.message }
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  BACKWARD COMPAT ALIASES                                                  */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+export type ExtractedInvoiceData = ExtractedDocumentData
+
+export async function analyzeInvoice(base64Data: string, mimeType: string): Promise<ExtractedInvoiceData> {
+  return analyzeDocument(base64Data, mimeType, 'factura')
 }
 
 export function getMimeType(fileName: string, fileType?: string): string {

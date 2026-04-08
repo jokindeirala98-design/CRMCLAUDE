@@ -32,6 +32,8 @@ export interface BillEconomics {
   fechaInicio?: string
   fechaFin?: string
   titular?: string
+  holder_cif_nif?: string
+  supply_address?: string
   comercializadora?: string
   cups?: string
   tarifa?: string
@@ -39,8 +41,12 @@ export interface BillEconomics {
   potencia?: PotenciaItem[]
   otrosConceptos?: OtroConcepto[]
   consumoTotalKwh?: number
+  costeBrutoConsumo?: number
+  descuentoEnergia?: number
+  costeNetoConsumo?: number
   costeTotalConsumo?: number
   costeMedioKwh?: number
+  costeMedioKwhNeto?: number
   costeTotalPotencia?: number
   totalFactura?: number
 }
@@ -60,6 +66,8 @@ export interface InvoiceRow {
     total_amount?: string
     mode?: string
     holder_name?: string
+    holder_cif_nif?: string
+    supply_address?: string
     [key: string]: unknown
   } | null
 }
@@ -151,9 +159,16 @@ function getEco(inv: InvoiceRow): BillEconomics | null {
   const ed = inv.extracted_data
   if (!ed) return null
 
-  // Primary path: economics nested object
+  // Primary path: economics nested object — enrich with top-level fields if missing
   if (ed.economics && typeof ed.economics === 'object') {
-    return ed.economics
+    const eco: BillEconomics = { ...ed.economics }
+    if (!eco.cups && ed.cups) eco.cups = ed.cups as string
+    if (!eco.tarifa && ed.tariff) eco.tarifa = ed.tariff as string
+    if (!eco.titular && ed.holder_name) eco.titular = ed.holder_name as string
+    if (!eco.comercializadora && ed.comercializadora) eco.comercializadora = ed.comercializadora as string
+    if (!eco.holder_cif_nif && ed.holder_cif_nif) eco.holder_cif_nif = ed.holder_cif_nif as string
+    if (!eco.supply_address && ed.supply_address) eco.supply_address = ed.supply_address as string
+    return eco
   }
 
   // Fallback: try to build economics from top-level extracted_data fields
@@ -175,6 +190,8 @@ function getEco(inv: InvoiceRow): BillEconomics | null {
   if (ed.cups) { fallback.cups = ed.cups as string; hasAnyData = true }
   if (ed.tariff) { fallback.tarifa = ed.tariff as string; hasAnyData = true }
   if (ed.holder_name) { fallback.titular = ed.holder_name as string; hasAnyData = true }
+  if (ed.holder_cif_nif) { fallback.holder_cif_nif = ed.holder_cif_nif as string; hasAnyData = true }
+  if (ed.supply_address) { fallback.supply_address = ed.supply_address as string; hasAnyData = true }
   if (ed.total_amount) {
     const parsed = typeof ed.total_amount === 'string' ? parseFloat(ed.total_amount.replace(',', '.')) : Number(ed.total_amount)
     if (!isNaN(parsed)) { fallback.totalFactura = parsed; hasAnyData = true }
@@ -682,6 +699,18 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete }: {
     {
       key: 'titular', label: 'TITULAR',
       render: (eco) => <span className="text-white/80 text-sm">{eco?.titular || '—'}</span>,
+    },
+    {
+      key: 'nifCif', label: 'NIF / CIF',
+      render: (eco, inv) => <span className="text-white/80 text-sm font-mono">{eco?.holder_cif_nif || (inv.extracted_data?.holder_cif_nif as string) || '—'}</span>,
+    },
+    {
+      key: 'cups', label: 'CUPS',
+      render: (eco, inv) => <span className="text-white/80 text-xs font-mono">{eco?.cups || inv.extracted_data?.cups || '—'}</span>,
+    },
+    {
+      key: 'supplyAddress', label: 'DIRECCIÓN SUMINISTRO',
+      render: (eco, inv) => <span className="text-white/80 text-xs">{eco?.supply_address || (inv.extracted_data?.supply_address as string) || '—'}</span>,
     },
     {
       key: 'tarifa', label: 'TARIFA',
