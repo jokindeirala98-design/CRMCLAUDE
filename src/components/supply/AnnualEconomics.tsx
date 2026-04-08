@@ -1798,6 +1798,24 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated 
   const withoutEco = invoices.filter(inv => !hasUsableData(inv))
   const supplyName = withEco.length > 0 ? getEco(withEco[0])?.titular : undefined
 
+  // Aggregate validation status across all invoices
+  const validationSummary = (() => {
+    let anyFail = false
+    let anyWarn = false
+    let totalWarnings = 0
+    for (const inv of withEco) {
+      const v = (getEco(inv) as any)?.validation
+      if (v) {
+        if (v.mathOk === false) anyFail = true
+        if (Array.isArray(v.warnings) && v.warnings.length > 0) {
+          anyWarn = true
+          totalWarnings += v.warnings.length
+        }
+      }
+    }
+    return { anyFail, anyWarn, totalWarnings }
+  })()
+
   // Re-scan a single invoice
   const handleRescan = async (inv: InvoiceRow) => {
     if (!inv.file_url) return
@@ -1894,9 +1912,25 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated 
         <div className="flex items-center gap-3">
           <span className="text-xs font-bold tracking-[0.3em] text-white/60">DATOS EXTRAÍDOS {withEco.length}/{invoices.length}</span>
           {withEco.length > 0 && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/10 text-white/50 text-[10px] tracking-wide border border-white/10">
-              AI VERIFIED ✓
-            </span>
+            validationSummary.anyFail ? (
+              <span
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-[10px] tracking-wide border border-red-500/30"
+                title="La suma de conceptos no cuadra con el total de la factura"
+              >
+                ⚠ REVISAR EXTRACCIÓN
+              </span>
+            ) : validationSummary.anyWarn ? (
+              <span
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-[10px] tracking-wide border border-amber-500/30"
+                title={`${validationSummary.totalWarnings} aviso(s) en la extracción`}
+              >
+                ⚠ REVISAR AVISOS
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 text-[10px] tracking-wide border border-green-500/30">
+                AI VERIFIED ✓
+              </span>
+            )
           )}
         </div>
         <button onClick={() => setView('informe')}

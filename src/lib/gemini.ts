@@ -271,7 +271,41 @@ REGLAS CRÍTICAS DE EXTRACCIÓN (V3.0) — APLICAN A FACTURAS DE LUZ Y GAS
 REGLAS ESPECÍFICAS PARA FACTURAS DE ELECTRICIDAD
 ════════════════════════════════════════════════════════════════════════════
 
-LUZ-1. **Periodos P1 a P6:** Extrae cada periodo existente (kwh, precioKwh, total). Si no hay consumo en un periodo, omítelo.
+⚠️ ESTRUCTURA OBLIGATORIA DE FACTURAS ESPAÑOLAS 2.0TD / 3.0TD / 6.1TD ⚠️
+
+Desde el RD 148/2021, TODAS las facturas españolas de acceso 2.0TD, 3.0TD y 6.1TD
+descomponen la energía y la potencia en TRES bloques distintos que aparecen como
+líneas SEPARADAS en la factura. DEBES FUSIONARLOS por periodo antes de devolver el JSON.
+
+LUZ-0. **ENERGÍA — TRES BLOQUES A FUSIONAR:**
+   Para CADA periodo P1–P6 con consumo, puede haber hasta TRES líneas distintas:
+   (a) "Energía Precio horario" / "Término de energía" / "Coste de la energía"
+       → término de COMERCIALIZACIÓN (precio libre de la comercializadora). A veces
+       aparece como un único importe flat sobre el total de kWh (ej: "4.663 kWh ×
+       0,129447 €/kWh"). En ese caso, DEBES PRORRATEARLO a cada periodo en
+       proporción a los kWh reales de ese periodo.
+   (b) "Energía facturada peajes P1/P2/P3/P4/P5/P6"  → PEAJE de acceso (regulado distribuidora).
+   (c) "Energía facturada cargos P1/P2/P3/P4/P5/P6"  → CARGO del sistema (regulado MITECO).
+
+   Los kWh REALES por periodo están en las líneas (b) o (c), NUNCA en (a) cuando (a)
+   es un flat total. No confundas el total "4.663 kWh" con el P1 — busca las líneas
+   "Energía facturada peajes Pn X kWh" para sacar los kWh de cada periodo.
+
+   €/kWh REAL por periodo = €/kWh(comercialización) + €/kWh(peaje Pn) + €/kWh(cargo Pn)
+   Total € por periodo = kWh(Pn) × €/kWh real(Pn)
+
+LUZ-1. **Periodos P1 a P6:** Extrae cada periodo existente con (kwh, precioKwh, total)
+   FUSIONANDO los tres bloques anteriores. Si un periodo tiene 0 kWh, omítelo del array.
+   Verifica: Σ kwh de todos los periodos = consumoTotalKwh. Si no cuadra, re-escanea.
+
+LUZ-1b. **POTENCIA — DOS BLOQUES A FUSIONAR:**
+   Para CADA periodo P1–P6, la potencia también viene en dos líneas:
+   (d) "Potencia facturada peajes P1/.../P6"  → PEAJE de potencia (regulado distribuidora).
+   (e) "Potencia facturada cargos P1/.../P6"  → CARGO de potencia (regulado MITECO).
+   DEBES sumar peaje + cargo por cada periodo para obtener el total de ese periodo.
+   costeTotalPotencia = suma de TODOS los periodos (peajes + cargos de P1 a P6).
+   NUNCA devuelvas solo la primera línea de potencia que encuentres — DEBES recorrer
+   las 12 líneas (6 peajes + 6 cargos) y agregarlas.
 
 LUZ-2. **Cálculos Faltantes:** Si solo aparece Total y kWh, calcula precioKwh = Total / kWh. Si hay precio fijo, ponlo en todos los periodos facturados.
 
@@ -298,10 +332,15 @@ LUZ-5. **AUDITORÍA DE POTENCIA INDUSTRIAL:**
    - CUALQUIER penalización/exceso de potencia DEBE ir a otrosConceptos como 'EXCESO DE POTENCIA'.
 
 LUZ-6. **BUCLE DE AUTOCONTROL MATEMÁTICO (REGLA DE ORO):**
-   - Paso A: extrae totalFactura del "Total a Pagar" impreso.
+   - Paso A: extrae totalFactura del "Total a Pagar" / "Total con Impuestos" impreso.
    - Paso B: suma (costeNetoConsumo + costeTotalPotencia + Σ otrosConceptos).
    - Paso C: compara B contra A.
    - Paso D: si |B − A| > 0.05€, RE-ESCANEA buscando conceptos omitidos hasta que coincida.
+   - Paso E: valida que costeTotalPotencia ≈ (suma de TODAS las líneas "Potencia facturada
+     peajes" + TODAS las líneas "Potencia facturada cargos"). Si solo has capturado 1–2
+     líneas de potencia en una factura 3.0TD/6.1TD, te has dejado las demás — re-escanea.
+   - Paso F: valida que Σ kwh de consumo[] = consumoTotalKwh. Si no, los kWh por periodo
+     están mal extraídos (probablemente confundiste el flat "Precio horario" con P1).
 
 ════════════════════════════════════════════════════════════════════════════
 REGLAS ESPECÍFICAS PARA FACTURAS DE GAS NATURAL
@@ -526,6 +565,43 @@ function postProcessEconomics(economics: any): any {
     if (brute > 0) eco.costeBrutoConsumo = round2(brute)
   }
 
+  // 4b) Sanity-check consumo[] kWh sum against consumoTotalKwh.
+  //    If the model confused the flat "Precio horario 4.663 kWh" block with P1
+  //    (common on Iberdrola/Endesa 3.0TD invoices), the sum will be 2× the total
+  //    or a single row will equal the total. Flag it as a warning so the
+  //    validation layer can catch it.
+  if (Array.isArray(eco.consumo) && eco.consumo.length > 0) {
+    const totalKwhDeclared = toNum(eco.consumoTotalKwh)
+    const sumKwhItems = eco.consumo.reduce((s: number, p: any) => s + toNum(p.kwh), 0)
+    if (totalKwhDeclared > 0 && sumKwhItems > 0) {
+      const ratio = sumKwhItems / totalKwhDeclared
+      // If sum is >1.5× total, or any single period ≥ total (and total has >1 period),
+      // mark as suspicious.
+      const anyPeriodEqualsTotal = eco.consumo.some(
+        (p: any) => Math.abs(toNum(p.kwh) - totalKwhDeclared) < 1 && totalKwhDeclared > 0
+      )
+      if (ratio > 1.5 || (anyPeriodEqualsTotal && eco.consumo.length > 1)) {
+        eco._kwhPeriodMismatch = true
+      }
+    }
+  }
+
+  // 4c) Sanity-check costeTotalPotencia against potencia[] items.
+  //    If the model only captured 1–2 of the 12 power lines on a 3.0TD invoice,
+  //    the declared costeTotalPotencia will be way smaller than the real sum.
+  //    Recompute from items if they look more complete.
+  if (Array.isArray(eco.potencia) && eco.potencia.length > 0) {
+    const declaredPot = toNum(eco.costeTotalPotencia)
+    const sumPotItems = eco.potencia.reduce((s: number, p: any) => s + toNum(p.total), 0)
+    if (sumPotItems > declaredPot * 1.2 && sumPotItems > 0) {
+      // items sum is meaningfully larger → trust the items
+      eco.costeTotalPotencia = round2(sumPotItems)
+    } else if (declaredPot > sumPotItems * 1.5 && declaredPot > 0) {
+      // declared is much larger than items → items are incomplete, flag it
+      eco._potenciaItemsIncomplete = true
+    }
+  }
+
   // If we have bruto and descuentoEnergia but no neto, derive it
   if (eco.costeNetoConsumo == null && eco.costeBrutoConsumo != null) {
     const neto = toNum(eco.costeBrutoConsumo) - toNum(eco.descuentoEnergia)
@@ -594,6 +670,8 @@ function postProcessEconomics(economics: any): any {
   }
   if (!eco.cups && !eco.CUPS) warnings.push('CUPS no extraído')
   if (isGas && eco.gasPricing?.precioKwhEstimated) warnings.push('€/kWh de gas calculado (no explícito en factura)')
+  if (eco._kwhPeriodMismatch) warnings.push('Posible confusión entre "Precio horario" total y periodo P1 (revisa kWh por periodo)')
+  if (eco._potenciaItemsIncomplete) warnings.push('El detalle por periodo de potencia parece incompleto frente al total declarado')
 
   eco.validation = {
     computedTotal: round2(computed),
@@ -602,6 +680,10 @@ function postProcessEconomics(economics: any): any {
     mathOk: totalFactura > 0 ? diff <= tolerance : null,
     warnings,
   }
+
+  // Clean up internal flags before returning
+  delete eco._kwhPeriodMismatch
+  delete eco._potenciaItemsIncomplete
 
   return eco
 }
