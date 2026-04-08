@@ -7,8 +7,9 @@ import {
 // Re-export types for backward compatibility
 export type { ExtractedInvoiceData } from '@/lib/gemini'
 
-// Vercel Hobby plan: max 10s per function (Pro supports 300s, but Next.js defaults to 30-15s)
-export const maxDuration = 30
+// Vercel Pro supports up to 300s. Extraction with large line-item lists
+// and 3-attempt retry wrapper can take 60+ seconds worst case.
+export const maxDuration = 60
 
 interface InvoiceAnalysisRequest {
   file_base64: string

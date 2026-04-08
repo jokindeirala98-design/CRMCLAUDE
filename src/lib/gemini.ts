@@ -153,9 +153,9 @@ async function callGeminiOnce(prompt: string, base64Data: string, mimeType: stri
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType, data: base64Data } }] }],
-          generationConfig: { temperature: 0, maxOutputTokens: 2048 },
+          generationConfig: { temperature: 0, maxOutputTokens: 8192, responseMimeType: 'application/json' },
         }),
-        signal: AbortSignal.timeout(25000),
+        signal: AbortSignal.timeout(50000),
       }
     )
   } catch (e: any) {
@@ -271,41 +271,119 @@ REGLAS CRÍTICAS DE EXTRACCIÓN (V3.0) — APLICAN A FACTURAS DE LUZ Y GAS
 REGLAS ESPECÍFICAS PARA FACTURAS DE ELECTRICIDAD
 ════════════════════════════════════════════════════════════════════════════
 
-⚠️ ESTRUCTURA OBLIGATORIA DE FACTURAS ESPAÑOLAS 2.0TD / 3.0TD / 6.1TD ⚠️
+⚠️ REGLA ABSOLUTA — NO OMITAS NINGUNA LÍNEA DE LA TABLA DE LA FACTURA ⚠️
 
-Desde el RD 148/2021, TODAS las facturas españolas de acceso 2.0TD, 3.0TD y 6.1TD
-descomponen la energía y la potencia en TRES bloques distintos que aparecen como
-líneas SEPARADAS en la factura. DEBES FUSIONARLOS por periodo antes de devolver el JSON.
+Las facturas españolas 2.0TD / 3.0TD / 6.1TD (RD 148/2021) tienen una tabla con
+20+ líneas. CADA LÍNEA de esa tabla DEBE aparecer en "rawLineItems" del JSON de
+salida, SIN EXCEPCIÓN. Si dudas de cómo clasificarla, ponla con category="otro"
+pero NUNCA la omitas. La suma de TODOS los rawLineItems (sin IVA) debe dar el
+"Total Bruto" impreso; con IVA debe dar el "Total Factura" impreso.
 
-LUZ-0. **ENERGÍA — TRES BLOQUES A FUSIONAR:**
-   Para CADA periodo P1–P6 con consumo, puede haber hasta TRES líneas distintas:
-   (a) "Energía Precio horario" / "Término de energía" / "Coste de la energía"
-       → término de COMERCIALIZACIÓN (precio libre de la comercializadora). A veces
-       aparece como un único importe flat sobre el total de kWh (ej: "4.663 kWh ×
-       0,129447 €/kWh"). En ese caso, DEBES PRORRATEARLO a cada periodo en
-       proporción a los kWh reales de ese periodo.
-   (b) "Energía facturada peajes P1/P2/P3/P4/P5/P6"  → PEAJE de acceso (regulado distribuidora).
-   (c) "Energía facturada cargos P1/P2/P3/P4/P5/P6"  → CARGO del sistema (regulado MITECO).
+LUZ-0. **rawLineItems — CAMPO OBLIGATORIO (LUZ Y GAS):**
+   Devuelve un array "rawLineItems" con UN objeto por cada línea de la tabla de
+   conceptos de la factura. Formato de cada objeto:
+     {
+       "description": "texto literal de la línea",
+       "category": <ver lista exhaustiva abajo>,
+       "periodo": "P1" | "P2" | "P3" | "P4" | "P5" | "P6" | null,
+       "kwh": <número o null>,
+       "kw": <número o null>,
+       "dias": <número o null>,
+       "precioUnitario": <número o null>,
+       "total": <número sin IVA>
+     }
 
-   Los kWh REALES por periodo están en las líneas (b) o (c), NUNCA en (a) cuando (a)
-   es un flat total. No confundas el total "4.663 kWh" con el P1 — busca las líneas
-   "Energía facturada peajes Pn X kWh" para sacar los kWh de cada periodo.
+   Categorías válidas (usa EXACTAMENTE una de estas):
+   LUZ:
+     energia_comercializacion | energia_peaje | energia_cargo
+     potencia_peaje | potencia_cargo | potencia_comercializacion
+     alquiler_equipos | bono_social | compensacion_excedentes
+     impuesto_electrico | exceso_potencia | descuento_energia | descuento_potencia
+   GAS:
+     gas_termino_variable  (Consumo gas / Término de energía / kWh × €/kWh)
+     gas_termino_fijo      (Término fijo / Cuota de servicio — cuota diaria × días)
+     gas_peaje_fijo        (Peaje red local/transporte FIJO, Peaje RL.x fijo)
+     gas_peaje_variable    (Peaje red local/transporte VARIABLE, sobre kWh)
+     gas_cargo             (Cargos regulados gas)
+     gas_regasificacion    (Regasificación, a veces con signo negativo)
+     gas_cuota_gts         (Cuota Gestor Técnico del Sistema)
+     gas_tasa_cnmc         (Tasa CNMC)
+     gas_aportacion_fondo  (Aportación Fondo Nacional Eficiencia Energética)
+     impuesto_hidrocarburos (Impuesto Especial sobre Hidrocarburos)
+   COMUNES:
+     alquiler_equipos | descuento_energia | iva | otro
 
-   €/kWh REAL por periodo = €/kWh(comercialización) + €/kWh(peaje Pn) + €/kWh(cargo Pn)
-   Total € por periodo = kWh(Pn) × €/kWh real(Pn)
+   Guía de clasificación (LUZ):
+   - "Energía Precio horario" / "Término de energía" / "Coste energía" / "Coste mercado"
+     / "Total Coste de Energía Producto" → energia_comercializacion. Puede venir como
+     UN flat (periodo=null) Iberdrola/Endesa, o como 1 línea POR PERIODO ya consolidada
+     (ACCIONA, CIDE): en ese caso emite una entrada POR PERIODO con kwh y total del periodo.
+   - "Energía facturada peajes P1/.../P6" → energia_peaje, con periodo
+   - "Energía facturada cargos P1/.../P6" → energia_cargo, con periodo
+   - "Total término de Potencia" / "Potencia facturada peajes/cargos" → si aparece
+     consolidada por periodo, emítela como potencia_comercializacion con periodo, kw, dias.
+     Si aparece desglosada en peaje+cargo, emite ambas líneas por cada periodo.
+   - "Alquiler de equipos de medida" / "Alquiler contador" → alquiler_equipos
+   - "Financiación bono social" / "Bono social" → bono_social
+   - "Compensación de excedentes" / "Energía excedentaria" / "Autoconsumo" → compensacion_excedentes (negativo si resta)
+   - "Impuesto sobre la electricidad" / "Impuesto eléctrico" → impuesto_electrico
+   - "Exceso de potencia" / "Penalización reactiva" / "Total excesos de Potencia" → exceso_potencia
+   - "IVA" / "IGIC" → iva
+   - Cualquier otra línea que no encaje → otro (NO la omitas)
 
-LUZ-1. **Periodos P1 a P6:** Extrae cada periodo existente con (kwh, precioKwh, total)
-   FUSIONANDO los tres bloques anteriores. Si un periodo tiene 0 kWh, omítelo del array.
-   Verifica: Σ kwh de todos los periodos = consumoTotalKwh. Si no cuadra, re-escanea.
+   Guía de clasificación (GAS — típico Iberdrola, Naturgy, Axpo, Endesa):
+   - "Consumo gas" / "Término variable" / "Término de energía" (kWh × €/kWh) → gas_termino_variable
+   - "Término fijo" / "Cuota de servicio" (días × €/día) → gas_termino_fijo
+   - "Peaje Red Local Fijo" / "Peaje Transporte Fijo" / "Peaje RL.x fijo" → gas_peaje_fijo
+   - "Peaje Variable" / "Peaje Red Local Variable" → gas_peaje_variable
+   - "Cargos" / "Cargo regulado gas" → gas_cargo
+   - "Regasificación" → gas_regasificacion (puede ser negativo)
+   - "Cuota GTS" / "Gestor Técnico del Sistema" → gas_cuota_gts
+   - "Tasa CNMC" → gas_tasa_cnmc
+   - "Aportación Fondo Nacional de Eficiencia Energética" → gas_aportacion_fondo
+   - "Impuesto Especial sobre Hidrocarburos" → impuesto_hidrocarburos
+   - "Alquiler de contador" → alquiler_equipos
+   - IVA → iva
 
-LUZ-1b. **POTENCIA — DOS BLOQUES A FUSIONAR:**
-   Para CADA periodo P1–P6, la potencia también viene en dos líneas:
-   (d) "Potencia facturada peajes P1/.../P6"  → PEAJE de potencia (regulado distribuidora).
-   (e) "Potencia facturada cargos P1/.../P6"  → CARGO de potencia (regulado MITECO).
-   DEBES sumar peaje + cargo por cada periodo para obtener el total de ese periodo.
-   costeTotalPotencia = suma de TODOS los periodos (peajes + cargos de P1 a P6).
-   NUNCA devuelvas solo la primera línea de potencia que encuentres — DEBES recorrer
-   las 12 líneas (6 peajes + 6 cargos) y agregarlas.
+⚠️ LUZ-0-TRAMPA. **"De los cuales peajes y cargos" son INFORMATIVOS — NO EMITIR:**
+   Muchas facturas (ON510, Som Energia, algunas Endesa) muestran debajo de cada línea
+   de periodo un sub-desglose indicando "De los cuales peajes y cargos: X,XX €". Estas
+   líneas son DESGLOSE INFORMATIVO, no son cargos adicionales — el importe YA está
+   incluido en la línea padre. NO las emitas como rawLineItems separados; eso
+   causaría doble conteo. Solo emite la línea principal del periodo.
+
+⚠️ LUZ-0-CONSOLIDADA. **Facturas con energía/potencia CONSOLIDADA por periodo (ACCIONA, 6.1TD):**
+   Algunas comercializadoras (típicamente en 6.1TD: ACCIONA, Endesa empresas) no
+   muestran el desglose peajes+cargos línea por línea, sino UNA cifra total por
+   periodo. Ejemplo ACCIONA:
+     "Total Coste de Energía Producto P2: 31.231 kWh → 4.115,34 €"
+     "Total Coste de Energía Producto P3: 20.806 kWh → 2.298,03 €"
+     "Total Coste de Energía Producto P6: 43.507 kWh → 4.062,26 €"
+   En ese caso emite UNA línea energia_comercializacion POR PERIODO con kwh y total
+   del periodo (periodo="P2", kwh=31231, total=4115.34). Los kWh pueden venir en una
+   fila aparte ("Energía Activa consumida P2 31.231 kWh") — cruza ambas filas y
+   consolida en un único rawLineItem por periodo.
+   Lo mismo para potencia: si ves "Total término de Potencia P1 ... €" consolidado,
+   emite potencia_comercializacion con periodo, kw, dias, total.
+
+LUZ-0b. **VERIFICACIÓN MATEMÁTICA OBLIGATORIA sobre rawLineItems:**
+   Antes de emitir el JSON, calcula:
+     A = Σ total de rawLineItems con category !== "iva"
+     B = Σ total de rawLineItems con category === "iva"
+     C = A + B
+   Si C difiere del "Total a Pagar" impreso en más de 0,05 €, RE-ESCANEA la
+   factura buscando líneas omitidas y corrige rawLineItems hasta que cuadre.
+
+LUZ-0c. **CÓMO RECONOCER EL DESGLOSE PEAJES+CARGOS (muy común):**
+   Las facturas 3.0TD/6.1TD tienen típicamente 12 líneas de potencia (6 peajes + 6 cargos)
+   y 6–12 líneas de energía (6 peajes + 6 cargos + opcional 1 flat de comercialización).
+   Si solo ves 1–2 líneas de potencia en una factura 3.0TD, te has dejado el resto.
+
+LUZ-1. **Campos derivados consumo[] y potencia[]:**
+   Además de rawLineItems, devuelve también los arrays agregados consumo[] y potencia[]
+   por comodidad del frontend. El post-procesado en el backend los recalculará desde
+   rawLineItems de todas formas, así que prioriza la COMPLETITUD de rawLineItems sobre
+   la perfección de estos arrays.
 
 LUZ-2. **Cálculos Faltantes:** Si solo aparece Total y kWh, calcula precioKwh = Total / kWh. Si hay precio fijo, ponlo en todos los periodos facturados.
 
@@ -415,10 +493,26 @@ FORMATO JSON DE RESPUESTA PARA FACTURAS
         { "concepto": "BONO SOCIAL", "total": 0.35 }
       ],
       "totalFactura": 123.45,
-      "gasPricing": null
+      "gasPricing": null,
+      "rawLineItems": [
+        { "description": "Energía Precio horario 4.663 kWh x 0,129447 €/kWh", "category": "energia_comercializacion", "periodo": null, "kwh": 4663, "kw": null, "dias": null, "precioUnitario": 0.129447, "total": 603.61 },
+        { "description": "Potencia facturada peajes P1 31,17 kW x 31 dias x 0,040338 €/kW dia", "category": "potencia_peaje", "periodo": "P1", "kwh": null, "kw": 31.17, "dias": 31, "precioUnitario": 0.040338, "total": 38.98 },
+        { "description": "Potencia facturada cargos P1 31,17 kW x 31 dias x 0,013521 €/kW dia", "category": "potencia_cargo", "periodo": "P1", "kwh": null, "kw": 31.17, "dias": 31, "precioUnitario": 0.013521, "total": 13.06 },
+        { "description": "Energía facturada peajes P1 1.080 kWh x 0,028528 €/kWh", "category": "energia_peaje", "periodo": "P1", "kwh": 1080, "kw": null, "dias": null, "precioUnitario": 0.028528, "total": 30.81 },
+        { "description": "Energía facturada cargos P1 1.080 kWh x 0,032503 €/kWh", "category": "energia_cargo", "periodo": "P1", "kwh": 1080, "kw": null, "dias": null, "precioUnitario": 0.032503, "total": 35.10 },
+        { "description": "Alquiler equipos medida 31 dias x 0,197918 €/dia", "category": "alquiler_equipos", "periodo": null, "kwh": null, "kw": null, "dias": 31, "precioUnitario": 0.197918, "total": 6.14 },
+        { "description": "Financiación bono social fijo 31 dias x 0,012742 €/dia", "category": "bono_social", "periodo": null, "kwh": null, "kw": null, "dias": 31, "precioUnitario": 0.012742, "total": 0.40 },
+        { "description": "Impuesto sobre electricidad 5,11% s/812,92", "category": "impuesto_electrico", "periodo": null, "kwh": null, "kw": null, "dias": null, "precioUnitario": null, "total": 41.56 },
+        { "description": "IVA 21%", "category": "iva", "periodo": null, "kwh": null, "kw": null, "dias": null, "precioUnitario": 0.21, "total": 180.73 }
+      ]
     }
   }
 }
+
+⚠️ IMPORTANTE: rawLineItems del ejemplo está abreviado. En una factura 3.0TD REAL
+debes devolver TODAS las líneas (típicamente 20+): las 6 de potencia_peaje, las 6 de
+potencia_cargo, TODAS las de energia_peaje/cargo por cada periodo con consumo, más
+alquiler, bono social, impuesto eléctrico e IVA. NO ABREVIES.
 
 Para GAS, incluye ADICIONALMENTE en economics:
   "gasPricing": {
@@ -500,8 +594,279 @@ function isPenaltyConcept(concepto: string): boolean {
   return /EXCESO|PENALIZAC|SOBREPOTENCIA|SOBREPASO/.test(k)
 }
 
+type LineItem = {
+  description?: string
+  category?: string
+  periodo?: string | null
+  kwh?: number | null
+  kw?: number | null
+  dias?: number | null
+  precioUnitario?: number | null
+  total?: number | null
+}
+
+/**
+ * Deterministic rebuilder: takes rawLineItems from Gemini and rebuilds
+ * consumo[], potencia[], otrosConceptos[] and the totalizers from scratch.
+ *
+ * This is the source of truth when rawLineItems is present. It guarantees
+ * that every line of the invoice is accounted for exactly once and that
+ * the arithmetic matches the declared total (within tolerance).
+ */
+function rebuildFromRawLineItems(rawLineItems: LineItem[], eco: any): any {
+  const out: any = { ...eco }
+  const items = rawLineItems
+    .filter(i => i && i.category)
+    .map(i => ({
+      ...i,
+      category: String(i.category).toLowerCase().trim(),
+      periodo: i.periodo ? String(i.periodo).toUpperCase().trim() : null,
+      kwh: toNum(i.kwh),
+      kw: toNum(i.kw),
+      dias: toNum(i.dias),
+      total: toNum(i.total),
+    }))
+
+  const byCat = (cat: string) => items.filter(i => i.category === cat)
+  const byCatPrefix = (prefix: string) => items.filter(i => i.category.startsWith(prefix))
+  const sumTotal = (arr: typeof items) => arr.reduce((s, i) => s + i.total, 0)
+
+  // ── GAS BRANCH ────────────────────────────────────────────────────────
+  // If ANY gas_* category is present, treat this as a gas invoice and build
+  // gasPricing from line items. Electricity logic below still runs harmlessly
+  // (it will produce empty consumo/potencia arrays because no electric lines).
+  const hasGasLines = items.some(i => i.category.startsWith('gas_') || i.category === 'impuesto_hidrocarburos')
+  if (hasGasLines) {
+    const gTermVar = byCat('gas_termino_variable')
+    const gTermFijo = byCat('gas_termino_fijo')
+    const gPeajeFijo = byCat('gas_peaje_fijo')
+    const gPeajeVar = byCat('gas_peaje_variable')
+    const gCargo = byCat('gas_cargo')
+    const gRegas = byCat('gas_regasificacion')
+    const gGts = byCat('gas_cuota_gts')
+    const gCnmc = byCat('gas_tasa_cnmc')
+    const gFondo = byCat('gas_aportacion_fondo')
+    const gHidro = byCat('impuesto_hidrocarburos')
+    const gAlq = byCat('alquiler_equipos')
+    const gIva = byCat('iva')
+    const gDesc = byCat('descuento_energia')
+
+    const consumoKwhGas = gTermVar.reduce((s, i) => s + i.kwh, 0)
+    const costeBrutoGas = sumTotal(gTermVar)
+    const precioKwh = consumoKwhGas > 0 ? costeBrutoGas / consumoKwhGas : 0
+
+    // terminoFijoTotal aggregates ALL fixed terms (término fijo + peaje fijo +
+    // cargos fijos + regasificación + GTS + CNMC + Fondo) — anything that isn't
+    // variable-on-kWh, hidrocarburos, alquiler or IVA.
+    const terminoFijoTotal = sumTotal([
+      ...gTermFijo, ...gPeajeFijo, ...gPeajeVar, ...gCargo,
+      ...gRegas, ...gGts, ...gCnmc, ...gFondo,
+    ])
+    const diasFacturados = (gTermFijo[0]?.dias || gPeajeFijo[0]?.dias || 0)
+    const terminoFijoDiario = diasFacturados > 0 ? terminoFijoTotal / diasFacturados : 0
+
+    out.supply_type = out.supply_type || 'gas'
+    out.consumoTotalKwh = round2(consumoKwhGas)
+    out.costeBrutoConsumo = round2(costeBrutoGas)
+    out.descuentoEnergia = round2(sumTotal(gDesc))
+    out.costeNetoConsumo = round2(costeBrutoGas - sumTotal(gDesc))
+    out.costeTotalConsumo = out.costeNetoConsumo
+    out.consumo = consumoKwhGas > 0 ? [{
+      periodo: 'P1',
+      kwh: round2(consumoKwhGas),
+      precioKwh: round4(precioKwh),
+      total: round2(costeBrutoGas),
+    }] : []
+    out.potencia = []
+    out.costeTotalPotencia = 0
+    out.otrosConceptos = []
+
+    out.gasPricing = {
+      precioKwh: round4(precioKwh),
+      precioKwhEstimated: false,
+      terminoFijoDiario: round4(terminoFijoDiario),
+      diasFacturados: diasFacturados || null,
+      terminoFijoTotal: round2(terminoFijoTotal),
+      impuestoHidrocarbTotal: round2(sumTotal(gHidro)),
+      alquilerTotal: round2(sumTotal(gAlq)),
+      ivaPorcentaje: 21,
+      ivaTotal: round2(sumTotal(gIva)),
+      descuentoTerminoFijo: 0,
+      descuentoOtros: 0,
+    }
+
+    const declaredTotalGas = toNum(eco.totalFactura)
+    const computedGas = round2(
+      costeBrutoGas + terminoFijoTotal + sumTotal(gHidro) + sumTotal(gAlq) + sumTotal(gIva) - sumTotal(gDesc)
+    )
+    out.totalFactura = declaredTotalGas > 0 ? round2(declaredTotalGas) : computedGas
+    if (consumoKwhGas > 0 && out.costeNetoConsumo > 0) {
+      out.costeMedioKwhNeto = round4(toNum(out.costeNetoConsumo) / consumoKwhGas)
+      out.costeMedioKwh = out.costeMedioKwhNeto
+    }
+    out._rebuiltFromRaw = true
+    out._rawLineItemsSum = round2(sumTotal(items))
+    return out
+  }
+
+  // ── ENERGY ────────────────────────────────────────────────────────────
+  const energiaComer = byCat('energia_comercializacion')
+  const energiaPeajes = byCat('energia_peaje')
+  const energiaCargos = byCat('energia_cargo')
+  const descEnergiaItems = byCat('descuento_energia')
+
+  // kWh per period comes from peajes/cargos lines OR from consolidated
+  // energia_comercializacion lines with periodo (ACCIONA 6.1TD style).
+  const periodKwhMap = new Map<string, number>()
+  for (const it of [...energiaPeajes, ...energiaCargos, ...energiaComer]) {
+    if (!it.periodo) continue
+    const kwh = it.kwh
+    if (kwh > 0 && !periodKwhMap.has(it.periodo)) {
+      periodKwhMap.set(it.periodo, kwh)
+    }
+  }
+
+  // Total kWh = sum of per-period kWh. If empty, fall back to flat comercializacion kwh.
+  let totalKwh = 0
+  for (const v of periodKwhMap.values()) totalKwh += v
+  if (totalKwh === 0) {
+    const flatKwh = energiaComer.reduce((s, i) => s + i.kwh, 0)
+    if (flatKwh > 0) totalKwh = flatKwh
+  }
+
+  // Comercializacion can be (a) one flat line on the total (most common, Iberdrola)
+  // or (b) per-period lines (e.g. some Endesa/Naturgy). Handle both.
+  const flatComerTotal = energiaComer
+    .filter(i => !i.periodo)
+    .reduce((s, i) => s + i.total, 0)
+  const perPeriodComer = new Map<string, number>()
+  for (const it of energiaComer) {
+    if (it.periodo) perPeriodComer.set(it.periodo, (perPeriodComer.get(it.periodo) || 0) + it.total)
+  }
+
+  // Build consolidated consumo[] per period
+  const consumoPeriods = Array.from(
+    new Set([
+      ...Array.from(periodKwhMap.keys()),
+      ...Array.from(perPeriodComer.keys()),
+      ...energiaPeajes.map(i => i.periodo).filter(Boolean) as string[],
+      ...energiaCargos.map(i => i.periodo).filter(Boolean) as string[],
+    ])
+  ).sort()
+
+  const consumo: any[] = []
+  for (const p of consumoPeriods) {
+    const kwh = periodKwhMap.get(p) || 0
+    if (kwh <= 0) continue
+    const peaje = energiaPeajes.filter(i => i.periodo === p).reduce((s, i) => s + i.total, 0)
+    const cargo = energiaCargos.filter(i => i.periodo === p).reduce((s, i) => s + i.total, 0)
+    const comerPerPeriod = perPeriodComer.get(p) || 0
+    // Prorate the flat comercializacion by kWh ratio
+    const comerProrated = totalKwh > 0 ? (flatComerTotal * kwh) / totalKwh : 0
+    const total = peaje + cargo + comerPerPeriod + comerProrated
+    const precioKwh = kwh > 0 ? total / kwh : 0
+    consumo.push({
+      periodo: p,
+      kwh: round2(kwh),
+      precioKwh: round4(precioKwh),
+      total: round2(total),
+    })
+  }
+
+  const costeBrutoConsumo = sumTotal([...energiaComer, ...energiaPeajes, ...energiaCargos])
+  const descuentoEnergia = sumTotal(descEnergiaItems)
+  const costeNetoConsumo = costeBrutoConsumo - descuentoEnergia
+
+  out.consumo = consumo
+  out.consumoTotalKwh = round2(totalKwh)
+  out.costeBrutoConsumo = round2(costeBrutoConsumo)
+  out.descuentoEnergia = round2(descuentoEnergia)
+  out.costeNetoConsumo = round2(costeNetoConsumo)
+  out.costeTotalConsumo = round2(costeNetoConsumo)
+
+  // ── POWER ─────────────────────────────────────────────────────────────
+  const potenciaPeajes = byCat('potencia_peaje')
+  const potenciaCargos = byCat('potencia_cargo')
+  const potenciaComer = byCat('potencia_comercializacion')
+
+  const potPeriods = Array.from(
+    new Set([
+      ...potenciaPeajes.map(i => i.periodo).filter(Boolean) as string[],
+      ...potenciaCargos.map(i => i.periodo).filter(Boolean) as string[],
+      ...potenciaComer.map(i => i.periodo).filter(Boolean) as string[],
+    ])
+  ).sort()
+
+  const potencia: any[] = []
+  for (const p of potPeriods) {
+    const peaje = potenciaPeajes.filter(i => i.periodo === p).reduce((s, i) => s + i.total, 0)
+    const cargo = potenciaCargos.filter(i => i.periodo === p).reduce((s, i) => s + i.total, 0)
+    const comer = potenciaComer.filter(i => i.periodo === p).reduce((s, i) => s + i.total, 0)
+    const total = peaje + cargo + comer
+    if (total === 0) continue
+    const kwRow = potenciaPeajes.find(i => i.periodo === p) || potenciaCargos.find(i => i.periodo === p)
+    const dias = kwRow?.dias || null
+    const kw = kwRow?.kw || null
+    const precioKwDia = kw && dias ? total / (kw * dias) : null
+    potencia.push({
+      periodo: p,
+      kw,
+      dias,
+      precioKwDia: precioKwDia != null ? round4(precioKwDia) : null,
+      total: round2(total),
+    })
+  }
+
+  const costeTotalPotencia = sumTotal([...potenciaPeajes, ...potenciaCargos, ...potenciaComer])
+  out.potencia = potencia
+  out.costeTotalPotencia = round2(costeTotalPotencia)
+
+  // ── OTROS CONCEPTOS ───────────────────────────────────────────────────
+  // Map categories to canonical display names expected by the frontend
+  const canonicalMap: Record<string, string> = {
+    alquiler_equipos: 'ALQUILER DE EQUIPOS',
+    bono_social: 'BONO SOCIAL',
+    compensacion_excedentes: 'COMPENSACIÓN EXCEDENTES',
+    impuesto_electrico: 'IMPUESTO ELÉCTRICO',
+    exceso_potencia: 'EXCESO DE POTENCIA',
+    iva: 'IVA / IGIC',
+    otro: 'OTROS',
+  }
+  const otrosConceptos: { concepto: string; total: number }[] = []
+  for (const [cat, name] of Object.entries(canonicalMap)) {
+    const total = sumTotal(byCat(cat))
+    if (total !== 0) otrosConceptos.push({ concepto: name, total: round2(total) })
+  }
+  out.otrosConceptos = otrosConceptos
+
+  // ── TOTAL FACTURA ────────────────────────────────────────────────────
+  // If declared totalFactura is missing, derive from: net consumo + potencia + otros (incl. IVA)
+  const ivaTotal = sumTotal(byCat('iva'))
+  const declaredTotal = toNum(eco.totalFactura)
+  const computedTotalFactura =
+    round2(costeNetoConsumo + costeTotalPotencia +
+           otrosConceptos.reduce((s, o) => s + o.total, 0))
+  if (!declaredTotal || declaredTotal === 0) {
+    out.totalFactura = computedTotalFactura
+  } else {
+    out.totalFactura = round2(declaredTotal)
+  }
+
+  // Average €/kWh
+  if (totalKwh > 0 && costeNetoConsumo > 0) {
+    out.costeMedioKwhNeto = round4(costeNetoConsumo / totalKwh)
+    out.costeMedioKwh = out.costeMedioKwhNeto
+  }
+
+  // Internal flag for validation step
+  out._rebuiltFromRaw = true
+  out._rawLineItemsSum = round2(sumTotal(items))
+  return out
+}
+
 /**
  * Normalize economics block after extraction:
+ *  0) If rawLineItems is present, rebuild EVERYTHING from it deterministically
  *  1) Deduplicate otrosConceptos by fuzzy canonical key
  *  2) Collapse duplicate EXCESO/PENALIZACIÓN rows that share the same total
  *  3) Map costeNetoConsumo ↔ costeTotalConsumo for backward compat
@@ -512,7 +877,16 @@ function isPenaltyConcept(concepto: string): boolean {
  */
 function postProcessEconomics(economics: any): any {
   if (!economics || typeof economics !== 'object') return economics
-  const eco: any = { ...economics }
+  let eco: any = { ...economics }
+
+  // 0) Authoritative rebuild from rawLineItems when available
+  if (Array.isArray(eco.rawLineItems) && eco.rawLineItems.length > 0) {
+    try {
+      eco = rebuildFromRawLineItems(eco.rawLineItems, eco)
+    } catch (e: any) {
+      console.warn('[Gemini] rebuildFromRawLineItems failed:', e?.message)
+    }
+  }
 
   // 1+2) Deduplicate otrosConceptos
   if (Array.isArray(eco.otrosConceptos)) {
@@ -673,17 +1047,30 @@ function postProcessEconomics(economics: any): any {
   if (eco._kwhPeriodMismatch) warnings.push('Posible confusión entre "Precio horario" total y periodo P1 (revisa kWh por periodo)')
   if (eco._potenciaItemsIncomplete) warnings.push('El detalle por periodo de potencia parece incompleto frente al total declarado')
 
+  // If rebuilt from rawLineItems, also check sum of line items against declared total
+  if (eco._rebuiltFromRaw && eco._rawLineItemsSum != null && totalFactura > 0) {
+    const rawDiff = Math.abs(toNum(eco._rawLineItemsSum) - totalFactura)
+    if (rawDiff > tolerance) {
+      warnings.push(
+        `Suma de rawLineItems ${Number(eco._rawLineItemsSum).toFixed(2)}€ no cuadra con total factura ${totalFactura.toFixed(2)}€ (falta extraer ${rawDiff.toFixed(2)}€ de líneas)`
+      )
+    }
+  }
+
   eco.validation = {
     computedTotal: round2(computed),
     declaredTotal: round2(totalFactura),
     diff: round2(diff),
     mathOk: totalFactura > 0 ? diff <= tolerance : null,
+    rebuiltFromRawLineItems: !!eco._rebuiltFromRaw,
     warnings,
   }
 
   // Clean up internal flags before returning
   delete eco._kwhPeriodMismatch
   delete eco._potenciaItemsIncomplete
+  delete eco._rebuiltFromRaw
+  delete eco._rawLineItemsSum
 
   return eco
 }
