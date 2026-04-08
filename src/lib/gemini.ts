@@ -119,41 +119,122 @@ async function getWorkingModel(apiKey: string): Promise<string> {
 /*  API CALLER                                                               */
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
-async function callGemini(prompt: string, base64Data: string, mimeType: string): Promise<string> {
+/**
+ * Custom error with an HTTP-like status so the retry wrapper can decide
+ * whether a failure is transient (retryable) or permanent.
+ */
+class GeminiError extends Error {
+  status: number
+  retryable: boolean
+  constructor(message: string, status: number, retryable: boolean) {
+    super(message)
+    this.name = 'GeminiError'
+    this.status = status
+    this.retryable = retryable
+  }
+}
+
+/**
+ * Low-level single Gemini call. Throws GeminiError with retryable flag so the
+ * wrapper can backoff properly on 503/429/timeout/"high demand".
+ */
+async function callGeminiOnce(prompt: string, base64Data: string, mimeType: string): Promise<string> {
   const apiKey = getApiKey()
-  if (!apiKey) throw new Error('GEMINI_API_KEY no configurada')
+  if (!apiKey) throw new GeminiError('GEMINI_API_KEY no configurada', 0, false)
 
   const model = await getWorkingModel(apiKey)
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType, data: base64Data } }] }],
-        generationConfig: { temperature: 0, maxOutputTokens: 2048 },
-      }),
-    }
-  )
+  let response: Response
+  try {
+    response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType, data: base64Data } }] }],
+          generationConfig: { temperature: 0, maxOutputTokens: 2048 },
+        }),
+        signal: AbortSignal.timeout(25000),
+      }
+    )
+  } catch (e: any) {
+    const msg = e?.message || 'network error'
+    // Timeouts and abort errors are retryable
+    const isTimeout = /timeout|abort|ETIMEDOUT|network/i.test(msg)
+    throw new GeminiError(`Gemini network error: ${msg}`, 0, isTimeout)
+  }
 
-  const data = await response.json()
+  const data = await response.json().catch(() => ({}))
   if (!response.ok) {
+    const errMsg: string = data?.error?.message || `Gemini Error: ${response.status}`
     // If this model stopped working, clear cache and throw so retry can pick next
-    if (data.error?.message?.includes('no longer available') || data.error?.message?.includes('deprecated')) {
+    if (errMsg.includes('no longer available') || errMsg.includes('deprecated')) {
       _cachedModel = null
     }
-    throw new Error(data.error?.message || `Gemini Error: ${response.status}`)
+    const status = response.status
+    const retryable =
+      status === 429 ||
+      status === 503 ||
+      status === 504 ||
+      /rate.?limit|quota|overload|high demand|unavailable|try again/i.test(errMsg)
+    throw new GeminiError(errMsg, status, retryable)
   }
 
   const content = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
   if (!content) {
-    // Check for safety/finish reason
     const reason = data.candidates?.[0]?.finishReason
-    if (reason && reason !== 'STOP') throw new Error(`Gemini stopped: ${reason}`)
-    throw new Error('No content in Gemini response')
+    if (reason && reason !== 'STOP') {
+      const retryable = reason === 'OTHER' || reason === 'MAX_TOKENS'
+      throw new GeminiError(`Gemini stopped: ${reason}`, 0, retryable)
+    }
+    throw new GeminiError('No content in Gemini response', 0, true)
   }
   return content
+}
+
+/**
+ * Retry wrapper around callGeminiOnce with exponential backoff + jitter.
+ * Retries up to `maxAttempts` times on retryable errors only.
+ */
+async function callGemini(
+  prompt: string,
+  base64Data: string,
+  mimeType: string,
+  maxAttempts = 3
+): Promise<string> {
+  let lastErr: any = null
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await callGeminiOnce(prompt, base64Data, mimeType)
+    } catch (e: any) {
+      lastErr = e
+      const retryable = e instanceof GeminiError ? e.retryable : false
+      if (!retryable || attempt === maxAttempts - 1) break
+      // Backoff: 2s, 4s, 8s + jitter (0–500ms)
+      const base = 2000 * Math.pow(2, attempt)
+      const jitter = Math.floor(Math.random() * 500)
+      const wait = base + jitter
+      console.warn(`[Gemini] retryable error (attempt ${attempt + 1}/${maxAttempts}): ${e?.message}. Retrying in ${wait}ms...`)
+      await new Promise(r => setTimeout(r, wait))
+    }
+  }
+  throw lastErr
+}
+
+/**
+ * Translate raw Gemini errors to user-friendly Spanish messages.
+ */
+function getUserFriendlyError(err: any): string {
+  const raw: string = err?.message || String(err || 'Error desconocido')
+  if (!raw) return 'Error desconocido al analizar la factura.'
+  if (/api.?key|GEMINI_API_KEY/i.test(raw)) return 'Configuración de IA inválida. Contacta al administrador.'
+  if (/quota|rate.?limit|429/i.test(raw)) return 'Demasiadas peticiones a la IA. Espera un minuto y vuelve a intentarlo.'
+  if (/503|overload|unavailable|high demand/i.test(raw)) return 'El servicio de IA está saturado. Inténtalo de nuevo en unos segundos.'
+  if (/timeout|abort/i.test(raw)) return 'La IA tardó demasiado en responder. Vuelve a intentarlo con un archivo más pequeño si persiste.'
+  if (/SAFETY|BLOCK|finishReason/i.test(raw)) return 'La IA bloqueó la respuesta por filtros de seguridad. Revisa el documento.'
+  if (/No content/i.test(raw)) return 'La IA devolvió una respuesta vacía. Vuelve a intentarlo.'
+  return raw
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
@@ -341,43 +422,97 @@ JSON: {"documentType": "...", "extracted": { ... }}`
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
 /**
+ * Numeric coercion helper — parses "1.234,56" and "1234.56" formats.
+ */
+function toNum(v: any): number {
+  if (v == null) return 0
+  if (typeof v === 'number') return Number.isFinite(v) ? v : 0
+  const s = String(v).trim().replace(/\s/g, '')
+  // Spanish number: remove thousand dots if pattern looks like 1.234,56
+  const normalized = /,\d{1,2}$/.test(s) ? s.replace(/\./g, '').replace(',', '.') : s.replace(',', '.')
+  const n = parseFloat(normalized)
+  return Number.isFinite(n) ? n : 0
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100
+const round4 = (n: number) => Math.round(n * 10000) / 10000
+
+/**
+ * Aggressive fuzzy key for deduplicating otrosConceptos.
+ * Strips noise tokens (DE, MÉTODO, CUARTOHORARIO, accents, punctuation)
+ * so variants like "Exceso de Potencia (Método cuarto horario)" and
+ * "Exceso potencia" collapse into the same key.
+ */
+function fuzzyConceptKey(concepto: string): string {
+  return String(concepto || '')
+    .toUpperCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // strip accents
+    .replace(/[().,;:\-/]/g, ' ')
+    .replace(/\b(DE|DEL|LA|LAS|EL|LOS|POR|CON|SIN|METODO|CUARTOHORARIO|CUARTO HORARIO|HORARIO|HORARIA)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * Is this concept an excess/penalty line? Matches EXCESO, PENALIZAC*, SOBREPOTENCIA.
+ */
+function isPenaltyConcept(concepto: string): boolean {
+  const k = fuzzyConceptKey(concepto)
+  return /EXCESO|PENALIZAC|SOBREPOTENCIA|SOBREPASO/.test(k)
+}
+
+/**
  * Normalize economics block after extraction:
- * 1) Deduplicate otrosConceptos (same canonical concept → sum totals)
- * 2) Map costeNetoConsumo → costeTotalConsumo for backward compat
- * 3) Compute costeMedioKwhNeto from consumoTotalKwh
+ *  1) Deduplicate otrosConceptos by fuzzy canonical key
+ *  2) Collapse duplicate EXCESO/PENALIZACIÓN rows that share the same total
+ *  3) Map costeNetoConsumo ↔ costeTotalConsumo for backward compat
+ *  4) Derive costeBrutoConsumo from consumo[] if missing
+ *  5) Compute costeMedioKwhNeto
+ *  6) Gas-specific: flag precioKwhEstimated + normalize gasPricing
+ *  7) Math self-check: compute sum and attach validation metadata
  */
 function postProcessEconomics(economics: any): any {
   if (!economics || typeof economics !== 'object') return economics
-  const eco = { ...economics }
+  const eco: any = { ...economics }
 
-  // Numeric coercion helper
-  const num = (v: any): number => {
-    if (v == null) return 0
-    const n = typeof v === 'number' ? v : parseFloat(String(v).replace(',', '.'))
-    return Number.isFinite(n) ? n : 0
-  }
-
-  // 1) Deduplicate otrosConceptos by canonical name
+  // 1+2) Deduplicate otrosConceptos
   if (Array.isArray(eco.otrosConceptos)) {
-    const map = new Map<string, { concepto: string; total: number }>()
+    // Pass 1: fuzzy key dedup (sum totals per canonical concept)
+    const byKey = new Map<string, { concepto: string; total: number }>()
     for (const c of eco.otrosConceptos) {
       if (!c || !c.concepto) continue
-      const key = String(c.concepto).trim().toUpperCase()
-      const total = num(c.total)
-      const existing = map.get(key)
+      const total = toNum(c.total)
+      const key = fuzzyConceptKey(c.concepto)
+      if (!key) continue
+      const existing = byKey.get(key)
       if (existing) {
         existing.total += total
       } else {
-        map.set(key, { concepto: String(c.concepto).trim(), total })
+        byKey.set(key, { concepto: String(c.concepto).trim(), total })
       }
     }
-    eco.otrosConceptos = Array.from(map.values()).map(c => ({
-      concepto: c.concepto,
-      total: Math.round(c.total * 100) / 100,
-    }))
+
+    // Pass 2: for penalty rows, keep ONE row per unique total (avoids "método
+    // cuarto horario vs puntas" double-counting on the same penalty amount)
+    const penaltyRows: { concepto: string; total: number }[] = []
+    const nonPenaltyRows: { concepto: string; total: number }[] = []
+    for (const row of byKey.values()) {
+      if (isPenaltyConcept(row.concepto)) penaltyRows.push(row)
+      else nonPenaltyRows.push(row)
+    }
+    const penaltyByTotal = new Map<string, { concepto: string; total: number }>()
+    for (const p of penaltyRows) {
+      const tKey = (Math.round(p.total * 100) / 100).toFixed(2)
+      if (!penaltyByTotal.has(tKey)) penaltyByTotal.set(tKey, p)
+    }
+
+    eco.otrosConceptos = [
+      ...nonPenaltyRows.map(r => ({ concepto: r.concepto, total: round2(r.total) })),
+      ...Array.from(penaltyByTotal.values()).map(r => ({ concepto: r.concepto, total: round2(r.total) })),
+    ]
   }
 
-  // 2) Map costeNetoConsumo → costeTotalConsumo (backward compat)
+  // 3) costeNetoConsumo ↔ costeTotalConsumo
   if (eco.costeNetoConsumo != null && eco.costeTotalConsumo == null) {
     eco.costeTotalConsumo = eco.costeNetoConsumo
   }
@@ -385,18 +520,87 @@ function postProcessEconomics(economics: any): any {
     eco.costeNetoConsumo = eco.costeTotalConsumo
   }
 
-  // If costeBrutoConsumo missing but we have consumo items, compute it
+  // 4) Derive costeBrutoConsumo from consumo items if missing
   if (eco.costeBrutoConsumo == null && Array.isArray(eco.consumo)) {
-    const brute = eco.consumo.reduce((s: number, p: any) => s + num(p.total), 0)
-    if (brute > 0) eco.costeBrutoConsumo = Math.round(brute * 100) / 100
+    const brute = eco.consumo.reduce((s: number, p: any) => s + toNum(p.total), 0)
+    if (brute > 0) eco.costeBrutoConsumo = round2(brute)
   }
 
-  // 3) Compute costeMedioKwhNeto
-  const consumoKwh = num(eco.consumoTotalKwh)
-  const costeNeto = num(eco.costeNetoConsumo ?? eco.costeTotalConsumo)
+  // If we have bruto and descuentoEnergia but no neto, derive it
+  if (eco.costeNetoConsumo == null && eco.costeBrutoConsumo != null) {
+    const neto = toNum(eco.costeBrutoConsumo) - toNum(eco.descuentoEnergia)
+    eco.costeNetoConsumo = round2(neto)
+    eco.costeTotalConsumo = eco.costeNetoConsumo
+  }
+
+  // 5) costeMedioKwhNeto
+  const consumoKwh = toNum(eco.consumoTotalKwh)
+  const costeNeto = toNum(eco.costeNetoConsumo ?? eco.costeTotalConsumo)
   if (consumoKwh > 0 && costeNeto > 0) {
-    eco.costeMedioKwhNeto = Math.round((costeNeto / consumoKwh) * 10000) / 10000
+    eco.costeMedioKwhNeto = round4(costeNeto / consumoKwh)
     if (eco.costeMedioKwh == null) eco.costeMedioKwh = eco.costeMedioKwhNeto
+  }
+
+  // 6) Gas-specific normalization
+  if (eco.gasPricing && typeof eco.gasPricing === 'object') {
+    const gp: any = { ...eco.gasPricing }
+    // Flag estimated price when we had to derive it
+    if ((gp.precioKwh == null || toNum(gp.precioKwh) === 0) && consumoKwh > 0 && toNum(eco.costeBrutoConsumo) > 0) {
+      gp.precioKwh = round4(toNum(eco.costeBrutoConsumo) / consumoKwh)
+      gp.precioKwhEstimated = true
+    } else if (gp.precioKwh != null) {
+      gp.precioKwhEstimated = gp.precioKwhEstimated === true
+    }
+    // Default IVA for Spanish gas if missing
+    if (gp.ivaPorcentaje == null) gp.ivaPorcentaje = 21
+    // Normalize numeric fields
+    for (const k of ['precioKwh', 'terminoFijoDiario', 'diasFacturados', 'terminoFijoTotal',
+                     'impuestoHidrocarbTotal', 'alquilerTotal', 'ivaTotal', 'descuentoTerminoFijo', 'descuentoOtros']) {
+      if (gp[k] != null) gp[k] = typeof gp[k] === 'number' ? gp[k] : toNum(gp[k])
+    }
+    eco.gasPricing = gp
+  }
+
+  // 7) JS-side math self-check
+  const totalFactura = toNum(eco.totalFactura)
+  let computed = 0
+  const isGas = !!eco.gasPricing
+  if (isGas) {
+    const gp = eco.gasPricing || {}
+    const bruto = toNum(eco.costeBrutoConsumo)
+    const tFijo = toNum(gp.terminoFijoTotal)
+    const hidro = toNum(gp.impuestoHidrocarbTotal)
+    const alq = toNum(gp.alquilerTotal)
+    const iva = toNum(gp.ivaTotal)
+    const dE = toNum(eco.descuentoEnergia)
+    const dTF = toNum(gp.descuentoTerminoFijo)
+    const dO = toNum(gp.descuentoOtros)
+    computed = bruto + tFijo + hidro + alq + iva - dE - dTF - dO
+  } else {
+    const neto = toNum(eco.costeNetoConsumo ?? eco.costeTotalConsumo)
+    const pot = toNum(eco.costeTotalPotencia)
+    const otros = Array.isArray(eco.otrosConceptos)
+      ? eco.otrosConceptos.reduce((s: number, c: any) => s + toNum(c.total), 0)
+      : 0
+    computed = neto + pot + otros
+  }
+  const diff = Math.abs(computed - totalFactura)
+  const tolerance = Math.max(0.05, totalFactura * 0.01) // 0.05€ or 1% of total
+  const warnings: string[] = []
+  if (totalFactura > 0 && diff > tolerance) {
+    warnings.push(
+      `Descuadre matemático: suma de conceptos ${round2(computed).toFixed(2)}€ vs total factura ${round2(totalFactura).toFixed(2)}€ (diferencia ${round2(diff).toFixed(2)}€)`
+    )
+  }
+  if (!eco.cups && !eco.CUPS) warnings.push('CUPS no extraído')
+  if (isGas && eco.gasPricing?.precioKwhEstimated) warnings.push('€/kWh de gas calculado (no explícito en factura)')
+
+  eco.validation = {
+    computedTotal: round2(computed),
+    declaredTotal: round2(totalFactura),
+    diff: round2(diff),
+    mathOk: totalFactura > 0 ? diff <= tolerance : null,
+    warnings,
   }
 
   return eco
@@ -439,8 +643,12 @@ export async function analyzeDocument(base64Data: string, mimeType: string, docT
       fiscal_address: clean(extracted.fiscal_address),
     }
   } catch (error: any) {
-    console.error('[Gemini] Analysis failed:', error.message)
-    return { mode: 'manual', documentType: docType || 'otro', error: error.message }
+    console.error('[Gemini] Analysis failed:', error?.message || error)
+    return {
+      mode: 'manual',
+      documentType: docType || 'otro',
+      error: getUserFriendlyError(error),
+    }
   }
 }
 
