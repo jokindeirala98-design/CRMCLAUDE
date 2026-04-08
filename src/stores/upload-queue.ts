@@ -118,6 +118,77 @@ function normalizeTariff(raw: string): string {
 }
 
 /**
+ * Retry analysis of a single failed file in a job.
+ * Resets the file to 'analyzing' and re-runs the Gemini call with 2 attempts.
+ */
+export async function retryFile(jobId: string, fileId: string): Promise<void> {
+  const { updateFile, updateJob, jobs } = useUploadQueue.getState()
+  const job = jobs.find(j => j.id === jobId)
+  if (!job) return
+  const file = job.files.find(f => f.id === fileId)
+  if (!file) return
+
+  updateFile(jobId, fileId, { status: 'analyzing', error: undefined })
+
+  let retries = 2
+  let lastError: any = null
+  while (retries >= 0) {
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve((reader.result as string).split(',')[1])
+        reader.onerror = () => reject(new Error('Error leyendo archivo'))
+        reader.readAsDataURL(file.file)
+      })
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 60_000)
+      const fileType = file.file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image'
+
+      const response = await fetch('/api/analyze-document', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_base64: base64, file_type: fileType, file_name: file.file.name }),
+        signal: controller.signal,
+      })
+      clearTimeout(timeout)
+
+      if (!response.ok) {
+        if (response.status >= 500 && retries > 0) throw new Error(`API ${response.status}`)
+        const errResult = await response.json().catch(() => ({}))
+        throw new Error(errResult.error || `Error API ${response.status}`)
+      }
+      const result = await response.json()
+      updateFile(jobId, fileId, {
+        status: 'done',
+        extractedData: result,
+        error: result.mode === 'manual' && result.error ? result.error : undefined,
+      })
+
+      // If the whole job was in error state because of this, resume processing
+      const currentJob = useUploadQueue.getState().jobs.find(j => j.id === jobId)
+      if (currentJob?.status === 'error') {
+        updateJob(jobId, { status: 'analyzing', errorMessage: undefined, finishedAt: undefined })
+        setTimeout(() => processQueue(), 100)
+      }
+      return
+    } catch (err: any) {
+      lastError = err
+      console.warn(`[UploadQueue] Retry attempt failed for ${file.file.name} (${retries} left):`, err.message)
+      if (retries === 0) {
+        updateFile(jobId, fileId, {
+          status: 'error',
+          error: err.name === 'AbortError' ? 'Timeout' : err.message || 'Error',
+        })
+      } else {
+        await new Promise(r => setTimeout(r, 1000 * (2 - retries)))
+      }
+      retries--
+    }
+  }
+  void lastError
+}
+
+/**
  * Global queue processor
  * Ensures only one job runs at a time
  */
@@ -271,87 +342,112 @@ export async function processJobInBackground(jobId: string): Promise<void> {
   // ── Phase -1: Auto-Detect Client if missing ──
   if (!currentJob.clientId) {
     updateJob(jobId, { status: 'analyzing' })
-    
+
     const analyzedFiles = currentJob.files.filter(f => f.status === 'done' && f.extractedData?.mode === 'gemini')
-    
-    // 1. Try to detect by CIF/NIF (best option)
-    for (const f of analyzedFiles) {
-      const meta = f.extractedData
-      const rawCifNif = meta.cif || meta.nif || meta.holder_cif_nif
-      const cifNif = cleanIdentifier(rawCifNif)
-      const name = meta.holder_name || meta.account_holder || 'Cliente Nuevo'
 
-      if (cifNif) {
-        // Search by cleaned CIF/NIF
-        const { data: existing } = await supabase
+    // Build candidates from ALL analyzed files
+    const candidates = analyzedFiles.map(f => {
+      const meta = f.extractedData || {}
+      return {
+        cifNif: cleanIdentifier(meta.cif || meta.nif || meta.holder_cif_nif),
+        name: (meta.holder_name || meta.account_holder || '').trim() || null,
+      }
+    })
+
+    let matchedClient: { id: string; name: string } | null = null
+
+    // 1. Try matching by CIF/NIF across ALL candidates
+    for (const c of candidates) {
+      if (!c.cifNif || c.cifNif.length < 8) continue
+      try {
+        const { data } = await supabase
           .from('clients')
           .select('id, name')
-          .or(`cif.eq.${cifNif},nif.eq.${cifNif}`)
+          .or(`cif_nif.ilike.%${c.cifNif}%,cif.ilike.%${c.cifNif}%,nif.ilike.%${c.cifNif}%`)
           .limit(1)
           .maybeSingle()
+        if (data) { matchedClient = data; break }
+      } catch (err) {
+        console.warn('[UploadQueue] CIF lookup error:', err)
+      }
+    }
 
-        if (existing) {
-          updateJob(jobId, { clientId: existing.id, clientName: existing.name })
-          break
-        }
-        
-        // If CIF/NIF not found → try full name match (exact phrase in DB)
-        // This avoids incorrect matches like "Ayuntamiento de Aoiz" → "Ayuntamiento de Liedena"
-        const { data: fullNameMatch } = await supabase
-          .from('clients')
-          .select('id, name')
-          .ilike('name', `%${name}%`)
-          .limit(1)
-          .maybeSingle()
-
-        if (fullNameMatch) {
-          updateJob(jobId, { clientId: fullNameMatch.id, clientName: fullNameMatch.name })
-          break
-        }
-
-        // Last resort: match on the LAST distinctive word only (e.g. "Aoiz" from "Ayuntamiento de Aoiz")
-        // Only use if exactly ONE client matches to avoid wrong assignments
-        const stopWords = new Set(['de', 'del', 'la', 'las', 'los', 'el', 'y', 'e', 'o', 'en', 'por'])
-        const words = name.split(/\s+/).filter(w => w.length > 3 && !stopWords.has(w.toLowerCase()))
-        const keyWord = words.length > 0 ? words[words.length - 1] : null
-
-        if (keyWord) {
-          const { data: keyWordMatches } = await supabase
+    // 2. Try matching by holder name keywords
+    if (!matchedClient) {
+      const stopWords = new Set([
+        'de', 'del', 'la', 'las', 'los', 'el', 'y', 'e', 'o', 'en', 'por', 'con', 'para',
+        'sl', 'sa', 'slu', 'cb', 'sc', 'sociedad', 'limitada', 'anonima',
+      ])
+      for (const c of candidates) {
+        if (!c.name || c.name === 'No detectado') continue
+        const cname: string = c.name
+        const words: string[] = cname.split(/\s+/).filter((w: string) => w.length >= 3 && !stopWords.has(w.toLowerCase()))
+        if (!words.length) continue
+        const primaryKeyword = [...words].sort((a, b) => b.length - a.length)[0]
+        try {
+          const { data: matches } = await supabase
             .from('clients')
             .select('id, name')
-            .ilike('name', `%${keyWord}%`)
-            .limit(2)
-          // Only trust match if unique — multiple matches means too ambiguous
-          if (keyWordMatches?.length === 1) {
-            updateJob(jobId, { clientId: keyWordMatches[0].id, clientName: keyWordMatches[0].name })
-            break
+            .ilike('name', `%${primaryKeyword}%`)
+            .limit(5)
+          if (matches?.length) {
+            const scored = (matches as Array<{ id: string; name: string }>).map((m) => ({
+              ...m,
+              score: words.filter((w: string) => m.name.toLowerCase().includes(w.toLowerCase())).length,
+            })).sort((a: { score: number }, b: { score: number }) => b.score - a.score)
+            if (scored[0].score >= 1) {
+              matchedClient = { id: scored[0].id, name: scored[0].name }
+              break
+            }
           }
-        }
-
-        // If still not found, create new
-        const isCIF = cifNif.match(/^[A-Z]/i)
-        const { data: newClient } = await supabase
-          .from('clients')
-          .insert({
-            name,
-            [isCIF ? 'cif' : 'nif']: cifNif,
-            status: 'activo'
-          })
-          .select('id, name')
-          .single()
-
-        if (newClient) {
-          updateJob(jobId, { clientId: newClient.id, clientName: newClient.name })
-          break
+        } catch (err) {
+          console.warn('[UploadQueue] Name lookup error:', err)
         }
       }
     }
-    
-    currentJob = getJob()!
-    if (!currentJob.clientId) {
-      updateJob(jobId, { 
-        status: 'error', 
-        errorMessage: 'No se pudo detectar ni crear el cliente. Por favor selecciónalo manualmente en el widget.' 
+
+    // 3. Create new client with best available data
+    if (!matchedClient) {
+      const bestName = candidates.find(c => c.name && c.name !== 'No detectado')?.name
+        || currentJob.files[0]?.file.name?.replace(/\.[^.]+$/, '')
+        || 'Cliente sin nombre'
+      const bestCif = candidates.find(c => c.cifNif)?.cifNif || null
+      const isAyuntamiento = /ayuntamiento|ajuntament|concello|diputaci[oó]n|mancomunidad/i.test(bestName)
+      const isParticular = bestCif ? /^\d/.test(bestCif) : false
+      const clientType = isAyuntamiento ? 'ayuntamiento' : isParticular ? 'particular' : 'empresa'
+
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+
+      const payload: any = {
+        name: bestName,
+        type: clientType,
+        cif_nif: bestCif,
+        marketing_consent: false,
+        origin: 'captacion',
+      }
+      if (authUser?.id) payload.commercial_id = authUser.id
+
+      const { data: newClient, error: createErr } = await supabase
+        .from('clients')
+        .insert(payload)
+        .select('id, name')
+        .single()
+
+      if (createErr) {
+        console.error('[UploadQueue] Failed to create client:', createErr)
+      } else if (newClient) {
+        matchedClient = newClient
+        console.log('[UploadQueue] Created new client automatically:', newClient.name)
+      }
+    }
+
+    if (matchedClient) {
+      updateJob(jobId, { clientId: matchedClient.id, clientName: matchedClient.name })
+      currentJob = getJob()!
+    } else {
+      updateJob(jobId, {
+        status: 'error',
+        errorMessage: 'No se pudo detectar ni crear el cliente automáticamente. Selecciónalo manualmente.',
       })
       useUploadQueue.getState().setIsProcessing(false)
       return
@@ -450,8 +546,14 @@ export async function processJobInBackground(jobId: string): Promise<void> {
     for (const group of allGroups) {
       const first = group.files[0].extractedData!
       const cups = group.cups || null
-      const type = first.supply_type || 'luz'
-      const tariff = normalizeTariff(first.tariff || '2.0')
+      const rawTariff = first.tariff || '2.0'
+      const tariff = normalizeTariff(rawTariff)
+      // Detect gas from RL tariff prefix, otherwise use extracted supply_type
+      const type: string = /^RL/i.test(String(rawTariff).replace(/\s+/g, ''))
+        ? 'gas'
+        : (first.supply_type === 'gas' ? 'gas'
+          : first.supply_type === 'telefonia' ? 'telefonia'
+          : 'luz')
 
       // Check if supply already exists
       let supplyId: string | null = null

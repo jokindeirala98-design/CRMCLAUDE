@@ -141,7 +141,8 @@ export function UploadProgress() {
 
 import { SearchableClientSelector } from './SearchableClientSelector'
 import { createClient } from '@/lib/supabase/client'
-import { processJobInBackground } from '@/stores/upload-queue'
+import { processJobInBackground, retryFile } from '@/stores/upload-queue'
+import { RefreshCw } from 'lucide-react'
 
 function JobCard({
   job,
@@ -351,13 +352,35 @@ function JobCard({
                        <Check className="w-3 h-3 text-success flex-shrink-0" />
                     </div>
                   )}
-                  {f.status === 'done' && f.error && <AlertCircle className="w-3 h-3 text-warning flex-shrink-0" />}
+                  {f.status === 'done' && f.error && (
+                    <div className="flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3 text-warning flex-shrink-0" />
+                      <button
+                        onClick={(e) => { e.stopPropagation(); retryFile(job.id, f.id) }}
+                        className="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[9px] font-bold uppercase tracking-wider hover:bg-primary/20 transition-colors"
+                        title="Reescanear este archivo"
+                      >
+                        <RefreshCw className="w-2.5 h-2.5" />
+                        Reescanear
+                      </button>
+                    </div>
+                  )}
                   {f.status === 'error' && (
-                    <div className="group relative">
-                      <AlertCircle className="w-3 h-3 text-error flex-shrink-0 cursor-help" />
-                      <div className="absolute bottom-full right-0 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-all pointer-events-none z-50 shadow-xl border border-white/10 leading-tight">
-                        {f.error || 'Error desconocido'}
+                    <div className="flex items-center gap-1">
+                      <div className="group relative">
+                        <AlertCircle className="w-3 h-3 text-error flex-shrink-0 cursor-help" />
+                        <div className="absolute bottom-full right-0 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-all pointer-events-none z-50 shadow-xl border border-white/10 leading-tight">
+                          {f.error || 'Error desconocido'}
+                        </div>
                       </div>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); retryFile(job.id, f.id) }}
+                        className="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[9px] font-bold uppercase tracking-wider hover:bg-primary/20 transition-colors"
+                        title="Reescanear este archivo"
+                      >
+                        <RefreshCw className="w-2.5 h-2.5" />
+                        Reescanear
+                      </button>
                     </div>
                   )}
                 </div>
