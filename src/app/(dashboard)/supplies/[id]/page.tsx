@@ -20,6 +20,7 @@ import { DataTable } from '@/components/ui/DataTable'
 import { createClient } from '@/lib/supabase/client'
 import { formatDate, formatCurrency } from '@/lib/utils/format'
 import { getViewUrl } from '@/lib/utils/storage'
+import { normalizeCups } from '@/lib/utils/cups'
 import { useAuthStore } from '@/stores/auth'
 import type { SupplyStatus } from '@/types/database'
 
@@ -514,6 +515,51 @@ export default function SupplyDetailPage() {
           body: JSON.stringify({ file_base64: base64, file_type: fileType, file_name: file.name }),
         })
         const extractedData = await analyzeRes.json()
+
+        // 2.5 ── STRICT CUPS VALIDATION ─────────────────────────────────────
+        // A supply must never mix invoices from different CUPS.
+        // Reject any invoice whose extracted CUPS does not match this supply.
+        const supplyCupsNorm = normalizeCups(supply.cups)
+        const invoiceCupsRaw: string | null =
+          extractedData?.cups ??
+          extractedData?.economics?.cups ??
+          null
+        const invoiceCupsNorm = normalizeCups(invoiceCupsRaw)
+
+        if (!supplyCupsNorm) {
+          // Supply has no CUPS yet — cannot validate, but still reject to be strict
+          await supabase.storage.from('documents').remove([storageData.path]).catch(() => {})
+          newProgress[fileId] = 'error'
+          setUploadProgress({ ...newProgress })
+          showNotification(
+            `No se puede validar "${file.name}": este suministro no tiene CUPS asignado.`,
+            'error'
+          )
+          continue
+        }
+
+        if (!invoiceCupsNorm) {
+          await supabase.storage.from('documents').remove([storageData.path]).catch(() => {})
+          newProgress[fileId] = 'error'
+          setUploadProgress({ ...newProgress })
+          showNotification(
+            `Factura rechazada: no se pudo extraer un CUPS válido de "${file.name}".`,
+            'error'
+          )
+          continue
+        }
+
+        if (invoiceCupsNorm !== supplyCupsNorm) {
+          // Clean up the orphan file to avoid storage bloat
+          await supabase.storage.from('documents').remove([storageData.path]).catch(() => {})
+          newProgress[fileId] = 'error'
+          setUploadProgress({ ...newProgress })
+          showNotification(
+            `Factura rechazada: el CUPS de "${file.name}" (${invoiceCupsNorm}) no coincide con el CUPS de este suministro (${supplyCupsNorm}). Un suministro solo puede contener facturas de un único CUPS.`,
+            'error'
+          )
+          continue
+        }
 
         // 3. Compute period dates and total from extracted data
         const eco = extractedData?.economics
