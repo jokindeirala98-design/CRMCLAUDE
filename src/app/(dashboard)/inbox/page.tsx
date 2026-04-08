@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Upload, Check, AlertCircle, Loader2, CheckCircle,
-  X, Zap, FileText, User, ArrowRight, Clipboard,
+  X, Zap, FileText, User, ArrowRight, Clipboard, Sparkles,
 } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
 import { createClient } from '@/lib/supabase/client'
@@ -45,9 +45,11 @@ export default function InboxPage() {
   const [clients, setClients] = useState<ClientOption[]>([])
   const [clientSearch, setClientSearch] = useState('')
   const [selectedClient, setSelectedClient] = useState<ClientOption | null>(null)
+  const [autoDetectClient, setAutoDetectClient] = useState(false)
   const [creatingNewClient, setCreatingNewClient] = useState(false)
   const [newClientName, setNewClientName] = useState('')
   const clientInputRef = useRef<HTMLInputElement>(null)
+  const [autoDetectedClientName, setAutoDetectedClientName] = useState<string | null>(null)
 
   // Invoice files
   const [files, setFiles] = useState<UploadFile[]>([])
@@ -182,6 +184,42 @@ export default function InboxPage() {
       reader.readAsDataURL(file)
     })
 
+  // ── Analyze one file with retry ──
+  const analyzeOne = async (uf: UploadFile): Promise<any> => {
+    const maxAttempts = 2
+    let lastErr: string = 'Error desconocido'
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const b64 = await readFileAsBase64(uf.file)
+        const res = await fetch('/api/analyze-invoice', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            file_base64: b64,
+            file_type: uf.file.type.startsWith('image') ? 'image' : 'pdf',
+            file_name: uf.file.name,
+          }),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          lastErr = data?.error || `HTTP ${res.status}`
+          if (attempt < maxAttempts) continue
+          throw new Error(lastErr)
+        }
+        if (data?.error) {
+          lastErr = data.error
+          if (attempt < maxAttempts) continue
+          throw new Error(lastErr)
+        }
+        return data
+      } catch (e: any) {
+        lastErr = e?.message || 'Error de red'
+        if (attempt >= maxAttempts) throw new Error(lastErr)
+      }
+    }
+    throw new Error(lastErr)
+  }
+
   // ── Analyze all files ──
   const startAnalysis = async () => {
     if (files.length === 0) return
@@ -189,63 +227,44 @@ export default function InboxPage() {
     setError(null)
     setScanProgress({ done: 0, total: files.length })
 
-    let firstData: any = null
+    const collected: Array<{ id: string; data: any }> = []
 
-    // Analyze first file immediately
-    const first = files[0]
-    setFiles(prev => prev.map(f => f.id === first.id ? { ...f, status: 'analyzing' } : f))
-    try {
-      const b64 = await readFileAsBase64(first.file)
-      const res = await fetch('/api/analyze-invoice', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          file_base64: b64,
-          file_type: first.file.type.startsWith('image') ? 'image' : 'pdf',
-          file_name: first.file.name,
-        }),
-      })
-      if (!res.ok) throw new Error('Analysis failed')
-      firstData = await res.json()
-      setFiles(prev => prev.map(f => f.id === first.id ? { ...f, status: 'success', extractedData: firstData } : f))
-    } catch {
-      setFiles(prev => prev.map(f => f.id === first.id ? { ...f, status: 'error', error: 'Error al analizar' } : f))
-    }
-    setScanProgress({ done: 1, total: files.length })
-
-    // Analyze rest in parallel batches of 3
-    const rest = files.slice(1)
-    for (let i = 0; i < rest.length; i += 3) {
-      const batch = rest.slice(i, i + 3)
+    // Analyze all files in parallel batches of 3
+    for (let i = 0; i < files.length; i += 3) {
+      const batch = files.slice(i, i + 3)
       await Promise.allSettled(batch.map(async (uf) => {
         setFiles(prev => prev.map(f => f.id === uf.id ? { ...f, status: 'analyzing' } : f))
         try {
-          const b64 = await readFileAsBase64(uf.file)
-          const res = await fetch('/api/analyze-invoice', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              file_base64: b64,
-              file_type: uf.file.type.startsWith('image') ? 'image' : 'pdf',
-              file_name: uf.file.name,
-            }),
-          })
-          if (!res.ok) throw new Error()
-          const data = await res.json()
+          const data = await analyzeOne(uf)
+          collected.push({ id: uf.id, data })
           setFiles(prev => prev.map(f => f.id === uf.id ? { ...f, status: 'success', extractedData: data } : f))
-        } catch {
-          setFiles(prev => prev.map(f => f.id === uf.id ? { ...f, status: 'error', error: 'Error' } : f))
+        } catch (err: any) {
+          console.error(`[Inbox] Failed to analyze ${uf.file.name}:`, err)
+          setFiles(prev => prev.map(f => f.id === uf.id ? { ...f, status: 'error', error: err?.message || 'Error al analizar' } : f))
         }
       }))
       setScanProgress(prev => ({ ...prev, done: Math.min(prev.done + batch.length, files.length) }))
     }
 
-    // Build review from first analyzed data
-    const cups = firstData?.cups ? normalizeCups(firstData.cups) : null
+    // Merge data from all successful files — prefer first non-null value per field
+    const pick = (field: string) => {
+      for (const { data } of collected) {
+        const v = data?.[field] ?? data?.economics?.[field]
+        if (v) return v
+      }
+      return null
+    }
+    const rawCups = pick('cups')
+    const cups = rawCups ? normalizeCups(rawCups) : null
+    const tariff = pick('tariff') || (collected[0]?.data?.economics?.tarifa ?? null)
+    const address = pick('supply_address') || pick('billing_address')
+    const holder = pick('holder_name') || (collected[0]?.data?.economics?.titular ?? null)
+
     setExtractedCups(cups || null)
-    setExtractedTariff(firstData?.tariff || firstData?.economics?.tarifa || null)
-    setExtractedAddress(firstData?.supply_address || firstData?.billing_address || null)
-    setExtractedHolder(firstData?.holder_name || firstData?.economics?.titular || null)
+    setExtractedTariff(tariff)
+    setExtractedAddress(address)
+    setExtractedHolder(holder)
+    if (autoDetectClient) setAutoDetectedClientName(holder || 'Nuevo cliente')
 
     // Check if CUPS already exists
     if (cups) {
@@ -265,15 +284,118 @@ export default function InboxPage() {
     setStep('review')
   }
 
+  // ── Extract keywords for fuzzy client match ──
+  const extractKeywordsLocal = (text: string): string[] => {
+    const legal = /\b(s\.?l\.?|s\.?a\.?|s\.?l\.?u\.?|c\.?b\.?|s\.?c\.?|sociedad|limitada|anonima|cooperativa|ltda?|inc|llc|corp|company)\b/gi
+    const fillers = /\b(de|del|la|las|el|los|y|en|con|por|para)\b/gi
+    const cleaned = text.replace(legal, '').replace(fillers, '').replace(/[.,;:'"()]/g, '').trim()
+    return Array.from(new Set(cleaned.split(/\s+/).filter(w => w.length >= 3).map(w => w.toLowerCase())))
+  }
+
+  // ── Cascade match/create client from extracted data ──
+  const matchOrCreateClient = async (): Promise<{ clientId: string; clientName: string } | null> => {
+    if (!user?.id) return null
+    const holderCif = extractedHolder
+      ? files.find(f => f.extractedData?.holder_cif_nif)?.extractedData?.holder_cif_nif || null
+      : null
+    const cifFromAny = holderCif || files.find(f => f.extractedData?.holder_cif_nif)?.extractedData?.holder_cif_nif || null
+
+    // 1. Try find client by CIF/NIF
+    if (cifFromAny) {
+      const cleanCif = String(cifFromAny).replace(/[\s.-]/g, '').toUpperCase()
+      if (cleanCif.length >= 8) {
+        const { data } = await supabase
+          .from('clients')
+          .select('id, name')
+          .or(`cif_nif.ilike.%${cleanCif}%,cif.ilike.%${cleanCif}%,nif.ilike.%${cleanCif}%`)
+          .limit(1)
+        if (data?.length) return { clientId: data[0].id, clientName: data[0].name }
+      }
+    }
+
+    // 2. Try by holder name keywords
+    if (extractedHolder && extractedHolder !== 'No detectado') {
+      const keywords = extractKeywordsLocal(extractedHolder)
+      if (keywords.length > 0) {
+        const primaryKeyword = keywords.sort((a, b) => b.length - a.length)[0]
+        const { data: nameMatches } = await supabase
+          .from('clients')
+          .select('id, name')
+          .ilike('name', `%${primaryKeyword}%`)
+          .limit(5)
+        if (nameMatches?.length) {
+          const scored = (nameMatches as Array<{ id: string; name: string }>).map((c) => ({
+            ...c,
+            score: keywords.filter((k) => c.name.toLowerCase().includes(k)).length,
+          })).sort((a: { score: number }, b: { score: number }) => b.score - a.score)
+          if (scored[0].score >= 1) return { clientId: scored[0].id, clientName: scored[0].name }
+        }
+      }
+    }
+
+    // 3. Create new client
+    const clientName = extractedHolder && extractedHolder !== 'No detectado'
+      ? extractedHolder
+      : 'Cliente sin nombre'
+    const isAyuntamiento = /ayuntamiento|ajuntament|concello|diputaci[oó]n|consejo\s+comarcal|mancomunidad/i.test(clientName)
+    const isParticular = cifFromAny ? /^\d/.test(String(cifFromAny).trim()) : false
+    const clientType = isAyuntamiento ? 'ayuntamiento' : isParticular ? 'particular' : 'empresa'
+
+    const payload = {
+      name: clientName,
+      type: clientType,
+      commercial_id: user.id,
+      cif_nif: cifFromAny || null,
+      origin: 'captacion',
+      marketing_consent: false,
+    }
+    const { data: newClient, error: createErr } = await supabase
+      .from('clients')
+      .insert(payload)
+      .select('id, name')
+      .single()
+    if (createErr || !newClient) {
+      console.error('[Inbox] Failed to create client:', createErr)
+      return null
+    }
+    return { clientId: newClient.id, clientName: newClient.name }
+  }
+
   // ── Submit: create supply + upload invoices ──
   const submitSupply = async () => {
-    if (!selectedClient || !user?.id) return
+    if (!user?.id) return
+    if (!selectedClient && !autoDetectClient) return
     setStep('submitting')
     setError(null)
 
     try {
-      const clientId = selectedClient.id
+      let clientId: string
+      let clientDisplayName: string
+
+      if (selectedClient) {
+        clientId = selectedClient.id
+        clientDisplayName = selectedClient.name
+      } else {
+        // Auto-detect: cascade match or create
+        const matched = await matchOrCreateClient()
+        if (!matched) {
+          throw new Error('No se pudo detectar ni crear el cliente automáticamente')
+        }
+        clientId = matched.clientId
+        clientDisplayName = matched.clientName
+        setAutoDetectedClientName(clientDisplayName)
+      }
+
       const normalizedCups = extractedCups ? normalizeCups(extractedCups) : null
+
+      // Detect supply type from tariff (RL = gas) or extracted supply_type
+      const tariffNormForType = (extractedTariff || '').replace(/\s+/g, '').toUpperCase()
+      const firstSuccess = files.find(f => f.status === 'success')?.extractedData
+      const extractedSupplyType = firstSuccess?.supply_type || ''
+      const supplyType: string = tariffNormForType && /^RL/i.test(tariffNormForType) ? 'gas'
+        : extractedSupplyType === 'gas' ? 'gas'
+        : extractedSupplyType === 'telefonia' ? 'telefonia'
+        : 'luz'
 
       // If CUPS exists, add invoices to existing supply
       if (existingSupply) {
@@ -302,7 +424,7 @@ export default function InboxPage() {
         .insert({
           client_id: clientId,
           cups: normalizedCups,
-          type: 'luz',
+          type: supplyType,
           tariff: extractedTariff || '',
           address: extractedAddress || '',
           status: 'estudio_en_curso',
@@ -334,7 +456,7 @@ export default function InboxPage() {
       if (needsPrescoring) {
         await supabase.from('prescorings').insert({
           supply_id: supply.id,
-          client_name: extractedHolder || selectedClient.name,
+          client_name: extractedHolder || clientDisplayName,
           cups: normalizedCups,
           tariff: extractedTariff,
           status: 'pending',
@@ -344,7 +466,7 @@ export default function InboxPage() {
 
       // Background: fetch SIPS + power study
       if (normalizedCups) {
-        fetchSipsBackground(supply.id, normalizedCups, clientId, extractedHolder || selectedClient.name)
+        fetchSipsBackground(supply.id, normalizedCups, clientId, extractedHolder || clientDisplayName)
       }
 
       setSuccessSupplyId(supply.id)
@@ -410,6 +532,8 @@ export default function InboxPage() {
   const reset = () => {
     setStep('client')
     setSelectedClient(null)
+    setAutoDetectClient(false)
+    setAutoDetectedClientName(null)
     setClientSearch('')
     setNewClientName('')
     setFiles([])
@@ -461,6 +585,33 @@ export default function InboxPage() {
         {/* ═══ STEP 1: CLIENT SELECTION ═══ */}
         {step === 'client' && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+            {/* Auto-detect option */}
+            <button
+              onClick={() => {
+                setSelectedClient(null)
+                setAutoDetectClient(true)
+                setClientSearch('')
+                setCreatingNewClient(false)
+                setStep('invoices')
+              }}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-primary/40 bg-primary/5 hover:bg-primary/10 transition-all"
+            >
+              <div className="w-10 h-10 rounded-xl gradient-primary flex items-center justify-center flex-shrink-0">
+                <Sparkles className="w-5 h-5 text-white" />
+              </div>
+              <div className="text-left flex-1">
+                <p className="text-sm font-bold text-primary">Auto-detectar cliente</p>
+                <p className="text-[11px] text-on-surface-variant">Extraer titular y CIF/NIF de las facturas automáticamente</p>
+              </div>
+              <ArrowRight className="w-4 h-4 text-primary" />
+            </button>
+
+            <div className="flex items-center gap-2">
+              <div className="flex-1 h-px bg-outline-variant/30" />
+              <span className="text-[10px] text-on-surface-variant tracking-wider">O ASIGNAR MANUALMENTE</span>
+              <div className="flex-1 h-px bg-outline-variant/30" />
+            </div>
+
             <div>
               <label className="text-xs font-semibold text-on-surface-variant tracking-wider mb-2 block">
                 SELECCIONA O CREA UN CLIENTE
@@ -549,9 +700,15 @@ export default function InboxPage() {
         {step === 'invoices' && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
             <div className="flex items-center gap-2 px-3 py-2 bg-primary/5 rounded-xl border border-primary/20">
-              <User className="w-4 h-4 text-primary" />
-              <span className="text-sm font-medium text-on-surface flex-1">{selectedClient?.name}</span>
-              <button onClick={() => { setSelectedClient(null); setStep('client') }}
+              {autoDetectClient ? (
+                <Sparkles className="w-4 h-4 text-primary" />
+              ) : (
+                <User className="w-4 h-4 text-primary" />
+              )}
+              <span className="text-sm font-medium text-on-surface flex-1">
+                {autoDetectClient ? 'Auto-detectar cliente de las facturas' : selectedClient?.name}
+              </span>
+              <button onClick={() => { setSelectedClient(null); setAutoDetectClient(false); setStep('client') }}
                 className="p-1 rounded-lg hover:bg-primary/10 transition">
                 <X className="w-3.5 h-3.5 text-on-surface-variant" />
               </button>
@@ -655,7 +812,10 @@ export default function InboxPage() {
               </div>
               <div className="pt-2 border-t border-outline-variant/10">
                 <p className="text-[10px] text-on-surface-variant tracking-wider">CLIENTE</p>
-                <p className="text-sm text-on-surface font-medium">{selectedClient?.name}</p>
+                <p className="text-sm text-on-surface font-medium flex items-center gap-1.5">
+                  {autoDetectClient && <Sparkles className="w-3.5 h-3.5 text-primary" />}
+                  {selectedClient?.name || autoDetectedClientName || 'Se detectará al crear'}
+                </p>
               </div>
             </div>
 
@@ -665,15 +825,36 @@ export default function InboxPage() {
               </p>
               <div className="space-y-1.5">
                 {files.map(f => (
-                  <div key={f.id} className="flex items-center gap-2 text-xs">
+                  <div key={f.id} className="flex items-start gap-2 text-xs">
                     {f.status === 'success' ? (
-                      <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+                      <CheckCircle className="w-3.5 h-3.5 text-green-500 mt-0.5 flex-shrink-0" />
                     ) : f.status === 'error' ? (
-                      <AlertCircle className="w-3.5 h-3.5 text-red-500" />
+                      <AlertCircle className="w-3.5 h-3.5 text-red-500 mt-0.5 flex-shrink-0" />
                     ) : (
-                      <Loader2 className="w-3.5 h-3.5 text-primary animate-spin" />
+                      <Loader2 className="w-3.5 h-3.5 text-primary animate-spin mt-0.5 flex-shrink-0" />
                     )}
-                    <span className="text-on-surface truncate">{f.file.name}</span>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-on-surface truncate block">{f.file.name}</span>
+                      {f.status === 'error' && f.error && (
+                        <span className="text-[10px] text-red-500 block truncate">{f.error}</span>
+                      )}
+                    </div>
+                    {f.status === 'error' && (
+                      <button
+                        onClick={async () => {
+                          setFiles(prev => prev.map(x => x.id === f.id ? { ...x, status: 'analyzing', error: undefined } : x))
+                          try {
+                            const data = await analyzeOne(f)
+                            setFiles(prev => prev.map(x => x.id === f.id ? { ...x, status: 'success', extractedData: data } : x))
+                          } catch (err: any) {
+                            setFiles(prev => prev.map(x => x.id === f.id ? { ...x, status: 'error', error: err?.message || 'Error' } : x))
+                          }
+                        }}
+                        className="text-[10px] text-primary font-medium hover:underline flex-shrink-0"
+                      >
+                        Reintentar
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
