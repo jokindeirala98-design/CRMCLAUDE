@@ -450,7 +450,8 @@ export default function SupplyDetailPage() {
 
   // ── Delete a single invoice ──────────────────────────────────────────────
   const handleDeleteInvoice = async (inv: any) => {
-    if (!confirm(`¿Eliminar esta factura${inv.period_start ? ` (${new Date(inv.period_start).toLocaleDateString('es-ES', { month: 'short', year: '2-digit' })})` : ''}? Se eliminará del suministro y del almacenamiento.`)) return
+    const periodLabel = inv.period_end ? new Date(inv.period_end).toLocaleDateString('es-ES', { month: 'short', year: '2-digit' }) : inv.period_start ? new Date(inv.period_start).toLocaleDateString('es-ES', { month: 'short', year: '2-digit' }) : null
+    if (!confirm(`¿Eliminar esta factura${periodLabel ? ` (${periodLabel})` : ''}? Se eliminará del suministro y del almacenamiento.`)) return
     setDeletingInvoiceId(inv.id)
     try {
       const supabase = createClient()
@@ -2163,11 +2164,13 @@ export default function SupplyDetailPage() {
                 {supply.invoices && supply.invoices.length > 0 ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     {[...supply.invoices]
-                      .sort((a: any, b: any) => new Date(b.period_start || b.created_at).getTime() - new Date(a.period_start || a.created_at).getTime())
+                      .sort((a: any, b: any) => new Date(b.period_end || b.period_start || b.created_at).getTime() - new Date(a.period_end || a.period_start || a.created_at).getTime())
                       .map((inv: any) => {
-                        const period = inv.period_start
-                          ? new Date(inv.period_start).toLocaleDateString('es-ES', { month: 'short', year: '2-digit' })
-                          : null
+                        const period = inv.period_end
+                          ? new Date(inv.period_end).toLocaleDateString('es-ES', { month: 'short', year: '2-digit' })
+                          : inv.period_start
+                            ? new Date(inv.period_start).toLocaleDateString('es-ES', { month: 'short', year: '2-digit' })
+                            : null
                         return (
                           <div key={inv.id} className="group flex items-center gap-3 px-3 py-2.5 rounded-xl bg-surface-container-lowest border border-outline-variant/10 hover:border-blue-200 transition">
                             <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">

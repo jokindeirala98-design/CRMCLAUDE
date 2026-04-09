@@ -87,6 +87,8 @@ function calcAdj(study: PowerStudyResult): PeriodAdj[] {
 // ─── Main HTML generator ─────────────────────────────────────────────────────
 function generateHTML(study: PowerStudyResult, charts?: { consumption?: string; maximetro?: string }): string {
   const meses = study.meses ?? []
+  // Sort chronologically: oldest → newest (top → bottom)
+  const sortedMeses = [...meses].sort((a, b) => new Date(a.fechaFin).getTime() - new Date(b.fechaFin).getTime())
   const hasMax = meses.some(m => PERIODS.some(p => (m.maximetro?.[p] ?? 0) > 0))
   const pc = study.potenciaContratada
 
@@ -132,8 +134,8 @@ function generateHTML(study: PowerStudyResult, charts?: { consumption?: string; 
 
   const C = 'color-adjust:exact;-webkit-print-color-adjust:exact;print-color-adjust:exact'
 
-  // Table rows HTML
-  const rows = meses.map((mes, i) => {
+  // Table rows HTML — sorted chronologically
+  const rows = sortedMeses.map((mes, i) => {
     const bg = i % 2 === 0 ? '#fff' : '#F9FAFB'
     return `<tr style="background:${bg};${C}">
       <td style="text-align:right;font-weight:600">${fmtKwh(mes.consumoTotal ?? 0)}</td>
@@ -145,16 +147,6 @@ function generateHTML(study: PowerStudyResult, charts?: { consumption?: string; 
     </tr>`
   }).join('')
 
-  // Contracted power row
-  const contrRow = pc && PERIODS.some(p => (pc[p] ?? 0) > 0)
-    ? `<tr style="background:#DEEAF1 !important;${C}">
-        <td colspan="3" style="font-weight:700;color:#1F4E79 !important;background:#DEEAF1 !important;${C}">Potencia Contratada (kW)</td>
-        ${PERIODS.map(p => `<td style="text-align:right;background:#DEEAF1 !important;font-weight:600;color:#1F4E79 !important;${C}">${(pc[p] ?? 0) > 0 ? fmtKw(pc[p]) : ''}</td>`).join('')}
-        ${hasMax ? '<td class="sep"></td>' : ''}
-        ${hasMax ? PERIODS.map(() => `<td style="background:#DEEAF1 !important;${C}"></td>`).join('') : ''}
-      </tr>`
-    : ''
-
   // KPI summary
   const maxOverall = Math.max(...PERIODS.map(p => maxByPeriod[p] ?? 0), 0)
   const maxPeriod = PERIODS.find(p => maxByPeriod[p] === maxOverall) ?? ''
@@ -162,31 +154,51 @@ function generateHTML(study: PowerStudyResult, charts?: { consumption?: string; 
   const kpiCards = `
     <div class="kpi-grid">
       <div class="kpi-card">
-        <div class="kpi-label">⚡ Consumo Total</div>
-        <div class="kpi-value">${fmtKwh(grandTotal)} kWh</div>
-        <div class="kpi-sub">${meses.length} meses</div>
+        <div class="kpi-label">CONSUMO TOTAL</div>
+        <div class="kpi-value">${fmtKwh(grandTotal)} <span style="font-size:12px;font-weight:400;color:#6B7280">kWh</span></div>
+        <div class="kpi-sub">${meses.length} meses · ${PERIODS.filter(p => (totalByPeriod[p] ?? 0) > 0).join(', ')}</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-label">📈 Maxímetro Máximo</div>
-        <div class="kpi-value">${maxOverall > 0 ? fmtKw(maxOverall) + ' kW' : 'N/D'}</div>
+        <div class="kpi-label">MAXÍMETRO MÁXIMO</div>
+        <div class="kpi-value">${maxOverall > 0 ? fmtKw(maxOverall) + ' <span style="font-size:12px;font-weight:400;color:#6B7280">kW</span>' : 'N/D'}</div>
         <div class="kpi-sub">${maxOverall > 0 ? 'Período ' + maxPeriod : 'Sin datos de maxímetro'}</div>
       </div>
       <div class="kpi-card ${needsAdj ? 'kpi-warn' : 'kpi-ok'}">
-        <div class="kpi-label">${needsAdj ? '⚠️' : '✅'} Optimización Potencias</div>
+        <div class="kpi-label">OPTIMIZACIÓN POTENCIAS</div>
         <div class="kpi-value" style="font-size:14px">${needsAdj ? 'Ajustar ' + adj.filter(a => a.needs).map(a => a.period).join(', ') : 'Potencias OK'}</div>
         <div class="kpi-sub">
           ${allExcess.map(a => `${a.period}: +${a.desvPct.toFixed(0)}%`).join(' · ')}
           ${allUnder.map(a => `${a.period}: ${a.desvPct.toFixed(0)}%`).join(' · ')}
-          ${!needsAdj ? 'Desviación <15% en todos los períodos' : ''}
+          ${!needsAdj ? 'Desviación &lt;15% en todos los períodos' : ''}
         </div>
       </div>
     </div>`
 
-  // Chart section
+  // Chart section — each chart full width, never side-by-side (avoids cropping)
   const chartSection = (charts?.consumption || charts?.maximetro) ? `
-    <div class="charts-grid">
-      ${charts.consumption ? `<div class="chart-box"><img src="${charts.consumption}" style="width:100%;max-height:260px;object-fit:contain" /></div>` : ''}
-      ${charts.maximetro ? `<div class="chart-box"><img src="${charts.maximetro}" style="width:100%;max-height:260px;object-fit:contain" /></div>` : ''}
+    <div class="charts-section">
+      ${charts.consumption ? `<div class="chart-box"><img src="${charts.consumption}" /></div>` : ''}
+      ${charts.maximetro ? `<div class="chart-box"><img src="${charts.maximetro}" /></div>` : ''}
+    </div>` : ''
+
+  // Period analysis cards
+  const periodAnalysis = hasMax && adj.some(a => a.cont > 0) ? `
+    <div class="period-analysis">
+      <h3 style="font-size:11px;font-weight:700;color:#374151;margin:0 0 8px">Análisis de maxímetros por período</h3>
+      <div class="period-grid">
+        ${adj.map(a => {
+          if (a.cont <= 0 && a.max <= 0) return ''
+          const color = a.needs ? (a.dir === 'excess' ? '#DC2626' : '#2563EB') : '#16A34A'
+          const bg = a.needs ? (a.dir === 'excess' ? '#FEF2F2' : '#EFF6FF') : '#F0FDF4'
+          return `<div class="period-card" style="background:${bg} !important;border:1px solid ${color}22;${C}">
+            <div style="width:10px;height:10px;border-radius:2px;background:${PERIOD_COLORS[a.period]} !important;margin:0 auto 3px;${C}"></div>
+            <div style="font-size:12px;font-weight:700;color:#111827">${a.period}</div>
+            <div style="font-size:10px;color:#6B7280;margin:2px 0">Máx: <strong style="color:#111827">${fmtKw(a.max)} kW</strong></div>
+            ${a.cont > 0 ? `<div style="font-size:10px;color:#6B7280">Cont: ${fmtKw(a.cont)} kW</div>` : ''}
+            ${a.cont > 0 && a.max > 0 ? `<div style="font-size:11px;font-weight:700;color:${color} !important;margin-top:3px;${C}">${a.desvPct > 0 ? '+' : ''}${a.desvPct.toFixed(1)}%${a.needs ? (a.dir === 'excess' ? ' ▲ EXCESO' : ' ▼ REDUCIBLE') : ''}</div>` : ''}
+          </div>`
+        }).join('')}
+      </div>
     </div>` : ''
 
   return `<!DOCTYPE html>
@@ -195,7 +207,7 @@ function generateHTML(study: PowerStudyResult, charts?: { consumption?: string; 
   <meta charset="UTF-8" />
   <title>Estudio de Potencias y Consumos – ${study.cups || ''}</title>
   <style>
-    /* ── Force full color printing ── */
+    /* ── Force full color printing everywhere ── */
     *, *::before, *::after {
       box-sizing: border-box;
       margin: 0;
@@ -204,13 +216,19 @@ function generateHTML(study: PowerStudyResult, charts?: { consumption?: string; 
       print-color-adjust: exact !important;
       color-adjust: exact !important;
     }
+    @page {
+      size: A4 landscape;
+      margin: 10mm 12mm;
+    }
     body {
       font-family: "Arial Narrow", "Calibri", Arial, sans-serif;
       font-size: 10px;
       color: #111827;
       background: #fff;
-      padding: 16px 20px;
+      padding: 0;
     }
+
+    /* ── Header ── */
     .header {
       background: #1E3A5F !important;
       color: #fff !important;
@@ -219,18 +237,23 @@ function generateHTML(study: PowerStudyResult, charts?: { consumption?: string; 
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 0;
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
-    .header h1 { font-size: 14px; font-weight: 700; font-family: monospace; }
+    .header h1 { font-size: 14px; font-weight: 700; font-family: monospace; color: #fff !important; }
     .header .client { font-size: 11px; color: #93C5FD !important; margin-top: 2px; }
     .header .meta { font-size: 10px; color: #93C5FD !important; text-align: right; }
+
+    /* ── KPI cards ── */
     .kpi-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      display: flex;
       gap: 10px;
-      margin: 14px 0;
+      margin: 12px 0;
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
     .kpi-card {
+      flex: 1;
       border: 1px solid #E5E7EB;
       border-radius: 8px;
       padding: 10px 12px;
@@ -241,6 +264,13 @@ function generateHTML(study: PowerStudyResult, charts?: { consumption?: string; 
     .kpi-label { font-size: 9px; font-weight: 700; color: #6B7280 !important; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
     .kpi-value { font-size: 18px; font-weight: 700; color: #111827 !important; }
     .kpi-sub   { font-size: 9px; color: #9CA3AF !important; margin-top: 2px; }
+
+    /* ── Data table ── */
+    .table-wrapper {
+      overflow: visible;
+      border: 1px solid #D0D0D0;
+      margin-bottom: 4px;
+    }
     table {
       border-collapse: collapse;
       width: 100%;
@@ -251,7 +281,6 @@ function generateHTML(study: PowerStudyResult, charts?: { consumption?: string; 
       border: 1px solid #D0D0D0;
       padding: 2px 4px;
       white-space: nowrap;
-      /* NO default background here — let inline styles win */
     }
     th {
       font-weight: 700;
@@ -259,27 +288,73 @@ function generateHTML(study: PowerStudyResult, charts?: { consumption?: string; 
       background: #fff !important;
       border-bottom: 2px solid #000;
     }
+    thead { display: table-header-group; }
+    tbody tr { break-inside: avoid; page-break-inside: avoid; }
     .sep { width: 5px; min-width: 5px; background: #F0F0F0 !important; border: none !important; padding: 0; }
-    .charts-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-      margin-top: 14px;
+
+    /* ── Charts — FULL WIDTH, stacked vertically ── */
+    .charts-section {
+      margin-top: 16px;
+      break-before: auto;
     }
     .chart-box {
       border: 1px solid #E5E7EB;
       border-radius: 8px;
-      padding: 8px;
+      padding: 10px;
+      margin-bottom: 14px;
       background: #fff !important;
+      text-align: center;
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
+    .chart-box img {
+      width: 100%;
+      max-width: 100%;
+      height: auto;
+      display: block;
+      margin: 0 auto;
+    }
+
+    /* ── Period analysis ── */
+    .period-analysis {
+      border: 1px solid #E5E7EB;
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-top: 14px;
+      background: #fff !important;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .period-grid {
+      display: flex;
+      gap: 8px;
+    }
+    .period-card {
+      flex: 1;
+      border-radius: 8px;
+      padding: 8px 6px;
+      text-align: center;
+    }
+
+    /* ── Print overrides ── */
     @media print {
-      body { padding: 8px 10px; }
-      .kpi-grid { gap: 6px; }
-      .charts-grid { margin-top: 8px; gap: 8px; }
+      body { padding: 0; }
+      .header, .kpi-grid, .table-wrapper, .chart-box, .period-analysis {
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+      }
+      /* Force table header on every page */
+      thead { display: table-header-group !important; }
+      /* Ensure charts start on new page if needed */
+      .charts-section {
+        break-before: auto;
+        page-break-before: auto;
+      }
     }
   </style>
 </head>
 <body>
+  <!-- ── Page 1: Header + KPIs + Data Table ── -->
   <div class="header">
     <div>
       <h1>${study.cups || '—'}</h1>
@@ -293,50 +368,54 @@ function generateHTML(study: PowerStudyResult, charts?: { consumption?: string; 
 
   ${kpiCards}
 
-  <table>
-    <thead>
-      <tr>
-        <th colspan="2" style="text-align:left">CUPS</th>
-        <th>CONSUMO TOTAL</th>
-        ${PERIODS.map(p => `<th>${p} Activa</th>`).join('')}
-        ${hasMax ? '<td class="sep"></td>' : ''}
-        ${hasMax ? PERIODS.map(p => `<th>${p} Maxímetro</th>`).join('') : ''}
-      </tr>
-      <tr>
-        <td colspan="2" style="font-family:monospace;font-size:8px">${study.cups || ''}</td>
-        <td style="text-align:right;font-weight:700">${fmtKwh(grandTotal)}</td>
-        ${PERIODS.map(p => `<td style="text-align:right;background:${cs(totalByPeriod[p])} !important;${C}">${totalByPeriod[p] > 0 ? fmtKwh(totalByPeriod[p]) : ''}</td>`).join('')}
-        ${hasMax ? '<td class="sep"></td>' : ''}
-        ${hasMax ? PERIODS.map(p => `<td style="text-align:right;background:${maxCs(maxByPeriod[p])} !important;${C}">${maxByPeriod[p] > 0 ? fmtKw(maxByPeriod[p]) : ''}</td>`).join('') : ''}
-      </tr>
-      ${pc && PERIODS.some(p => (pc[p] ?? 0) > 0) ? `
-      <tr>
-        <td colspan="2" style="font-weight:700;color:#1F4E79 !important;background:#DEEAF1 !important;font-size:9px;${C}">Potencia Contratada (kW)</td>
-        <td style="background:#DEEAF1 !important;${C}"></td>
-        ${PERIODS.map(() => `<td style="background:#DEEAF1 !important;${C}"></td>`).join('')}
-        ${hasMax ? '<td class="sep"></td>' : ''}
-        ${hasMax ? PERIODS.map(p => `<td style="text-align:right;font-weight:700;background:#DEEAF1 !important;color:#1F4E79 !important;border-bottom:2px solid #1F4E79;${C}">${(pc[p] ?? 0) > 0 ? fmtKw(pc[p]) : ''}</td>`).join('') : ''}
-      </tr>` : ''}
-      <tr>
-        <td colspan="2" style="font-size:10px;font-weight:700">${study.clientName || ''}</td>
-        <td></td>
-        ${PERIODS.map(p => `<td style="text-align:center;color:#555">${totalByPeriod[p] > 0 ? fmtPct(grandTotal > 0 ? totalByPeriod[p] / grandTotal : 0) : ''}</td>`).join('')}
-        ${hasMax ? '<td class="sep"></td>' : ''}
-        ${hasMax ? `<td colspan="6" rowspan="2" style="font-weight:700;text-align:center;font-size:10px;background:${adjBg} !important;color:${adjColor} !important;${C};vertical-align:middle">${adjMsg}</td>` : ''}
-      </tr>
-      <tr>
-        <td colspan="3"></td>
-        <td colspan="6" style="font-weight:700;text-align:center;background:#FCE4D6 !important;color:#843C0C !important;${C}">${priorizarMsg}</td>
-        ${!hasMax ? '' : ''}
-      </tr>
-    </thead>
-    <tbody>
-      ${rows}
-      ${contrRow}
-    </tbody>
-  </table>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th colspan="2" style="text-align:left">CUPS</th>
+          <th>CONSUMO TOTAL</th>
+          ${PERIODS.map(p => `<th>${p} Activa</th>`).join('')}
+          ${hasMax ? '<td class="sep"></td>' : ''}
+          ${hasMax ? PERIODS.map(p => `<th>${p} Maxímetro</th>`).join('') : ''}
+        </tr>
+        <tr>
+          <td colspan="2" style="font-family:monospace;font-size:8px">${study.cups || ''}</td>
+          <td style="text-align:right;font-weight:700">${fmtKwh(grandTotal)}</td>
+          ${PERIODS.map(p => `<td style="text-align:right;background:${cs(totalByPeriod[p])} !important;${C}">${totalByPeriod[p] > 0 ? fmtKwh(totalByPeriod[p]) : ''}</td>`).join('')}
+          ${hasMax ? '<td class="sep"></td>' : ''}
+          ${hasMax ? PERIODS.map(p => `<td style="text-align:right;background:${maxCs(maxByPeriod[p])} !important;${C}">${maxByPeriod[p] > 0 ? fmtKw(maxByPeriod[p]) : ''}</td>`).join('') : ''}
+        </tr>
+        ${pc && PERIODS.some(p => (pc[p] ?? 0) > 0) ? `
+        <tr>
+          <td colspan="2" style="font-weight:700;color:#1F4E79 !important;background:#DEEAF1 !important;font-size:9px;${C}">Potencia Contratada (kW)</td>
+          <td style="background:#DEEAF1 !important;${C}"></td>
+          ${PERIODS.map(p => `<td style="text-align:right;font-weight:700;background:#DEEAF1 !important;color:#1F4E79 !important;${C}">${(pc[p] ?? 0) > 0 ? fmtKw(pc[p]) : ''}</td>`).join('')}
+          ${hasMax ? '<td class="sep"></td>' : ''}
+          ${hasMax ? PERIODS.map(p => `<td style="text-align:right;font-weight:700;background:#DEEAF1 !important;color:#1F4E79 !important;border-bottom:2px solid #1F4E79;${C}">${(pc[p] ?? 0) > 0 ? fmtKw(pc[p]) : ''}</td>`).join('') : ''}
+        </tr>` : ''}
+        <tr>
+          <td colspan="2" style="font-size:10px;font-weight:700">${study.clientName || ''}</td>
+          <td></td>
+          ${PERIODS.map(p => `<td style="text-align:center;color:#555">${totalByPeriod[p] > 0 ? fmtPct(grandTotal > 0 ? totalByPeriod[p] / grandTotal : 0) : ''}</td>`).join('')}
+          ${hasMax ? '<td class="sep"></td>' : ''}
+          ${hasMax ? `<td colspan="6" rowspan="2" style="font-weight:700;text-align:center;font-size:10px;background:${adjBg} !important;color:${adjColor} !important;${C};vertical-align:middle">${adjMsg}</td>` : ''}
+        </tr>
+        <tr>
+          <td colspan="3"></td>
+          <td colspan="6" style="font-weight:700;text-align:center;background:#FCE4D6 !important;color:#843C0C !important;${C}">${priorizarMsg}</td>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+      </tbody>
+    </table>
+  </div>
 
+  <!-- ── Charts: full width, stacked vertically ── -->
   ${chartSection}
+
+  <!-- ── Period analysis ── -->
+  ${periodAnalysis}
 
   <script>window.onload = () => { window.print() }</script>
 </body>

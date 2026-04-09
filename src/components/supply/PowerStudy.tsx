@@ -148,25 +148,28 @@ export function buildConsumptionSVG(meses: PowerStudyResult['meses']): string {
 
   if (!meses?.length) return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"></svg>`
 
+  // Sort by consumoTotal ascending (least → most, left → right)
+  const sorted = [...meses].sort((a, b) => (a.consumoTotal ?? 0) - (b.consumoTotal ?? 0))
+
   // Active periods (have any data)
-  const activePeriods = PERIODS.filter(p => meses.some(mes => (mes.consumo?.[p] ?? 0) > 0))
+  const activePeriods = PERIODS.filter(p => sorted.some(mes => (mes.consumo?.[p] ?? 0) > 0))
 
   // Y-axis scale
-  const maxMonthly = Math.max(...meses.map(m => m.consumoTotal ?? 0), 1)
+  const maxMonthly = Math.max(...sorted.map(m => m.consumoTotal ?? 0), 1)
   const yMax = Math.ceil(maxMonthly / 1000) * 1000 + 500
   const yScale = (v: number) => cH - (v / yMax) * cH
 
   // X positioning
-  const barW = Math.max(8, Math.min(40, cW / meses.length * 0.65))
-  const slotW = cW / meses.length
+  const barW = Math.max(8, Math.min(40, cW / sorted.length * 0.65))
+  const slotW = cW / sorted.length
   const xOf = (i: number) => m.left + slotW * i + slotW / 2
 
   let paths = ''
   // Stacked bars
-  for (let i = 0; i < meses.length; i++) {
+  for (let i = 0; i < sorted.length; i++) {
     let stackY = cH
     for (const p of activePeriods) {
-      const v = meses[i].consumo?.[p] ?? 0
+      const v = sorted[i].consumo?.[p] ?? 0
       if (v <= 0) continue
       const barH = (v / yMax) * cH
       stackY -= barH
@@ -187,10 +190,10 @@ export function buildConsumptionSVG(meses: PowerStudyResult['meses']): string {
 
   // X labels (month)
   let xLabels = ''
-  for (let i = 0; i < meses.length; i++) {
+  for (let i = 0; i < sorted.length; i++) {
     const x = xOf(i)
-    const label = monthLabel(meses[i].fechaFin)
-    const skip = meses.length > 20 ? i % 2 !== 0 : false
+    const label = monthLabel(sorted[i].fechaFin)
+    const skip = sorted.length > 20 ? i % 2 !== 0 : false
     if (!skip) {
       xLabels += `<text x="${x.toFixed(1)}" y="${(m.top + cH + 18).toFixed(1)}" text-anchor="middle" font-size="9" fill="#374151" font-family="Arial, sans-serif" transform="rotate(-45,${x.toFixed(1)},${(m.top + cH + 18).toFixed(1)})">${label}</text>`
     }
@@ -968,7 +971,7 @@ function DataTable({
           </tr>
         </thead>
         <tbody>
-          {meses.map((mes, i) => (
+          {[...meses].sort((a, b) => new Date(a.fechaFin).getTime() - new Date(b.fechaFin).getTime()).map((mes, i) => (
             <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#F9FAFB' }}>
               <td style={{ ...BASE, textAlign: 'right', minWidth: 44 }}>
                 {fmtKwh(mes.consumoTotal ?? 0)}
