@@ -391,13 +391,19 @@ export default function ClientDetailPage() {
               <p className="text-sm text-on-surface-variant text-center py-6">No hay suministros para este cliente</p>
             </Card>
           ) : (
-            <div className="space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {sortedSupplies.map((supply: any) => {
                 const invoiceCount = supply.invoices?.length || 0
                 const annualKwh = getSupplyAnnualConsumption(supply)
                 const isEditingName = editingSupplyName === supply.id
+                const accentByStatus =
+                  ['firmado', 'suscrito', 'seguimiento_activo'].includes(supply.status) ? 'from-success/40 to-success/0' :
+                  ['estudio_en_curso', 'pendiente_firma'].includes(supply.status) ? 'from-warning/40 to-warning/0' :
+                  supply.status === 'rechazado' ? 'from-error/40 to-error/0' :
+                  ['presentado', 'estudio_completado'].includes(supply.status) ? 'from-secondary/40 to-secondary/0' :
+                  'from-primary/40 to-primary/0'
                 return (
-                  <Card
+                  <div
                     key={supply.id}
                     role="button"
                     tabIndex={0}
@@ -409,67 +415,103 @@ export default function ClientDetailPage() {
                         router.push(`/supplies/${supply.id}`)
                       }
                     }}
-                    className="!p-0 overflow-hidden cursor-pointer hover:bg-surface-container-low/50 hover:shadow-md transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                    className="group relative bg-surface-container-lowest rounded-2xl shadow-ambient-sm hover:shadow-ambient-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
                   >
-                    {/* Supply header */}
-                    <div className="flex items-center gap-4 px-5 py-4">
-                      <div className="w-10 h-10 rounded-xl bg-primary/8 flex items-center justify-center flex-shrink-0 text-lg">
-                        {typeIcons[supply.type] || '⚡'}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                          {supply.name && (
-                            <span className="text-xs text-on-surface font-semibold">{supply.name}</span>
-                          )}
-                          <span className="font-mono text-xs text-on-surface font-medium">{supply.cups || 'Sin CUPS'}</span>
+                    {/* Subtle gradient accent based on status */}
+                    <div className={`absolute inset-x-0 top-0 h-20 bg-gradient-to-b ${accentByStatus} pointer-events-none`} />
+
+                    <div className="relative p-4 flex flex-col gap-3">
+                      {/* Top row: type icon + status + edit pencil */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0 text-xl shadow-sm group-hover:scale-105 transition-transform">
+                          {typeIcons[supply.type] || '⚡'}
+                        </div>
+                        <div className="flex items-center gap-1">
                           <StatusBadge status={supply.status} />
+                          {!isEditingName && (
+                            <button
+                              onClick={e => { e.stopPropagation(); setEditingSupplyName(supply.id); setSupplyNameValue(supply.name || '') }}
+                              className="p-1.5 text-on-surface-variant/30 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                              title="Editar nombre"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
-                        <div className="flex items-center gap-3 text-xs text-on-surface-variant flex-wrap">
-                          <span className="capitalize">{supply.type}</span>
-                          <span>·</span>
-                          <span>Tarifa: <strong className="text-on-surface">{supply.tariff || '?'}</strong></span>
-                          {supply.comercializadora?.name && (<><span>·</span><span>{supply.comercializadora.name}</span></>)}
-                          {invoiceCount > 0 && (<><span>·</span><span className="text-primary font-medium">{invoiceCount} doc(s)</span></>)}
-                          {annualKwh > 0 && (<><span>·</span><span className="text-success font-semibold">{fmtKwh(annualKwh)}</span></>)}
-                        </div>
-                        {supply.address && (
-                          <div className="mt-1 text-xs text-on-surface-variant truncate">{supply.address}</div>
+                      </div>
+
+                      {/* Title (alias) + CUPS */}
+                      <div className="min-w-0">
+                        {isEditingName ? (
+                          <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                            <input
+                              type="text"
+                              value={supplyNameValue}
+                              onChange={e => setSupplyNameValue(e.target.value)}
+                              onKeyDown={e => {
+                                e.stopPropagation()
+                                if (e.key === 'Enter') handleSaveSupplyName(supply.id)
+                                if (e.key === 'Escape') setEditingSupplyName(null)
+                              }}
+                              placeholder="Nombre del suministro"
+                              className="flex-1 min-w-0 px-2 py-1 text-sm bg-surface-container-high rounded-lg outline-none focus:ring-2 focus:ring-primary/40"
+                              autoFocus
+                            />
+                            <button onClick={(e) => { e.stopPropagation(); handleSaveSupplyName(supply.id) }} className="p-1 text-success hover:bg-success/10 rounded">
+                              <Check className="w-4 h-4" />
+                            </button>
+                            <button onClick={(e) => { e.stopPropagation(); setEditingSupplyName(null) }} className="p-1 text-error hover:bg-error/10 rounded">
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <h3 className="text-sm font-semibold text-on-surface truncate group-hover:text-primary transition-colors">
+                              {supply.name || supply.cups || 'Sin CUPS'}
+                            </h3>
+                            {supply.name && supply.cups && (
+                              <p className="text-[10px] font-mono text-on-surface-variant truncate mt-0.5">{supply.cups}</p>
+                            )}
+                          </>
                         )}
                       </div>
-                      {/* Editable name inline */}
-                      {isEditingName ? (
-                        <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
-                          <input
-                            type="text"
-                            value={supplyNameValue}
-                            onChange={e => setSupplyNameValue(e.target.value)}
-                            onKeyDown={e => {
-                              e.stopPropagation()
-                              if (e.key === 'Enter') handleSaveSupplyName(supply.id)
-                              if (e.key === 'Escape') setEditingSupplyName(null)
-                            }}
-                            placeholder="Nombre..."
-                            className="w-32 px-2 py-0.5 text-xs bg-surface-container-high rounded-lg outline-none focus:focus-glow"
-                            autoFocus
-                          />
-                          <button onClick={(e) => { e.stopPropagation(); handleSaveSupplyName(supply.id) }} className="p-1 text-success hover:bg-success/10 rounded">
-                            <Check className="w-3.5 h-3.5" />
-                          </button>
-                          <button onClick={(e) => { e.stopPropagation(); setEditingSupplyName(null) }} className="p-1 text-error hover:bg-error/10 rounded">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
+
+                      {/* Stats grid: tariff, type, invoices, annual kWh */}
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <div className="rounded-lg bg-surface-container-low/60 px-2.5 py-1.5">
+                          <p className="text-[9px] uppercase tracking-wider text-on-surface-variant/70 font-semibold">Tarifa</p>
+                          <p className="text-xs text-on-surface font-semibold truncate">{supply.tariff || '—'}</p>
                         </div>
-                      ) : (
-                        <button
-                          onClick={e => { e.stopPropagation(); setEditingSupplyName(supply.id); setSupplyNameValue(supply.name || '') }}
-                          className="p-1.5 text-on-surface-variant/40 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors flex-shrink-0"
-                          title="Editar nombre"
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="rounded-lg bg-surface-container-low/60 px-2.5 py-1.5">
+                          <p className="text-[9px] uppercase tracking-wider text-on-surface-variant/70 font-semibold">Tipo</p>
+                          <p className="text-xs text-on-surface font-semibold capitalize truncate">{supply.type || '—'}</p>
+                        </div>
+                        <div className="rounded-lg bg-surface-container-low/60 px-2.5 py-1.5">
+                          <p className="text-[9px] uppercase tracking-wider text-on-surface-variant/70 font-semibold">Documentos</p>
+                          <p className="text-xs font-semibold truncate">
+                            <span className={invoiceCount > 0 ? 'text-primary' : 'text-on-surface-variant/50'}>{invoiceCount}</span>
+                          </p>
+                        </div>
+                        <div className="rounded-lg bg-surface-container-low/60 px-2.5 py-1.5">
+                          <p className="text-[9px] uppercase tracking-wider text-on-surface-variant/70 font-semibold">Consumo anual</p>
+                          <p className="text-xs font-semibold truncate">
+                            {annualKwh > 0
+                              ? <span className="text-success">{fmtKwh(annualKwh)}</span>
+                              : <span className="text-on-surface-variant/50">—</span>}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Address */}
+                      {supply.address && (
+                        <div className="pt-1 border-t border-outline-variant/10">
+                          <p className="text-[10px] text-on-surface-variant truncate" title={supply.address}>
+                            {supply.address}
+                          </p>
+                        </div>
                       )}
                     </div>
-                  </Card>
+                  </div>
                 )
               })}
             </div>

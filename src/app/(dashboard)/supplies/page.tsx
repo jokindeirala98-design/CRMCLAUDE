@@ -44,7 +44,7 @@ export default function SuppliesPage() {
     // Fetch supplies
     let query = supabase
       .from('supplies')
-      .select('*, client:clients(name, cif_nif), comercializadora:comercializadoras(name)')
+      .select('*, client:clients(name, cif_nif)')
       .order('created_at', { ascending: false })
 
     if (filter !== 'all') {
@@ -133,13 +133,6 @@ export default function SuppliesPage() {
       header: 'Tipo',
       render: (item: any) => (
         <span className="text-sm capitalize text-on-surface-variant">{item.type}</span>
-      ),
-    },
-    {
-      key: 'comercializadora',
-      header: 'Comercializadora',
-      render: (item: any) => (
-        <span className="text-sm text-on-surface-variant">{item.comercializadora?.name || '-'}</span>
       ),
     },
     {

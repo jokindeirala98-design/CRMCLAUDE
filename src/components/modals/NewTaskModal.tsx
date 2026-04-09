@@ -14,6 +14,9 @@ interface Props {
   open: boolean
   onClose: () => void
   onCreated: () => void
+  presetClientId?: string
+  presetTitle?: string
+  presetDescription?: string
 }
 
 const PRIORITY_OPTIONS = [
@@ -28,7 +31,7 @@ const STATUS_OPTIONS = [
   { value: 'completed', label: 'Completada' },
 ]
 
-export function NewTaskModal({ open, onClose, onCreated }: Props) {
+export function NewTaskModal({ open, onClose, onCreated, presetClientId, presetTitle, presetDescription }: Props) {
   const { user } = useAuthStore()
   const [users, setUsers] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
@@ -55,17 +58,17 @@ export function NewTaskModal({ open, onClose, onCreated }: Props) {
       setClients(clientsRes.data || [])
     }
     fetchData()
-    // Reset form
+    // Reset form (with optional presets)
     setForm({
-      title: '',
-      description: '',
+      title: presetTitle || '',
+      description: presetDescription || '',
       priority: 'medium',
       status: 'pending',
       assigned_to: '',
-      client_id: '',
+      client_id: presetClientId || '',
       due_date: '',
     })
-  }, [open])
+  }, [open, presetClientId, presetTitle, presetDescription])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

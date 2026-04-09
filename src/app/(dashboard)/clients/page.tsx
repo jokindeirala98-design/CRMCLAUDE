@@ -13,6 +13,7 @@ import { Badge, StatusBadge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
 import { createClient } from '@/lib/supabase/client'
 import { getUserInitials } from '@/lib/utils/format'
+import { NewTaskModal } from '@/components/modals/NewTaskModal'
 import type { Client, SupplyStatus } from '@/types/database'
 
 // ── Status groups for filtering ──
@@ -78,6 +79,7 @@ export default function ClientsPage() {
   const [supplyNameValue, setSupplyNameValue] = useState('')
   const [confirmDeleteClient, setConfirmDeleteClient] = useState(false)
   const [deletingClient, setDeletingClient] = useState(false)
+  const [quickTaskFor, setQuickTaskFor] = useState<{ clientId: string; clientName: string; status: string } | null>(null)
   const [confirmDeleteSupplyId, setConfirmDeleteSupplyId] = useState<string | null>(null)
   const [deletingSupply, setDeletingSupply] = useState(false)
   const nameInputRef = useRef<HTMLInputElement>(null)
@@ -421,7 +423,17 @@ export default function ClientsPage() {
                               <span className="text-on-surface font-medium truncate max-w-[100px]">
                                 {s.name || s.cups || 'Sin CUPS'}
                               </span>
-                              <StatusBadge status={s.status} />
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setQuickTaskFor({ clientId: client.id, clientName: client.name, status: s.status })
+                                }}
+                                className="rounded hover:ring-2 hover:ring-primary/40 transition"
+                                title="Crear tarea para este cliente"
+                              >
+                                <StatusBadge status={s.status} />
+                              </button>
                             </div>
                           )
                         })}
@@ -482,7 +494,18 @@ export default function ClientsPage() {
                   </div>
                   <div className="hidden lg:flex items-center gap-2">
                     {client.supplies?.slice(0, 2).map((s: any) => (
-                      <StatusBadge key={s.id} status={s.status} />
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setQuickTaskFor({ clientId: client.id, clientName: client.name, status: s.status })
+                        }}
+                        className="rounded hover:ring-2 hover:ring-primary/40 transition"
+                        title="Crear tarea para este cliente"
+                      >
+                        <StatusBadge status={s.status} />
+                      </button>
                     ))}
                   </div>
                   <Badge variant="info">{supplyCount} sum.</Badge>
@@ -781,6 +804,16 @@ export default function ClientsPage() {
           </div>
         </>
       )}
+
+      {/* Quick task modal triggered by clicking a status badge */}
+      <NewTaskModal
+        open={!!quickTaskFor}
+        onClose={() => setQuickTaskFor(null)}
+        onCreated={() => setQuickTaskFor(null)}
+        presetClientId={quickTaskFor?.clientId}
+        presetTitle={quickTaskFor ? `Seguimiento ${quickTaskFor.clientName}` : ''}
+        presetDescription={quickTaskFor ? `Estado actual: ${quickTaskFor.status}` : ''}
+      />
     </div>
   )
 }

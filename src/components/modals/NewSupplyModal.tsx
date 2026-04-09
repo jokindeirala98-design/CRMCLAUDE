@@ -9,6 +9,7 @@ import { SearchableClientSelector } from '@/components/ui/SearchableClientSelect
 import { createClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/auth'
 import { normalizeCups } from '@/lib/utils/cups'
+import { ensurePendingPrescoring } from '@/lib/ensurePrescoring'
 
 /** Convert DD/MM/YYYY or DD/MM/YY to YYYY-MM-DD for PostgreSQL. Returns null if unparseable. */
 function toIsoDate(raw: string | null | undefined): string | null {
@@ -658,44 +659,12 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
         if (invoiceError) throw invoiceError
       }
 
-      // ── Auto-create prescoring only for brand-new supplies (skip 2.0 tariffs) ──
-      // Only 3.0+, 6.1+, and gas (RL) tariffs need prescoring
-      const tariffNorm = (form.tariff || '').replace(/\s+/g, '').toUpperCase()
-      const needsPrescoring = !tariffNorm.startsWith('2.0') && tariffNorm !== '20TD' && tariffNorm !== '20' && tariffNorm !== '202020' && tariffNorm !== '2.0DHA' && tariffNorm !== '20DHA'
-      if (!isExistingSupply && needsPrescoring) {
-        const firstExtracted = uploadedFiles.find((f) => f.extractedData?.mode === 'gemini' && !f.error)?.extractedData
-        if (firstExtracted) {
-          const selectedClient = clients.find(c => c.id === form.client_id)
-          const clientName = firstExtracted.holder_name || selectedClient?.name || ''
-          const consumoAnual = sipsData?.totalConsumption || ''
-          const poblacion = sipsData?.municipio || ''
-
-          const prescoringData = {
-            supply_id: targetSupplyId,
-            client_name: clientName,
-            cups: normalizedCups,
-            cif: firstExtracted.holder_cif_nif || null,
-            producto: form.type === 'luz' ? 'Electricidad' : form.type === 'gas' ? 'Gas' : 'Telefonía',
-            tariff: form.tariff || null,
-            consumo_anual: consumoAnual || null,
-            entidad: firstExtracted.comercializadora || null,
-            telefono: null,
-            poblacion: poblacion || null,
-            direccion_fiscal: firstExtracted.billing_address || null,
-            status: 'pending',
-            requested_at: new Date().toISOString(),
-            requested_by: user?.id || 'system',
-          }
-
-          console.log('[Prescoring] Auto-creating prescoring:', prescoringData)
-          const { error: prescoringError } = await supabase.from('prescorings').insert(prescoringData)
-          if (prescoringError) {
-            console.error('[Prescoring] Error creating prescoring:', prescoringError)
-            // Don't throw — supply was created successfully, prescoring is secondary
-          } else {
-            console.log('[Prescoring] Auto-created successfully for supply:', targetSupplyId)
-          }
-        }
+      // ── Ensure a pending prescoring row exists for this supply ──
+      // Idempotent helper: skips 2.0 tariffs internally and is a no-op if a
+      // row already exists. Runs for both brand-new and pre-existing supplies
+      // so a CUPS that lacked one (e.g. created via an older path) gets it now.
+      if (targetSupplyId) {
+        await ensurePendingPrescoring(supabase, targetSupplyId, { userId: user?.id })
       }
 
       onCreated()

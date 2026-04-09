@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { normalizeCups } from '@/lib/utils/cups'
+import { ensurePendingPrescoring } from '@/lib/ensurePrescoring'
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
 /*  TYPES                                                                    */
@@ -652,6 +653,13 @@ export async function processJobInBackground(jobId: string): Promise<void> {
       if (invoices.length > 0) {
         const { error: invErr } = await supabase.from('invoices').insert(invoices)
         if (invErr) console.error(`[UploadQueue] Invoice insert error for ${cups}:`, invErr)
+      }
+
+      // Ensure a pending prescoring row exists for this supply (no-op if already there)
+      if (supplyId) {
+        await ensurePendingPrescoring(supabase, supplyId).catch((err) =>
+          console.error(`[UploadQueue] ensurePendingPrescoring failed for ${cups}:`, err)
+        )
       }
     }
 

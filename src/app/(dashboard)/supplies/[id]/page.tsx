@@ -22,6 +22,7 @@ import { createClient } from '@/lib/supabase/client'
 import { formatDate, formatCurrency } from '@/lib/utils/format'
 import { getViewUrl } from '@/lib/utils/storage'
 import { normalizeCups } from '@/lib/utils/cups'
+import { ensurePendingPrescoring } from '@/lib/ensurePrescoring'
 import { useAuthStore } from '@/stores/auth'
 import type { SupplyStatus } from '@/types/database'
 
@@ -630,6 +631,10 @@ export default function SupplyDetailPage() {
 
     // Reset file input
     if (invoiceInputRef.current) invoiceInputRef.current.value = ''
+
+    // Ensure a prescoring row exists now that we have invoice data — runs
+    // exactly once per upload batch and is a no-op if one already exists.
+    await ensurePendingPrescoring(createClient(), supply.id, { userId: user?.id })
 
     // Re-fetch supply to update everything
     await fetchSupply()
