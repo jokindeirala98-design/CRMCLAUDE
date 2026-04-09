@@ -101,6 +101,7 @@ export default function SupplyDetailPage() {
   const [siblingSupplies, setSiblingSupplies] = useState<any[]>([])
   const [clientModalOpen, setClientModalOpen] = useState(false)
   const [supplyOverlayOpen, setSupplyOverlayOpen] = useState(false)
+  const [docsOverlayOpen, setDocsOverlayOpen] = useState(false)
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const invoiceInputRef = useRef<HTMLInputElement>(null)
@@ -1201,257 +1202,57 @@ export default function SupplyDetailPage() {
             )}
           </Card>
 
-          {/* Documents */}
-          <Card className="flex flex-col gap-0">
-            <h3 className="text-sm font-semibold text-on-surface-variant mb-3 uppercase tracking-wider flex items-center gap-2">
-              <FileText className="w-4 h-4" />
-              Documentos
-            </h3>
+          {/* Documents — compact preview, click opens full overlay */}
+          <Card
+            className="cursor-pointer hover:ring-2 hover:ring-primary/30 transition group flex flex-col gap-0"
+            onClick={() => setDocsOverlayOpen(true)}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-on-surface-variant uppercase tracking-wider flex items-center gap-2">
+                <FileText className="w-4 h-4" />
+                Documentos
+              </h3>
+              <span className="text-[10px] text-primary font-medium opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                Abrir gestor <ChevronRight className="w-3 h-3" />
+              </span>
+            </div>
 
-            {/* Comercializadora (small pill) */}
+            {/* Compact summary counts */}
+            <div className="space-y-2">
+              {/* Facturas */}
+              <div className="flex items-center gap-2.5">
+                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${(supply.invoices?.length || 0) > 0 ? 'bg-blue-500' : 'bg-gray-300'}`} />
+                <span className="text-xs text-on-surface flex-1">Facturas</span>
+                <span className="text-xs font-semibold text-on-surface-variant">{supply.invoices?.length || 0}</span>
+              </div>
+              {/* Informes */}
+              <div className="flex items-center gap-2.5">
+                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${supply.power_study_result || supply.studies?.some((s: any) => s.status === 'completed') ? 'bg-green-500' : 'bg-gray-300'}`} />
+                <span className="text-xs text-on-surface flex-1">Informes</span>
+                <span className="text-xs font-semibold text-on-surface-variant">
+                  {(supply.power_study_result ? 1 : 0) + (supply.studies?.filter((s: any) => s.status === 'completed').length || 0)}
+                </span>
+              </div>
+              {/* Contratos */}
+              <div className="flex items-center gap-2.5">
+                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${(supply.contracts?.length || 0) > 0 ? 'bg-purple-500' : 'bg-gray-300'}`} />
+                <span className="text-xs text-on-surface flex-1">Contratos</span>
+                <span className="text-xs font-semibold text-on-surface-variant">{supply.contracts?.length || 0}</span>
+              </div>
+            </div>
+
+            {/* Comercializadora pill */}
             {supply.comercializadora && (
-              <div className="flex items-center gap-2 mb-3 px-2 py-1.5 bg-surface-container-low rounded-lg">
+              <div className="flex items-center gap-2 mt-3 px-2 py-1.5 bg-surface-container-low rounded-lg">
                 <Building2 className="w-3.5 h-3.5 text-on-surface-variant flex-shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-on-surface truncate">{supply.comercializadora.name}</p>
-                  <p className="text-[10px] text-on-surface-variant capitalize">{supply.comercializadora.signing_method}</p>
-                </div>
+                <p className="text-xs font-semibold text-on-surface truncate">{supply.comercializadora.name}</p>
               </div>
             )}
-
-            <div className="space-y-1.5">
-
-              {/* Informe de Potencias */}
-              <div>
-                <p className="text-[10px] font-semibold text-on-surface-variant uppercase tracking-wider mb-1">Informe de Potencias</p>
-                {supply.power_study_result ? (
-                  <button
-                    onClick={handleDownloadPowerStudyPDF}
-                    className="w-full flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors group text-left"
-                  >
-                    <BarChart3 className="w-4 h-4 text-amber-600 flex-shrink-0" />
-                    <span className="text-xs font-medium text-amber-800 flex-1">Estudio Potencias y Consumos</span>
-                    <Download className="w-3.5 h-3.5 text-amber-500 group-hover:text-amber-700" />
-                  </button>
-                ) : (
-                  <p className="text-xs text-on-surface-variant px-1">Sin estudio generado aún</p>
-                )}
-              </div>
-
-              {/* Informe Económico */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <p className="text-[10px] font-semibold text-on-surface-variant uppercase tracking-wider">Informe Económico</p>
-                  <button
-                    onClick={() => studyInputRef.current?.click()}
-                    disabled={uploadingStudy}
-                    className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium text-green-600 hover:text-green-800 hover:bg-green-50 rounded transition-colors disabled:opacity-50"
-                  >
-                    {uploadingStudy ? (
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                    ) : (
-                      <Plus className="w-3 h-3" />
-                    )}
-                    Adjuntar
-                  </button>
-                  <input
-                    ref={studyInputRef}
-                    type="file"
-                    accept=".pdf,.xlsx,.xls,.doc,.docx"
-                    className="hidden"
-                    onChange={handleUploadStudy}
-                  />
-                </div>
-
-                {uploadingStudy && (
-                  <div className="flex items-center gap-2 px-3 py-2 bg-green-50/50 border border-green-100 rounded-lg mb-1">
-                    <Loader2 className="w-3.5 h-3.5 text-green-500 animate-spin flex-shrink-0" />
-                    <span className="text-[10px] text-green-700">Subiendo informe...</span>
-                  </div>
-                )}
-
-                {supply.studies && supply.studies.filter((s: any) => s.status === 'completed' && s.report_url).length > 0 ? (
-                  <div className="space-y-1">
-                    {supply.studies.filter((s: any) => s.status === 'completed' && s.report_url).map((study: any) => (
-                      <div key={study.id} className="flex items-center gap-1">
-                        <a
-                          href={getViewUrl(study.report_url)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex-1 flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition-colors group text-left min-w-0"
-                        >
-                          <TrendingUp className="w-4 h-4 text-green-600 flex-shrink-0" />
-                          <span className="text-xs font-medium text-green-800 flex-1 truncate">
-                            {study.type === 'economico' ? 'Informe Económico' : study.type}
-                            {study.completed_at && (
-                              <span className="text-green-600 font-normal ml-1">
-                                · {new Date(study.completed_at).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}
-                              </span>
-                            )}
-                          </span>
-                          <Download className="w-3.5 h-3.5 text-green-500 group-hover:text-green-700 flex-shrink-0" />
-                        </a>
-                        <button
-                          onClick={() => handleDeleteStudy(study)}
-                          disabled={deletingStudyId === study.id}
-                          className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50 flex-shrink-0"
-                          title="Eliminar informe"
-                        >
-                          {deletingStudyId === study.id ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <X className="w-3.5 h-3.5" />
-                          )}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-xs text-on-surface-variant px-1">Sin informe adjunto</p>
-                )}
-              </div>
-
-              {/* Facturas */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <p className="text-[10px] font-semibold text-on-surface-variant uppercase tracking-wider">
-                    Facturas ({supply.invoices?.length || 0})
-                  </p>
-                  <button
-                    onClick={() => invoiceInputRef.current?.click()}
-                    disabled={uploadingInvoices}
-                    className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors disabled:opacity-50"
-                  >
-                    {uploadingInvoices ? (
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                    ) : (
-                      <Plus className="w-3 h-3" />
-                    )}
-                    Añadir
-                  </button>
-                  <input
-                    ref={invoiceInputRef}
-                    type="file"
-                    accept=".pdf,.png,.jpg,.jpeg,.webp"
-                    multiple
-                    className="hidden"
-                    onChange={handleUploadInvoices}
-                  />
-                </div>
-
-                {/* Upload progress */}
-                {Object.keys(uploadProgress).length > 0 && (
-                  <div className="space-y-1 mb-1.5">
-                    {Object.entries(uploadProgress).map(([fid, status]) => (
-                      <div key={fid} className="flex items-center gap-2 px-3 py-1.5 bg-blue-50/50 border border-blue-100 rounded-lg">
-                        <Loader2 className="w-3 h-3 text-blue-500 animate-spin flex-shrink-0" />
-                        <span className="text-[10px] text-blue-700">
-                          {status === 'uploading' ? 'Subiendo...' : status === 'analyzing' ? 'Escaneando con IA...' : status === 'done' ? 'Listo' : 'Error'}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {supply.invoices && supply.invoices.length > 0 ? (
-                  <div className="space-y-1 max-h-40 overflow-y-auto">
-                    {supply.invoices.map((inv: any, idx: number) => {
-                      const url = inv.file_url ? getViewUrl(inv.file_url) : null
-                      const label = inv.period_start
-                        ? new Date(inv.period_start).toLocaleDateString('es-ES', { month: 'short', year: '2-digit' })
-                        : `Factura ${idx + 1}`
-                      const isDeleting = deletingInvoiceId === inv.id
-                      return (
-                        <div key={inv.id} className="flex items-center gap-1">
-                          {url ? (
-                            <a
-                              href={url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex-1 flex items-center gap-2 px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-lg hover:bg-blue-100 transition-colors group min-w-0"
-                            >
-                              <FileText className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
-                              <span className="text-xs text-blue-800 flex-1 truncate">{label}</span>
-                              {inv.total_amount && (
-                                <span className="text-[10px] text-blue-600 flex-shrink-0">{formatCurrency(inv.total_amount)}</span>
-                              )}
-                              <Download className="w-3 h-3 text-blue-400 group-hover:text-blue-600 flex-shrink-0" />
-                            </a>
-                          ) : (
-                            <div className="flex-1 flex items-center gap-2 px-3 py-1.5 bg-gray-50 border border-gray-100 rounded-lg min-w-0">
-                              <FileText className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-                              <span className="text-xs text-gray-500 flex-1 truncate">{label}</span>
-                            </div>
-                          )}
-                          <button
-                            onClick={() => handleDeleteInvoice(inv)}
-                            disabled={isDeleting}
-                            className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50 flex-shrink-0"
-                            title="Eliminar factura"
-                          >
-                            {isDeleting ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            ) : (
-                              <X className="w-3.5 h-3.5" />
-                            )}
-                          </button>
-                        </div>
-                      )
-                    })}
-                  </div>
-                ) : (
-                  <p className="text-xs text-on-surface-variant px-1">Sin facturas adjuntas</p>
-                )}
-              </div>
-
-              {/* Contratos */}
-              {supply.contracts && supply.contracts.length > 0 && (
-                <div>
-                  <p className="text-[10px] font-semibold text-on-surface-variant uppercase tracking-wider mb-1">
-                    Contratos ({supply.contracts.length})
-                  </p>
-                  <div className="space-y-1">
-                    {supply.contracts.map((contract: any) => {
-                      const url = contract.signed_file_url || contract.file_url
-                      return url ? (
-                        <a
-                          key={contract.id}
-                          href={getViewUrl(url)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-2 px-3 py-1.5 bg-surface-container-low border border-outline-variant/20 rounded-lg hover:bg-surface-container transition-colors group"
-                        >
-                          <FileText className="w-3.5 h-3.5 text-on-surface-variant flex-shrink-0" />
-                          <span className="text-xs text-on-surface flex-1 capitalize">
-                            {contract.type === 'voltis' ? 'Contrato Voltis' : 'Contrato Comercializadora'}
-                            {contract.signed_at && <span className="text-green-600 font-medium ml-1">· Firmado</span>}
-                          </span>
-                          <Download className="w-3 h-3 text-on-surface-variant group-hover:text-primary" />
-                        </a>
-                      ) : (
-                        <div key={contract.id} className="flex items-center gap-2 px-3 py-1.5 bg-surface-container-low rounded-lg opacity-50">
-                          <FileText className="w-3.5 h-3.5 text-on-surface-variant flex-shrink-0" />
-                          <span className="text-xs text-on-surface-variant capitalize">
-                            {contract.type === 'voltis' ? 'Contrato Voltis' : 'Contrato Comercializadora'} · Pendiente
-                          </span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Empty state */}
-              {!supply.power_study_result &&
-               !(supply.studies?.some((s: any) => s.status === 'completed')) &&
-               !(supply.invoices?.length > 0) &&
-               !(supply.contracts?.length > 0) && (
-                <p className="text-xs text-on-surface-variant text-center py-3">
-                  Sin documentos disponibles aún
-                </p>
-              )}
-            </div>
           </Card>
+
+          {/* Hidden file inputs (need to be outside overlay for stability) */}
+          <input ref={studyInputRef} type="file" accept=".pdf,.xlsx,.xls,.doc,.docx" className="hidden" onChange={handleUploadStudy} />
+          <input ref={invoiceInputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" multiple className="hidden" onChange={handleUploadInvoices} />
         </div>
 
         {/* ═══════ SECTION TAB BUTTONS ═══════ */}
@@ -2203,6 +2004,328 @@ export default function SupplyDetailPage() {
                   </div>
                 )
               })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════ DOCUMENTS OVERLAY ═══════ */}
+      {docsOverlayOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setDocsOverlayOpen(false)}>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+          <div
+            className="relative bg-surface rounded-3xl shadow-ambient-lg w-full max-w-4xl mx-4 max-h-[85vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 bg-surface/95 backdrop-blur border-b border-outline-variant/10 rounded-t-3xl">
+              <h2 className="font-display font-semibold text-lg text-on-surface flex items-center gap-2">
+                <FileText className="w-5 h-5" />
+                Gestor de documentos
+              </h2>
+              <button onClick={() => setDocsOverlayOpen(false)} className="p-2 rounded-xl hover:bg-surface-container-low transition-all">
+                <X className="w-5 h-5 text-on-surface-variant" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+
+              {/* ── 1. FACTURAS DEL CLIENTE ── */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-bold text-on-surface uppercase tracking-wider flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-blue-500" />
+                    Facturas del cliente
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => invoiceInputRef.current?.click()}
+                    disabled={uploadingInvoices}
+                    className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:text-primary/80 transition disabled:opacity-50"
+                  >
+                    {uploadingInvoices ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                    Subir facturas
+                  </button>
+                </div>
+
+                {/* Upload progress */}
+                {Object.keys(uploadProgress).length > 0 && (
+                  <div className="space-y-1.5 mb-3">
+                    {Object.entries(uploadProgress).map(([name, status]) => (
+                      <div key={name} className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg bg-surface-container-low">
+                        {status === 'uploading' && <Loader2 className="w-3 h-3 animate-spin text-blue-500" />}
+                        {status === 'analyzing' && <Loader2 className="w-3 h-3 animate-spin text-amber-500" />}
+                        {status === 'done' && <CheckCircle2 className="w-3 h-3 text-green-500" />}
+                        {status === 'error' && <XCircle className="w-3 h-3 text-red-500" />}
+                        <span className="truncate flex-1 text-on-surface-variant">{name}</span>
+                        <span className="text-[10px] font-medium capitalize text-on-surface-variant/70">
+                          {status === 'uploading' ? 'Subiendo...' : status === 'analyzing' ? 'Analizando...' : status === 'done' ? 'Listo' : 'Error'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {supply.invoices && supply.invoices.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {[...supply.invoices]
+                      .sort((a: any, b: any) => new Date(b.period_start || b.created_at).getTime() - new Date(a.period_start || a.created_at).getTime())
+                      .map((inv: any) => {
+                        const period = inv.period_start
+                          ? new Date(inv.period_start).toLocaleDateString('es-ES', { month: 'short', year: '2-digit' })
+                          : null
+                        return (
+                          <div key={inv.id} className="group flex items-center gap-3 px-3 py-2.5 rounded-xl bg-surface-container-lowest border border-outline-variant/10 hover:border-blue-200 transition">
+                            <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
+                              <FileText className="w-4 h-4 text-blue-500" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-semibold text-on-surface truncate">
+                                {period || 'Sin periodo'}
+                              </p>
+                              {inv.extracted_data?.total_amount && (
+                                <p className="text-[10px] text-on-surface-variant">{formatCurrency(inv.extracted_data.total_amount)}</p>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              {inv.file_url && (
+                                <a href={getViewUrl(inv.file_url)} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded-lg hover:bg-blue-50 transition" title="Ver">
+                                  <ExternalLink className="w-3.5 h-3.5 text-blue-500" />
+                                </a>
+                              )}
+                              <button
+                                onClick={() => handleDeleteInvoice(inv)}
+                                disabled={deletingInvoiceId === inv.id}
+                                className="p-1.5 rounded-lg hover:bg-red-50 transition"
+                                title="Eliminar"
+                              >
+                                {deletingInvoiceId === inv.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-red-400" />
+                                ) : (
+                                  <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      })}
+                  </div>
+                ) : (
+                  <div className="text-center py-6 rounded-xl bg-surface-container-low/50">
+                    <FileText className="w-8 h-8 text-on-surface-variant/30 mx-auto mb-2" />
+                    <p className="text-xs text-on-surface-variant">Sin facturas</p>
+                    <button onClick={() => invoiceInputRef.current?.click()} className="text-xs text-primary font-semibold mt-1 hover:underline">
+                      Subir primera factura
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Divider */}
+              <div className="border-t border-outline-variant/10" />
+
+              {/* ── 2. INFORMES ── */}
+              <div>
+                <h3 className="text-sm font-bold text-on-surface uppercase tracking-wider flex items-center gap-2 mb-3">
+                  <div className="w-2 h-2 rounded-full bg-green-500" />
+                  Informes
+                </h3>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Potencias */}
+                  <div className="rounded-xl border border-outline-variant/10 bg-surface-container-lowest p-4 flex flex-col gap-2">
+                    <div className="flex items-center gap-2 mb-1">
+                      <BarChart3 className="w-4 h-4 text-amber-500" />
+                      <h4 className="text-xs font-bold text-on-surface">Informe de Potencias</h4>
+                    </div>
+                    {supply.power_study_result ? (
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+                          <span className="text-xs text-green-700 font-medium">Generado</span>
+                        </div>
+                        <button
+                          onClick={handleDownloadPowerStudyPDF}
+                          className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:text-primary/80 transition mt-1"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          Ver informe
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-on-surface-variant">Pendiente de datos SIPS</p>
+                    )}
+                  </div>
+
+                  {/* Económico */}
+                  <div className="rounded-xl border border-outline-variant/10 bg-surface-container-lowest p-4 flex flex-col gap-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <TrendingUp className="w-4 h-4 text-green-500" />
+                        <h4 className="text-xs font-bold text-on-surface">Informe Económico</h4>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => studyInputRef.current?.click()}
+                        disabled={uploadingStudy}
+                        className="text-xs text-primary font-semibold hover:text-primary/80 transition flex items-center gap-1"
+                      >
+                        {uploadingStudy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
+                        Subir
+                      </button>
+                    </div>
+                    {supply.studies && supply.studies.filter((s: any) => s.status === 'completed').length > 0 ? (
+                      <div className="space-y-2">
+                        {supply.studies
+                          .filter((s: any) => s.status === 'completed')
+                          .sort((a: any, b: any) => new Date(b.completed_at || b.created_at).getTime() - new Date(a.completed_at || a.created_at).getTime())
+                          .map((study: any) => (
+                            <div key={study.id} className="group flex items-center gap-2 px-2.5 py-2 rounded-lg bg-surface-container-low/60 hover:bg-green-50/50 transition">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+                              <span className="text-xs text-on-surface flex-1 truncate">
+                                {study.completed_at ? formatDate(study.completed_at) : 'Informe'}
+                              </span>
+                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                {study.report_url && (
+                                  <a href={getViewUrl(study.report_url)} target="_blank" rel="noopener noreferrer" className="p-1 rounded-lg hover:bg-green-100 transition" title="Ver">
+                                    <ExternalLink className="w-3.5 h-3.5 text-green-600" />
+                                  </a>
+                                )}
+                                <button
+                                  onClick={() => handleDeleteStudy(study)}
+                                  disabled={deletingStudyId === study.id}
+                                  className="p-1 rounded-lg hover:bg-red-50 transition"
+                                  title="Eliminar"
+                                >
+                                  {deletingStudyId === study.id ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin text-red-400" />
+                                  ) : (
+                                    <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-on-surface-variant">Sin informes económicos</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Divider */}
+              <div className="border-t border-outline-variant/10" />
+
+              {/* ── 3. CONTRATOS ── */}
+              <div>
+                <h3 className="text-sm font-bold text-on-surface uppercase tracking-wider flex items-center gap-2 mb-3">
+                  <div className="w-2 h-2 rounded-full bg-purple-500" />
+                  Contratos
+                </h3>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Voltis */}
+                  <div className="rounded-xl border border-outline-variant/10 bg-surface-container-lowest p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Zap className="w-4 h-4 text-primary" />
+                      <h4 className="text-xs font-bold text-on-surface">Contrato Voltis</h4>
+                    </div>
+                    {supply.contracts && supply.contracts.filter((c: any) => c.type === 'voltis' || c.contract_type === 'voltis').length > 0 ? (
+                      <div className="space-y-2">
+                        {supply.contracts
+                          .filter((c: any) => c.type === 'voltis' || c.contract_type === 'voltis')
+                          .map((contract: any) => (
+                            <div key={contract.id} className="group flex items-center gap-2 px-2.5 py-2 rounded-lg bg-surface-container-low/60 hover:bg-primary/5 transition">
+                              <FileText className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                              <span className="text-xs text-on-surface flex-1 truncate">
+                                {contract.signed_at ? formatDate(contract.signed_at) : 'Contrato'}
+                              </span>
+                              {(contract.document_url || contract.file_url) && (
+                                <a
+                                  href={getViewUrl(contract.document_url || contract.file_url)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="p-1 rounded-lg hover:bg-primary/10 transition opacity-0 group-hover:opacity-100"
+                                  title="Ver contrato"
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5 text-primary" />
+                                </a>
+                              )}
+                            </div>
+                          ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-on-surface-variant">Sin contrato Voltis</p>
+                    )}
+                  </div>
+
+                  {/* Comercializadora */}
+                  <div className="rounded-xl border border-outline-variant/10 bg-surface-container-lowest p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Building2 className="w-4 h-4 text-purple-500" />
+                      <h4 className="text-xs font-bold text-on-surface">Contrato Comercializadora</h4>
+                    </div>
+                    {supply.comercializadora && (
+                      <p className="text-[10px] text-on-surface-variant mb-2">{supply.comercializadora.name}</p>
+                    )}
+                    {supply.contracts && supply.contracts.filter((c: any) => c.type === 'comercializadora' || c.contract_type === 'comercializadora').length > 0 ? (
+                      <div className="space-y-2">
+                        {supply.contracts
+                          .filter((c: any) => c.type === 'comercializadora' || c.contract_type === 'comercializadora')
+                          .map((contract: any) => (
+                            <div key={contract.id} className="group flex items-center gap-2 px-2.5 py-2 rounded-lg bg-surface-container-low/60 hover:bg-purple-50/50 transition">
+                              <FileText className="w-3.5 h-3.5 text-purple-500 flex-shrink-0" />
+                              <span className="text-xs text-on-surface flex-1 truncate">
+                                {contract.signed_at ? formatDate(contract.signed_at) : 'Contrato'}
+                              </span>
+                              {(contract.document_url || contract.file_url) && (
+                                <a
+                                  href={getViewUrl(contract.document_url || contract.file_url)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="p-1 rounded-lg hover:bg-purple-100 transition opacity-0 group-hover:opacity-100"
+                                  title="Ver contrato"
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5 text-purple-500" />
+                                </a>
+                              )}
+                            </div>
+                          ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-on-surface-variant">Sin contrato comercializadora</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Divider */}
+              <div className="border-t border-outline-variant/10" />
+
+              {/* ── 4. FACTURAS DESDE ACTIVACIÓN ── */}
+              <div>
+                <h3 className="text-sm font-bold text-on-surface uppercase tracking-wider flex items-center gap-2 mb-3">
+                  <div className="w-2 h-2 rounded-full bg-amber-500" />
+                  Facturas desde activación
+                </h3>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Facturas Voltis */}
+                  <div className="rounded-xl border border-outline-variant/10 border-dashed bg-surface-container-low/30 p-4 flex flex-col items-center gap-2">
+                    <Zap className="w-5 h-5 text-on-surface-variant/30" />
+                    <p className="text-xs text-on-surface-variant text-center">Facturas Voltis</p>
+                    <p className="text-[10px] text-on-surface-variant/60 text-center">Disponible tras activación</p>
+                  </div>
+
+                  {/* Facturas Comercializadora */}
+                  <div className="rounded-xl border border-outline-variant/10 border-dashed bg-surface-container-low/30 p-4 flex flex-col items-center gap-2">
+                    <Building2 className="w-5 h-5 text-on-surface-variant/30" />
+                    <p className="text-xs text-on-surface-variant text-center">Facturas Comercializadora</p>
+                    <p className="text-[10px] text-on-surface-variant/60 text-center">Disponible tras activación</p>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
