@@ -666,10 +666,16 @@ export default function ClientsPage() {
               {(!selectedClient.supplies || selectedClient.supplies.length === 0) ? (
                 <p className="text-sm text-on-surface-variant text-center py-6 italic">Sin suministros</p>
               ) : (
-                <div className="space-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {selectedClient.supplies.map((supply: any) => {
                     const SIcon = supplyTypeIcons[supply.type] || Zap
                     const isEditing = editingSupplyName === supply.id
+                    const accentColor =
+                      ['firmado', 'suscrito', 'seguimiento_activo'].includes(supply.status) ? 'from-success/30 to-success/0' :
+                      ['estudio_en_curso', 'pendiente_firma'].includes(supply.status) ? 'from-warning/30 to-warning/0' :
+                      supply.status === 'rechazado' ? 'from-error/30 to-error/0' :
+                      ['presentado', 'estudio_completado'].includes(supply.status) ? 'from-secondary/30 to-secondary/0' :
+                      'from-primary/30 to-primary/0'
 
                     return (
                       <div
@@ -683,116 +689,91 @@ export default function ClientsPage() {
                         }}
                         onKeyDown={(e) => {
                           if (confirmDeleteSupplyId === supply.id || isEditing) return
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault()
-                            setSelectedClient(null)
-                            router.push(`/supplies/${supply.id}`)
-                          }
+                          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedClient(null); router.push(`/supplies/${supply.id}`) }
                         }}
-                        className="rounded-xl bg-surface-container-lowest border border-outline-variant/10 overflow-hidden hover:shadow-ambient-sm hover:bg-surface-container-low/40 transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                        className="group/card relative bg-surface-container-lowest rounded-2xl shadow-ambient-xs hover:shadow-ambient-sm hover:-translate-y-0.5 transition-all duration-200 cursor-pointer overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
                       >
-                        {/* Confirmation dialog for supply deletion */}
+                        <div className={`absolute inset-x-0 top-0 h-14 bg-gradient-to-b ${accentColor} pointer-events-none`} />
+
+                        {/* Delete confirm overlay */}
                         {confirmDeleteSupplyId === supply.id ? (
-                          <div className="px-4 py-3 bg-red-500/10 border-b border-red-500/20">
+                          <div className="relative p-3 bg-red-500/10">
                             <div className="flex items-center gap-2">
-                              <span className="text-sm text-on-surface flex-1">¿Eliminar?</span>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); setConfirmDeleteSupplyId(null) }}
-                                className="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white/70 text-xs font-medium transition-colors"
-                              >
-                                Cancelar
-                              </button>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleDeleteSupply(supply.id) }}
-                                disabled={deletingSupply}
-                                className="px-3 py-1 rounded-lg bg-red-500 hover:bg-red-600 text-white text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                {deletingSupply ? 'Eliminando...' : 'Eliminar'}
-                              </button>
+                              <span className="text-xs text-on-surface flex-1">¿Eliminar?</span>
+                              <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteSupplyId(null) }} className="px-2 py-0.5 rounded-md bg-surface-container-high text-on-surface-variant text-[10px] font-medium">Cancelar</button>
+                              <button onClick={(e) => { e.stopPropagation(); handleDeleteSupply(supply.id) }} disabled={deletingSupply} className="px-2 py-0.5 rounded-md bg-red-500 text-white text-[10px] font-medium disabled:opacity-50">{deletingSupply ? '...' : 'Eliminar'}</button>
                             </div>
                           </div>
                         ) : (
-                          <>
-                            <div className="flex items-center gap-3 px-4 py-3">
-                              <div className="w-9 h-9 rounded-lg bg-primary/8 flex items-center justify-center flex-shrink-0">
+                          <div className="relative p-3.5 flex flex-col gap-2.5">
+                            {/* Top: icon + status + delete */}
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0 group-hover/card:scale-105 transition-transform">
                                 <SIcon className="w-4 h-4 text-primary" />
                               </div>
-                              <div className="flex-1 min-w-0">
-                                {/* Editable name */}
-                                {isEditing ? (
-                                  <div className="flex items-center gap-1.5">
-                                    <input
-                                      ref={nameInputRef}
-                                      type="text"
-                                      value={supplyNameValue}
-                                      onChange={e => setSupplyNameValue(e.target.value)}
-                                      onClick={e => e.stopPropagation()}
-                                      onKeyDown={e => {
-                                        e.stopPropagation()
-                                        if (e.key === 'Enter') handleSaveSupplyName(supply.id)
-                                        if (e.key === 'Escape') setEditingSupplyName(null)
-                                      }}
-                                      placeholder="Nombre del suministro..."
-                                      className="flex-1 px-2 py-0.5 text-sm bg-surface-container-high rounded-lg outline-none focus:focus-glow"
-                                      autoFocus
-                                    />
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); handleSaveSupplyName(supply.id) }}
-                                      className="p-1 rounded text-success hover:bg-success/10"
-                                    >
-                                      <Check className="w-3.5 h-3.5" />
-                                    </button>
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); setEditingSupplyName(null) }}
-                                      className="p-1 rounded text-error hover:bg-error/10"
-                                    >
-                                      <X className="w-3.5 h-3.5" />
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <div className="flex items-center gap-1.5">
-                                    <p className="text-sm font-medium text-on-surface truncate">
-                                      {supply.name || supply.cups || 'Sin CUPS'}
-                                    </p>
-                                    <button
-                                      onClick={e => {
-                                        e.preventDefault()
-                                        e.stopPropagation()
-                                        setEditingSupplyName(supply.id)
-                                        setSupplyNameValue(supply.name || '')
-                                      }}
-                                      className="p-0.5 rounded text-on-surface-variant/40 hover:text-primary hover:bg-primary/10 transition-colors"
-                                      title="Editar nombre"
-                                    >
-                                      <Pencil className="w-3 h-3" />
-                                    </button>
-                                  </div>
-                                )}
-                                {supply.name && supply.cups && (
-                                  <p className="text-[10px] text-on-surface-variant font-mono">{supply.cups}</p>
-                                )}
-                                <div className="flex items-center gap-2 mt-0.5">
-                                  <StatusBadge status={supply.status} />
-                                  <span className="text-[10px] text-on-surface-variant capitalize">{supply.type} · {supply.tariff}</span>
-                                </div>
+                              <div className="flex items-center gap-1">
+                                <StatusBadge status={supply.status} />
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setConfirmDeleteSupplyId(supply.id) }}
+                                  className="p-1 rounded-md text-on-surface-variant/20 hover:text-red-400 hover:bg-red-50 transition-colors opacity-0 group-hover/card:opacity-100"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
                               </div>
-
-                              {/* Delete button */}
-                              <button
-                                onClick={(e) => { e.stopPropagation(); setConfirmDeleteSupplyId(supply.id) }}
-                                className="w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-red-400 transition-colors flex-shrink-0"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
                             </div>
 
-                            {/* Supply address */}
-                            {supply.address && (
-                              <div className="px-4 pb-2">
-                                <p className="text-[10px] text-on-surface-variant truncate">{supply.address}</p>
+                            {/* Title + CUPS */}
+                            <div className="min-w-0">
+                              {isEditing ? (
+                                <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                                  <input
+                                    ref={nameInputRef}
+                                    type="text"
+                                    value={supplyNameValue}
+                                    onChange={e => setSupplyNameValue(e.target.value)}
+                                    onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') handleSaveSupplyName(supply.id); if (e.key === 'Escape') setEditingSupplyName(null) }}
+                                    placeholder="Nombre..."
+                                    className="flex-1 min-w-0 px-2 py-0.5 text-xs bg-surface-container-high rounded-lg outline-none focus:ring-2 focus:ring-primary/40"
+                                    autoFocus
+                                  />
+                                  <button onClick={(e) => { e.stopPropagation(); handleSaveSupplyName(supply.id) }} className="p-0.5 text-success"><Check className="w-3.5 h-3.5" /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); setEditingSupplyName(null) }} className="p-0.5 text-error"><X className="w-3.5 h-3.5" /></button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1">
+                                  <h4 className="text-xs font-semibold text-on-surface truncate group-hover/card:text-primary transition-colors">
+                                    {supply.name || supply.cups || 'Sin CUPS'}
+                                  </h4>
+                                  <button
+                                    onClick={e => { e.preventDefault(); e.stopPropagation(); setEditingSupplyName(supply.id); setSupplyNameValue(supply.name || '') }}
+                                    className="p-0.5 rounded text-on-surface-variant/30 hover:text-primary opacity-0 group-hover/card:opacity-100 transition-all"
+                                  >
+                                    <Pencil className="w-2.5 h-2.5" />
+                                  </button>
+                                </div>
+                              )}
+                              {supply.name && supply.cups && (
+                                <p className="text-[9px] text-on-surface-variant font-mono truncate mt-0.5">{supply.cups}</p>
+                              )}
+                            </div>
+
+                            {/* Stats: tariff + type */}
+                            <div className="grid grid-cols-2 gap-1.5">
+                              <div className="rounded-md bg-surface-container-low/50 px-2 py-1">
+                                <p className="text-[8px] uppercase tracking-wider text-on-surface-variant/60 font-semibold">Tarifa</p>
+                                <p className="text-[11px] text-on-surface font-semibold truncate">{supply.tariff || '—'}</p>
                               </div>
+                              <div className="rounded-md bg-surface-container-low/50 px-2 py-1">
+                                <p className="text-[8px] uppercase tracking-wider text-on-surface-variant/60 font-semibold">Tipo</p>
+                                <p className="text-[11px] text-on-surface font-semibold capitalize truncate">{supply.type || '—'}</p>
+                              </div>
+                            </div>
+
+                            {/* Address */}
+                            {supply.address && (
+                              <p className="text-[9px] text-on-surface-variant truncate" title={supply.address}>{supply.address}</p>
                             )}
-                          </>
+                          </div>
                         )}
                       </div>
                     )
