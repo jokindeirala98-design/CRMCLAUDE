@@ -696,14 +696,20 @@ function rebuildFromRawLineItems(rawLineItems: LineItem[], eco: any): any {
       ...gTermFijo, ...gPeajeFijo, ...gPeajeVar, ...gCargo,
       ...gRegas, ...gGts, ...gCnmc, ...gFondo,
     ])
-    const diasFacturados = (gTermFijo[0]?.dias || gPeajeFijo[0]?.dias || 0)
+    // Sum ALL days across all fixed-term lines (e.g. 4 días + 56 días = 60)
+    const diasFacturados = [...gTermFijo, ...gPeajeFijo].reduce((s, i) => s + i.dias, 0)
     const terminoFijoDiario = diasFacturados > 0 ? terminoFijoTotal / diasFacturados : 0
+
+    // Discounts may come as negative totals (-3.95) or positive (3.95).
+    // Always store as POSITIVE value; costeNeto = bruto - abs(descuento).
+    const rawDescuento = sumTotal(gDesc)
+    const descuentoEnergia = Math.abs(rawDescuento)
 
     out.supply_type = out.supply_type || 'gas'
     out.consumoTotalKwh = round2(consumoKwhGas)
     out.costeBrutoConsumo = round2(costeBrutoGas)
-    out.descuentoEnergia = round2(sumTotal(gDesc))
-    out.costeNetoConsumo = round2(costeBrutoGas - sumTotal(gDesc))
+    out.descuentoEnergia = round2(descuentoEnergia)
+    out.costeNetoConsumo = round2(costeBrutoGas - descuentoEnergia)
     out.costeTotalConsumo = out.costeNetoConsumo
     out.consumo = consumoKwhGas > 0 ? [{
       periodo: 'P1',
@@ -731,7 +737,7 @@ function rebuildFromRawLineItems(rawLineItems: LineItem[], eco: any): any {
 
     const declaredTotalGas = toNum(eco.totalFactura)
     const computedGas = round2(
-      costeBrutoGas + terminoFijoTotal + sumTotal(gHidro) + sumTotal(gAlq) + sumTotal(gIva) - sumTotal(gDesc)
+      costeBrutoGas + terminoFijoTotal + sumTotal(gHidro) + sumTotal(gAlq) + sumTotal(gIva) - descuentoEnergia
     )
     out.totalFactura = declaredTotalGas > 0 ? round2(declaredTotalGas) : computedGas
     if (consumoKwhGas > 0 && out.costeNetoConsumo > 0) {
@@ -808,7 +814,8 @@ function rebuildFromRawLineItems(rawLineItems: LineItem[], eco: any): any {
   }
 
   const costeBrutoConsumo = sumTotal([...energiaComer, ...energiaPeajes, ...energiaCargos])
-  const descuentoEnergia = sumTotal(descEnergiaItems)
+  // Discounts may come as negative totals or positive — always store as positive
+  const descuentoEnergia = Math.abs(sumTotal(descEnergiaItems))
   const costeNetoConsumo = costeBrutoConsumo - descuentoEnergia
 
   out.consumo = consumo
