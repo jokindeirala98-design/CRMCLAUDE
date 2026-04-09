@@ -57,15 +57,21 @@ export function TechnicalAuditModal({ open, onClose, clientId, clientName }: Pro
   const handleSync = useCallback(async () => {
     setSyncing(true)
     try {
+      console.log('[TechnicalAuditModal] Syncing for client:', clientId)
       const res = await fetch('/api/sync-consumption', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ client_id: clientId }),
       })
       const data = await res.json()
-      if (data.success) await fetchData()
+      console.log('[TechnicalAuditModal] Sync response:', data)
+      if (data.success) {
+        await fetchData()
+      } else if (data.error) {
+        console.error('[TechnicalAuditModal] Sync error:', data.error)
+      }
     } catch (err) {
-      console.error('Sync error:', err)
+      console.error('[TechnicalAuditModal] Sync exception:', err)
     }
     setSyncing(false)
   }, [clientId, fetchData])
