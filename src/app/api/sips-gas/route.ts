@@ -75,21 +75,23 @@ export async function POST(request: NextRequest) {
     console.error('[SIPS-GAS] Route error:', error)
 
     // Specific error messages for common failures
-    if (error.message?.includes('TOTALENERGIES_EMAIL')) {
+    const msg = error.message || 'Error consultando SIPS Gas'
+    if (msg.includes('deben estar configurados')) {
       return NextResponse.json(
         { success: false, error: 'Credenciales de TotalEnergies no configuradas en el servidor' },
         { status: 500 }
       )
     }
-    if (error.message?.includes('Token expirado')) {
+    if (msg.includes('Token expirado')) {
       return NextResponse.json(
         { success: false, error: 'Sesión de TotalEnergies expirada, reintenta' },
         { status: 401 }
       )
     }
 
+    // Show actual error for debugging
     return NextResponse.json(
-      { success: false, error: error.message || 'Error consultando SIPS Gas' },
+      { success: false, error: `[TotalEnergies] ${msg}` },
       { status: 500 }
     )
   }

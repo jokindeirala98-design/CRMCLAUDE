@@ -211,7 +211,7 @@ async function gigyaLogin(email: string, password: string): Promise<string> {
     }
   }
 
-  throw new Error('[TotalEnergies] All authentication strategies failed. Check TOTALENERGIES_EMAIL and TOTALENERGIES_PASSWORD.')
+  throw new Error('[TotalEnergies] All authentication strategies failed. Verify credentials are correct for agentes.totalenergies.es')
 }
 
 // ─── Token management ───────────────────────────────────────────────
