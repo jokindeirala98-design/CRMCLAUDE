@@ -22,7 +22,8 @@
     "clsx": "^2.1.0",
     "tailwind-merge": "^2.3.0",
     "exceljs": "^4.4.0",
-    "jszip": "^3.10.1"
+    "jszip": "^3.10.1",
+    "sharp": "^0.33.0"
   },
   "devDependencies": {
     "typescript": "^5.4.0",

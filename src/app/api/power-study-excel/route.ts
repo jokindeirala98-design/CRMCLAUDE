@@ -1,10 +1,8 @@
 /**
- * Excel export — usa la plantilla oficial de Voltis (public/templates/estudio-potencias-template.xlsx)
+ * Excel export — uses the official Voltis template (public/templates/estudio-potencias-template.xlsx)
  *
- * Las gráficas (PNG) se generan en el navegador (Canvas API) y se envían como base64.
- * El servidor usa jszip para sustituirlas en el ZIP del xlsx.
- * image1 → gráfica de maxímetros
- * image2 → gráfica de consumo mensual
+ * Charts are generated SERVER-SIDE as SVG → PNG via sharp.
+ * This ensures chronological ordering and consistent rendering regardless of browser.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -12,6 +10,7 @@ import ExcelJS from 'exceljs'
 import path from 'path'
 import fs from 'fs'
 import type { PowerStudyResult } from '@/app/api/power-study/route'
+import { buildConsumptionSVG, buildMaximetroSVG } from '@/lib/power-study-charts'
 
 const PERIODS = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'] as const
 type Period = (typeof PERIODS)[number]
@@ -22,14 +21,26 @@ const MAX_COL:     Record<Period, number> = { P1: 11, P2: 12, P3: 13, P4: 14, P5
 const DATA_START_ROW = 5
 const MAX_TEMPLATE_ROWS = 39
 
+/** Convert an SVG string to PNG buffer using sharp */
+async function svgToPng(svg: string, width: number, height: number): Promise<Buffer | null> {
+  try {
+    const sharp = (await import('sharp')).default
+    const svgBuffer = Buffer.from(svg, 'utf-8')
+    return await sharp(svgBuffer)
+      .resize(width, height)
+      .png()
+      .toBuffer()
+  } catch (err) {
+    console.error('[power-study-excel] SVG→PNG conversion failed:', err)
+    return null
+  }
+}
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const body = await request.json()
     const study: PowerStudyResult = body.study ?? body
-
-    // Charts from browser Canvas API (base64 PNG data-URLs)
-    const consumptionB64: string | undefined = body.charts?.consumption
-    const maximetroB64:   string | undefined = body.charts?.maximetro
+    const pc = study.potenciaContratada ?? ({} as Record<string, number>)
 
     // ── Load template ─────────────────────────────────────────────────────────
     const templatePath = path.join(process.cwd(), 'public', 'templates', 'estudio-potencias-template.xlsx')
@@ -41,12 +52,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const ws = wb.worksheets[0]
     if (!ws) return NextResponse.json({ error: 'Template sin hojas' }, { status: 500 })
 
-    // ── Header rows (CUPS, client name) ──────────────────────────────────────
+    // ── Header rows ──────────────────────────────────────────────────────────
     ws.getCell('A2').value = study.cups || ''
     ws.getCell('A3').value = study.clientName || ''
 
-    // ── Adjustment message (K3, merged K3:P4) ────────────────────────────────
-    const pc = study.potenciaContratada ?? ({} as Record<string, number>)
+    // ── Adjustment message (K3) ──────────────────────────────────────────────
     const adj = PERIODS.map(p => {
       const cont = (pc as any)[p] ?? 0
       const maxV = study.maxPotencia?.[p] ?? 0
@@ -71,7 +81,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       adjCell.font  = { bold: true, size: 11, color: { argb: 'FF375623' } }
     }
 
-    // ── PRIORIZAR message (D4, merged D4:I4) ──────────────────────────────────
+    // ── PRIORIZAR message (D4) ────────────────────────────────────────────────
     const activePeriods = PERIODS
       .filter(p => (study.consumoPorPeriodo?.[p] ?? 0) > 0)
       .sort((a, b) => (study.consumoPorPeriodo?.[b] ?? 0) - (study.consumoPorPeriodo?.[a] ?? 0))
@@ -82,12 +92,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // ── Clear template data rows ──────────────────────────────────────────────
     for (let r = DATA_START_ROW; r <= MAX_TEMPLATE_ROWS; r++) {
       for (let c = 1; c <= 16; c++) {
-        if (c === 10) continue   // col J — separator, leave as-is
+        if (c === 10) continue
         ws.getCell(r, c).value = null
       }
     }
 
-    // ── Fill data rows from SIPS (sorted chronologically: oldest → newest) ────
+    // ── Fill data rows (sorted chronologically: oldest → newest) ─────────────
     const meses = [...(study.meses ?? [])].sort((a, b) => new Date(a.fechaFin).getTime() - new Date(b.fechaFin).getTime())
     meses.forEach((m, i) => {
       const r = DATA_START_ROW + i
@@ -108,101 +118,62 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       })
     })
 
-    // ── Extend conditional formatting if data > template rows ────────────────
-    const lastDataRow = DATA_START_ROW + meses.length - 1
-    if (lastDataRow > MAX_TEMPLATE_ROWS) {
-      const cf = (ws as any).conditionalFormattings
-      if (cf) {
-        const ext = (o: string, n: string) => { for (const r of cf) { if (r.ref === o) r.ref = n } }
-        ext(`A${DATA_START_ROW}:A${MAX_TEMPLATE_ROWS}`, `A${DATA_START_ROW}:A${lastDataRow}`)
-        ext(`D${DATA_START_ROW}:I${MAX_TEMPLATE_ROWS}`, `D${DATA_START_ROW}:I${lastDataRow}`)
-        ext(`K${DATA_START_ROW}:P${MAX_TEMPLATE_ROWS}`, `K${DATA_START_ROW}:P${lastDataRow}`)
-      }
-    }
+    // ── Generate chart PNGs server-side ───────────────────────────────────────
+    const consumoSvg = buildConsumptionSVG(study.meses, 820, 300)
+    const maximetroSvg = buildMaximetroSVG(study.meses, pc as Record<string, number>, 820, 300)
+    const [consumoPng, maximetroPng] = await Promise.all([
+      svgToPng(consumoSvg, 1640, 600),   // 2x for sharpness
+      svgToPng(maximetroSvg, 1640, 600),
+    ])
 
-    // ── Serialize with ExcelJS ─────────────────────────────────────────────────
+    // ── Serialize with ExcelJS ────────────────────────────────────────────────
     const excelBuffer = Buffer.from(await wb.xlsx.writeBuffer())
 
-    // ── Post-process with JSZip: replace chart images + fix drawing dimensions ─
+    // ── Post-process with JSZip: replace chart images + fix drawing ───────────
     const JSZip = (await import('jszip')).default
     const zip = await JSZip.loadAsync(excelBuffer)
 
-    // Chart row placement: below data
     const chartStartRow = Math.max(DATA_START_ROW + meses.length + 1, 40)
 
-    // Replace image2 → consumo mensual chart (PNG)
-    if (consumptionB64) {
-      const b64 = consumptionB64.replace(/^data:image\/\w+;base64,/, '')
-      // Remove old files and add new PNG
-      zip.remove('xl/media/image2.png')
-      zip.remove('xl/media/image2.jpeg')
-      zip.file('xl/media/image2.png', Buffer.from(b64, 'base64'))
-    }
+    // Replace images
+    zip.remove('xl/media/image1.jpeg')
+    zip.remove('xl/media/image1.png')
+    zip.remove('xl/media/image2.png')
+    zip.remove('xl/media/image2.jpeg')
 
-    // Replace image1 → maxímetro chart (PNG)
-    if (maximetroB64) {
-      const b64 = maximetroB64.replace(/^data:image\/\w+;base64,/, '')
-      zip.remove('xl/media/image1.jpeg')
-      zip.remove('xl/media/image1.png')
-      zip.file('xl/media/image1.png', Buffer.from(b64, 'base64'))
-    }
+    if (consumoPng) zip.file('xl/media/image2.png', consumoPng)
+    if (maximetroPng) zip.file('xl/media/image1.png', maximetroPng)
 
-    // Update rels to point both images to .png
+    // Update rels
     zip.file('xl/drawings/_rels/drawing1.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"/>
   <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image2.png"/>
 </Relationships>`)
 
-    // Rewrite drawing1.xml with proper wide dimensions for 820x300 charts
-    // image2 (consumo): cols 0–9, rows chartStartRow to chartStartRow+14
-    // image1 (maxímetros): cols 10–16, rows chartStartRow to chartStartRow+14
-    const consumoFromRow = chartStartRow
-    const consumoToRow = chartStartRow + 15
-    const maxFromRow = chartStartRow
-    const maxToRow = chartStartRow + 15
-
+    // Rewrite drawing with proper dimensions
+    const toRow = chartStartRow + 15
     zip.file('xl/drawings/drawing1.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
           xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
           xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <xdr:twoCellAnchor editAs="oneCell">
-    <xdr:from><xdr:col>0</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${consumoFromRow}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>
-    <xdr:to><xdr:col>9</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${consumoToRow}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>
+    <xdr:from><xdr:col>0</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${chartStartRow}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>
+    <xdr:to><xdr:col>9</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${toRow}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>
     <xdr:pic>
-      <xdr:nvPicPr>
-        <xdr:cNvPr id="3" name="Consumo Mensual"/>
-        <xdr:cNvPicPr><a:picLocks noChangeArrowheads="1"/></xdr:cNvPicPr>
-      </xdr:nvPicPr>
-      <xdr:blipFill>
-        <a:blip r:embed="rId2"/>
-        <a:stretch><a:fillRect/></a:stretch>
-      </xdr:blipFill>
-      <xdr:spPr bwMode="auto">
-        <a:xfrm><a:off x="0" y="0"/><a:ext cx="7261412" cy="2857500"/></a:xfrm>
-        <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
-        <a:noFill/>
-      </xdr:spPr>
+      <xdr:nvPicPr><xdr:cNvPr id="3" name="Consumo Mensual"/><xdr:cNvPicPr><a:picLocks noChangeArrowheads="1"/></xdr:cNvPicPr></xdr:nvPicPr>
+      <xdr:blipFill><a:blip r:embed="rId2"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>
+      <xdr:spPr bwMode="auto"><a:xfrm><a:off x="0" y="0"/><a:ext cx="7261412" cy="2857500"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></xdr:spPr>
     </xdr:pic>
     <xdr:clientData/>
   </xdr:twoCellAnchor>
   <xdr:twoCellAnchor editAs="oneCell">
-    <xdr:from><xdr:col>10</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${maxFromRow}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>
-    <xdr:to><xdr:col>16</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${maxToRow}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>
+    <xdr:from><xdr:col>10</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${chartStartRow}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>
+    <xdr:to><xdr:col>16</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${toRow}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>
     <xdr:pic>
-      <xdr:nvPicPr>
-        <xdr:cNvPr id="2" name="Maximetros"/>
-        <xdr:cNvPicPr><a:picLocks noChangeArrowheads="1"/></xdr:cNvPicPr>
-      </xdr:nvPicPr>
-      <xdr:blipFill>
-        <a:blip r:embed="rId1"/>
-        <a:stretch><a:fillRect/></a:stretch>
-      </xdr:blipFill>
-      <xdr:spPr bwMode="auto">
-        <a:xfrm><a:off x="0" y="0"/><a:ext cx="5000000" cy="2857500"/></a:xfrm>
-        <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
-        <a:noFill/>
-      </xdr:spPr>
+      <xdr:nvPicPr><xdr:cNvPr id="2" name="Maximetros"/><xdr:cNvPicPr><a:picLocks noChangeArrowheads="1"/></xdr:cNvPicPr></xdr:nvPicPr>
+      <xdr:blipFill><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>
+      <xdr:spPr bwMode="auto"><a:xfrm><a:off x="0" y="0"/><a:ext cx="5000000" cy="2857500"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></xdr:spPr>
     </xdr:pic>
     <xdr:clientData/>
   </xdr:twoCellAnchor>
