@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import {
   ArrowLeft, Building2, Mail, Phone, MapPin, FileText,
   CreditCard, Zap, Edit2, Trash2, Plus, ExternalLink, FileCheck,
-  Send, Sparkles, AlertTriangle,
+  Send, Sparkles, AlertTriangle, BarChart3,
   Check, XCircle, Clock, DollarSign, Pencil, X, Flame, Phone as PhoneIcon,
   Loader2
 } from 'lucide-react'
@@ -518,8 +518,28 @@ export default function ClientDetailPage() {
           )}
         </div>
 
-        {/* ─── Consumption Distribution (Ayuntamientos only) ─── */}
-        {/* TODO: ConsumptionDistribution — requires local components not yet in git */}
+        {/* ─── Informe de Suministros (Ayuntamientos) ─── */}
+        {client.type === 'ayuntamiento' && (client.supplies?.length || 0) > 0 && (
+          <button
+            onClick={() => router.push(`/clients/${id}/audit-report`)}
+            className="w-full group relative overflow-hidden rounded-2xl border-2 border-primary/20 bg-gradient-to-r from-primary/5 to-transparent px-6 py-5 text-left transition-all hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0 group-hover:bg-primary/20 transition">
+                <BarChart3 className="w-6 h-6 text-primary" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-display font-bold text-on-surface text-base tracking-wide">
+                  INFORME DE SUMINISTROS
+                </h3>
+                <p className="text-xs text-on-surface-variant mt-0.5">
+                  Tabla de datos y generacion de informe energetico con analisis de consumos diferenciados por suministro
+                </p>
+              </div>
+              <ExternalLink className="w-5 h-5 text-primary/50 group-hover:text-primary transition flex-shrink-0" />
+            </div>
+          </button>
+        )}
 
         {/* ─── Subscription History ─── */}
         {client.subscriptions && client.subscriptions.length > 0 && (

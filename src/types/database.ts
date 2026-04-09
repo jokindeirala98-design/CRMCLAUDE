@@ -372,6 +372,7 @@ export interface ConsumptionSnapshot {
   id: string
   client_id: string
   supply_id: string
+  name: string | null
   cups: string
   tariff: string | null
   supply_type: 'luz' | 'gas' | null
@@ -394,6 +395,7 @@ export interface ConsumptionSnapshot {
   validation_status: ConsumptionValidation
   observations: string | null
   confidence_json: Record<string, unknown> | null
+  invoice_file_url: string | null
   periodo: string | null
   created_at: string
   updated_at: string
