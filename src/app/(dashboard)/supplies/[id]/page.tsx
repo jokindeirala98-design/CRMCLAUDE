@@ -24,6 +24,7 @@ import { formatDate, formatCurrency } from '@/lib/utils/format'
 import { getViewUrl } from '@/lib/utils/storage'
 import { normalizeCups } from '@/lib/utils/cups'
 import { ensurePendingPrescoring } from '@/lib/ensurePrescoring'
+import { downloadClientInvoicesZip, type DownloadProgress } from '@/lib/utils/download-invoices-zip'
 import { useAuthStore } from '@/stores/auth'
 import type { SupplyStatus } from '@/types/database'
 
@@ -107,6 +108,7 @@ export default function SupplyDetailPage() {
   const [technicalModalOpen, setTechnicalModalOpen] = useState(false)
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+  const [zipProgress, setZipProgress] = useState<DownloadProgress | null>(null)
   const invoiceInputRef = useRef<HTMLInputElement>(null)
   const studyInputRef = useRef<HTMLInputElement>(null)
   const notificationTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -121,6 +123,26 @@ export default function SupplyDetailPage() {
     notificationTimeoutRef.current = setTimeout(() => {
       setNotification(null)
     }, 4000)
+  }
+
+  // ── Download all client invoices as ZIP ──────────────────────────────────
+  const handleDownloadInvoicesZip = async () => {
+    if (!supply?.client_id || !supply?.client?.name) return
+    setZipProgress({ total: 0, downloaded: 0, currentFile: 'Iniciando...', phase: 'fetching' })
+    await downloadClientInvoicesZip(
+      supply.client_id,
+      supply.client.name,
+      (progress) => {
+        setZipProgress(progress)
+        if (progress.phase === 'done') {
+          showNotification('Facturas descargadas correctamente')
+          setTimeout(() => setZipProgress(null), 2000)
+        } else if (progress.phase === 'error') {
+          showNotification(progress.error || 'Error al descargar', 'error')
+          setTimeout(() => setZipProgress(null), 3000)
+        }
+      }
+    )
   }
 
   const fetchSupply = useCallback(async () => {
@@ -1960,10 +1982,46 @@ export default function SupplyDetailPage() {
               <h2 className="font-display font-semibold text-lg text-on-surface">
                 Suministros del cliente ({siblingSupplies.length})
               </h2>
-              <button onClick={() => setSupplyOverlayOpen(false)} className="p-2 rounded-xl hover:bg-surface-container-low transition-all">
-                <X className="w-5 h-5 text-on-surface-variant" />
-              </button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={(e) => { e.stopPropagation(); handleDownloadInvoicesZip() }}
+                  disabled={!!zipProgress && zipProgress.phase !== 'done' && zipProgress.phase !== 'error'}
+                >
+                  {zipProgress && zipProgress.phase !== 'done' && zipProgress.phase !== 'error' ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                  <span className="hidden sm:inline">Descargar facturas</span>
+                </Button>
+                <button onClick={() => setSupplyOverlayOpen(false)} className="p-2 rounded-xl hover:bg-surface-container-low transition-all">
+                  <X className="w-5 h-5 text-on-surface-variant" />
+                </button>
+              </div>
             </div>
+
+            {/* Download progress bar */}
+            {zipProgress && zipProgress.phase !== 'done' && zipProgress.phase !== 'error' && (
+              <div className="px-6 py-3 bg-primary/5 border-b border-outline-variant/10">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs font-semibold text-on-surface">
+                    {zipProgress.phase === 'fetching' ? 'Cargando datos...' :
+                     zipProgress.phase === 'zipping' ? 'Generando ZIP...' :
+                     `Descargando ${zipProgress.downloaded}/${zipProgress.total}`}
+                  </span>
+                  <span className="text-[10px] text-on-surface-variant truncate ml-4 max-w-[200px]">{zipProgress.currentFile}</span>
+                </div>
+                <div className="w-full h-1.5 bg-outline-variant/20 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary rounded-full transition-all duration-300"
+                    style={{ width: `${zipProgress.total > 0 ? (zipProgress.downloaded / zipProgress.total) * 100 : 10}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
             <div className="p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {siblingSupplies.map((s) => {
                 const isCurrent = s.id === id
