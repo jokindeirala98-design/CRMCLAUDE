@@ -140,19 +140,22 @@ export function GlobalSearch() {
         })
       })
 
-      // Search supplies by CUPS, address, or client name via join
+      // Search supplies by CUPS, alias (name), address, or client name via join
       const { data: supplies } = await supabase
         .from('supplies')
-        .select('id, cups, tariff, type, client:clients(name)')
-        .or(`cups.ilike.%${query}%,address.ilike.%${query}%`)
+        .select('id, cups, name, tariff, type, client:clients(name)')
+        .or(`cups.ilike.%${query}%,name.ilike.%${query}%,address.ilike.%${query}%`)
         .limit(5)
 
       supplies?.forEach((s: any) => {
+        // Show alias as primary title when present, CUPS as subtitle prefix
+        const primary = s.name || s.cups || 'Sin CUPS'
+        const cupsSuffix = s.name && s.cups ? `${s.cups} · ` : ''
         searchResults.push({
           id: s.id,
           type: 'supply',
-          title: s.cups || 'Sin CUPS',
-          subtitle: `${s.client?.name || ''} · ${s.type?.toUpperCase() || ''} ${s.tariff || ''}`.trim(),
+          title: primary,
+          subtitle: `${cupsSuffix}${s.client?.name || ''} · ${s.type?.toUpperCase() || ''} ${s.tariff || ''}`.trim(),
           href: `/supplies/${s.id}`,
         })
       })

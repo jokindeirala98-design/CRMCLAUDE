@@ -13,6 +13,7 @@ import {
 import { Header } from '@/components/layout/Header'
 import { PowerStudy } from '@/components/supply/PowerStudy'
 import AnnualEconomics from '@/components/supply/AnnualEconomics'
+import { ClientDetailModal } from '@/components/clients/ClientDetailModal'
 import { Card } from '@/components/ui/Card'
 import { Badge, StatusBadge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -97,8 +98,7 @@ export default function SupplyDetailPage() {
   const [uploadingStudy, setUploadingStudy] = useState(false)
   const [deletingStudyId, setDeletingStudyId] = useState<string | null>(null)
   const [siblingSupplies, setSiblingSupplies] = useState<any[]>([])
-  const [editingSupplyName, setEditingSupplyName] = useState(false)
-  const [supplyNameDraft, setSupplyNameDraft] = useState('')
+  const [clientModalOpen, setClientModalOpen] = useState(false)
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const invoiceInputRef = useRef<HTMLInputElement>(null)
   const studyInputRef = useRef<HTMLInputElement>(null)
@@ -590,6 +590,35 @@ export default function SupplyDetailPage() {
           total_amount: totalAmount,
         })
 
+        // 5. Auto-fill missing client fields from invoice extraction
+        if (supply.client?.id && extractedData) {
+          const holderName = (extractedData.holder_name || '').trim()
+          const holderCifNif = (extractedData.holder_cif_nif || '').trim().toUpperCase()
+          const fiscalAddr = (extractedData.fiscal_address || extractedData.supply_address || '').trim()
+
+          const { data: currentClient } = await supabase
+            .from('clients')
+            .select('id, name, cif, nif, cif_nif, fiscal_address')
+            .eq('id', supply.client.id)
+            .single()
+
+          if (currentClient) {
+            const patch: Record<string, any> = {}
+            if (!currentClient.name && holderName) patch.name = holderName
+            if (!currentClient.fiscal_address && fiscalAddr) patch.fiscal_address = fiscalAddr
+            if (holderCifNif) {
+              // CIF starts with letter, NIF is 8 digits + letter
+              const isCif = /^[A-HJNP-SUVW]\d{7}[0-9A-J]$/.test(holderCifNif)
+              if (isCif && !currentClient.cif) patch.cif = holderCifNif
+              if (!isCif && !currentClient.nif) patch.nif = holderCifNif
+              if (!currentClient.cif_nif) patch.cif_nif = holderCifNif
+            }
+            if (Object.keys(patch).length > 0) {
+              await supabase.from('clients').update(patch).eq('id', supply.client.id)
+            }
+          }
+        }
+
         newProgress[fileId] = 'done'
         setUploadProgress({ ...newProgress })
       } catch (err: any) {
@@ -858,8 +887,23 @@ export default function SupplyDetailPage() {
   return (
     <div>
       <Header
-        title={supply.cups || 'Sin CUPS'}
-        subtitle={`${supply.client?.name || 'Sin cliente'} · ${supply.type?.toUpperCase()}`}
+        title={supply.name || supply.cups || 'Sin CUPS'}
+        subtitle={
+          supply.name
+            ? supply.cups || ''
+            : `${supply.client?.name || 'Sin cliente'} · ${supply.type?.toUpperCase()}`
+        }
+        subtitleMono={!!supply.name}
+        onTitleSave={async (newValue) => {
+          const supabase = createClient()
+          const trimmed = newValue.trim() || null
+          await supabase.from('supplies').update({ name: trimmed }).eq('id', id)
+          setSupply((prev: any) => ({ ...prev, name: trimmed }))
+          setSiblingSupplies(prev =>
+            prev.map(s => (s.id === id ? { ...s, name: trimmed } : s))
+          )
+        }}
+        titleEditPlaceholder={supply.cups || 'Nombre del suministro'}
         actions={
           <div className="flex items-center gap-2">
             <Button variant="secondary" onClick={() => router.back()}>
@@ -1060,7 +1104,10 @@ export default function SupplyDetailPage() {
           </Card>
 
           {/* Client Info + Supply Switcher */}
-          <Card>
+          <Card
+            className={supply.client ? 'cursor-pointer hover:ring-2 hover:ring-primary/30 transition' : ''}
+            onClick={supply.client ? () => setClientModalOpen(true) : undefined}
+          >
             <h3 className="text-sm font-semibold text-on-surface-variant mb-3 uppercase tracking-wider">
               Cliente
             </h3>
@@ -1092,63 +1139,11 @@ export default function SupplyDetailPage() {
                 <Button
                   variant="tertiary"
                   size="sm"
-                  onClick={() => router.push(`/clients/${supply.client.id}`)}
+                  onClick={(e) => { e.stopPropagation(); setClientModalOpen(true) }}
                 >
                   Ver ficha completa
                   <ChevronRight className="w-3 h-3" />
                 </Button>
-
-                {/* ── Editable supply name ── */}
-                <div className="pt-3 border-t border-outline-variant/15">
-                  <p className="text-[10px] font-semibold text-on-surface-variant uppercase tracking-wider mb-1.5">
-                    Nombre del suministro
-                  </p>
-                  {editingSupplyName ? (
-                    <div className="flex items-center gap-1.5">
-                      <input
-                        type="text"
-                        value={supplyNameDraft}
-                        onChange={e => setSupplyNameDraft(e.target.value)}
-                        onKeyDown={async e => {
-                          if (e.key === 'Enter') {
-                            const supabase = createClient()
-                            await supabase.from('supplies').update({ name: supplyNameDraft.trim() || null }).eq('id', id)
-                            setSupply((prev: any) => ({ ...prev, name: supplyNameDraft.trim() || null }))
-                            setSiblingSupplies(prev => prev.map(s => s.id === id ? { ...s, name: supplyNameDraft.trim() || null } : s))
-                            setEditingSupplyName(false)
-                          }
-                          if (e.key === 'Escape') setEditingSupplyName(false)
-                        }}
-                        placeholder="Ej: Oficina Central..."
-                        className="flex-1 px-2 py-1 text-xs bg-surface-container-high rounded-lg outline-none focus:focus-glow"
-                        autoFocus
-                      />
-                      <button
-                        onClick={async () => {
-                          const supabase = createClient()
-                          await supabase.from('supplies').update({ name: supplyNameDraft.trim() || null }).eq('id', id)
-                          setSupply((prev: any) => ({ ...prev, name: supplyNameDraft.trim() || null }))
-                          setSiblingSupplies(prev => prev.map(s => s.id === id ? { ...s, name: supplyNameDraft.trim() || null } : s))
-                          setEditingSupplyName(false)
-                        }}
-                        className="p-1 rounded text-success hover:bg-success/10"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                      </button>
-                      <button onClick={() => setEditingSupplyName(false)} className="p-1 rounded text-error hover:bg-error/10">
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => { setSupplyNameDraft(supply.name || ''); setEditingSupplyName(true) }}
-                      className="flex items-center gap-1.5 text-xs text-on-surface hover:text-primary transition-colors group"
-                    >
-                      <span>{supply.name || 'Sin nombre — clic para editar'}</span>
-                      <Pencil className="w-3 h-3 text-on-surface-variant/40 group-hover:text-primary" />
-                    </button>
-                  )}
-                </div>
 
                 {/* ── Supply switcher ── */}
                 {siblingSupplies.length > 1 && (
@@ -2125,6 +2120,14 @@ export default function SupplyDetailPage() {
           </div>
         </>
       )}
+
+      {/* ═══════ CLIENT DETAIL MODAL ═══════ */}
+      <ClientDetailModal
+        clientId={supply.client?.id || null}
+        isOpen={clientModalOpen}
+        onClose={() => setClientModalOpen(false)}
+        contextSupplyId={id}
+      />
 
       {/* ═══════ NOTIFICATION TOAST ═══════ */}
       {notification && (

@@ -197,7 +197,7 @@ async function callGeminiOnce(prompt: string, base64Data: string, mimeType: stri
  * Retry wrapper around callGeminiOnce with exponential backoff + jitter.
  * Retries up to `maxAttempts` times on retryable errors only.
  */
-async function callGemini(
+export async function callGemini(
   prompt: string,
   base64Data: string,
   mimeType: string,
