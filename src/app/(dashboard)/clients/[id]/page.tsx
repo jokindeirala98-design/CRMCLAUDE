@@ -5,9 +5,9 @@ import { useParams, useRouter } from 'next/navigation'
 import {
   ArrowLeft, Building2, Mail, Phone, MapPin, FileText,
   CreditCard, Zap, Edit2, Trash2, Plus, ExternalLink, FileCheck,
-  Send, Sparkles, AlertTriangle,
+  Send, Sparkles, AlertTriangle, Copy,
   Check, XCircle, Clock, DollarSign, Pencil, X, Flame, Phone as PhoneIcon,
-  Loader2
+  Loader2, ChevronRight
 } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
 import { Card } from '@/components/ui/Card'
@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/Button'
 import { BulkUploadModal } from '@/components/modals/BulkUploadModal'
 import { QuickContractModal } from '@/components/modals/QuickContractModal'
 import { NewIncidentModal } from '@/components/modals/NewIncidentModal'
+import { ClientDetailModal } from '@/components/clients/ClientDetailModal'
 import { createClient } from '@/lib/supabase/client'
 import { formatDate, formatCurrency, calculateVAT, getUserInitials } from '@/lib/utils/format'
 import { getViewUrl } from '@/lib/utils/storage'
@@ -34,6 +35,9 @@ export default function ClientDetailPage() {
   const [supplyNameValue, setSupplyNameValue] = useState('')
   const [clientTasks, setClientTasks] = useState<any[]>([])
   const [dismissingTaskIds, setDismissingTaskIds] = useState<Set<string>>(new Set())
+  const [clientModalOpen, setClientModalOpen] = useState(false)
+  const [supplyOverlayOpen, setSupplyOverlayOpen] = useState(false)
+  const [copiedField, setCopiedField] = useState<string | null>(null)
 
   const fetchClient = useCallback(async () => {
     const supabase = createClient()
@@ -155,6 +159,13 @@ export default function ClientDetailPage() {
   const typeIcons: Record<string, string> = { luz: '⚡', gas: '🔥', telefonia: '📞' }
   const supplyTypeIconComponents: Record<string, React.ElementType> = { luz: Zap, gas: Flame, telefonia: PhoneIcon }
 
+  /** Copy to clipboard and briefly show a "copied" tooltip */
+  const copyField = (key: string, value: string) => {
+    navigator.clipboard.writeText(value)
+    setCopiedField(key)
+    setTimeout(() => setCopiedField(null), 1200)
+  }
+
   return (
     <div>
       <Header
@@ -238,128 +249,259 @@ export default function ClientDetailPage() {
           </div>
         )}
 
-        {/* Info cards */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <Card>
-            <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-3">
-              Contacto
-            </h3>
-            <div className="space-y-2.5">
-              <div className="flex items-center gap-2.5">
-                <Mail className="w-4 h-4 text-on-surface-variant flex-shrink-0" />
-                <span className="text-sm text-on-surface">{client.email || 'Sin email'}</span>
-              </div>
-              <div className="flex items-center gap-2.5">
-                <Phone className="w-4 h-4 text-on-surface-variant flex-shrink-0" />
-                <span className="text-sm text-on-surface">{client.phone || 'Sin telefono'}</span>
-              </div>
-              <div className="flex items-center gap-2.5">
-                <MapPin className="w-4 h-4 text-on-surface-variant flex-shrink-0" />
-                <span className="text-sm text-on-surface">{client.fiscal_address || 'Sin direccion'}</span>
+        {/* ═══ CLIENTE preview card — click opens full modal ═══ */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* ── Client preview card ── */}
+          <div
+            onClick={() => setClientModalOpen(true)}
+            className="group bg-surface-container-lowest rounded-2xl shadow-ambient-sm hover:shadow-ambient transition-all cursor-pointer overflow-hidden"
+          >
+            <div className="px-5 py-4 flex items-center justify-between border-b border-outline-variant/10">
+              <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider">Cliente</h3>
+              <span className="text-[10px] text-primary font-medium opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                Ver ficha completa <ChevronRight className="w-3 h-3" />
+              </span>
+            </div>
+            <div className="p-5 space-y-2">
+              {/* Each row: label + value + copy button */}
+              {([
+                { key: 'name', label: 'Nombre', value: client.name, icon: Building2 },
+                { key: 'cif_nif', label: client.cif ? 'CIF' : 'NIF', value: client.cif || client.nif || client.cif_nif, icon: FileText },
+                { key: 'phone', label: 'Teléfono', value: client.phone, icon: Phone },
+                { key: 'email', label: 'Email', value: client.email, icon: Mail },
+                { key: 'fiscal_address', label: 'Dir. fiscal', value: client.fiscal_address, icon: MapPin },
+              ] as const).map((field) => (
+                <div key={field.key} className="flex items-center gap-2.5 group/row">
+                  <field.icon className="w-4 h-4 text-on-surface-variant/60 flex-shrink-0" />
+                  <span className="flex-1 text-sm text-on-surface truncate">{field.value || <span className="text-on-surface-variant/40 italic">—</span>}</span>
+                  {field.value && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); copyField(field.key, field.value!) }}
+                      className="p-1 rounded-md text-on-surface-variant/30 hover:text-primary hover:bg-primary/10 transition-all opacity-0 group-hover/row:opacity-100 flex-shrink-0"
+                      title="Copiar"
+                    >
+                      {copiedField === field.key
+                        ? <Check className="w-3.5 h-3.5 text-success" />
+                        : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  )}
+                </div>
+              ))}
+              {/* CUPS chips row */}
+              {sortedSupplies.length > 0 && (
+                <div className="flex items-center gap-2 pt-2 border-t border-outline-variant/10 mt-1">
+                  <Zap className="w-4 h-4 text-on-surface-variant/60 flex-shrink-0" />
+                  <div className="flex flex-wrap gap-1.5">
+                    {sortedSupplies.map((s: any) => (
+                      <button
+                        key={s.id}
+                        onClick={(e) => { e.stopPropagation(); router.push(`/supplies/${s.id}`) }}
+                        className="px-2 py-0.5 rounded-md bg-primary/8 text-primary text-[11px] font-mono font-semibold hover:bg-primary/20 transition-colors"
+                        title={s.cups || 'Sin CUPS'}
+                      >
+                        {s.name || (s.cups ? `…${s.cups.slice(-4)}` : '?')}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {/* Commercial + origin footer */}
+              <div className="flex items-center gap-3 pt-2 border-t border-outline-variant/10 mt-1">
+                <div className="w-6 h-6 rounded-full gradient-primary flex items-center justify-center flex-shrink-0">
+                  <span className="text-white text-[10px] font-bold">
+                    {(client.commercial?.full_name || client.commercial?.email || '?').charAt(0).toUpperCase()}
+                  </span>
+                </div>
+                <span className="text-xs text-on-surface-variant font-medium">
+                  {getUserInitials(client.commercial?.full_name || client.commercial?.email)}
+                </span>
+                {client.origin && (
+                  <span className="text-[10px] text-on-surface-variant/60 capitalize">· {client.origin}</span>
+                )}
               </div>
             </div>
-          </Card>
+          </div>
 
-          <Card>
-            <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-3">
-              Comercial asignado
-            </h3>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full gradient-primary flex items-center justify-center flex-shrink-0">
-                <span className="text-white text-sm font-bold">
-                  {getUserInitials(client.commercial?.full_name || client.commercial?.email)?.charAt(0) || '?'}
+          {/* ── Datos del suministro card — click opens overlay ── */}
+          <div
+            onClick={() => setSupplyOverlayOpen(true)}
+            className="group bg-surface-container-lowest rounded-2xl shadow-ambient-sm hover:shadow-ambient transition-all cursor-pointer overflow-hidden"
+          >
+            <div className="px-5 py-4 flex items-center justify-between border-b border-outline-variant/10">
+              <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider">
+                Datos del suministro
+              </h3>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="ghost" onClick={(e: React.MouseEvent) => { e.stopPropagation(); setShowBulkUpload(true) }}>
+                  <Plus className="w-3.5 h-3.5" />
+                  Importar
+                </Button>
+                <span className="text-[10px] text-primary font-medium opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                  Abrir tarjetas <ChevronRight className="w-3 h-3" />
                 </span>
               </div>
-              <div>
-                <p className="text-sm font-medium text-on-surface">{getUserInitials(client.commercial?.full_name || client.commercial?.email)}</p>
-              </div>
             </div>
-            {client.origin && (
-              <div className="mt-3 pt-3 border-t border-outline-variant/20">
-                <p className="text-xs text-on-surface-variant">
-                  Origen: <span className="capitalize font-medium text-on-surface">{client.origin}</span>
-                </p>
+            {(!client.supplies || client.supplies.length === 0) ? (
+              <div className="p-5">
+                <p className="text-sm text-on-surface-variant text-center py-4">Sin suministros todavía</p>
+              </div>
+            ) : (
+              <div className="p-5 space-y-3">
+                {sortedSupplies.slice(0, 4).map((supply: any) => {
+                  const annualKwh = getSupplyAnnualConsumption(supply)
+                  const SIcon = supplyTypeIconComponents[supply.type] || Zap
+                  return (
+                    <div key={supply.id} className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-primary/8 flex items-center justify-center flex-shrink-0">
+                        <SIcon className="w-4 h-4 text-primary" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-on-surface truncate">
+                          {supply.name || (supply.cups ? `…${supply.cups.slice(-4)}` : 'Sin CUPS')}
+                        </p>
+                        <p className="text-[10px] text-on-surface-variant truncate">
+                          {supply.tariff || '—'} · <span className="capitalize">{supply.type}</span>
+                          {annualKwh > 0 && <> · <span className="text-success font-semibold">{fmtKwh(annualKwh)}</span></>}
+                        </p>
+                      </div>
+                      <StatusBadge status={supply.status} />
+                    </div>
+                  )
+                })}
+                {sortedSupplies.length > 4 && (
+                  <p className="text-[10px] text-on-surface-variant text-center">+{sortedSupplies.length - 4} más</p>
+                )}
               </div>
             )}
-          </Card>
-
-          <Card>
-            <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-3">
-              Resumen
-            </h3>
-            <div className="grid grid-cols-3 gap-3 text-center">
-              <div>
-                <p className="font-display font-bold text-xl text-on-surface">{client.supplies?.length || 0}</p>
-                <p className="text-xs text-on-surface-variant">Suministros</p>
-              </div>
-              <div>
-                <p className="font-display font-bold text-xl text-on-surface">{client.contracts?.length || 0}</p>
-                <p className="text-xs text-on-surface-variant">Contratos</p>
-              </div>
-              <div>
-                <p className="font-display font-bold text-xl text-on-surface">{client.subscriptions?.length || 0}</p>
-                <p className="text-xs text-on-surface-variant">Suscripciones</p>
-              </div>
-            </div>
-          </Card>
+          </div>
         </div>
 
-        {/* Documents */}
-        {(client.cif || client.cif_file_url || client.nif || client.nif_file_url || client.iban || client.iban_file_url) && (
-          <Card>
-            <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-3">
-              Documentacion
-            </h3>
-            <div className="space-y-3">
-              {/* CIF */}
-              {(client.cif || client.cif_file_url) && (
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <FileText className="w-4 h-4 text-on-surface-variant flex-shrink-0" />
-                    <span className="text-sm text-on-surface">CIF: {client.cif || 'Solo documento'}</span>
-                  </div>
-                  {client.cif_file_url && (
-                    <a href={getViewUrl(client.cif_file_url)} target="_blank" rel="noopener noreferrer"
-                      className="flex items-center gap-1.5 text-xs font-medium text-secondary hover:underline">
-                      <ExternalLink className="w-3.5 h-3.5" /> Ver documento
-                    </a>
-                  )}
-                </div>
-              )}
+        {/* ═══ Supply cards overlay (foreground) ═══ */}
+        {supplyOverlayOpen && sortedSupplies.length > 0 && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setSupplyOverlayOpen(false)}>
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+            <div
+              className="relative bg-surface rounded-3xl shadow-ambient-lg w-full max-w-4xl mx-4 max-h-[85vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Overlay header */}
+              <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 bg-surface/95 backdrop-blur border-b border-outline-variant/10 rounded-t-3xl">
+                <h2 className="font-display font-semibold text-lg text-on-surface">
+                  Suministros de {client.name} ({sortedSupplies.length})
+                </h2>
+                <button
+                  onClick={() => setSupplyOverlayOpen(false)}
+                  className="p-2 rounded-xl hover:bg-surface-container-low transition-all"
+                >
+                  <X className="w-5 h-5 text-on-surface-variant" />
+                </button>
+              </div>
 
-              {/* NIF */}
-              {(client.nif || client.nif_file_url) && (
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <FileText className="w-4 h-4 text-on-surface-variant flex-shrink-0" />
-                    <span className="text-sm text-on-surface">NIF: {client.nif || 'Solo documento'}</span>
-                  </div>
-                  {client.nif_file_url && (
-                    <a href={getViewUrl(client.nif_file_url)} target="_blank" rel="noopener noreferrer"
-                      className="flex items-center gap-1.5 text-xs font-medium text-secondary hover:underline">
-                      <ExternalLink className="w-3.5 h-3.5" /> Ver documento
-                    </a>
-                  )}
-                </div>
-              )}
-
-              {/* IBAN */}
-              {(client.iban || client.iban_file_url) && (
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <FileCheck className="w-4 h-4 text-on-surface-variant flex-shrink-0" />
-                    <span className="text-sm text-on-surface">IBAN: {client.iban || 'Solo documento'}</span>
-                  </div>
-                  {client.iban_file_url && (
-                    <a href={getViewUrl(client.iban_file_url)} target="_blank" rel="noopener noreferrer"
-                      className="flex items-center gap-1.5 text-xs font-medium text-secondary hover:underline">
-                      <ExternalLink className="w-3.5 h-3.5" /> Ver documento
-                    </a>
-                  )}
-                </div>
-              )}
+              {/* Supply cards grid */}
+              <div className="p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {sortedSupplies.map((supply: any) => {
+                  const invoiceCount = supply.invoices?.length || 0
+                  const annualKwh = getSupplyAnnualConsumption(supply)
+                  const isEditingName = editingSupplyName === supply.id
+                  const accentByStatus =
+                    ['firmado', 'suscrito', 'seguimiento_activo'].includes(supply.status) ? 'from-success/40 to-success/0' :
+                    ['estudio_en_curso', 'pendiente_firma'].includes(supply.status) ? 'from-warning/40 to-warning/0' :
+                    supply.status === 'rechazado' ? 'from-error/40 to-error/0' :
+                    ['presentado', 'estudio_completado'].includes(supply.status) ? 'from-secondary/40 to-secondary/0' :
+                    'from-primary/40 to-primary/0'
+                  return (
+                    <div
+                      key={supply.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => { if (!isEditingName) router.push(`/supplies/${supply.id}`) }}
+                      onKeyDown={(e) => {
+                        if (isEditingName) return
+                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); router.push(`/supplies/${supply.id}`) }
+                      }}
+                      className="group/card relative bg-surface-container-lowest rounded-2xl shadow-ambient-sm hover:shadow-ambient-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                    >
+                      <div className={`absolute inset-x-0 top-0 h-20 bg-gradient-to-b ${accentByStatus} pointer-events-none`} />
+                      <div className="relative p-4 flex flex-col gap-3">
+                        {/* Top row: icon + status + edit */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0 text-xl shadow-sm group-hover/card:scale-105 transition-transform">
+                            {typeIcons[supply.type] || '⚡'}
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <StatusBadge status={supply.status} />
+                            {!isEditingName && (
+                              <button
+                                onClick={e => { e.stopPropagation(); setEditingSupplyName(supply.id); setSupplyNameValue(supply.name || '') }}
+                                className="p-1.5 text-on-surface-variant/30 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors opacity-0 group-hover/card:opacity-100"
+                                title="Editar nombre"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        {/* Title + CUPS */}
+                        <div className="min-w-0">
+                          {isEditingName ? (
+                            <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                              <input
+                                type="text" value={supplyNameValue}
+                                onChange={e => setSupplyNameValue(e.target.value)}
+                                onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') handleSaveSupplyName(supply.id); if (e.key === 'Escape') setEditingSupplyName(null) }}
+                                placeholder="Nombre del suministro"
+                                className="flex-1 min-w-0 px-2 py-1 text-sm bg-surface-container-high rounded-lg outline-none focus:ring-2 focus:ring-primary/40"
+                                autoFocus
+                              />
+                              <button onClick={(e) => { e.stopPropagation(); handleSaveSupplyName(supply.id) }} className="p-1 text-success hover:bg-success/10 rounded"><Check className="w-4 h-4" /></button>
+                              <button onClick={(e) => { e.stopPropagation(); setEditingSupplyName(null) }} className="p-1 text-error hover:bg-error/10 rounded"><X className="w-4 h-4" /></button>
+                            </div>
+                          ) : (
+                            <>
+                              <h3 className="text-sm font-semibold text-on-surface truncate group-hover/card:text-primary transition-colors">
+                                {supply.name || supply.cups || 'Sin CUPS'}
+                              </h3>
+                              {supply.name && supply.cups && (
+                                <p className="text-[10px] font-mono text-on-surface-variant truncate mt-0.5">{supply.cups}</p>
+                              )}
+                            </>
+                          )}
+                        </div>
+                        {/* Stats */}
+                        <div className="grid grid-cols-2 gap-2 pt-1">
+                          <div className="rounded-lg bg-surface-container-low/60 px-2.5 py-1.5">
+                            <p className="text-[9px] uppercase tracking-wider text-on-surface-variant/70 font-semibold">Tarifa</p>
+                            <p className="text-xs text-on-surface font-semibold truncate">{supply.tariff || '—'}</p>
+                          </div>
+                          <div className="rounded-lg bg-surface-container-low/60 px-2.5 py-1.5">
+                            <p className="text-[9px] uppercase tracking-wider text-on-surface-variant/70 font-semibold">Tipo</p>
+                            <p className="text-xs text-on-surface font-semibold capitalize truncate">{supply.type || '—'}</p>
+                          </div>
+                          <div className="rounded-lg bg-surface-container-low/60 px-2.5 py-1.5">
+                            <p className="text-[9px] uppercase tracking-wider text-on-surface-variant/70 font-semibold">Documentos</p>
+                            <p className="text-xs font-semibold truncate">
+                              <span className={invoiceCount > 0 ? 'text-primary' : 'text-on-surface-variant/50'}>{invoiceCount}</span>
+                            </p>
+                          </div>
+                          <div className="rounded-lg bg-surface-container-low/60 px-2.5 py-1.5">
+                            <p className="text-[9px] uppercase tracking-wider text-on-surface-variant/70 font-semibold">Consumo anual</p>
+                            <p className="text-xs font-semibold truncate">
+                              {annualKwh > 0 ? <span className="text-success">{fmtKwh(annualKwh)}</span> : <span className="text-on-surface-variant/50">—</span>}
+                            </p>
+                          </div>
+                        </div>
+                        {supply.address && (
+                          <div className="pt-1 border-t border-outline-variant/10">
+                            <p className="text-[10px] text-on-surface-variant truncate" title={supply.address}>{supply.address}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
-          </Card>
+          </div>
         )}
 
         {/* Notes */}
@@ -371,152 +513,6 @@ export default function ClientDetailPage() {
             <p className="text-sm text-on-surface whitespace-pre-wrap">{client.notes}</p>
           </Card>
         )}
-
-        {/* Supplies */}
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-display font-semibold text-lg text-on-surface">
-              Suministros ({client.supplies?.length || 0})
-            </h2>
-            <div className="flex items-center gap-2">
-              <Button size="sm" onClick={() => setShowBulkUpload(true)}>
-                <Plus className="w-4 h-4" />
-                Importar facturas
-              </Button>
-            </div>
-          </div>
-
-          {(!client.supplies || client.supplies.length === 0) ? (
-            <Card>
-              <p className="text-sm text-on-surface-variant text-center py-6">No hay suministros para este cliente</p>
-            </Card>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {sortedSupplies.map((supply: any) => {
-                const invoiceCount = supply.invoices?.length || 0
-                const annualKwh = getSupplyAnnualConsumption(supply)
-                const isEditingName = editingSupplyName === supply.id
-                const accentByStatus =
-                  ['firmado', 'suscrito', 'seguimiento_activo'].includes(supply.status) ? 'from-success/40 to-success/0' :
-                  ['estudio_en_curso', 'pendiente_firma'].includes(supply.status) ? 'from-warning/40 to-warning/0' :
-                  supply.status === 'rechazado' ? 'from-error/40 to-error/0' :
-                  ['presentado', 'estudio_completado'].includes(supply.status) ? 'from-secondary/40 to-secondary/0' :
-                  'from-primary/40 to-primary/0'
-                return (
-                  <div
-                    key={supply.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => { if (!isEditingName) router.push(`/supplies/${supply.id}`) }}
-                    onKeyDown={(e) => {
-                      if (isEditingName) return
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        router.push(`/supplies/${supply.id}`)
-                      }
-                    }}
-                    className="group relative bg-surface-container-lowest rounded-2xl shadow-ambient-sm hover:shadow-ambient-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-                  >
-                    {/* Subtle gradient accent based on status */}
-                    <div className={`absolute inset-x-0 top-0 h-20 bg-gradient-to-b ${accentByStatus} pointer-events-none`} />
-
-                    <div className="relative p-4 flex flex-col gap-3">
-                      {/* Top row: type icon + status + edit pencil */}
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0 text-xl shadow-sm group-hover:scale-105 transition-transform">
-                          {typeIcons[supply.type] || '⚡'}
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <StatusBadge status={supply.status} />
-                          {!isEditingName && (
-                            <button
-                              onClick={e => { e.stopPropagation(); setEditingSupplyName(supply.id); setSupplyNameValue(supply.name || '') }}
-                              className="p-1.5 text-on-surface-variant/30 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                              title="Editar nombre"
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Title (alias) + CUPS */}
-                      <div className="min-w-0">
-                        {isEditingName ? (
-                          <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-                            <input
-                              type="text"
-                              value={supplyNameValue}
-                              onChange={e => setSupplyNameValue(e.target.value)}
-                              onKeyDown={e => {
-                                e.stopPropagation()
-                                if (e.key === 'Enter') handleSaveSupplyName(supply.id)
-                                if (e.key === 'Escape') setEditingSupplyName(null)
-                              }}
-                              placeholder="Nombre del suministro"
-                              className="flex-1 min-w-0 px-2 py-1 text-sm bg-surface-container-high rounded-lg outline-none focus:ring-2 focus:ring-primary/40"
-                              autoFocus
-                            />
-                            <button onClick={(e) => { e.stopPropagation(); handleSaveSupplyName(supply.id) }} className="p-1 text-success hover:bg-success/10 rounded">
-                              <Check className="w-4 h-4" />
-                            </button>
-                            <button onClick={(e) => { e.stopPropagation(); setEditingSupplyName(null) }} className="p-1 text-error hover:bg-error/10 rounded">
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ) : (
-                          <>
-                            <h3 className="text-sm font-semibold text-on-surface truncate group-hover:text-primary transition-colors">
-                              {supply.name || supply.cups || 'Sin CUPS'}
-                            </h3>
-                            {supply.name && supply.cups && (
-                              <p className="text-[10px] font-mono text-on-surface-variant truncate mt-0.5">{supply.cups}</p>
-                            )}
-                          </>
-                        )}
-                      </div>
-
-                      {/* Stats grid: tariff, type, invoices, annual kWh */}
-                      <div className="grid grid-cols-2 gap-2 pt-1">
-                        <div className="rounded-lg bg-surface-container-low/60 px-2.5 py-1.5">
-                          <p className="text-[9px] uppercase tracking-wider text-on-surface-variant/70 font-semibold">Tarifa</p>
-                          <p className="text-xs text-on-surface font-semibold truncate">{supply.tariff || '—'}</p>
-                        </div>
-                        <div className="rounded-lg bg-surface-container-low/60 px-2.5 py-1.5">
-                          <p className="text-[9px] uppercase tracking-wider text-on-surface-variant/70 font-semibold">Tipo</p>
-                          <p className="text-xs text-on-surface font-semibold capitalize truncate">{supply.type || '—'}</p>
-                        </div>
-                        <div className="rounded-lg bg-surface-container-low/60 px-2.5 py-1.5">
-                          <p className="text-[9px] uppercase tracking-wider text-on-surface-variant/70 font-semibold">Documentos</p>
-                          <p className="text-xs font-semibold truncate">
-                            <span className={invoiceCount > 0 ? 'text-primary' : 'text-on-surface-variant/50'}>{invoiceCount}</span>
-                          </p>
-                        </div>
-                        <div className="rounded-lg bg-surface-container-low/60 px-2.5 py-1.5">
-                          <p className="text-[9px] uppercase tracking-wider text-on-surface-variant/70 font-semibold">Consumo anual</p>
-                          <p className="text-xs font-semibold truncate">
-                            {annualKwh > 0
-                              ? <span className="text-success">{fmtKwh(annualKwh)}</span>
-                              : <span className="text-on-surface-variant/50">—</span>}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Address */}
-                      {supply.address && (
-                        <div className="pt-1 border-t border-outline-variant/10">
-                          <p className="text-[10px] text-on-surface-variant truncate" title={supply.address}>
-                            {supply.address}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
 
         {/* ─── Consumption Distribution (Ayuntamientos only) ─── */}
         {/* TODO: ConsumptionDistribution — requires local components not yet in git */}
@@ -668,6 +664,13 @@ export default function ClientDetailPage() {
         onClose={() => setShowNewIncident(false)}
         onCreated={fetchClient}
         preselectedClientId={id as string}
+      />
+
+      <ClientDetailModal
+        clientId={client?.id || null}
+        isOpen={clientModalOpen}
+        onClose={() => { setClientModalOpen(false); fetchClient() }}
+        contextSupplyId={sortedSupplies[0]?.id || null}
       />
     </div>
   )
