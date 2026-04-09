@@ -14,10 +14,19 @@ const PERIOD_COLORS: Record<Period, string> = {
   P4: '#FFC000', P5: '#5B9BD5', P6: '#70AD47',
 }
 
+/** Font family guaranteed to exist on Vercel/Amazon Linux (librsvg needs real fonts) */
+const SVG_FONT = 'DejaVu Sans, Liberation Sans, sans-serif'
+
+/** Manual Spanish month names — avoids toLocaleDateString locale issues on server */
+const MES_CORTO = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+
 function monthLabel(fechaFin: string): string {
   try {
     const d = new Date(fechaFin)
-    return d.toLocaleDateString('es-ES', { month: 'short', year: '2-digit' })
+    if (isNaN(d.getTime())) return fechaFin?.slice(0, 7) || ''
+    const m = d.getMonth()       // 0-11
+    const y = String(d.getFullYear()).slice(-2) // "23", "24", "25"
+    return `${MES_CORTO[m]} ${y}`
   } catch { return fechaFin?.slice(0, 7) || '' }
 }
 
@@ -61,7 +70,7 @@ export function buildConsumptionSVG(rawMeses: PowerStudyResult['meses'], width =
     const v = Math.round((yMax * t) / yTicks)
     const y = m.top + yScale(v)
     grid += `<line x1="${m.left}" y1="${y.toFixed(1)}" x2="${m.left+cW}" y2="${y.toFixed(1)}" stroke="#E5E7EB" />`
-    grid += `<text x="${m.left-6}" y="${(y+4).toFixed(1)}" text-anchor="end" font-size="10" fill="#6B7280" font-family="Arial, sans-serif">${v>=1000?(v/1000).toFixed(0)+'k':v}</text>`
+    grid += `<text x="${m.left-6}" y="${(y+4).toFixed(1)}" text-anchor="end" font-size="10" fill="#6B7280" font-family="${SVG_FONT}">${v>=1000?(v/1000).toFixed(0)+'k':v}</text>`
   }
 
   let xLabels = ''
@@ -69,23 +78,23 @@ export function buildConsumptionSVG(rawMeses: PowerStudyResult['meses'], width =
     const x = xOf(i)
     const skip = meses.length > 24 ? i % 2 !== 0 : false
     if (!skip) {
-      xLabels += `<text x="${x.toFixed(1)}" y="${(m.top+cH+18).toFixed(1)}" text-anchor="middle" font-size="9" fill="#374151" font-family="Arial, sans-serif" transform="rotate(-45,${x.toFixed(1)},${(m.top+cH+18).toFixed(1)})">${monthLabel(meses[i].fechaFin)}</text>`
+      xLabels += `<text x="${x.toFixed(1)}" y="${(m.top+cH+18).toFixed(1)}" text-anchor="middle" font-size="9" fill="#374151" font-family="${SVG_FONT}" transform="rotate(-45,${x.toFixed(1)},${(m.top+cH+18).toFixed(1)})">${monthLabel(meses[i].fechaFin)}</text>`
     }
   }
 
   let legend = '', lx = m.left
   for (const p of activePeriods) {
-    legend += `<rect x="${lx}" y="${H-22}" width="10" height="10" fill="${PERIOD_COLORS[p]}" /><text x="${lx+13}" y="${H-13}" font-size="10" fill="#374151" font-family="Arial, sans-serif">${p}</text>`
+    legend += `<rect x="${lx}" y="${H-22}" width="10" height="10" fill="${PERIOD_COLORS[p]}" /><text x="${lx+13}" y="${H-13}" font-size="10" fill="#374151" font-family="${SVG_FONT}">${p}</text>`
     lx += 42
   }
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" style="background:#fff">
-    <text x="${W/2}" y="18" text-anchor="middle" font-size="13" font-weight="bold" fill="#111827" font-family="Arial, sans-serif">CONSUMO MENSUAL (kWh)</text>
+    <text x="${W/2}" y="18" text-anchor="middle" font-size="13" font-weight="bold" fill="#111827" font-family="${SVG_FONT}">CONSUMO MENSUAL (kWh)</text>
     ${grid}${paths}
     <line x1="${m.left}" y1="${m.top}" x2="${m.left}" y2="${m.top+cH}" stroke="#9CA3AF"/>
     <line x1="${m.left}" y1="${m.top+cH}" x2="${m.left+cW}" y2="${m.top+cH}" stroke="#9CA3AF"/>
     ${xLabels}
-    <text x="${m.left-44}" y="${m.top+cH/2}" text-anchor="middle" font-size="10" fill="#6B7280" font-family="Arial, sans-serif" transform="rotate(-90,${m.left-44},${m.top+cH/2})">kWh</text>
+    <text x="${m.left-44}" y="${m.top+cH/2}" text-anchor="middle" font-size="10" fill="#6B7280" font-family="${SVG_FONT}" transform="rotate(-90,${m.left-44},${m.top+cH/2})">kWh</text>
     ${legend}
   </svg>`
 }
@@ -130,7 +139,7 @@ export function buildMaximetroSVG(rawMeses: PowerStudyResult['meses'], potenciaC
     const v = (yMax * t) / 5
     const y = m.top + yScale(v)
     grid += `<line x1="${m.left}" y1="${y.toFixed(1)}" x2="${m.left+cW}" y2="${y.toFixed(1)}" stroke="#E5E7EB"/>`
-    grid += `<text x="${m.left-6}" y="${(y+4).toFixed(1)}" text-anchor="end" font-size="10" fill="#6B7280" font-family="Arial, sans-serif">${v.toFixed(0)}</text>`
+    grid += `<text x="${m.left-6}" y="${(y+4).toFixed(1)}" text-anchor="end" font-size="10" fill="#6B7280" font-family="${SVG_FONT}">${v.toFixed(0)}</text>`
   }
 
   let refLines = ''
@@ -140,7 +149,7 @@ export function buildMaximetroSVG(rawMeses: PowerStudyResult['meses'], potenciaC
       if (cont <= 0) continue
       const y = m.top + yScale(cont)
       refLines += `<line x1="${m.left}" y1="${y.toFixed(1)}" x2="${m.left+cW}" y2="${y.toFixed(1)}" stroke="${PERIOD_COLORS[p]}" stroke-width="1.5" stroke-dasharray="6,3" opacity="0.7"/>`
-      refLines += `<text x="${m.left+cW+3}" y="${(y+4).toFixed(1)}" font-size="9" fill="${PERIOD_COLORS[p]}" font-family="Arial, sans-serif">${p}: ${cont}kW</text>`
+      refLines += `<text x="${m.left+cW+3}" y="${(y+4).toFixed(1)}" font-size="9" fill="${PERIOD_COLORS[p]}" font-family="${SVG_FONT}">${p}: ${cont}kW</text>`
     }
   }
 
@@ -149,27 +158,27 @@ export function buildMaximetroSVG(rawMeses: PowerStudyResult['meses'], potenciaC
     const x = m.left + i * groupW + groupW / 2
     const skip = meses.length > 24 ? i % 2 !== 0 : false
     if (!skip) {
-      xLabels += `<text x="${x.toFixed(1)}" y="${(m.top+cH+18).toFixed(1)}" text-anchor="middle" font-size="9" fill="#374151" font-family="Arial, sans-serif" transform="rotate(-45,${x.toFixed(1)},${(m.top+cH+18).toFixed(1)})">${monthLabel(meses[i].fechaFin)}</text>`
+      xLabels += `<text x="${x.toFixed(1)}" y="${(m.top+cH+18).toFixed(1)}" text-anchor="middle" font-size="9" fill="#374151" font-family="${SVG_FONT}" transform="rotate(-45,${x.toFixed(1)},${(m.top+cH+18).toFixed(1)})">${monthLabel(meses[i].fechaFin)}</text>`
     }
   }
 
   let legend = '', lx = m.left
   for (const p of activePeriods) {
-    legend += `<rect x="${lx}" y="${H-22}" width="10" height="10" fill="${PERIOD_COLORS[p]}"/><text x="${lx+13}" y="${H-13}" font-size="10" fill="#374151" font-family="Arial, sans-serif">${p}</text>`
+    legend += `<rect x="${lx}" y="${H-22}" width="10" height="10" fill="${PERIOD_COLORS[p]}"/><text x="${lx+13}" y="${H-13}" font-size="10" fill="#374151" font-family="${SVG_FONT}">${p}</text>`
     lx += 42
   }
   if (potenciaContratada) {
     legend += `<line x1="${lx}" y1="${H-17}" x2="${lx+16}" y2="${H-17}" stroke="#6B7280" stroke-width="1.5" stroke-dasharray="5,3"/>`
-    legend += `<text x="${lx+20}" y="${H-13}" font-size="10" fill="#374151" font-family="Arial, sans-serif">Contratada</text>`
+    legend += `<text x="${lx+20}" y="${H-13}" font-size="10" fill="#374151" font-family="${SVG_FONT}">Contratada</text>`
   }
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" style="background:#fff">
-    <text x="${W/2}" y="18" text-anchor="middle" font-size="13" font-weight="bold" fill="#111827" font-family="Arial, sans-serif">MAXÍMETROS MENSUALES (kW)</text>
+    <text x="${W/2}" y="18" text-anchor="middle" font-size="13" font-weight="bold" fill="#111827" font-family="${SVG_FONT}">MAXÍMETROS MENSUALES (kW)</text>
     ${grid}${refLines}${bars}
     <line x1="${m.left}" y1="${m.top}" x2="${m.left}" y2="${m.top+cH}" stroke="#9CA3AF"/>
     <line x1="${m.left}" y1="${m.top+cH}" x2="${m.left+cW}" y2="${m.top+cH}" stroke="#9CA3AF"/>
     ${xLabels}
-    <text x="${m.left-44}" y="${m.top+cH/2}" text-anchor="middle" font-size="10" fill="#6B7280" font-family="Arial, sans-serif" transform="rotate(-90,${m.left-44},${m.top+cH/2})">kW</text>
+    <text x="${m.left-44}" y="${m.top+cH/2}" text-anchor="middle" font-size="10" fill="#6B7280" font-family="${SVG_FONT}" transform="rotate(-90,${m.left-44},${m.top+cH/2})">kW</text>
     ${legend}
   </svg>`
 }

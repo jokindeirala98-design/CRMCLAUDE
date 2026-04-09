@@ -249,15 +249,56 @@ export async function fetchSipsData(cups: string, token: string): Promise<SipsDa
 /**
  * Convenience: fetch SIPS for a CUPS string (handles normalization + auth).
  * Returns null if CUPS is invalid or fetch fails.
+ *
+ * Routes automatically:
+ *   - Gas CUPS (22-char ending in letters like "MW") → TotalEnergies
+ *   - Electricity CUPS → Greening (as before)
+ *
+ * If supply_type is provided, it overrides auto-detection.
  */
-export async function fetchSipsForCups(cups: string): Promise<SipsData | null> {
+export async function fetchSipsForCups(
+  cups: string,
+  supply_type?: 'luz' | 'gas'
+): Promise<SipsData | null> {
   try {
-    const cleanCups = normalizeCups(cups)
-    if (!cleanCups) return null
+    const cleanCups = normalizeCups(cups) || cups.replace(/\s/g, '').toUpperCase()
+    if (!cleanCups || cleanCups.length < 20) return null
+
+    const isGas = supply_type === 'gas' || isGasCups(cleanCups)
+
+    if (isGas) {
+      // Route gas to TotalEnergies
+      try {
+        const { fetchSipsGasForCups } = await import('@/lib/totalenergies')
+        const result = await fetchSipsGasForCups(cleanCups)
+        if (result) return result
+      } catch (err) {
+        console.warn(`[SIPS] TotalEnergies gas fetch failed for ${cleanCups}, no fallback available:`, err)
+        return null
+      }
+    }
+
+    // Electricity → Greening
     const token = await getGreeningToken()
     return await fetchSipsData(cleanCups, token)
   } catch (err) {
     console.error(`[SIPS] Error fetching for ${cups}:`, err)
     return null
   }
+}
+
+/**
+ * Heuristic: gas CUPS in Spain typically end with 2 letters (e.g. "MW", "MX")
+ * after the 20-digit base, while electricity CUPS end with 2 alphanumeric
+ * characters that are often numbers. This is not 100% reliable —
+ * the supply_type override is preferred when available.
+ */
+function isGasCups(cups: string): boolean {
+  // Gas CUPS are 22 chars: ES + 16 digits + 2 letters + 2 suffix letters
+  // The last 2 characters (positions 20-21) are often letters for gas
+  if (cups.length >= 22) {
+    const suffix = cups.slice(20, 22)
+    return /^[A-Z]{2}$/.test(suffix)
+  }
+  return false
 }
