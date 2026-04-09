@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { fetchSipsForCups } from '@/lib/sips'
+import type { SipsData } from '@/lib/sips'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://wqzicwrmmwhnafaihhqh.supabase.co'
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
@@ -10,12 +12,8 @@ const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PU
  * Builds or refreshes `consumption_snapshots` for a given client_id,
  * pulling data from supplies → SIPS (priority) + invoices (fallback).
  *
- * - Potencias: SIPS `potenciaContratada` first, then invoice `economics.potencia`
- * - Consumos:  SIPS `consumoPeriodos` first, then invoice `economics.consumo`
- * - Consumo total: SIPS `totalConsumptionKwh`, or sum of periods, or invoice total
- * - Comercializadora: supply relation
- * - Address: supply.address
- * - invoice_file_url: best invoice file_url for clickable "archivo origen"
+ * NEW: For supplies that have a CUPS but no consumption_data yet,
+ * automatically fetches SIPS from Greening and persists it on the supply.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -46,13 +44,86 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No hay suministros para este cliente' }, { status: 400 })
     }
 
-    // 2. Delete existing snapshots for this client (full refresh)
+    // 2. Auto-fetch SIPS for supplies that have CUPS but no consumption_data
+    console.log(`[sync-consumption] ${supplies.length} supplies found for client ${client_id}`)
+
+    const suppliesNeedingSips = supplies.filter(
+      (s: any) => s.cups && (!s.consumption_data || !s.consumption_data.potenciaContratada)
+    )
+
+    if (suppliesNeedingSips.length > 0) {
+      console.log(`[sync-consumption] Fetching SIPS for ${suppliesNeedingSips.length} supplies...`)
+
+      // Fetch SIPS in parallel (max 5 concurrent to avoid rate limits)
+      const BATCH_SIZE = 5
+      for (let i = 0; i < suppliesNeedingSips.length; i += BATCH_SIZE) {
+        const batch = suppliesNeedingSips.slice(i, i + BATCH_SIZE)
+        const results = await Promise.allSettled(
+          batch.map(async (supply: any) => {
+            const sipsData = await fetchSipsForCups(supply.cups)
+            if (!sipsData) return null
+
+            // Build consumption_data object (same format as supply detail page)
+            const updatedConsumption = {
+              ...(supply.consumption_data || {}),
+              source: 'greening_sips',
+              fetched_at: new Date().toISOString(),
+              history: sipsData.consumptionHistory || (supply.consumption_data?.history || []),
+              maximetroHistory: sipsData.maximetroHistory || (supply.consumption_data?.maximetroHistory || []),
+              reactivaHistory: sipsData.reactivaHistory || (supply.consumption_data?.reactivaHistory || []),
+              potenciaContratada: sipsData.potenciaContratada || supply.consumption_data?.potenciaContratada,
+              consumoPeriodos: sipsData.consumoPeriodos || supply.consumption_data?.consumoPeriodos,
+              total: sipsData.totalConsumption || supply.consumption_data?.total,
+              totalKwh: sipsData.totalConsumptionKwh || supply.consumption_data?.totalKwh,
+              sips_tariff: sipsData.tariff || supply.consumption_data?.sips_tariff,
+              distribuidora: sipsData.distribuidora || supply.consumption_data?.distribuidora,
+              codigoPostal: sipsData.codigoPostal || supply.consumption_data?.codigoPostal,
+              provincia: sipsData.provincia || supply.consumption_data?.provincia,
+              municipio: sipsData.municipio || supply.consumption_data?.municipio,
+              cnae: sipsData.cnae || supply.consumption_data?.cnae,
+              tension: sipsData.tension || supply.consumption_data?.tension,
+              fechaAlta: sipsData.fechaAlta || supply.consumption_data?.fechaAlta,
+              fechaUltimaLectura: sipsData.fechaUltimaLectura || supply.consumption_data?.fechaUltimaLectura,
+            }
+
+            // Persist on the supply record
+            const updateData: any = {
+              consumption_data: updatedConsumption,
+              updated_at: new Date().toISOString(),
+            }
+            // Also update tariff if we got one from SIPS and supply doesn't have one
+            if (!supply.tariff && sipsData.tariff) {
+              updateData.tariff = sipsData.tariff
+            }
+
+            await supabase
+              .from('supplies')
+              .update(updateData)
+              .eq('id', supply.id)
+
+            // Mutate the supply object in-memory so snapshot building uses fresh data
+            supply.consumption_data = updatedConsumption
+            if (updateData.tariff) supply.tariff = updateData.tariff
+
+            console.log(`[sync-consumption] SIPS OK for ${supply.cups}`)
+            return sipsData
+          })
+        )
+
+        const failed = results.filter(r => r.status === 'rejected')
+        if (failed.length > 0) {
+          console.warn(`[sync-consumption] ${failed.length} SIPS fetches failed in batch`)
+        }
+      }
+    }
+
+    // 3. Delete existing snapshots for this client (full refresh)
     await supabase
       .from('consumption_snapshots')
       .delete()
       .eq('client_id', client_id)
 
-    // 3. Build snapshot rows
+    // 4. Build snapshot rows
     const snapshots = supplies.map((supply: any) => {
       const sips = supply.consumption_data as any
       const invoices = (supply.invoices || []) as any[]
@@ -112,7 +183,7 @@ export async function POST(req: NextRequest) {
         consumo_p4 = cp.P4 ?? null
         consumo_p5 = cp.P5 ?? null
         consumo_p6 = cp.P6 ?? null
-        consumo_total = sips.totalConsumptionKwh ?? null
+        consumo_total = sips.totalKwh ?? sips.totalConsumptionKwh ?? null
         source = 'sips'
       } else if (economics?.consumo) {
         for (const c of economics.consumo) {
@@ -141,7 +212,7 @@ export async function POST(req: NextRequest) {
       }
 
       // ── Tariff (supply priority, then SIPS, then invoice) ──
-      const tariff = supply.tariff || sips?.tariff || economics?.tarifa || null
+      const tariff = supply.tariff || sips?.sips_tariff || sips?.tariff || economics?.tarifa || null
 
       // ── Invoice file URL (best available) ──
       const invoiceFileUrl = bestInvoice?.file_url || null
@@ -181,7 +252,7 @@ export async function POST(req: NextRequest) {
       }
     })
 
-    // 4. Insert all snapshots
+    // 5. Insert all snapshots
     const { error: insertErr } = await supabase
       .from('consumption_snapshots')
       .insert(snapshots)
