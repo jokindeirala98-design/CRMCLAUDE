@@ -132,8 +132,8 @@ function mapTariffCode(code: string | number): string {
     '024': '6.1TD', '025': '6.2TD',
   }
   const tipoMap: Record<string, string> = {
-    '202061': '6.1TD', '202001': '2.0TD', '202030': '3.0TD',
-    '202062': '6.2TD', '202063': '6.3TD', '202064': '6.4TD',
+    '202001': '2.0TD', '202020': '2.0TD', '202030': '3.0TD',
+    '202061': '6.1TD', '202062': '6.2TD', '202063': '6.3TD', '202064': '6.4TD',
   }
   const s = String(code)
   return map[s] || tipoMap[s] || s

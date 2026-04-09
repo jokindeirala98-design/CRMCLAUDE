@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { fetchSipsForCups } from '@/lib/sips'
 import type { SipsData } from '@/lib/sips'
+import { normalizeTariff } from '@/lib/consumption-utils'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://wqzicwrmmwhnafaihhqh.supabase.co'
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
@@ -75,7 +76,7 @@ export async function POST(req: NextRequest) {
               consumoPeriodos: sipsData.consumoPeriodos || supply.consumption_data?.consumoPeriodos,
               total: sipsData.totalConsumption || supply.consumption_data?.total,
               totalKwh: sipsData.totalConsumptionKwh || supply.consumption_data?.totalKwh,
-              sips_tariff: sipsData.tariff || supply.consumption_data?.sips_tariff,
+              sips_tariff: normalizeTariff(sipsData.tariff) || sipsData.tariff || supply.consumption_data?.sips_tariff,
               distribuidora: sipsData.distribuidora || supply.consumption_data?.distribuidora,
               codigoPostal: sipsData.codigoPostal || supply.consumption_data?.codigoPostal,
               provincia: sipsData.provincia || supply.consumption_data?.provincia,
@@ -93,7 +94,7 @@ export async function POST(req: NextRequest) {
             }
             // Also update tariff if we got one from SIPS and supply doesn't have one
             if (!supply.tariff && sipsData.tariff) {
-              updateData.tariff = sipsData.tariff
+              updateData.tariff = normalizeTariff(sipsData.tariff) || sipsData.tariff
             }
 
             await supabase
@@ -211,8 +212,9 @@ export async function POST(req: NextRequest) {
         consumo_total = Number(sips.totalConsumptionKwh) || null
       }
 
-      // ── Tariff (supply priority, then SIPS, then invoice) ──
-      const tariff = supply.tariff || sips?.sips_tariff || sips?.tariff || economics?.tarifa || null
+      // ── Tariff (supply priority, then SIPS, then invoice) — always normalize ──
+      const rawTariff = supply.tariff || sips?.sips_tariff || sips?.tariff || economics?.tarifa || null
+      const tariff = rawTariff ? (normalizeTariff(rawTariff) || rawTariff) : null
 
       // ── Invoice file URL (best available) ──
       const invoiceFileUrl = bestInvoice?.file_url || null

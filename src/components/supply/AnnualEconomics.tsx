@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   ArrowLeft, FileText, Zap, TrendingUp, CheckCircle2,
   RefreshCw, Loader2, AlertCircle, Download, Euro,
-  DollarSign, Activity, X, Trash2,
+  DollarSign, Activity, X, Trash2, Flame,
 } from 'lucide-react'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -28,6 +28,19 @@ export interface OtroConcepto {
   concepto: string
   total: number
 }
+export interface GasPricing {
+  precioKwh?: number
+  precioKwhEstimated?: boolean
+  terminoFijoDiario?: number
+  diasFacturados?: number
+  terminoFijoTotal?: number
+  impuestoHidrocarbTotal?: number
+  alquilerTotal?: number
+  ivaPorcentaje?: number
+  ivaTotal?: number
+  descuentoTerminoFijo?: number
+  descuentoOtros?: number
+}
 export interface BillEconomics {
   fechaInicio?: string
   fechaFin?: string
@@ -37,6 +50,7 @@ export interface BillEconomics {
   comercializadora?: string
   cups?: string
   tarifa?: string
+  supply_type?: 'luz' | 'gas'
   consumo?: ConsumoItem[]
   potencia?: PotenciaItem[]
   otrosConceptos?: OtroConcepto[]
@@ -49,6 +63,8 @@ export interface BillEconomics {
   costeMedioKwhNeto?: number
   costeTotalPotencia?: number
   totalFactura?: number
+  // Gas-specific
+  gasPricing?: GasPricing
 }
 export interface InvoiceRow {
   id: string
@@ -168,6 +184,7 @@ function getEco(inv: InvoiceRow): BillEconomics | null {
     if (!eco.comercializadora && ed.comercializadora) eco.comercializadora = ed.comercializadora as string
     if (!eco.holder_cif_nif && ed.holder_cif_nif) eco.holder_cif_nif = ed.holder_cif_nif as string
     if (!eco.supply_address && ed.supply_address) eco.supply_address = ed.supply_address as string
+    if (!eco.supply_type && ed.supply_type) eco.supply_type = ed.supply_type as 'luz' | 'gas'
     return eco
   }
 
@@ -214,6 +231,19 @@ function getEco(inv: InvoiceRow): BillEconomics | null {
 /** Does this invoice have usable data (economics or at least total_amount)? */
 function hasUsableData(inv: InvoiceRow): boolean {
   return getEco(inv) !== null
+}
+
+/** Detect if this is a gas supply based on invoices: tariff starts with RL or supply_type=gas */
+function isGasSupply(invoices: InvoiceRow[]): boolean {
+  for (const inv of invoices) {
+    const eco = getEco(inv)
+    const tariff = eco?.tarifa || inv.extracted_data?.tariff || ''
+    const supplyType = eco?.supply_type || inv.extracted_data?.supply_type
+    if (supplyType === 'gas') return true
+    if (/^RL/i.test(String(tariff).replace(/\s+/g, ''))) return true
+    if (eco?.gasPricing) return true
+  }
+  return false
 }
 
 /** Get start/end dates for an invoice, checking all possible sources */
@@ -691,7 +721,10 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete }: {
     indent?: boolean
   }
 
-  const rows: RowDef[] = [
+  const isGas = isGasSupply(invoices)
+
+  // ── Common header rows (both luz & gas) ──
+  const headerRows: RowDef[] = [
     {
       key: 'compania', label: 'COMPAÑÍA',
       render: (eco, inv) => <span className="text-white/80 text-sm">{eco?.comercializadora || inv.extracted_data?.comercializadora || '—'}</span>,
@@ -731,10 +764,97 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete }: {
         const { start, end } = getInvoiceDates(inv)
         const { month, year } = getAssignedMonth(start, end)
         const label = year > 0 ? `${CANONICAL_MONTHS_FULL[month]?.toUpperCase() || '—'} ${year}` : '—'
-        return <span className="text-[#60a5fa] font-bold text-sm tracking-wide">{label}</span>
+        return <span className={`${isGas ? 'text-orange-400' : 'text-[#60a5fa]'} font-bold text-sm tracking-wide`}>{label}</span>
       },
     },
     { key: 'sep1', label: '', isSeparator: true, render: () => null },
+  ]
+
+  // ── GAS-specific rows ──
+  const gasRows: RowDef[] = [
+    {
+      key: 'consumoKwh', label: 'CONSUMO (KWH)',
+      isSectionHeader: true,
+      render: (eco) => <span className="text-white font-bold text-sm">{fmt(eco?.consumoTotalKwh, 0)}</span>,
+    },
+    {
+      key: 'costeBrutoConsumo', label: 'COSTE BRUTO ENERGÍA (€)',
+      render: (eco) => <span className="text-white/80 text-sm">{fmt(eco?.costeBrutoConsumo)}</span>,
+    },
+    {
+      key: 'descuentoEnergia', label: 'DESCUENTO ENERGÍA (€)',
+      render: (eco) => {
+        const v = eco?.descuentoEnergia
+        return <span className="text-green-400/80 text-sm">{v && v > 0 ? `-${fmt(v)}` : '—'}</span>
+      },
+    },
+    {
+      key: 'costeNetoConsumo', label: 'COSTE NETO ENERGÍA (€)',
+      isHighlight: true,
+      render: (eco) => <span className="text-orange-400 font-bold text-sm">{fmt(eco?.costeNetoConsumo)}</span>,
+    },
+    {
+      key: 'precioKwh', label: '€/KWH',
+      render: (eco) => {
+        const gp = eco?.gasPricing
+        const precio = eco?.costeMedioKwhNeto || eco?.costeMedioKwh || (gp?.precioKwh)
+        const estimated = gp?.precioKwhEstimated
+        return (
+          <div>
+            <span className={`text-sm ${estimated ? 'text-yellow-400' : 'text-white/70'}`}>{precio ? fmt(precio, 4) : '—'}</span>
+            {estimated && <span className="block text-[9px] text-yellow-500/60">estimado</span>}
+          </div>
+        )
+      },
+    },
+    { key: 'sep_gas1', label: '', isSeparator: true, render: () => null },
+    {
+      key: 'terminoFijo', label: 'TÉRMINO FIJO (€)',
+      isSectionHeader: true,
+      render: (eco) => <span className="text-white font-bold text-sm">{fmt(eco?.gasPricing?.terminoFijoTotal)}</span>,
+    },
+    {
+      key: 'terminoFijoDiario', label: 'CUOTA DIARIA (€/DÍA)',
+      indent: true,
+      render: (eco) => {
+        const gp = eco?.gasPricing
+        if (!gp?.terminoFijoDiario) return <span className="text-white/30 text-sm">—</span>
+        return <span className="text-white/60 text-sm">{fmt(gp.terminoFijoDiario, 4)} €/día × {gp.diasFacturados || '?'} días</span>
+      },
+    },
+    {
+      key: 'descuentoTerminoFijo', label: 'DESCUENTO T. FIJO (€)',
+      indent: true,
+      render: (eco) => {
+        const v = eco?.gasPricing?.descuentoTerminoFijo
+        return <span className="text-green-400/80 text-sm">{v && v > 0 ? `-${fmt(v)}` : '—'}</span>
+      },
+    },
+    { key: 'sep_gas2', label: '', isSeparator: true, render: () => null },
+    {
+      key: 'impuestoHidrocarb', label: 'IMPUESTO HIDROCARBUROS (€)',
+      render: (eco) => <span className="text-white/70 text-sm">{fmt(eco?.gasPricing?.impuestoHidrocarbTotal)}</span>,
+    },
+    {
+      key: 'alquilerGas', label: 'ALQUILER CONTADOR (€)',
+      render: (eco) => <span className="text-white/70 text-sm">{fmt(eco?.gasPricing?.alquilerTotal)}</span>,
+    },
+    {
+      key: 'ivaGas', label: 'IVA (€)',
+      render: (eco) => <span className="text-white/70 text-sm">{fmt(eco?.gasPricing?.ivaTotal)}</span>,
+    },
+    {
+      key: 'totalFacturaGas', label: 'TOTAL FACTURA (€)',
+      isHighlight: true, isTotal: true,
+      render: (eco, inv) => {
+        const v = eco?.totalFactura ?? inv.total_amount
+        return <span className="text-orange-400 font-bold text-sm">{v ? `${fmt(v)} €` : '—'}</span>
+      },
+    },
+  ]
+
+  // ── Electricity-specific rows ──
+  const electricityRows: RowDef[] = [
     {
       key: 'totalConsumoKwh', label: 'TOTAL CONSUMO (KWH)',
       isSectionHeader: true,
@@ -763,7 +883,6 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete }: {
     {
       key: 'costeMedio', label: 'COSTE MEDIO (€/KWH)',
       render: (eco) => {
-        // Formula: costeTotalConsumo / consumoTotalKwh
         const precio = eco?.costeMedioKwh || (eco?.costeTotalConsumo && eco?.consumoTotalKwh ? eco.costeTotalConsumo / eco.consumoTotalKwh : null)
         return <span className="text-white/70 text-sm">{precio ? fmt(precio, 4) : '—'}</span>
       },
@@ -819,15 +938,17 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete }: {
     },
   ]
 
+  const rows: RowDef[] = [...headerRows, ...(isGas ? gasRows : electricityRows)]
+
   const CONCEPT_COL_W = 240
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-collapse text-left" style={{ minWidth: `${CONCEPT_COL_W + invoices.length * 280}px` }}>
         <thead>
           <tr className="border-b border-white/10">
-            <th className="sticky left-0 z-10 bg-[#020617] py-3 px-4 text-xs font-bold tracking-widest text-[#60a5fa]"
+            <th className={`sticky left-0 z-10 bg-[#020617] py-3 px-4 text-xs font-bold tracking-widest ${isGas ? 'text-orange-400' : 'text-[#60a5fa]'}`}
               style={{ width: CONCEPT_COL_W, minWidth: CONCEPT_COL_W }}>
-              CONCEPTO / PERIODO
+              {isGas ? '🔥 GAS NATURAL' : 'CONCEPTO / PERIODO'}
             </th>
             {invoices.map((inv, i) => {
               const fileName = inv.file_url?.split('/').pop() || `FACT ${i + 1}`
@@ -880,13 +1001,13 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete }: {
               <tr key={row.key}><td colSpan={invoices.length + 1} className="py-1"><div className="h-px bg-white/5 mx-4" /></td></tr>
             )
             return (
-              <tr key={row.key} className={['border-b border-white/5 transition-colors', row.isHighlight ? 'bg-[#60a5fa]/5' : 'hover:bg-white/[0.02]'].join(' ')}>
+              <tr key={row.key} className={['border-b border-white/5 transition-colors', row.isHighlight ? (isGas ? 'bg-orange-500/5' : 'bg-[#60a5fa]/5') : 'hover:bg-white/[0.02]'].join(' ')}>
                 <td className="sticky left-0 z-10 py-3 px-4"
-                  style={{ backgroundColor: row.isHighlight ? 'rgba(96,165,250,0.05)' : '#020617', width: CONCEPT_COL_W, minWidth: CONCEPT_COL_W }}>
+                  style={{ backgroundColor: row.isHighlight ? (isGas ? 'rgba(249,115,22,0.05)' : 'rgba(96,165,250,0.05)') : '#020617', width: CONCEPT_COL_W, minWidth: CONCEPT_COL_W }}>
                   {row.isSectionHeader ? (
                     <span className="text-white text-xs font-bold tracking-wider">{row.label}</span>
                   ) : row.isHighlight ? (
-                    <span className="flex items-center gap-2 text-[#60a5fa] text-xs font-bold tracking-wider">{row.label}</span>
+                    <span className={`flex items-center gap-2 ${isGas ? 'text-orange-400' : 'text-[#60a5fa]'} text-xs font-bold tracking-wider`}>{row.label}</span>
                   ) : row.indent ? (
                     <span className="flex items-center gap-2 text-white/50 text-xs tracking-wider">
                       <span className="w-1.5 h-1.5 rounded-full bg-white/30 flex-shrink-0" />{row.label}
@@ -949,6 +1070,194 @@ function AuditMatrixTable<T extends { mes: string; periods: Record<string, unkno
         </div>
       ))}
       {footerRow}
+    </div>
+  )
+}
+
+// ─── Gas Report View ────────────────────────────────────────────────────────
+
+function GasReportView({ invoices, supplyName, onBack }: {
+  invoices: InvoiceRow[]
+  supplyName?: string
+  onBack: () => void
+}) {
+  const validInvoices = useMemo(() => invoices.filter(hasUsableData), [invoices])
+
+  const { tableData, summaryStats, pieData } = useMemo(() => {
+    let totalKwh = 0, totalEur = 0, totalEnergyNet = 0
+    let totalTerminoFijo = 0, totalImpuesto = 0, totalAlquiler = 0, totalIva = 0
+    let adjustedCount = 0
+
+    const tData = validInvoices.map(inv => {
+      const eco = getEco(inv)!
+      const gp = eco.gasPricing || {} as GasPricing
+      const { start, end } = getInvoiceDates(inv)
+      const { month, year } = getAssignedMonth(start, end)
+
+      const kwh = eco.consumoTotalKwh || 0
+      const eur = eco.totalFactura || inv.total_amount || 0
+      const energyNet = eco.costeNetoConsumo || eco.costeTotalConsumo || 0
+      const terminoFijo = gp.terminoFijoTotal || 0
+      const impuesto = gp.impuestoHidrocarbTotal || 0
+      const alquiler = gp.alquilerTotal || 0
+      const iva = gp.ivaTotal || 0
+
+      totalKwh += kwh; totalEur += eur; totalEnergyNet += energyNet
+      totalTerminoFijo += terminoFijo; totalImpuesto += impuesto
+      totalAlquiler += alquiler; totalIva += iva
+      if ((eco.descuentoEnergia || 0) > 0) adjustedCount++
+
+      return {
+        id: inv.id, monthIndex: month,
+        mes: year > 0 ? `${CANONICAL_MONTHS_FULL[month]?.toUpperCase() || '—'} ${year}` : '—',
+        tarifa: eco.tarifa || inv.extracted_data?.tariff || '—',
+        kwh, costeBruto: eco.costeBrutoConsumo || 0,
+        descuentoEnergia: eco.descuentoEnergia || 0,
+        costeNeto: energyNet,
+        precioKwh: eco.costeMedioKwhNeto || eco.costeMedioKwh || (gp.precioKwh) || (kwh > 0 ? energyNet / kwh : 0),
+        precioEstimated: gp.precioKwhEstimated || false,
+        terminoFijo, impuesto, alquiler, total: eur,
+      }
+    }).sort((a, b) => a.monthIndex - b.monthIndex)
+
+    const avgPrice = totalKwh > 0 ? totalEnergyNet / totalKwh : 0
+    const tariff = tData[0]?.tarifa || '—'
+
+    const pData = [
+      { label: 'Energía Neta', value: totalEnergyNet, color: '#f97316' },
+      { label: 'Término Fijo', value: totalTerminoFijo, color: '#fb923c' },
+      { label: 'Imp. Hidrocarburo', value: totalImpuesto, color: '#fbbf24' },
+      { label: 'Alquiler', value: totalAlquiler, color: '#facc15' },
+      { label: 'IVA', value: totalIva, color: '#eab308' },
+    ].filter(i => i.value > 0)
+
+    return {
+      tableData: tData,
+      summaryStats: { totalKwh, totalEur, totalEnergyNet, avgPrice, totalTerminoFijo, totalImpuesto, totalAlquiler, totalIva, adjustedCount, tariff },
+      pieData: pData,
+    }
+  }, [validInvoices])
+
+  return (
+    <div className="fixed inset-0 z-[200] overflow-y-auto text-white" style={{ fontFamily: 'Inter, sans-serif', background: '#020617' }}>
+      <button onClick={onBack} title="Volver (ESC)"
+        className="fixed top-4 left-4 z-[210] w-11 h-11 rounded-full flex items-center justify-center transition hover:scale-110 hover:bg-white/20"
+        style={{ background: 'rgba(15,23,42,0.60)', backdropFilter: 'blur(16px)', border: '1px solid rgba(255,255,255,0.20)' }}>
+        <ArrowLeft className="w-5 h-5 text-white" />
+      </button>
+
+      <div className="relative z-10 max-w-7xl mx-auto px-8 py-20 space-y-12">
+        {/* Title */}
+        <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} className="text-center">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-orange-500/20 text-orange-400 text-xs font-bold tracking-widest mb-4">
+            <Flame className="w-4 h-4" /> INFORME DE GAS NATURAL
+          </div>
+          <h1 className="text-4xl font-black tracking-tight">{supplyName || 'SUMINISTRO'}</h1>
+          <p className="text-white/40 mt-2 text-sm">{summaryStats.tariff} · {validInvoices.length} facturas analizadas</p>
+        </motion.div>
+
+        {/* KPIs */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {[
+            { icon: <Flame className="w-7 h-7 text-orange-500" />, label: 'CONSUMO TOTAL', value: `${summaryStats.totalKwh.toLocaleString('es-ES', { maximumFractionDigits: 0 })} kWh` },
+            { icon: <DollarSign className="w-7 h-7 text-orange-400" />, label: 'COSTE TOTAL', value: `${summaryStats.totalEur.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` },
+            { icon: <Activity className="w-7 h-7 text-yellow-500" />, label: 'PRECIO MEDIO', value: `${summaryStats.avgPrice.toLocaleString('es-ES', { minimumFractionDigits: 4, maximumFractionDigits: 4 })} €/kWh` },
+            { icon: <TrendingUp className="w-7 h-7 text-amber-500" />, label: 'FACTURAS CON AJUSTE', value: `${summaryStats.adjustedCount}` },
+          ].map((kpi, i) => (
+            <motion.div key={i} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}
+              className="rounded-2xl p-6" style={kpiGlassStyle}>
+              <div className="mb-3">{kpi.icon}</div>
+              <p className="text-[10px] font-bold tracking-[0.2em] text-white/40 mb-1">{kpi.label}</p>
+              <p className="text-2xl font-black tabular-nums">{kpi.value}</p>
+            </motion.div>
+          ))}
+        </div>
+
+        {/* Cost distribution pie */}
+        {pieData.length > 0 && (
+          <div className="rounded-2xl p-6" style={glassStyle}>
+            <h3 className="text-xs font-bold tracking-[0.2em] text-white/40 mb-6">DISTRIBUCIÓN DE COSTES</h3>
+            <div className="flex flex-wrap items-center justify-center gap-8">
+              {pieData.map((item, i) => {
+                const pct = summaryStats.totalEur > 0 ? (item.value / summaryStats.totalEur * 100) : 0
+                return (
+                  <div key={i} className="flex items-center gap-3">
+                    <div className="w-4 h-4 rounded-full" style={{ background: item.color }} />
+                    <div>
+                      <p className="text-sm font-bold text-white">{item.label}</p>
+                      <p className="text-xs text-white/50">{item.value.toFixed(2)} € ({pct.toFixed(1)}%)</p>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Gas invoices table */}
+        <div className="rounded-2xl overflow-hidden" style={glassStyle}>
+          <h3 className="text-xs font-bold tracking-[0.2em] text-white/40 px-6 pt-5 pb-3">FACTURAS DE GAS</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-white/10 text-white/40 font-bold tracking-wider">
+                  <th className="px-4 py-3 text-left">MES</th>
+                  <th className="px-3 py-3 text-center">TARIFA</th>
+                  <th className="px-3 py-3 text-right">KWH</th>
+                  <th className="px-3 py-3 text-right">BRUTO EN.</th>
+                  <th className="px-3 py-3 text-right text-green-500/70">DESC. EN.</th>
+                  <th className="px-3 py-3 text-right text-orange-400">NETO EN.</th>
+                  <th className="px-3 py-3 text-right">€/KWH</th>
+                  <th className="px-3 py-3 text-right">T. FIJO</th>
+                  <th className="px-3 py-3 text-right">IMP.</th>
+                  <th className="px-3 py-3 text-right">ALQUILER</th>
+                  <th className="px-4 py-3 text-right">TOTAL</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {tableData.map((row, idx) => (
+                  <tr key={idx} className="hover:bg-white/[0.04] transition-colors">
+                    <td className="px-4 py-3 font-bold text-white">{row.mes}</td>
+                    <td className="px-3 py-3 text-center text-orange-400 font-bold">{row.tarifa}</td>
+                    <td className="px-3 py-3 text-right font-mono text-white/80">{row.kwh.toLocaleString('es-ES', { maximumFractionDigits: 0 })}</td>
+                    <td className="px-3 py-3 text-right font-mono text-white/60">{row.costeBruto.toFixed(2)}€</td>
+                    <td className="px-3 py-3 text-right font-mono text-green-400/60">{row.descuentoEnergia > 0 ? `-${row.descuentoEnergia.toFixed(2)}€` : '—'}</td>
+                    <td className="px-3 py-3 text-right font-mono text-orange-400 font-bold">{row.costeNeto.toFixed(2)}€</td>
+                    <td className={`px-3 py-3 text-right font-mono ${row.precioEstimated ? 'text-yellow-400' : 'text-white/70'}`}>
+                      {row.precioKwh > 0 ? row.precioKwh.toFixed(4) : '—'}
+                      {row.precioEstimated && <span className="block text-[8px] text-yellow-500/50 leading-none">est.</span>}
+                    </td>
+                    <td className="px-3 py-3 text-right text-white/50">{row.terminoFijo > 0 ? `${row.terminoFijo.toFixed(2)}€` : '—'}</td>
+                    <td className="px-3 py-3 text-right text-white/50">{row.impuesto > 0 ? `${row.impuesto.toFixed(2)}€` : '—'}</td>
+                    <td className="px-3 py-3 text-right text-white/50">{row.alquiler > 0 ? `${row.alquiler.toFixed(2)}€` : '—'}</td>
+                    <td className="px-4 py-3 text-right font-black text-white bg-white/[0.03]">{row.total.toFixed(2)}€</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className="bg-white/5 border-t border-white/10 font-bold text-[11px]">
+                <tr>
+                  <td className="px-4 py-4 text-white uppercase font-black italic">TOTAL</td>
+                  <td className="px-3 py-4 text-center text-white/50">{summaryStats.tariff}</td>
+                  <td className="px-3 py-4 text-right tabular-nums text-white">{summaryStats.totalKwh.toLocaleString('es-ES', { maximumFractionDigits: 0 })}</td>
+                  <td className="px-3 py-4 text-right tabular-nums text-white/60">
+                    {tableData.reduce((s, r) => s + r.costeBruto, 0).toFixed(2)}€
+                  </td>
+                  <td className="px-3 py-4 text-right tabular-nums text-green-400/60">
+                    {tableData.reduce((s, r) => s + r.descuentoEnergia, 0) > 0
+                      ? `-${tableData.reduce((s, r) => s + r.descuentoEnergia, 0).toFixed(2)}€` : '—'}
+                  </td>
+                  <td className="px-3 py-4 text-right tabular-nums text-orange-400">{summaryStats.totalEnergyNet.toFixed(2)}€</td>
+                  <td className="px-3 py-4 text-right tabular-nums text-white">{summaryStats.avgPrice.toFixed(4)}</td>
+                  <td className="px-3 py-4 text-right tabular-nums text-white/50">{summaryStats.totalTerminoFijo.toFixed(2)}€</td>
+                  <td className="px-3 py-4 text-right tabular-nums text-white/50">{summaryStats.totalImpuesto.toFixed(2)}€</td>
+                  <td className="px-3 py-4 text-right tabular-nums text-white/50">{summaryStats.totalAlquiler.toFixed(2)}€</td>
+                  <td className="px-4 py-4 text-right tabular-nums text-white font-black bg-white/[0.06]">{summaryStats.totalEur.toFixed(2)}€</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -1797,6 +2106,7 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated 
   const withEco = invoices.filter(hasUsableData)
   const withoutEco = invoices.filter(inv => !hasUsableData(inv))
   const supplyName = withEco.length > 0 ? getEco(withEco[0])?.titular : undefined
+  const isGas = isGasSupply(invoices)
 
   // Aggregate validation status across all invoices
   const validationSummary = (() => {
@@ -1903,6 +2213,9 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated 
   }
 
   if (view === 'informe') {
+    if (isGas) {
+      return <GasReportView invoices={invoices} supplyName={supplyName} onBack={() => setView('tabla')} />
+    }
     return <ReportView invoices={invoices} supplyName={supplyName} onBack={() => setView('tabla')} onInvoicesUpdated={onInvoicesUpdated} />
   }
 
@@ -1935,8 +2248,8 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated 
         </div>
         <button onClick={() => setView('informe')}
           className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white transition hover:scale-105"
-          style={{ background: 'linear-gradient(135deg, #3b82f6, #6366f1)' }}>
-          <TrendingUp className="w-4 h-4" /> Generar informe
+          style={{ background: isGas ? 'linear-gradient(135deg, #ea580c, #f97316)' : 'linear-gradient(135deg, #3b82f6, #6366f1)' }}>
+          {isGas ? <Flame className="w-4 h-4" /> : <TrendingUp className="w-4 h-4" />} Generar informe
         </button>
       </div>
       {withoutEco.length > 0 && <ReExtractBanner invoices={withoutEco} onDone={onInvoicesUpdated} />}

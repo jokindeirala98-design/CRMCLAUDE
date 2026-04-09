@@ -3,7 +3,8 @@
  * v6.0 - Model auto-discovery fallback chain, robust invoice extraction
  */
 
-import { normalizeCups } from '@/lib/utils/cups'
+import { normalizeCups, extractCups } from '@/lib/utils/cups'
+import { normalizeTariff } from '@/lib/consumption-utils'
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
 /*  TYPES                                                                    */
@@ -241,7 +242,9 @@ function getUserFriendlyError(err: any): string {
 /*  PROMPTS                                                                  */
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
-const INVOICE_PROMPT = `Eres un experto en auditoría energética española (luz y gas natural). Tu tarea es extraer datos de facturas con PRECISIÓN MATEMÁTICA TOTAL.
+const INVOICE_PROMPT = `### ROL
+Actúa como un Auditor Energético Senior especializado en el mercado español (OMIE/REE).
+Tu misión es convertir imágenes/PDFs de facturas en un objeto JSON puro, resolviendo discrepancias matemáticas y normalizando conceptos.
 Responde ÚNICAMENTE con JSON válido. Sin markdown, sin texto adicional, sin comentarios.
 
 ════════════════════════════════════════════════════════════════════════════
@@ -256,7 +259,14 @@ Si es factura → detecta "supply_type": "luz" o "gas" (las tarifas RL.x son SIE
 REGLAS CRÍTICAS DE EXTRACCIÓN (V3.0) — APLICAN A FACTURAS DE LUZ Y GAS
 ════════════════════════════════════════════════════════════════════════════
 
-0. **CUPS (MANDATORIO):** Extrae el código CUPS completo (empieza por ES). Es fundamental e innegociable.
+0. **CUPS (MANDATORIO — MÁXIMA PRIORIDAD):**
+   - El CUPS (Código Universal de Punto de Suministro) SIEMPRE empieza por "ES" seguido de 16 dígitos y 2 caracteres de control = 20 caracteres mínimo (puede tener 22 con sufijo).
+   - UBICACIÓN VISUAL: Suele aparecer en la zona superior de la factura, cerca de "Datos del suministro" o "Punto de suministro". Busca un código largo que empiece por "ES0" o "ES00".
+   - FORMATO OBLIGATORIO: ES + 4 dígitos (distribuidora) + 12 dígitos (punto) + 2 alfanuméricos (control). Ejemplo: "ES0021000012345678AB".
+   - VALIDACIÓN: Si el código extraído NO tiene 20-22 caracteres o NO empieza por "ES" seguido de dígitos, re-examina el documento.
+   - ERRORES COMUNES OCR: No confundas "0" (cero) con "O" (letra), ni "1" con "l". Los 16 caracteres centrales son SIEMPRE DÍGITOS.
+   - Si hay VARIOS CUPS en el documento (ej: factura resumen multi-punto), extrae el CUPS PRINCIPAL del punto de suministro facturado.
+   - NUNCA inventes un CUPS. Si no lo encuentras claramente, deja el campo vacío.
 
 1. **DATOS DE TITULAR Y SUMINISTRO (MANDATORIO):**
    - holder_name: nombre EXACTO del titular tal como aparece (ej: "AYUNTAMIENTO DE AOIZ", no "Ayuntamiento").
@@ -379,13 +389,31 @@ LUZ-0c. **CÓMO RECONOCER EL DESGLOSE PEAJES+CARGOS (muy común):**
    y 6–12 líneas de energía (6 peajes + 6 cargos + opcional 1 flat de comercialización).
    Si solo ves 1–2 líneas de potencia en una factura 3.0TD, te has dejado el resto.
 
-LUZ-1. **Campos derivados consumo[] y potencia[]:**
-   Además de rawLineItems, devuelve también los arrays agregados consumo[] y potencia[]
-   por comodidad del frontend. El post-procesado en el backend los recalculará desde
-   rawLineItems de todas formas, así que prioriza la COMPLETITUD de rawLineItems sobre
-   la perfección de estos arrays.
+LUZ-1. **Campos derivados consumo[] y potencia[] (CASO A y CASO B):**
+   Además de rawLineItems, devuelve los arrays agregados consumo[] y potencia[].
 
-LUZ-2. **Cálculos Faltantes:** Si solo aparece Total y kWh, calcula precioKwh = Total / kWh. Si hay precio fijo, ponlo en todos los periodos facturados.
+   CASO A (Precio Fragmentado — MUY COMÚN en facturas 3.0TD/6.1TD):
+     Si el precio de energía de un periodo está dividido en componentes separados
+     (ej: "Término Energía Tarifa Acceso", "Término Cargos Energía Acceso",
+     "Término Energía Variable"), SÚMALOS en un único precioKwh por periodo.
+     Ejemplo factura TotalEnergies P2:
+       Peaje:   4241 kWh × 0,012343 = 52,35 €
+       Cargo:   4241 kWh × 0,024066 = 102,06 €
+       Variable: 4241 kWh × 0,108300 = 459,30 €
+       → precioKwh CONSOLIDADO = 0,012343 + 0,024066 + 0,108300 = 0,144709 €/kWh
+       → total = 52,35 + 102,06 + 459,30 = 613,71 €
+     En rawLineItems sí emite las 3 líneas separadas (peaje, cargo, variable).
+     En consumo[] emite UNA entrada por periodo con el precioKwh SUMADO y total SUMADO.
+
+   CASO B (Precio Faltante):
+     Si falta el precio unitario pero tienes Total y kWh, calcula:
+       precioKwh = TotalPeriodo / kWh.
+     Si hay un precio fijo único, aplícalo a todos los periodos facturados.
+
+LUZ-2. **POTENCIA — kW contratados por periodo:**
+   Extrae kW contratados y coste total por periodo. Si potencia está fragmentada en
+   "Término Potencia Tarifa Acceso" + "Término Cargos Potencia Acceso", súmalos en
+   potencia[] con el total combinado. En rawLineItems emite ambas líneas por separado.
 
 LUZ-3. **AGRUPACIÓN ESTRICTA Y NOMBRES CANÓNICOS (OBLIGATORIO):**
    Usa EXACTAMENTE estos nombres para agrupar conceptos similares en otrosConceptos:
@@ -403,22 +431,28 @@ LUZ-4. **DESGLOSE DE ENERGÍA Y DESCUENTOS:**
    - costeNetoConsumo = costeBrutoConsumo − descuentoEnergia.
    - costeTotalConsumo = costeNetoConsumo (alias para compatibilidad).
    - MANDATORIO: los descuentos de energía NO deben aparecer en otrosConceptos.
+   - AUTOCONSUMO: Si aparece "Energía Excedentaria" / "Compensación de excedentes",
+     extráelo como rawLineItem con category="compensacion_excedentes" y valor NEGATIVO.
 
 LUZ-5. **AUDITORÍA DE POTENCIA INDUSTRIAL:**
    - Busca "Resumen de Factura" o "Detalle de Potencia".
    - costeTotalPotencia = SOLO el término fijo por potencia contratada.
    - CUALQUIER penalización/exceso de potencia DEBE ir a otrosConceptos como 'EXCESO DE POTENCIA'.
 
-LUZ-6. **BUCLE DE AUTOCONTROL MATEMÁTICO (REGLA DE ORO):**
-   - Paso A: extrae totalFactura del "Total a Pagar" / "Total con Impuestos" impreso.
-   - Paso B: suma (costeNetoConsumo + costeTotalPotencia + Σ otrosConceptos).
-   - Paso C: compara B contra A.
-   - Paso D: si |B − A| > 0.05€, RE-ESCANEA buscando conceptos omitidos hasta que coincida.
-   - Paso E: valida que costeTotalPotencia ≈ (suma de TODAS las líneas "Potencia facturada
-     peajes" + TODAS las líneas "Potencia facturada cargos"). Si solo has capturado 1–2
-     líneas de potencia en una factura 3.0TD/6.1TD, te has dejado las demás — re-escanea.
-   - Paso F: valida que Σ kwh de consumo[] = consumoTotalKwh. Si no, los kWh por periodo
-     están mal extraídos (probablemente confundiste el flat "Precio horario" con P1).
+LUZ-6. **BUCLE DE AUDITORÍA INTERNA (REGLA DE ORO — ejecuta ANTES de responder):**
+   Este proceso mental es OBLIGATORIO. No respondas hasta que el error sea cero:
+
+   1. Extrae visualmente el "Total a Pagar" / "Total con Impuestos" del documento.
+   2. Suma: (costeNetoConsumo) + (costeTotalPotencia) + Σ(otrosConceptos incluyendo IE, alquiler, IVA).
+   3. Compara: si la diferencia con el total impreso es > 0,05€, busca el concepto que falta
+      (ej: recargos por reactiva, financiación bono social, SRAD, otros) y CORRÍGELO.
+   4. NO TE DETENGAS hasta que el error sea cero.
+   5. Valida costeTotalPotencia ≈ suma de TODAS las líneas de potencia (peajes + cargos).
+      En facturas 3.0TD/6.1TD debe haber 12 líneas de potencia (6 peajes + 6 cargos).
+      Si solo has capturado 1–2, re-escanea.
+   6. Valida Σ kwh de consumo[] = consumoTotalKwh. Si no cuadra, probablemente
+      confundiste el flat "Precio horario" con P1.
+   7. Valida que Σ total de rawLineItems (sin IVA) ≈ Base Imponible, y con IVA ≈ Total Factura.
 
 ════════════════════════════════════════════════════════════════════════════
 REGLAS ESPECÍFICAS PARA FACTURAS DE GAS NATURAL
@@ -1091,17 +1125,24 @@ export async function analyzeDocument(base64Data: string, mimeType: string, docT
     const detectedType: DocumentType = result.documentType || docType || 'otro'
     const extracted = result.extracted || result
 
+    // CUPS: try direct extraction first, then fallback to regex extraction from raw text
+    let cups = normalizeCups(extracted.cups || '') || undefined
+    if (!cups && content) {
+      // Gemini might have returned the CUPS embedded in text — try to extract it
+      cups = extractCups(content) || undefined
+    }
+
     return {
       mode: 'gemini',
       documentType: detectedType,
-      cups: normalizeCups(extracted.cups || '') || undefined,
+      cups,
       supply_type: (['luz', 'gas', 'telefonia'].includes(extracted.supply_type) ? extracted.supply_type : undefined) as 'luz' | 'gas' | 'telefonia' | undefined,
       cif: clean(extracted.cif) || (detectedType !== 'factura' ? clean(extracted.holder_cif_nif) : undefined),
       nif: clean(extracted.nif) || (detectedType !== 'factura' ? clean(extracted.holder_cif_nif) : undefined),
       holder_name: clean(extracted.holder_name) || clean(extracted.account_holder),
       holder_cif_nif: clean(extracted.holder_cif_nif),
       total_amount: extracted.total_amount != null ? String(extracted.total_amount) : '',
-      tariff: clean(extracted.tariff),
+      tariff: normalizeTariff(extracted.tariff) || clean(extracted.tariff),
       comercializadora: clean(extracted.comercializadora),
       supply_address: clean(extracted.supply_address),
       billing_period: clean(extracted.billing_period),

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { normalizeCups } from '@/lib/utils/cups'
+import { normalizeTariff as normalizeTariffCanonical } from '@/lib/consumption-utils'
 import { ensurePendingPrescoring } from '@/lib/ensurePrescoring'
 import { advanceSupplyPipeline } from '@/lib/supply-pipeline'
 
@@ -106,17 +107,9 @@ function toIsoDate(raw: string | null | undefined): string | null {
   return null
 }
 
+/** Normalize tariff to canonical form (2.0TD, 3.0TD, 6.1TD, RL.1, etc.) */
 function normalizeTariff(raw: string): string {
-  const s = raw.replace(/\s+/g, '').toUpperCase()
-  const map: Record<string, string> = {
-    '2.0': '2.0', '20TD': '2.0', '2.0TD': '2.0', '2.0A': '2.0',
-    '3.0': '3.0', '30TD': '3.0', '3.0TD': '3.0', '3.0A': '3.0',
-    '6.1': '6.1', '61TD': '6.1', '6.1TD': '6.1', '6.1A': '6.1',
-    '6.2': '6.1', '62TD': '6.1', '6.2TD': '6.1',
-    'RL1': 'RL1', 'RL.1': 'RL1', 'RL2': 'RL2', 'RL.2': 'RL2',
-    'RL3': 'RL3', 'RL.3': 'RL3', 'RL4': 'RL4', 'RL.4': 'RL4',
-  }
-  return map[s] || raw
+  return normalizeTariffCanonical(raw) || raw
 }
 
 /**
@@ -497,11 +490,43 @@ export async function processJobInBackground(jobId: string): Promise<void> {
   const cupsMap = new Map<string, QueuedFile[]>()
   const noCupsFiles: QueuedFile[] = []
 
+  /**
+   * Fuzzy CUPS matcher: finds an existing key in cupsMap that differs by at
+   * most 2 characters from `candidate` (Levenshtein ≤ 2). This catches
+   * common OCR errors (e.g., digit substitution, missing/extra char).
+   * Returns the matching key or null.
+   */
+  function findFuzzyCupsMatch(candidate: string): string | null {
+    for (const existing of cupsMap.keys()) {
+      if (existing === candidate) return existing
+      // Quick length check — CUPS should be 20 chars but allow ±1
+      if (Math.abs(existing.length - candidate.length) > 2) continue
+      // Count character differences (simplified Hamming for same-length)
+      if (existing.length === candidate.length) {
+        let diffs = 0
+        for (let i = 0; i < existing.length; i++) {
+          if (existing[i] !== candidate[i]) diffs++
+          if (diffs > 2) break
+        }
+        if (diffs <= 2) {
+          console.log(`[UploadQueue] Fuzzy CUPS match: "${candidate}" → "${existing}" (${diffs} diffs)`)
+          return existing
+        }
+      }
+    }
+    return null
+  }
+
   for (const f of analyzedInvoices) {
     const cups = normalizeCups(f.extractedData?.cups || '')
     if (cups) {
-      if (!cupsMap.has(cups)) cupsMap.set(cups, [])
-      cupsMap.get(cups)!.push(f)
+      // Try exact match first, then fuzzy
+      const matchKey = cupsMap.has(cups) ? cups : findFuzzyCupsMatch(cups)
+      if (matchKey) {
+        cupsMap.get(matchKey)!.push(f)
+      } else {
+        cupsMap.set(cups, [f])
+      }
     } else {
       noCupsFiles.push(f)
     }
@@ -546,7 +571,7 @@ export async function processJobInBackground(jobId: string): Promise<void> {
     ]
 
     // Track newly-created supplies that need background SIPS fetch
-    const newSuppliesForSips: Array<{ supplyId: string; cups: string; holderName: string }> = []
+    const newSuppliesForSips: Array<{ supplyId: string; cups: string; holderName: string; supplyType: string }> = []
 
     for (const group of allGroups) {
       const first = group.files[0].extractedData!
@@ -629,6 +654,7 @@ export async function processJobInBackground(jobId: string): Promise<void> {
               supplyId,
               cups,
               holderName: first.holder_name || currentJob.clientName || '',
+              supplyType: type,
             })
           }
         }
@@ -678,8 +704,8 @@ export async function processJobInBackground(jobId: string): Promise<void> {
     // Fire-and-forget — we don't block the UI. Each supply gets its consumption_data
     // populated automatically so annual consumption and reports work without
     // the user needing to visit the SIPS tab manually.
-    for (const { supplyId, cups, holderName } of newSuppliesForSips) {
-      fetchSipsForSupply(supplyId, cups, holderName).catch((err) => {
+    for (const { supplyId, cups, holderName, supplyType } of newSuppliesForSips) {
+      fetchSipsForSupply(supplyId, cups, holderName, supplyType).catch((err) => {
         console.error(`[UploadQueue] Background SIPS fetch failed for ${cups}:`, err)
       })
     }
@@ -699,26 +725,64 @@ export async function processJobInBackground(jobId: string): Promise<void> {
  * potenciaContratada + consumptionHistory are available.
  * Runs as fire-and-forget; errors are logged but don't block the user.
  */
-async function fetchSipsForSupply(supplyId: string, cups: string, holderName: string) {
+async function fetchSipsForSupply(
+  supplyId: string,
+  cups: string,
+  holderName: string,
+  supplyType?: string
+) {
   const { createClient } = await import('@/lib/supabase/client')
   const supabase = createClient()
 
-  const sipsRes = await fetch('/api/sips', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cups }),
-  })
-  if (!sipsRes.ok) return
-  const sipsResult = await sipsRes.json()
-  if (!sipsResult.success || !sipsResult.data) return
-  const d = sipsResult.data
+  // Detect gas: explicit type, RL tariff, or CUPS suffix heuristic (2 trailing letters)
+  const isGas = supplyType === 'gas' || (cups.length >= 22 && /^[A-Z]{2}$/.test(cups.slice(20, 22)))
+
+  // Route to the correct SIPS API
+  let d: any = null
+  let sipsSource = 'greening_sips'
+
+  if (isGas) {
+    // Try TotalEnergies for gas
+    const gasRes = await fetch('/api/sips-gas', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cups }),
+    })
+    if (gasRes.ok) {
+      const gasResult = await gasRes.json()
+      if (gasResult.success && gasResult.data) {
+        d = gasResult.data
+        sipsSource = 'totalenergies_sips'
+      }
+    }
+  }
+
+  if (!d) {
+    // Electricity → Greening, or fallback for gas that failed TotalEnergies
+    const sipsRes = await fetch('/api/sips', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cups, supply_type: isGas ? 'gas' : 'luz' }),
+    })
+    if (!sipsRes.ok) return
+    const sipsResult = await sipsRes.json()
+    if (!sipsResult.success || !sipsResult.data) return
+    d = sipsResult.data
+    sipsSource = sipsResult.source === 'totalenergies' ? 'totalenergies_sips' : 'greening_sips'
+  }
+
+  // Normalize tariff from SIPS
+  const sipsTariff = d.tariff ? (normalizeTariffCanonical(d.tariff) || d.tariff) : null
+
+  // Build address from SIPS data (municipio + CP)
+  const sipsAddress = [d.direccion, d.municipio, d.codigoPostal].filter(Boolean).join(', ') || null
 
   const consumption_data = {
-    source: 'greening_sips',
+    source: sipsSource,
     fetched_at: new Date().toISOString(),
     total: d.totalConsumption,
     totalKwh: d.totalConsumptionKwh,
-    sips_tariff: d.tariff,
+    sips_tariff: sipsTariff,
     consumoPeriodos: d.consumoPeriodos,
     potenciaContratada: d.potenciaContratada,
     history: (d.consumptionHistory || []).map((h: any) => ({
@@ -741,19 +805,63 @@ async function fetchSipsForSupply(supplyId: string, cups: string, holderName: st
     tension: d.tension,
     fechaAlta: d.fechaAlta,
     fechaUltimaLectura: d.fechaUltimaLectura,
+    // Gas-specific fields from TotalEnergies
+    ...(d.direccion ? { direccion: d.direccion } : {}),
+    ...(d.presionMedida ? { presionMedida: d.presionMedida } : {}),
+    ...(d.caudalMaximoDiario ? { caudalMaximoDiario: d.caudalMaximoDiario } : {}),
+  }
+
+  // Build update payload — SIPS is authoritative for estudios de suministros
+  const updatePayload: any = {
+    consumption_data,
+    updated_at: new Date().toISOString(),
+  }
+
+  // Update tariff from SIPS (always overwrite for estudios — SIPS is source of truth)
+  if (sipsTariff) {
+    updatePayload.tariff = sipsTariff
+  }
+
+  // Update address from SIPS if we got one (municipio + CP makes it more complete)
+  if (sipsAddress && sipsAddress.length > 5) {
+    updatePayload.address = sipsAddress
+  }
+
+  // Update distribuidora: find or create the comercializadora record
+  if (d.distribuidora) {
+    try {
+      const { data: coms } = await supabase
+        .from('comercializadoras')
+        .select('id, name')
+        .eq('active', true)
+      if (coms) {
+        const match = coms.find((c: any) =>
+          c.name.toLowerCase().includes(d.distribuidora.toLowerCase()) ||
+          d.distribuidora.toLowerCase().includes(c.name.toLowerCase())
+        )
+        if (match) {
+          updatePayload.comercializadora_id = match.id
+        }
+      }
+    } catch (err) {
+      console.error('[UploadQueue] Error matching distribuidora:', err)
+    }
+  }
+
+  // Ensure type is correct (gas CUPS should be type=gas)
+  if (isGas) {
+    updatePayload.type = 'gas'
   }
 
   await supabase
     .from('supplies')
-    .update({
-      consumption_data,
-      ...(d.tariff ? { tariff: d.tariff } : {}),
-      updated_at: new Date().toISOString(),
-    })
+    .update(updatePayload)
     .eq('id', supplyId)
 
-  // Auto-generate power study if we have the required data
-  if (d.consumptionHistory?.length > 0 && d.potenciaContratada) {
+  console.log(`[UploadQueue] SIPS ${sipsSource} OK for ${cups} — tariff=${sipsTariff}, address=${sipsAddress ? 'yes' : 'no'}`)
+
+  // Auto-generate power study if we have the required data (electricity only)
+  if (!isGas && d.consumptionHistory?.length > 0 && d.potenciaContratada) {
     try {
       const studyRes = await fetch('/api/power-study-auto', {
         method: 'POST',
