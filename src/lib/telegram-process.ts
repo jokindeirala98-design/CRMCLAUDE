@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { analyzeInvoice } from '@/lib/gemini'
 import { normalizeCups } from '@/lib/utils/cups'
+import { fetchSipsForCups } from '@/lib/sips'
 
 /**
  * Shared processing logic for telegram_inbox items.
@@ -48,6 +49,7 @@ export interface ProcessResult {
   ok: boolean
   supply_id?: string
   client_id?: string
+  client_type?: string
   is_existing_supply?: boolean
   cups?: string | null
   error?: string
@@ -212,6 +214,7 @@ export async function processTelegramInboxItem(
   }
 
   // 8. Create new client if no match
+  let clientType: string = 'empresa'
   if (!clientId) {
     const clientName = holderName && holderName !== 'No detectado'
       ? holderName
@@ -220,7 +223,7 @@ export async function processTelegramInboxItem(
     // Auto-detect client type: ayuntamiento, empresa, or particular
     const isAyuntamiento = /ayuntamiento|ajuntament|concello|diputaci[oó]n|consejo\s+comarcal|mancomunidad/i.test(clientName)
     const isParticular = holderCif ? /^\d/.test(holderCif.trim()) : false
-    const clientType = isAyuntamiento ? 'ayuntamiento' : isParticular ? 'particular' : 'empresa'
+    clientType = isAyuntamiento ? 'ayuntamiento' : isParticular ? 'particular' : 'empresa'
 
     // Try with 'telegram' origin first; if the enum value doesn't exist yet, fallback to 'captacion'
     let newClient: any = null
@@ -260,13 +263,18 @@ export async function processTelegramInboxItem(
     }
 
     clientId = newClient.id
-    console.log(`[TelegramProcess] Created new client: ${clientName} (${clientId})`)
+    console.log(`[TelegramProcess] Created new client: ${clientName} (${clientId}) type=${clientType}`)
+  } else {
+    // Fetch existing client type for ayuntamiento detection
+    const { data: existingClient } = await supabase
+      .from('clients')
+      .select('type')
+      .eq('id', clientId)
+      .single()
+    clientType = existingClient?.type || 'empresa'
   }
 
   // 9. Create new supply if none exists — with race-condition protection
-  //    The DB has a unique partial index on supplies.cups (WHERE cups IS NOT NULL).
-  //    If two channels try to create the same CUPS simultaneously, one INSERT will
-  //    fail with a unique constraint violation. We catch that and look up the winner.
   if (!supplyId) {
     const { data: newSupply, error: supplyErr } = await supabase
       .from('supplies')
@@ -363,79 +371,125 @@ export async function processTelegramInboxItem(
 
   console.log(`[TelegramProcess] Done: ${inboxId} → supply ${supplyId} (${isExistingSupply ? 'existing' : 'new'})`)
 
+  // 12. Background: fetch SIPS data and power study (fire-and-forget)
+  if (cups && cups.length >= 20 && supplyId) {
+    fetchSipsAndStudy(supplyId, cups, holderName || 'Telegram').catch(err => {
+      console.error(`[TelegramProcess] Background SIPS error:`, err.message)
+    })
+  }
+
+  // 13. Background: for ayuntamiento clients, trigger sync-consumption
+  if (clientType === 'ayuntamiento' && clientId) {
+    triggerAyuntamientoSync(clientId).catch(err => {
+      console.error(`[TelegramProcess] Background ayuntamiento sync error:`, err.message)
+    })
+  }
+
   return {
     ok: true,
     supply_id: supplyId!,
     client_id: clientId!,
+    client_type: clientType,
     is_existing_supply: isExistingSupply,
     cups,
   }
 }
 
 /**
- * Background SIPS + Power Study (call without await if you don't want to block)
+ * Background SIPS + Power Study (fire-and-forget from processTelegramInboxItem)
  */
 export async function fetchSipsAndStudy(supplyId: string, cups: string, holderName: string) {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
   const supabase = getSupabase()
 
-  const sipsRes = await fetch(`${baseUrl}/api/sips`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cups }),
-  })
+  console.log(`[TelegramProcess] Fetching SIPS for supply ${supplyId}, CUPS ${cups}`)
 
-  const sipsResult = await sipsRes.json()
-  if (!sipsResult.success || !sipsResult.data) return
+  // Use shared lib instead of calling API route (avoids self-referencing HTTP calls)
+  const sipsData = await fetchSipsForCups(cups)
+  if (!sipsData) {
+    console.warn(`[TelegramProcess] No SIPS data returned for ${cups}`)
+    return
+  }
 
-  const d = sipsResult.data
+  const updatedConsumption = {
+    source: 'greening_sips',
+    fetched_at: new Date().toISOString(),
+    total: sipsData.totalConsumption,
+    totalKwh: sipsData.totalConsumptionKwh,
+    sips_tariff: sipsData.tariff,
+    consumoPeriodos: sipsData.consumoPeriodos,
+    potenciaContratada: sipsData.potenciaContratada,
+    history: sipsData.consumptionHistory || [],
+    maximetroHistory: sipsData.maximetroHistory || [],
+    reactivaHistory: sipsData.reactivaHistory || [],
+    distribuidora: sipsData.distribuidora,
+    codigoPostal: sipsData.codigoPostal,
+    provincia: sipsData.provincia,
+    municipio: sipsData.municipio,
+    cnae: sipsData.cnae,
+    tension: sipsData.tension,
+    fechaAlta: sipsData.fechaAlta,
+    fechaUltimaLectura: sipsData.fechaUltimaLectura,
+  }
 
   await supabase.from('supplies').update({
-    consumption_data: {
-      source: 'greening_sips',
-      fetched_at: new Date().toISOString(),
-      total: d.totalConsumption,
-      totalKwh: d.totalConsumptionKwh,
-      sips_tariff: d.tariff,
-      consumoPeriodos: d.consumoPeriodos,
-      potenciaContratada: d.potenciaContratada,
-      history: (d.consumptionHistory || []).map((h: any) => ({
-        fecha: h.fecha, P1: h.P1, P2: h.P2, P3: h.P3, P4: h.P4, P5: h.P5, P6: h.P6, total: h.total,
-      })),
-      maximetroHistory: (d.maximetroHistory || []).map((h: any) => ({
-        fecha: h.fecha, P1: h.P1, P2: h.P2, P3: h.P3, P4: h.P4, P5: h.P5, P6: h.P6,
-      })),
-      distribuidora: d.distribuidora,
-      codigoPostal: d.codigoPostal,
-      provincia: d.provincia,
-      municipio: d.municipio,
-      cnae: d.cnae,
-      tension: d.tension,
-      fechaAlta: d.fechaAlta,
-      fechaUltimaLectura: d.fechaUltimaLectura,
-    },
-    ...(d.tariff ? { tariff: d.tariff } : {}),
+    consumption_data: updatedConsumption,
+    ...(sipsData.tariff ? { tariff: sipsData.tariff } : {}),
     updated_at: new Date().toISOString(),
   }).eq('id', supplyId)
 
-  if (d.consumptionHistory?.length > 0 && d.potenciaContratada) {
-    const studyRes = await fetch(`${baseUrl}/api/power-study-auto`, {
+  console.log(`[TelegramProcess] SIPS saved for supply ${supplyId}`)
+
+  // Power study auto-generation
+  if (sipsData.consumptionHistory?.length && sipsData.potenciaContratada) {
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
+    try {
+      const studyRes = await fetch(`${baseUrl}/api/power-study-auto`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cups,
+          clientName: holderName,
+          potenciaContratada: sipsData.potenciaContratada,
+          consumptionHistory: sipsData.consumptionHistory,
+          maximetroHistory: sipsData.maximetroHistory || [],
+        }),
+      })
+
+      if (studyRes.ok) {
+        const studyResult = await studyRes.json()
+        await supabase.from('supplies').update({
+          power_study_result: studyResult,
+        }).eq('id', supplyId)
+        console.log(`[TelegramProcess] Power study saved for supply ${supplyId}`)
+      }
+    } catch (err: any) {
+      console.error(`[TelegramProcess] Power study error:`, err.message)
+    }
+  }
+}
+
+/**
+ * Trigger sync-consumption for an ayuntamiento client.
+ * This builds the consumption_snapshots table from SIPS data
+ * so the "Estudios de Suministro" modal shows data automatically.
+ */
+async function triggerAyuntamientoSync(clientId: string) {
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
+  console.log(`[TelegramProcess] Triggering ayuntamiento sync for client ${clientId}`)
+
+  try {
+    const res = await fetch(`${baseUrl}/api/sync-consumption`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        cups,
-        clientName: holderName,
-        potenciaContratada: d.potenciaContratada,
-        consumptionHistory: d.consumptionHistory,
-        maximetroHistory: d.maximetroHistory || [],
-      }),
+      body: JSON.stringify({ client_id: clientId }),
     })
-
-    if (studyRes.ok) {
-      const studyResult = await studyRes.json()
-      await supabase.from('supplies').update({
-        power_study_result: studyResult,
-      }).eq('id', supplyId)
+    const data = await res.json()
+    if (data.success) {
+      console.log(`[TelegramProcess] Ayuntamiento sync OK: ${data.count} snapshots`)
+    } else {
+      console.warn(`[TelegramProcess] Ayuntamiento sync failed:`, data.error)
     }
+  } catch (err: any) {
+    console.error(`[TelegramProcess] Ayuntamiento sync error:`, err.message)
   }
 }

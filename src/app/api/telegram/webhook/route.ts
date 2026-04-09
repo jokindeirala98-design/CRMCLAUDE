@@ -539,14 +539,14 @@ async function handleDocumentFile(msg: TelegramMessage) {
             const supabaseNotif = createBotSupabase()
             const { data: cl } = await supabaseNotif.from('clients').select('name, type').eq('id', result.client_id!).single()
             const clientName = cl?.name || ''
-            const isAyto = cl?.type === 'ayuntamiento'
+            const isAyto = result.client_type === 'ayuntamiento' || cl?.type === 'ayuntamiento'
             const emoji = result.is_existing_supply ? '📂' : '🆕'
             const typeLabel = result.is_existing_supply ? 'Añadida a suministro existente' : 'Nuevo suministro creado'
-            const aytoTag = isAyto ? ' 🏛' : ''
+            const aytoTag = isAyto ? '\n🏛 <i>Ayuntamiento — sincronizando datos SIPS e informe de consumos...</i>' : ''
             sendMessage(chatId,
-              `${emoji} <b>${typeLabel}</b>${aytoTag}\n\n` +
+              `${emoji} <b>${typeLabel}</b>\n\n` +
               `👤 ${clientName}\n` +
-              `🔌 <code>${result.cups || 'Sin CUPS'}</code>\n\n` +
+              `🔌 <code>${result.cups || 'Sin CUPS'}</code>${aytoTag}\n\n` +
               `<a href="${appUrl}/supplies/${result.supply_id}">Ver suministro →</a>`
             ).catch(() => {})
           } catch {
