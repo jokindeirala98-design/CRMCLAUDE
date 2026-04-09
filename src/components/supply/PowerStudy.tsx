@@ -442,20 +442,38 @@ export function PowerStudy({
   async function svgDivToPng(divRef: React.RefObject<HTMLDivElement | null>): Promise<string | undefined> {
     const svg = divRef.current?.querySelector('svg')
     if (!svg) return undefined
+
+    // Read the actual SVG dimensions
+    const svgW = parseInt(svg.getAttribute('width') || '820', 10)
+    const svgH = parseInt(svg.getAttribute('height') || '300', 10)
+
+    // Ensure the SVG has xmlns for proper rendering in Image
+    if (!svg.getAttribute('xmlns')) svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+
     const svgStr = new XMLSerializer().serializeToString(svg)
-    const blob = new Blob([svgStr], { type: 'image/svg+xml' })
+    const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' })
     const url = URL.createObjectURL(blob)
+
     return new Promise(resolve => {
       const img = new Image()
       img.onload = () => {
+        // Use 2x scale for sharp rendering
+        const scale = 2
         const canvas = document.createElement('canvas')
-        canvas.width = 820; canvas.height = 300
+        canvas.width = svgW * scale
+        canvas.height = svgH * scale
         const ctx = canvas.getContext('2d')!
         ctx.fillStyle = '#ffffff'
-        ctx.fillRect(0, 0, 820, 300)
-        ctx.drawImage(img, 0, 0)
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+        ctx.scale(scale, scale)
+        ctx.drawImage(img, 0, 0, svgW, svgH)
         URL.revokeObjectURL(url)
         resolve(canvas.toDataURL('image/png'))
+      }
+      img.onerror = () => {
+        URL.revokeObjectURL(url)
+        console.warn('[PowerStudy] Failed to render SVG to PNG')
+        resolve(undefined)
       }
       img.src = url
     })

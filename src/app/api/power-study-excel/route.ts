@@ -87,8 +87,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     }
 
-    // ── Fill data rows from SIPS ──────────────────────────────────────────────
-    const meses = study.meses ?? []
+    // ── Fill data rows from SIPS (sorted chronologically: oldest → newest) ────
+    const meses = [...(study.meses ?? [])].sort((a, b) => new Date(a.fechaFin).getTime() - new Date(b.fechaFin).getTime())
     meses.forEach((m, i) => {
       const r = DATA_START_ROW + i
       ws.getCell(r, 1).value = { formula: `SUM(D${r}:I${r})` }
@@ -123,45 +123,90 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // ── Serialize with ExcelJS ─────────────────────────────────────────────────
     const excelBuffer = Buffer.from(await wb.xlsx.writeBuffer())
 
-    // ── Post-process with JSZip: replace chart images ─────────────────────────
+    // ── Post-process with JSZip: replace chart images + fix drawing dimensions ─
     const JSZip = (await import('jszip')).default
     const zip = await JSZip.loadAsync(excelBuffer)
 
-    // image2 → consumo mensual chart
+    // Chart row placement: below data
+    const chartStartRow = Math.max(DATA_START_ROW + meses.length + 1, 40)
+
+    // Replace image2 → consumo mensual chart (PNG)
     if (consumptionB64) {
       const b64 = consumptionB64.replace(/^data:image\/\w+;base64,/, '')
-      // Try both .png and check what exists in the template
-      if (zip.file('xl/media/image2.png')) {
-        zip.file('xl/media/image2.png', Buffer.from(b64, 'base64'))
-      } else if (zip.file('xl/media/image2.jpeg')) {
-        zip.remove('xl/media/image2.jpeg')
-        zip.file('xl/media/image2.png', Buffer.from(b64, 'base64'))
-        // Update rels
-        const relsFile = zip.file('xl/drawings/_rels/drawing1.xml.rels')
-        if (relsFile) {
-          const xml = (await relsFile.async('string'))
-            .replace(/Target="\.\.\/media\/image2\.jpeg"/g, 'Target="../media/image2.png"')
-          zip.file('xl/drawings/_rels/drawing1.xml.rels', xml)
-        }
-      }
+      // Remove old files and add new PNG
+      zip.remove('xl/media/image2.png')
+      zip.remove('xl/media/image2.jpeg')
+      zip.file('xl/media/image2.png', Buffer.from(b64, 'base64'))
     }
 
-    // image1 → maxímetro chart
+    // Replace image1 → maxímetro chart (PNG)
     if (maximetroB64) {
       const b64 = maximetroB64.replace(/^data:image\/\w+;base64,/, '')
-      if (zip.file('xl/media/image1.jpeg')) {
-        zip.remove('xl/media/image1.jpeg')
-        zip.file('xl/media/image1.png', Buffer.from(b64, 'base64'))
-        const relsFile = zip.file('xl/drawings/_rels/drawing1.xml.rels')
-        if (relsFile) {
-          const xml = (await relsFile.async('string'))
-            .replace(/Target="\.\.\/media\/image1\.jpeg"/g, 'Target="../media/image1.png"')
-          zip.file('xl/drawings/_rels/drawing1.xml.rels', xml)
-        }
-      } else if (zip.file('xl/media/image1.png')) {
-        zip.file('xl/media/image1.png', Buffer.from(b64, 'base64'))
-      }
+      zip.remove('xl/media/image1.jpeg')
+      zip.remove('xl/media/image1.png')
+      zip.file('xl/media/image1.png', Buffer.from(b64, 'base64'))
     }
+
+    // Update rels to point both images to .png
+    zip.file('xl/drawings/_rels/drawing1.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image2.png"/>
+</Relationships>`)
+
+    // Rewrite drawing1.xml with proper wide dimensions for 820x300 charts
+    // image2 (consumo): cols 0–9, rows chartStartRow to chartStartRow+14
+    // image1 (maxímetros): cols 10–16, rows chartStartRow to chartStartRow+14
+    const consumoFromRow = chartStartRow
+    const consumoToRow = chartStartRow + 15
+    const maxFromRow = chartStartRow
+    const maxToRow = chartStartRow + 15
+
+    zip.file('xl/drawings/drawing1.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
+          xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+          xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <xdr:twoCellAnchor editAs="oneCell">
+    <xdr:from><xdr:col>0</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${consumoFromRow}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>
+    <xdr:to><xdr:col>9</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${consumoToRow}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>
+    <xdr:pic>
+      <xdr:nvPicPr>
+        <xdr:cNvPr id="3" name="Consumo Mensual"/>
+        <xdr:cNvPicPr><a:picLocks noChangeArrowheads="1"/></xdr:cNvPicPr>
+      </xdr:nvPicPr>
+      <xdr:blipFill>
+        <a:blip r:embed="rId2"/>
+        <a:stretch><a:fillRect/></a:stretch>
+      </xdr:blipFill>
+      <xdr:spPr bwMode="auto">
+        <a:xfrm><a:off x="0" y="0"/><a:ext cx="7261412" cy="2857500"/></a:xfrm>
+        <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+        <a:noFill/>
+      </xdr:spPr>
+    </xdr:pic>
+    <xdr:clientData/>
+  </xdr:twoCellAnchor>
+  <xdr:twoCellAnchor editAs="oneCell">
+    <xdr:from><xdr:col>10</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${maxFromRow}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>
+    <xdr:to><xdr:col>16</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${maxToRow}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>
+    <xdr:pic>
+      <xdr:nvPicPr>
+        <xdr:cNvPr id="2" name="Maximetros"/>
+        <xdr:cNvPicPr><a:picLocks noChangeArrowheads="1"/></xdr:cNvPicPr>
+      </xdr:nvPicPr>
+      <xdr:blipFill>
+        <a:blip r:embed="rId1"/>
+        <a:stretch><a:fillRect/></a:stretch>
+      </xdr:blipFill>
+      <xdr:spPr bwMode="auto">
+        <a:xfrm><a:off x="0" y="0"/><a:ext cx="5000000" cy="2857500"/></a:xfrm>
+        <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+        <a:noFill/>
+      </xdr:spPr>
+    </xdr:pic>
+    <xdr:clientData/>
+  </xdr:twoCellAnchor>
+</xdr:wsDr>`)
 
     const finalBuffer = await zip.generateAsync({
       type: 'nodebuffer',
