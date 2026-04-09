@@ -351,6 +351,17 @@ export async function fetchTotalEnergiesSipsGas(
     // No maximetro for gas
     result.maximetroHistory = []
     result.reactivaHistory = []
+  } else {
+    // TotalEnergies returned no consumption history — still set defaults
+    // so downstream code (sync-consumption, UI) sees the fields and can
+    // at least persist distribuidora / tariff alongside zero-consumption.
+    result.totalConsumptionKwh = 0
+    result.totalConsumption = '0 kWh'
+    result.consumoPeriodos = { P1: 0, P2: 0, P3: 0, P4: 0, P5: 0, P6: 0 }
+    result.potenciaContratada = { P1: 0, P2: 0, P3: 0, P4: 0, P5: 0, P6: 0 }
+    result.consumptionHistory = []
+    result.maximetroHistory = []
+    result.reactivaHistory = []
   }
 
   return result

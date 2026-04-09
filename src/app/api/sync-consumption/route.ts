@@ -61,7 +61,9 @@ export async function POST(req: NextRequest) {
         const batch = suppliesNeedingSips.slice(i, i + BATCH_SIZE)
         const results = await Promise.allSettled(
           batch.map(async (supply: any) => {
-            const sipsData = await fetchSipsForCups(supply.cups)
+            const supplyType: 'luz' | 'gas' | undefined =
+              supply.type === 'gas' ? 'gas' : supply.type === 'luz' ? 'luz' : undefined
+            const sipsData = await fetchSipsForCups(supply.cups, supplyType)
             if (!sipsData) return null
 
             // Build consumption_data object (same format as supply detail page)

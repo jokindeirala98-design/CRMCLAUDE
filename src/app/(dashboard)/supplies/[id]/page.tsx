@@ -190,7 +190,12 @@ export default function SupplyDetailPage() {
     if (needsRefresh) {
       setSipsLoading(true)
       try {
-        const sipsRes = await fetch('/api/sips', {
+        // Detect gas supply to route to correct SIPS endpoint
+        const isGasSupply = data.type === 'gas' ||
+          /^RL/i.test(data.tariff || '') ||
+          /^RL/i.test(data.consumption_data?.sips_tariff || '')
+        const sipsEndpoint = isGasSupply ? '/api/sips-gas' : '/api/sips'
+        const sipsRes = await fetch(sipsEndpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ cups: data.cups }),
@@ -205,17 +210,17 @@ export default function SupplyDetailPage() {
                 P1: h.P1, P2: h.P2, P3: h.P3, P4: h.P4, P5: h.P5, P6: h.P6, total: h.total,
               }))
             : (data.consumption_data?.history || [])
-          const newMaximetro = (d.maximetroHistory || []).map((h: any) => ({
+          const newMaximetro = isGasSupply ? [] : (d.maximetroHistory || []).map((h: any) => ({
             fecha: h.fecha, fechaInicio: h.fechaInicio, fechaFin: h.fechaFin,
             P1: h.P1, P2: h.P2, P3: h.P3, P4: h.P4, P5: h.P5, P6: h.P6,
           }))
-          const newReactiva = (d.reactivaHistory || []).map((h: any) => ({
+          const newReactiva = isGasSupply ? [] : (d.reactivaHistory || []).map((h: any) => ({
             fecha: h.fecha, fechaInicio: h.fechaInicio, fechaFin: h.fechaFin,
             P1: h.P1, P2: h.P2, P3: h.P3, P4: h.P4, P5: h.P5, P6: h.P6,
           }))
           const updatedConsumption = {
             ...(data.consumption_data || {}),
-            source: 'greening_sips',
+            source: isGasSupply ? 'totalenergies_sips' : 'greening_sips',
             fetched_at: new Date().toISOString(),
             history: newHistory,
             maximetroHistory: newMaximetro,
@@ -824,7 +829,12 @@ export default function SupplyDetailPage() {
     setSipsLoading(true)
     setSipsError('')
     try {
-      const res = await fetch('/api/sips', {
+      // Detect gas supply to route to correct SIPS endpoint
+      const isGas = supply.type === 'gas' ||
+        /^RL/i.test(supply.tariff || '') ||
+        /^RL/i.test(supply.consumption_data?.sips_tariff || '')
+      const endpoint = isGas ? '/api/sips-gas' : '/api/sips'
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cups: supply.cups }),
@@ -838,7 +848,7 @@ export default function SupplyDetailPage() {
           .from('supplies')
           .update({
             consumption_data: {
-              source: 'greening_sips',
+              source: isGas ? 'totalenergies_sips' : 'greening_sips',
               fetched_at: new Date().toISOString(),
               total: d.totalConsumption,
               totalKwh: d.totalConsumptionKwh,
