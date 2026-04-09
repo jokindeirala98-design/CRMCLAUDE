@@ -148,28 +148,25 @@ export function buildConsumptionSVG(meses: PowerStudyResult['meses']): string {
 
   if (!meses?.length) return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"></svg>`
 
-  // Sort by consumoTotal ascending (least → most, left → right)
-  const sorted = [...meses].sort((a, b) => (a.consumoTotal ?? 0) - (b.consumoTotal ?? 0))
-
   // Active periods (have any data)
-  const activePeriods = PERIODS.filter(p => sorted.some(mes => (mes.consumo?.[p] ?? 0) > 0))
+  const activePeriods = PERIODS.filter(p => meses.some(mes => (mes.consumo?.[p] ?? 0) > 0))
 
   // Y-axis scale
-  const maxMonthly = Math.max(...sorted.map(m => m.consumoTotal ?? 0), 1)
+  const maxMonthly = Math.max(...meses.map(m => m.consumoTotal ?? 0), 1)
   const yMax = Math.ceil(maxMonthly / 1000) * 1000 + 500
   const yScale = (v: number) => cH - (v / yMax) * cH
 
   // X positioning
-  const barW = Math.max(8, Math.min(40, cW / sorted.length * 0.65))
-  const slotW = cW / sorted.length
+  const barW = Math.max(8, Math.min(40, cW / meses.length * 0.65))
+  const slotW = cW / meses.length
   const xOf = (i: number) => m.left + slotW * i + slotW / 2
 
   let paths = ''
   // Stacked bars
-  for (let i = 0; i < sorted.length; i++) {
+  for (let i = 0; i < meses.length; i++) {
     let stackY = cH
     for (const p of activePeriods) {
-      const v = sorted[i].consumo?.[p] ?? 0
+      const v = meses[i].consumo?.[p] ?? 0
       if (v <= 0) continue
       const barH = (v / yMax) * cH
       stackY -= barH
@@ -190,10 +187,10 @@ export function buildConsumptionSVG(meses: PowerStudyResult['meses']): string {
 
   // X labels (month)
   let xLabels = ''
-  for (let i = 0; i < sorted.length; i++) {
+  for (let i = 0; i < meses.length; i++) {
     const x = xOf(i)
-    const label = monthLabel(sorted[i].fechaFin)
-    const skip = sorted.length > 20 ? i % 2 !== 0 : false
+    const label = monthLabel(meses[i].fechaFin)
+    const skip = meses.length > 20 ? i % 2 !== 0 : false
     if (!skip) {
       xLabels += `<text x="${x.toFixed(1)}" y="${(m.top + cH + 18).toFixed(1)}" text-anchor="middle" font-size="9" fill="#374151" font-family="Arial, sans-serif" transform="rotate(-45,${x.toFixed(1)},${(m.top + cH + 18).toFixed(1)})">${label}</text>`
     }
@@ -442,38 +439,20 @@ export function PowerStudy({
   async function svgDivToPng(divRef: React.RefObject<HTMLDivElement | null>): Promise<string | undefined> {
     const svg = divRef.current?.querySelector('svg')
     if (!svg) return undefined
-
-    // Read the actual SVG dimensions
-    const svgW = parseInt(svg.getAttribute('width') || '820', 10)
-    const svgH = parseInt(svg.getAttribute('height') || '300', 10)
-
-    // Ensure the SVG has xmlns for proper rendering in Image
-    if (!svg.getAttribute('xmlns')) svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
-
     const svgStr = new XMLSerializer().serializeToString(svg)
-    const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' })
+    const blob = new Blob([svgStr], { type: 'image/svg+xml' })
     const url = URL.createObjectURL(blob)
-
     return new Promise(resolve => {
       const img = new Image()
       img.onload = () => {
-        // Use 2x scale for sharp rendering
-        const scale = 2
         const canvas = document.createElement('canvas')
-        canvas.width = svgW * scale
-        canvas.height = svgH * scale
+        canvas.width = 820; canvas.height = 300
         const ctx = canvas.getContext('2d')!
         ctx.fillStyle = '#ffffff'
-        ctx.fillRect(0, 0, canvas.width, canvas.height)
-        ctx.scale(scale, scale)
-        ctx.drawImage(img, 0, 0, svgW, svgH)
+        ctx.fillRect(0, 0, 820, 300)
+        ctx.drawImage(img, 0, 0)
         URL.revokeObjectURL(url)
         resolve(canvas.toDataURL('image/png'))
-      }
-      img.onerror = () => {
-        URL.revokeObjectURL(url)
-        console.warn('[PowerStudy] Failed to render SVG to PNG')
-        resolve(undefined)
       }
       img.src = url
     })
@@ -989,7 +968,7 @@ function DataTable({
           </tr>
         </thead>
         <tbody>
-          {[...meses].sort((a, b) => new Date(a.fechaFin).getTime() - new Date(b.fechaFin).getTime()).map((mes, i) => (
+          {meses.map((mes, i) => (
             <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#F9FAFB' }}>
               <td style={{ ...BASE, textAlign: 'right', minWidth: 44 }}>
                 {fmtKwh(mes.consumoTotal ?? 0)}
