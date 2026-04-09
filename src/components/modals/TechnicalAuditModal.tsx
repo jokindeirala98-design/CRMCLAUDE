@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { X, ExternalLink, Loader2, RefreshCw, BarChart3, FileText } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from '@/components/ui/Button'
@@ -24,6 +24,7 @@ export function TechnicalAuditModal({ open, onClose, clientId, clientName }: Pro
   const [syncing, setSyncing] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [isSyncingSupply, setIsSyncingSupply] = useState(false)
+  const autoSyncDone = useRef(false)
 
   const fetchData = useCallback(async () => {
     if (!open) return
@@ -53,7 +54,7 @@ export function TechnicalAuditModal({ open, onClose, clientId, clientName }: Pro
     fetchData()
   }, [fetchData])
 
-  const handleSync = async () => {
+  const handleSync = useCallback(async () => {
     setSyncing(true)
     try {
       const res = await fetch('/api/sync-consumption', {
@@ -67,7 +68,22 @@ export function TechnicalAuditModal({ open, onClose, clientId, clientName }: Pro
       console.error('Sync error:', err)
     }
     setSyncing(false)
-  }
+  }, [clientId, fetchData])
+
+  // Auto-sync: si el modal está abierto y no hay datos, sincronizar automáticamente (solo una vez)
+  useEffect(() => {
+    if (open && !loading && rows.length === 0 && !syncing && !autoSyncDone.current) {
+      autoSyncDone.current = true
+      handleSync()
+    }
+  }, [open, loading, rows.length, syncing, handleSync])
+
+  // Reset auto-sync flag cuando se cierra el modal
+  useEffect(() => {
+    if (!open) {
+      autoSyncDone.current = false
+    }
+  }, [open])
 
   const handleGenerateReport = async () => {
     setGenerating(true)
