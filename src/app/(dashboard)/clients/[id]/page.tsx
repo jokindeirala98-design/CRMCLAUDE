@@ -238,139 +238,112 @@ export default function ClientDetailPage() {
           </div>
         )}
 
-        {/* Info cards */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* info grid using edit page aesthetics */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Informacion basica */}
           <Card>
-            <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-3">
-              Contacto
+            <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-4 flex items-center gap-2">
+              <Building2 className="w-3.5 h-3.5" /> Informacion basica
             </h3>
-            <div className="space-y-2.5">
-              <div className="flex items-center gap-2.5">
-                <Mail className="w-4 h-4 text-on-surface-variant flex-shrink-0" />
-                <span className="text-sm text-on-surface">{client.email || 'Sin email'}</span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <p className="text-[10px] text-on-surface-variant uppercase font-bold">Tipo</p>
+                <p className="text-sm font-medium capitalize">{client.type}</p>
               </div>
-              <div className="flex items-center gap-2.5">
-                <Phone className="w-4 h-4 text-on-surface-variant flex-shrink-0" />
-                <span className="text-sm text-on-surface">{client.phone || 'Sin telefono'}</span>
+              <div className="space-y-1">
+                <p className="text-[10px] text-on-surface-variant uppercase font-bold">Origen</p>
+                <p className="text-sm font-medium capitalize">{client.origin || '—'}</p>
               </div>
-              <div className="flex items-center gap-2.5">
-                <MapPin className="w-4 h-4 text-on-surface-variant flex-shrink-0" />
-                <span className="text-sm text-on-surface">{client.fiscal_address || 'Sin direccion'}</span>
+              <div className="sm:col-span-2 space-y-1">
+                <p className="text-[10px] text-on-surface-variant uppercase font-bold">Resumen actividad</p>
+                <div className="flex gap-4 pt-1">
+                  <div className="text-center bg-surface-container-low rounded-xl px-4 py-2 border border-outline-variant/10">
+                    <p className="font-display font-bold text-lg">{client.supplies?.length || 0}</p>
+                    <p className="text-[9px] text-on-surface-variant uppercase">Suministros</p>
+                  </div>
+                  <div className="text-center bg-surface-container-low rounded-xl px-4 py-2 border border-outline-variant/10">
+                    <p className="font-display font-bold text-lg">{client.contracts?.length || 0}</p>
+                    <p className="text-[9px] text-on-surface-variant uppercase">Contratos</p>
+                  </div>
+                </div>
               </div>
             </div>
           </Card>
 
+          {/* Asignacion */}
           <Card>
-            <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-3">
-              Comercial asignado
+            <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-4 flex items-center gap-2">
+              <Pencil className="w-3.5 h-3.5" /> Asignacion
             </h3>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full gradient-primary flex items-center justify-center flex-shrink-0">
-                <span className="text-white text-sm font-bold">
-                  {getUserInitials(client.commercial?.full_name || client.commercial?.email)?.charAt(0) || '?'}
-                </span>
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 bg-surface-container-low p-3 rounded-2xl border border-outline-variant/10">
+                <div className="w-10 h-10 rounded-full gradient-primary flex items-center justify-center flex-shrink-0">
+                  <span className="text-white text-sm font-bold">
+                    {getUserInitials(client.commercial?.full_name || client.commercial?.email)?.charAt(0) || '?'}
+                  </span>
+                </div>
+                <div>
+                  <p className="text-[10px] text-on-surface-variant uppercase font-bold">Comercial asignado</p>
+                  <p className="text-sm font-semibold">{client.commercial?.full_name || 'Sin asignar'}</p>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-medium text-on-surface">{getUserInitials(client.commercial?.full_name || client.commercial?.email)}</p>
-              </div>
-            </div>
-            {client.origin && (
-              <div className="mt-3 pt-3 border-t border-outline-variant/20">
-                <p className="text-xs text-on-surface-variant">
-                  Origen: <span className="capitalize font-medium text-on-surface">{client.origin}</span>
-                </p>
-              </div>
-            )}
-          </Card>
-
-          <Card>
-            <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-3">
-              Resumen
-            </h3>
-            <div className="grid grid-cols-3 gap-3 text-center">
-              <div>
-                <p className="font-display font-bold text-xl text-on-surface">{client.supplies?.length || 0}</p>
-                <p className="text-xs text-on-surface-variant">Suministros</p>
-              </div>
-              <div>
-                <p className="font-display font-bold text-xl text-on-surface">{client.contracts?.length || 0}</p>
-                <p className="text-xs text-on-surface-variant">Contratos</p>
-              </div>
-              <div>
-                <p className="font-display font-bold text-xl text-on-surface">{client.subscriptions?.length || 0}</p>
-                <p className="text-xs text-on-surface-variant">Suscripciones</p>
+              <div className="flex items-center gap-2 px-3">
+                <div className={`p-1 rounded-full ${client.marketing_consent ? 'bg-success/10 text-success' : 'bg-surface-container-high text-on-surface-variant/40'}`}>
+                  <Check className="w-3 h-3" />
+                </div>
+                <p className="text-xs text-on-surface-variant">Consentimiento marketing otorgado</p>
               </div>
             </div>
           </Card>
-        </div>
 
-        {/* Documents */}
-        {(client.cif || client.cif_file_url || client.nif || client.nif_file_url || client.iban || client.iban_file_url) && (
+          {/* Datos de contacto */}
           <Card>
-            <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-3">
-              Documentacion
+            <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-4 flex items-center gap-2">
+              <Mail className="w-3.5 h-3.5" /> Datos de contacto
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <p className="text-[10px] text-on-surface-variant uppercase font-bold">Email</p>
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  {client.email || '—'}
+                  {client.email && <button onClick={() => navigator.clipboard.writeText(client.email)} className="p-1 hover:bg-primary/10 rounded transition text-primary"><CreditCard className="w-3 h-3"/></button>}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <p className="text-[10px] text-on-surface-variant uppercase font-bold">Telefono</p>
+                <p className="text-sm font-medium">{client.phone || '—'}</p>
+              </div>
+              <div className="sm:col-span-2 space-y-1 pt-2 border-t border-outline-variant/10">
+                <p className="text-[10px] text-on-surface-variant uppercase font-bold">Direccion fiscal</p>
+                <p className="text-sm font-medium leading-relaxed">{client.fiscal_address || '—'}</p>
+              </div>
+            </div>
+          </Card>
+
+          {/* Documentacion */}
+          <Card>
+            <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-4 flex items-center gap-2">
+              <FileCheck className="w-3.5 h-3.5" /> Documentacion
             </h3>
             <div className="space-y-3">
-              {/* CIF */}
-              {(client.cif || client.cif_file_url) && (
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <FileText className="w-4 h-4 text-on-surface-variant flex-shrink-0" />
-                    <span className="text-sm text-on-surface">CIF: {client.cif || 'Solo documento'}</span>
-                  </div>
-                  {client.cif_file_url && (
-                    <a href={getViewUrl(client.cif_file_url)} target="_blank" rel="noopener noreferrer"
-                      className="flex items-center gap-1.5 text-xs font-medium text-secondary hover:underline">
-                      <ExternalLink className="w-3.5 h-3.5" /> Ver documento
-                    </a>
-                  )}
-                </div>
-              )}
-
-              {/* NIF */}
-              {(client.nif || client.nif_file_url) && (
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <FileText className="w-4 h-4 text-on-surface-variant flex-shrink-0" />
-                    <span className="text-sm text-on-surface">NIF: {client.nif || 'Solo documento'}</span>
-                  </div>
-                  {client.nif_file_url && (
-                    <a href={getViewUrl(client.nif_file_url)} target="_blank" rel="noopener noreferrer"
-                      className="flex items-center gap-1.5 text-xs font-medium text-secondary hover:underline">
-                      <ExternalLink className="w-3.5 h-3.5" /> Ver documento
-                    </a>
-                  )}
-                </div>
-              )}
-
-              {/* IBAN */}
-              {(client.iban || client.iban_file_url) && (
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <FileCheck className="w-4 h-4 text-on-surface-variant flex-shrink-0" />
-                    <span className="text-sm text-on-surface">IBAN: {client.iban || 'Solo documento'}</span>
-                  </div>
-                  {client.iban_file_url && (
-                    <a href={getViewUrl(client.iban_file_url)} target="_blank" rel="noopener noreferrer"
-                      className="flex items-center gap-1.5 text-xs font-medium text-secondary hover:underline">
-                      <ExternalLink className="w-3.5 h-3.5" /> Ver documento
-                    </a>
-                  )}
-                </div>
-              )}
+              <DocRow label="CIF" value={client.cif} url={client.cif_file_url} />
+              <DocRow label="NIF" value={client.nif} url={client.nif_file_url} />
+              <DocRow label="IBAN" value={client.iban} url={client.iban_file_url} />
             </div>
           </Card>
-        )}
 
-        {/* Notes */}
-        {client.notes && (
-          <Card>
-            <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-2">
-              Notas
-            </h3>
-            <p className="text-sm text-on-surface whitespace-pre-wrap">{client.notes}</p>
-          </Card>
-        )}
+          {/* Notas */}
+          <div className="md:col-span-2">
+            <Card>
+              <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-3 flex items-center gap-2">
+                <FileText className="w-3.5 h-3.5" /> Notas
+              </h3>
+              <p className="text-sm text-on-surface leading-relaxed whitespace-pre-wrap min-h-[4rem]">
+                {client.notes || 'No hay notas adicionales.'}
+              </p>
+            </Card>
+          </div>
+        </div>
 
         {/* Supplies */}
         <div>
@@ -517,29 +490,6 @@ export default function ClientDetailPage() {
             </div>
           )}
         </div>
-
-        {/* ─── Informe de Suministros (Ayuntamientos) ─── */}
-        {client.type === 'ayuntamiento' && (client.supplies?.length || 0) > 0 && (
-          <button
-            onClick={() => router.push(`/clients/${id}/audit-report`)}
-            className="w-full group relative overflow-hidden rounded-2xl border-2 border-primary/20 bg-gradient-to-r from-primary/5 to-transparent px-6 py-5 text-left transition-all hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5"
-          >
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0 group-hover:bg-primary/20 transition">
-                <BarChart3 className="w-6 h-6 text-primary" />
-              </div>
-              <div className="flex-1">
-                <h3 className="font-display font-bold text-on-surface text-base tracking-wide">
-                  INFORME DE SUMINISTROS
-                </h3>
-                <p className="text-xs text-on-surface-variant mt-0.5">
-                  Tabla de datos y generacion de informe energetico con analisis de consumos diferenciados por suministro
-                </p>
-              </div>
-              <ExternalLink className="w-5 h-5 text-primary/50 group-hover:text-primary transition flex-shrink-0" />
-            </div>
-          </button>
-        )}
 
         {/* ─── Subscription History ─── */}
         {client.subscriptions && client.subscriptions.length > 0 && (
@@ -689,6 +639,30 @@ export default function ClientDetailPage() {
         onCreated={fetchClient}
         preselectedClientId={id as string}
       />
+    </div>
+  )
+}
+
+function DocRow({ label, value, url }: { label: string; value: string | null; url: string | null }) {
+  return (
+    <div className="flex items-center justify-between p-3 bg-surface-container-low rounded-xl border border-outline-variant/10">
+      <div className="flex items-center gap-2.5 min-w-0">
+        <FileText className="w-4 h-4 text-on-surface-variant flex-shrink-0" />
+        <div className="min-w-0">
+          <p className="text-[10px] text-on-surface-variant uppercase font-bold">{label}</p>
+          <p className="text-sm font-medium truncate">{value || 'No disponible'}</p>
+        </div>
+      </div>
+      {url && (
+        <a 
+          href={getViewUrl(url)} 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-[10px] font-bold hover:bg-primary/20 transition whitespace-nowrap"
+        >
+          <ExternalLink className="w-3.5 h-3.5" /> VER
+        </a>
+      )}
     </div>
   )
 }

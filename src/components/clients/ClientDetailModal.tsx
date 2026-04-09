@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import type { ExtractedIdentityData } from '@/lib/identityExtractor'
+import { ChangeOwnerModal } from '@/components/modals/ChangeOwnerModal'
 
 type SupplyRow = {
   id: string
@@ -54,6 +55,8 @@ interface Props {
   onClose: () => void
   /** Optional initial supply context (the supply page that opened this modal). */
   contextSupplyId?: string | null
+  /** Callback triggered when client data is updated. */
+  onUpdate?: () => void
 }
 
 const FIELD_DEFS: { key: keyof ClientRow; label: string; icon: any; required?: boolean }[] = [
@@ -66,7 +69,7 @@ const FIELD_DEFS: { key: keyof ClientRow; label: string; icon: any; required?: b
   { key: 'fiscal_address', label: 'Dirección fiscal', icon: MapPin, required: true },
 ]
 
-export function ClientDetailModal({ clientId, isOpen, onClose, contextSupplyId }: Props) {
+export function ClientDetailModal({ clientId, isOpen, onClose, contextSupplyId, onUpdate }: Props) {
   const [client, setClient] = useState<ClientRow | null>(null)
   const [supplies, setSupplies] = useState<SupplyRow[]>([])
   const [loading, setLoading] = useState(false)
@@ -76,6 +79,8 @@ export function ClientDetailModal({ clientId, isOpen, onClose, contextSupplyId }
   const [copyToast, setCopyToast] = useState<string | null>(null)
   const [analyzing, setAnalyzing] = useState(false)
   const [uploadMsg, setUploadMsg] = useState<string | null>(null)
+  const [changingOwnerSupplyId, setChangingOwnerSupplyId] = useState<string | null>(null)
+  const [commercials, setCommercials] = useState<{ value: string; label: string }[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // ── Load client + supplies ────────────────────────────────────────────
@@ -83,20 +88,26 @@ export function ClientDetailModal({ clientId, isOpen, onClose, contextSupplyId }
     if (!clientId) return
     setLoading(true)
     const supabase = createClient()
-    const [{ data: c }, { data: s }] = await Promise.all([
+    const [{ data: c }, { data: s }, { data: u }] = await Promise.all([
       supabase
         .from('clients')
-        .select('id, name, type, cif, nif, cif_nif, email, phone, iban, fiscal_address, cif_file_url, nif_file_url, iban_file_url')
+        .select('id, name, type, cif, nif, cif_nif, email, phone, iban, fiscal_address, cif_file_url, nif_file_url, iban_file_url, commercial_id, origin')
         .eq('id', clientId)
         .single(),
       supabase
         .from('supplies')
         .select('id, cups, name, type, tariff, address, consumption_data')
         .eq('client_id', clientId),
+      supabase
+        .from('users_profile')
+        .select('id, full_name')
+        .eq('active', true)
+        .order('full_name')
     ])
     setClient(c as any)
     setSupplies((s as any[]) || [])
     setDraft((c as any) || {})
+    if (u) setCommercials(u.map((com: any) => ({ value: com.id, label: com.full_name })))
     setLoading(false)
   }, [clientId])
 
@@ -139,6 +150,7 @@ export function ClientDetailModal({ clientId, isOpen, onClose, contextSupplyId }
     }
     setClient(prev => (prev ? { ...prev, ...payload } : prev))
     setEditing(false)
+    if (onUpdate) onUpdate()
   }
 
   // ── Copy field to clipboard ───────────────────────────────────────────
@@ -247,6 +259,7 @@ export function ClientDetailModal({ clientId, isOpen, onClose, contextSupplyId }
         setClient(prev => (prev ? { ...prev, ...updatePayload } : prev))
         setDraft(prev => ({ ...prev, ...updatePayload }))
         setUploadMsg(`Datos extraídos y guardados correctamente (${Object.keys(merged).length} campos).`)
+        if (onUpdate) onUpdate()
       }
     }
   }
@@ -410,7 +423,7 @@ export function ClientDetailModal({ clientId, isOpen, onClose, contextSupplyId }
                       className="flex items-center gap-2 px-3 py-2 bg-surface rounded-xl text-xs"
                     >
                       <span className="font-medium text-on-surface flex-shrink-0">
-                        {s.name || 'Sin alias'}
+                        {s.name || ''}
                       </span>
                       <span className="font-mono text-on-surface-variant truncate flex-1">
                         {s.cups || '—'}
@@ -424,8 +437,16 @@ export function ClientDetailModal({ clientId, isOpen, onClose, contextSupplyId }
                         onClick={() => handleCopy('CUPS', s.cups)}
                         disabled={!s.cups}
                         className="p-1 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-primary transition disabled:opacity-30"
+                        title="Copiar CUPS"
                       >
                         <Copy className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={() => setChangingOwnerSupplyId(s.id)}
+                        className="p-1 rounded hover:bg-primary/10 text-on-surface-variant hover:text-primary transition"
+                        title="Cambiar titular / ficha"
+                      >
+                        <UserIcon className="w-3 h-3" />
                       </button>
                     </div>
                   ))}
@@ -484,6 +505,18 @@ export function ClientDetailModal({ clientId, isOpen, onClose, contextSupplyId }
             {copyToast}
           </div>
         )}
+
+        <ChangeOwnerModal
+          isOpen={!!changingOwnerSupplyId}
+          onClose={() => setChangingOwnerSupplyId(null)}
+          onSuccess={() => {
+            load()
+            if (onUpdate) onUpdate()
+          }}
+          supplyId={changingOwnerSupplyId as string}
+          currentClient={client}
+          commercials={commercials}
+        />
       </div>
     </div>
   )

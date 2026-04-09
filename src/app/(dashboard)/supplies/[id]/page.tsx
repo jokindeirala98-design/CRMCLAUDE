@@ -17,6 +17,7 @@ import { ClientDetailModal } from '@/components/clients/ClientDetailModal'
 import { Card } from '@/components/ui/Card'
 import { Badge, StatusBadge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
+import { TechnicalAuditModal } from '@/components/modals/TechnicalAuditModal'
 import { DataTable } from '@/components/ui/DataTable'
 import { createClient } from '@/lib/supabase/client'
 import { formatDate, formatCurrency } from '@/lib/utils/format'
@@ -82,7 +83,8 @@ const TRANSITIONS: Record<string, { next: SupplyStatus; label: string }[]> = {
 }
 
 export default function SupplyDetailPage() {
-  const { id } = useParams()
+  const { id: rawId } = useParams()
+  const id = Array.isArray(rawId) ? rawId[0] : rawId as string
   const router = useRouter()
   const [supply, setSupply] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -102,6 +104,7 @@ export default function SupplyDetailPage() {
   const [clientModalOpen, setClientModalOpen] = useState(false)
   const [supplyOverlayOpen, setSupplyOverlayOpen] = useState(false)
   const [docsOverlayOpen, setDocsOverlayOpen] = useState(false)
+  const [technicalModalOpen, setTechnicalModalOpen] = useState(false)
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const invoiceInputRef = useRef<HTMLInputElement>(null)
@@ -1149,6 +1152,17 @@ export default function SupplyDetailPage() {
                       </button>
                     )
                   })}
+
+                  {/* ─── Trigger for Supply Report (Ayuntamientos) ─── */}
+                  {supply?.client?.type === 'ayuntamiento' && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setTechnicalModalOpen(true) }}
+                      className="flex items-center gap-1.5 px-3 py-0.5 rounded-md text-[11px] font-bold bg-primary text-white hover:bg-primary-container hover:text-primary transition-all shadow-sm"
+                    >
+                      <BarChart3 className="w-3.5 h-3.5" />
+                      Estudios de Suministro
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -2336,7 +2350,8 @@ export default function SupplyDetailPage() {
         clientId={supply.client?.id || null}
         isOpen={clientModalOpen}
         onClose={() => setClientModalOpen(false)}
-        contextSupplyId={id}
+        contextSupplyId={id as string}
+        onUpdate={fetchSupply}
       />
 
       {/* ═══════ NOTIFICATION TOAST ═══════ */}
@@ -2357,6 +2372,15 @@ export default function SupplyDetailPage() {
             <p className="text-sm font-medium">{notification.message}</p>
           </div>
         </div>
+      )}
+
+      {supply?.client && (
+        <TechnicalAuditModal
+          open={technicalModalOpen}
+          onClose={() => setTechnicalModalOpen(false)}
+          clientId={supply.client_id as string}
+          clientName={supply.client.name}
+        />
       )}
     </div>
   )
