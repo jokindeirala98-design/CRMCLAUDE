@@ -8,7 +8,7 @@ import {
   Upload, ClipboardCheck, BarChart3, Presentation, PenTool,
   UserCheck, TrendingUp, AlertTriangle, Edit2, Trash2,
   RefreshCw, ChevronDown, ChevronUp, Loader2, Activity, ExternalLink, Download,
-  Plus, X, Pencil, Check, Flame, Phone as PhoneIcon
+  Plus, X, Pencil, Check, Flame, Phone as PhoneIcon, Copy, Mail
 } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
 import { PowerStudy } from '@/components/supply/PowerStudy'
@@ -100,6 +100,8 @@ export default function SupplyDetailPage() {
   const [deletingStudyId, setDeletingStudyId] = useState<string | null>(null)
   const [siblingSupplies, setSiblingSupplies] = useState<any[]>([])
   const [clientModalOpen, setClientModalOpen] = useState(false)
+  const [supplyOverlayOpen, setSupplyOverlayOpen] = useState(false)
+  const [copiedField, setCopiedField] = useState<string | null>(null)
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const invoiceInputRef = useRef<HTMLInputElement>(null)
   const studyInputRef = useRef<HTMLInputElement>(null)
@@ -394,6 +396,13 @@ export default function SupplyDetailPage() {
     setShowBulkSign(false)
     setPendingTransition(null)
     await fetchSupply()
+  }
+
+  /** Copy to clipboard and briefly show a "copied" tooltip */
+  const copyToClip = (key: string, value: string) => {
+    navigator.clipboard.writeText(value)
+    setCopiedField(key)
+    setTimeout(() => setCopiedField(null), 1200)
   }
 
   const handleDelete = async () => {
@@ -1067,11 +1076,21 @@ export default function SupplyDetailPage() {
 
         {/* ═══════ INFO CARDS ═══════ */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Supply Info */}
-          <Card>
-            <h3 className="text-sm font-semibold text-on-surface-variant mb-3 uppercase tracking-wider">
-              Datos del suministro
-            </h3>
+          {/* ── Datos del suministro ── */}
+          <Card
+            className="cursor-pointer hover:ring-2 hover:ring-primary/30 transition group"
+            onClick={() => { if (siblingSupplies.length > 1) setSupplyOverlayOpen(true) }}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-on-surface-variant uppercase tracking-wider">
+                Datos del suministro
+              </h3>
+              {siblingSupplies.length > 1 && (
+                <span className="text-[10px] text-primary font-medium opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                  Ver todos <ChevronRight className="w-3 h-3" />
+                </span>
+              )}
+            </div>
             <div className="space-y-3">
               <div className="flex items-center gap-3">
                 <Zap className="w-4 h-4 text-primary flex-shrink-0" />
@@ -1106,88 +1125,76 @@ export default function SupplyDetailPage() {
                 </div>
               </div>
             </div>
+
+            {/* CUPS chips for sibling supplies */}
+            {siblingSupplies.length > 1 && (
+              <div className="pt-3 mt-3 border-t border-outline-variant/10">
+                <div className="flex flex-wrap gap-1.5">
+                  {siblingSupplies.map((s) => {
+                    const isCurrent = s.id === id
+                    return (
+                      <button
+                        key={s.id}
+                        onClick={(e) => { e.stopPropagation(); if (!isCurrent) router.push(`/supplies/${s.id}`) }}
+                        className={`px-2 py-0.5 rounded-md text-[11px] font-mono font-semibold transition-colors ${
+                          isCurrent
+                            ? 'bg-primary/15 text-primary ring-1 ring-primary/30'
+                            : 'bg-surface-container-high text-on-surface-variant hover:bg-primary/10 hover:text-primary'
+                        }`}
+                        title={s.cups || 'Sin CUPS'}
+                      >
+                        {s.name || (s.cups ? `…${s.cups.slice(-4)}` : '?')}
+                        {isCurrent && ' ✓'}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
           </Card>
 
-          {/* Client Info + Supply Switcher */}
+          {/* ── Cliente preview — click opens full modal ── */}
           <Card
-            className={supply.client ? 'cursor-pointer hover:ring-2 hover:ring-primary/30 transition' : ''}
+            className={supply.client ? 'cursor-pointer hover:ring-2 hover:ring-primary/30 transition group' : ''}
             onClick={supply.client ? () => setClientModalOpen(true) : undefined}
           >
-            <h3 className="text-sm font-semibold text-on-surface-variant mb-3 uppercase tracking-wider">
-              Cliente
-            </h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-on-surface-variant uppercase tracking-wider">
+                Cliente
+              </h3>
+              {supply.client && (
+                <span className="text-[10px] text-primary font-medium opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                  Ver ficha completa <ChevronRight className="w-3 h-3" />
+                </span>
+              )}
+            </div>
             {supply.client ? (
-              <div className="space-y-3">
-                <div className="flex items-center gap-3">
-                  <Building2 className="w-4 h-4 text-primary flex-shrink-0" />
-                  <div>
-                    <p className="text-sm font-medium text-on-surface">{supply.client.name}</p>
-                    <p className="text-xs text-on-surface-variant capitalize">{supply.client.type}</p>
-                  </div>
-                </div>
-                {(supply.client.cif || supply.client.nif || supply.client.cif_nif) && (
-                  <div className="text-xs text-on-surface-variant">
-                    {supply.client.cif && <span>CIF: {supply.client.cif}</span>}
-                    {supply.client.cif && supply.client.nif && <span> · </span>}
-                    {supply.client.nif && <span>NIF: {supply.client.nif}</span>}
-                    {!supply.client.cif && !supply.client.nif && supply.client.cif_nif && (
-                      <span>{supply.client.cif_nif}</span>
+              <div className="space-y-2">
+                {([
+                  { key: 'cl_name', label: 'Nombre', value: supply.client.name, icon: Building2 },
+                  { key: 'cl_id', label: supply.client.cif ? 'CIF' : 'NIF', value: supply.client.cif || supply.client.nif || supply.client.cif_nif, icon: FileText },
+                  { key: 'cl_phone', label: 'Teléfono', value: supply.client.phone, icon: PhoneIcon },
+                  { key: 'cl_email', label: 'Email', value: supply.client.email, icon: Mail },
+                  { key: 'cl_addr', label: 'Dir. fiscal', value: supply.client.fiscal_address, icon: MapPin },
+                ] as const).map((f) => (
+                  <div key={f.key} className="flex items-center gap-2.5 group/row">
+                    <f.icon className="w-4 h-4 text-on-surface-variant/60 flex-shrink-0" />
+                    <span className="flex-1 text-sm text-on-surface truncate">
+                      {f.value || <span className="text-on-surface-variant/40 italic text-xs">—</span>}
+                    </span>
+                    {f.value && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); copyToClip(f.key, String(f.value)) }}
+                        className="p-1 rounded-md text-on-surface-variant/30 hover:text-primary hover:bg-primary/10 transition-all opacity-0 group-hover/row:opacity-100 flex-shrink-0"
+                        title="Copiar"
+                      >
+                        {copiedField === f.key
+                          ? <Check className="w-3.5 h-3.5 text-success" />
+                          : <Copy className="w-3.5 h-3.5" />}
+                      </button>
                     )}
                   </div>
-                )}
-                {supply.client.email && (
-                  <p className="text-xs text-on-surface-variant">{supply.client.email}</p>
-                )}
-                {supply.client.phone && (
-                  <p className="text-xs text-on-surface-variant">{supply.client.phone}</p>
-                )}
-                <Button
-                  variant="tertiary"
-                  size="sm"
-                  onClick={(e) => { e.stopPropagation(); setClientModalOpen(true) }}
-                >
-                  Ver ficha completa
-                  <ChevronRight className="w-3 h-3" />
-                </Button>
-
-                {/* ── Supply switcher ── */}
-                {siblingSupplies.length > 1 && (
-                  <div className="pt-3 border-t border-outline-variant/15">
-                    <p className="text-[10px] font-semibold text-on-surface-variant uppercase tracking-wider mb-1.5">
-                      Suministros del cliente ({siblingSupplies.length})
-                    </p>
-                    <div className="space-y-1">
-                      {siblingSupplies.map(s => {
-                        const isCurrent = s.id === id
-                        const SIcon = s.type === 'gas' ? Flame : s.type === 'telefonia' ? PhoneIcon : Zap
-                        return (
-                          <button
-                            key={s.id}
-                            onClick={() => { if (!isCurrent) router.push(`/supplies/${s.id}`) }}
-                            disabled={isCurrent}
-                            className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left transition-all ${
-                              isCurrent
-                                ? 'bg-primary/10 border border-primary/20 cursor-default'
-                                : 'hover:bg-surface-container-high cursor-pointer'
-                            }`}
-                          >
-                            <SIcon className={`w-3.5 h-3.5 flex-shrink-0 ${isCurrent ? 'text-primary' : 'text-on-surface-variant'}`} />
-                            <div className="flex-1 min-w-0">
-                              <p className={`text-xs font-medium truncate ${isCurrent ? 'text-primary' : 'text-on-surface'}`}>
-                                {s.name || s.cups || 'Sin CUPS'}
-                              </p>
-                              {s.name && s.cups && (
-                                <p className="text-[10px] text-on-surface-variant font-mono truncate">{s.cups}</p>
-                              )}
-                            </div>
-                            <StatusBadge status={s.status} />
-                            {isCurrent && <Check className="w-3 h-3 text-primary flex-shrink-0" />}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
+                ))}
               </div>
             ) : (
               <p className="text-sm text-on-surface-variant">Sin cliente asignado</p>
@@ -2124,6 +2131,81 @@ export default function SupplyDetailPage() {
             </div>
           </div>
         </>
+      )}
+
+      {/* ═══════ SUPPLY CARDS OVERLAY ═══════ */}
+      {supplyOverlayOpen && siblingSupplies.length > 1 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setSupplyOverlayOpen(false)}>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+          <div
+            className="relative bg-surface rounded-3xl shadow-ambient-lg w-full max-w-4xl mx-4 max-h-[85vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 bg-surface/95 backdrop-blur border-b border-outline-variant/10 rounded-t-3xl">
+              <h2 className="font-display font-semibold text-lg text-on-surface">
+                Suministros del cliente ({siblingSupplies.length})
+              </h2>
+              <button onClick={() => setSupplyOverlayOpen(false)} className="p-2 rounded-xl hover:bg-surface-container-low transition-all">
+                <X className="w-5 h-5 text-on-surface-variant" />
+              </button>
+            </div>
+            <div className="p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {siblingSupplies.map((s) => {
+                const isCurrent = s.id === id
+                const accentColor =
+                  ['firmado', 'suscrito', 'seguimiento_activo'].includes(s.status) ? 'from-success/40 to-success/0' :
+                  ['estudio_en_curso', 'pendiente_firma'].includes(s.status) ? 'from-warning/40 to-warning/0' :
+                  s.status === 'rechazado' ? 'from-error/40 to-error/0' :
+                  ['presentado', 'estudio_completado'].includes(s.status) ? 'from-secondary/40 to-secondary/0' :
+                  'from-primary/40 to-primary/0'
+                return (
+                  <div
+                    key={s.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => { if (!isCurrent) router.push(`/supplies/${s.id}`) }}
+                    className={`group/card relative rounded-2xl shadow-ambient-sm overflow-hidden transition-all duration-200 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${
+                      isCurrent
+                        ? 'bg-primary/5 ring-2 ring-primary/30'
+                        : 'bg-surface-container-lowest hover:shadow-ambient-lg hover:-translate-y-0.5'
+                    }`}
+                  >
+                    <div className={`absolute inset-x-0 top-0 h-16 bg-gradient-to-b ${accentColor} pointer-events-none`} />
+                    <div className="relative p-4 flex flex-col gap-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0 text-lg">
+                          {s.type === 'gas' ? '🔥' : s.type === 'telefonia' ? '📞' : '⚡'}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <StatusBadge status={s.status} />
+                          {isCurrent && <Check className="w-3.5 h-3.5 text-primary" />}
+                        </div>
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className={`text-sm font-semibold truncate transition-colors ${isCurrent ? 'text-primary' : 'text-on-surface group-hover/card:text-primary'}`}>
+                          {s.name || s.cups || 'Sin CUPS'}
+                        </h3>
+                        {s.name && s.cups && (
+                          <p className="text-[10px] font-mono text-on-surface-variant truncate mt-0.5">{s.cups}</p>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="rounded-lg bg-surface-container-low/60 px-2.5 py-1.5">
+                          <p className="text-[9px] uppercase tracking-wider text-on-surface-variant/70 font-semibold">Tarifa</p>
+                          <p className="text-xs text-on-surface font-semibold truncate">{s.tariff || '—'}</p>
+                        </div>
+                        <div className="rounded-lg bg-surface-container-low/60 px-2.5 py-1.5">
+                          <p className="text-[9px] uppercase tracking-wider text-on-surface-variant/70 font-semibold">Tipo</p>
+                          <p className="text-xs text-on-surface font-semibold capitalize truncate">{s.type || '—'}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ═══════ CLIENT DETAIL MODAL ═══════ */}
