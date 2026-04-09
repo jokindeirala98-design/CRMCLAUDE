@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { normalizeCups } from '@/lib/utils/cups'
 import { ensurePendingPrescoring } from '@/lib/ensurePrescoring'
+import { advanceSupplyPipeline } from '@/lib/supply-pipeline'
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
 /*  TYPES                                                                    */
@@ -595,7 +596,7 @@ export async function processJobInBackground(jobId: string): Promise<void> {
             tariff,
             address: first.supply_address || null,
             comercializadora_id: comId,
-            status: 'esperando_informes',
+            status: 'estudio_en_curso',
           })
           .select('id')
           .single()
@@ -659,6 +660,14 @@ export async function processJobInBackground(jobId: string): Promise<void> {
       if (supplyId) {
         await ensurePendingPrescoring(supabase, supplyId).catch((err) =>
           console.error(`[UploadQueue] ensurePendingPrescoring failed for ${cups}:`, err)
+        )
+        // Auto-advance pipeline for existing supplies (new ones already start at estudio_en_curso)
+        await advanceSupplyPipeline({
+          supabase,
+          supplyId,
+          event: 'invoices_added',
+        }).catch((err) =>
+          console.error(`[UploadQueue] Pipeline advance failed for ${cups}:`, err)
         )
       }
     }

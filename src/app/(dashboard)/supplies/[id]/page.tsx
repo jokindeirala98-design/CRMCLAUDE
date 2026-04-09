@@ -25,6 +25,7 @@ import { getViewUrl } from '@/lib/utils/storage'
 import { normalizeCups } from '@/lib/utils/cups'
 import { ensurePendingPrescoring } from '@/lib/ensurePrescoring'
 import { downloadClientInvoicesZip, type DownloadProgress } from '@/lib/utils/download-invoices-zip'
+import { advanceSupplyPipeline } from '@/lib/supply-pipeline'
 import { useAuthStore } from '@/stores/auth'
 import type { SupplyStatus } from '@/types/database'
 
@@ -669,7 +670,17 @@ export default function SupplyDetailPage() {
 
     // Ensure a prescoring row exists now that we have invoice data — runs
     // exactly once per upload batch and is a no-op if one already exists.
-    await ensurePendingPrescoring(createClient(), supply.id, { userId: user?.id })
+    const sb = createClient()
+    await ensurePendingPrescoring(sb, supply.id, { userId: user?.id })
+
+    // Auto-advance pipeline: if supply is in early stages, move to estudio_en_curso
+    await advanceSupplyPipeline({
+      supabase: sb,
+      supplyId: supply.id,
+      event: 'invoices_added',
+      currentStatus: supply.status,
+      userId: user?.id,
+    })
 
     // Re-fetch supply to update everything
     await fetchSupply()
@@ -708,11 +719,13 @@ export default function SupplyDetailPage() {
       })
       if (studyError) throw studyError
 
-      // 3. Update supply status to estudio_completado
-      await supabase
-        .from('supplies')
-        .update({ status: 'estudio_completado', updated_at: new Date().toISOString() })
-        .eq('id', supply.id)
+      // 3. Update supply status via centralized pipeline
+      await advanceSupplyPipeline({
+        supabase,
+        supplyId: supply.id,
+        event: 'report_uploaded',
+        userId: user?.id,
+      })
 
       // 4. Create notification for the commercial
       if (supply.client?.id) {
@@ -768,6 +781,15 @@ export default function SupplyDetailPage() {
       }
       // Delete study record
       await supabase.from('studies').delete().eq('id', study.id)
+
+      // Pipeline: revert status if it was just completed
+      await advanceSupplyPipeline({
+        supabase,
+        supplyId: supply.id,
+        event: 'report_deleted',
+        userId: user?.id,
+      })
+
       // Re-fetch
       await fetchSupply()
     } catch (err) {

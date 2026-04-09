@@ -23,6 +23,7 @@ import {
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { getViewUrl, getDownloadUrl } from '@/lib/utils/storage'
+import { advanceSupplyPipeline } from '@/lib/supply-pipeline'
 
 /* ---------- types ---------- */
 interface PendingSupply {
@@ -208,10 +209,12 @@ export default function InformesPage() {
         completed_at: new Date().toISOString(),
       })
 
-      await supabase
-        .from('supplies')
-        .update({ status: 'estudio_completado', updated_at: new Date().toISOString() })
-        .eq('id', supplyId)
+      await advanceSupplyPipeline({
+        supabase,
+        supplyId,
+        event: 'report_uploaded',
+        userId: user?.id,
+      })
 
       // Notify the commercial
       const supply = supplies.find(s => s.id === supplyId)

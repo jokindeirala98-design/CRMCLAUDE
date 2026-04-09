@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js'
 import { analyzeInvoice } from '@/lib/gemini'
 import { normalizeCups } from '@/lib/utils/cups'
 import { fetchSipsForCups } from '@/lib/sips'
+import { advanceSupplyPipeline } from '@/lib/supply-pipeline'
 
 /**
  * Shared processing logic for telegram_inbox items.
@@ -361,6 +362,15 @@ export async function processTelegramInboxItem(
 
   if (invoiceErr) {
     console.error(`[TelegramProcess] Invoice creation error:`, invoiceErr)
+  }
+
+  // 10b. Auto-advance pipeline (for existing supplies that may be in early stages)
+  if (supplyId) {
+    await advanceSupplyPipeline({
+      supabase,
+      supplyId,
+      event: 'invoices_added',
+    })
   }
 
   // 11. Mark as processed

@@ -11,6 +11,7 @@ import { Header } from '@/components/layout/Header'
 import { createClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/auth'
 import { normalizeCups } from '@/lib/utils/cups'
+import { advanceSupplyPipeline } from '@/lib/supply-pipeline'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -413,6 +414,14 @@ export default function InboxPage() {
             extracted_data: uf.extractedData,
           })
         }
+        // Auto-advance pipeline for existing supply
+        await advanceSupplyPipeline({
+          supabase,
+          supplyId: existingSupply.id,
+          event: 'invoices_added',
+          userId: user?.id,
+        })
+
         setSuccessSupplyId(existingSupply.id)
         setStep('success')
         return
