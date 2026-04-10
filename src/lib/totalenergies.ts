@@ -380,32 +380,84 @@ export async function fetchTotalEnergiesSipsGas(
   cups: string,
   token: string
 ): Promise<SipsData> {
-  const res = await fetch(`${SIGE_API_BASE}/api/v1/SIPS/GAS/GetClientesPost`, {
-    method: 'POST',
-    headers: buildApiHeaders(token),
-    body: JSON.stringify({
-      CodigoCUPS: cups,
-      NombreEmpresaDistribuidora: '',
-      CodigoPostalPS: '',
-      CodigoProvinciaPS: '',
-      CodigoTarifaATREnVigor: '',
-      IsExist: true,
-      ListCUPS: '',
-      LoadAllDatosCliente: true,
-      LoadConsumos: true,
-      MunicipioPS: '',
-    }),
-  })
+  const headers = buildApiHeaders(token)
+  let res: Response | null = null
+  let lastError = ''
 
-  if (res.status === 401) {
-    cachedToken = null
-    tokenExpiry = 0
-    throw new Error('[TotalEnergies] Token expirado, reintenta la consulta')
+  // Attempt 1: GET /api/v1/CNMC/Gas?CUPS="CUPS" (portal uses this)
+  try {
+    const url = `${SIGE_API_BASE}/api/v1/CNMC/Gas?CUPS=${encodeURIComponent('"' + cups + '"')}`
+    const r = await fetch(url, { method: 'GET', headers })
+    console.log(`[TotalEnergies] CNMC/Gas GET: ${r.status}`)
+    if (r.ok) { res = r }
+    else { lastError = `CNMC/Gas GET ${r.status}` }
+  } catch (err: any) { lastError = `CNMC/Gas: ${err.message}` }
+
+  // Attempt 2: POST /api/v1/SIPS/GAS/GetClientesPost with minimal body
+  if (!res) {
+    try {
+      const r = await fetch(`${SIGE_API_BASE}/api/v1/SIPS/GAS/GetClientesPost`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ CodigoCUPS: cups }),
+      })
+      console.log(`[TotalEnergies] GetClientesPost minimal: ${r.status}`)
+      if (r.ok) { res = r }
+      else { lastError = `GetClientesPost minimal ${r.status}` }
+    } catch (err: any) { lastError = `GetClientesPost minimal: ${err.message}` }
   }
 
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`[TotalEnergies] GetClientesPost HTTP ${res.status}: ${text}`)
+  // Attempt 3: POST /api/v1/SIPS/GAS/GetClientesPost with full body
+  if (!res) {
+    try {
+      const r = await fetch(`${SIGE_API_BASE}/api/v1/SIPS/GAS/GetClientesPost`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          CodigoCUPS: cups,
+          NombreEmpresaDistribuidora: '',
+          CodigoPostalPS: '',
+          CodigoProvinciaPS: '',
+          CodigoTarifaATREnVigor: '',
+          IsExist: true,
+          ListCUPS: '',
+          LoadAllDatosCliente: true,
+          LoadConsumos: true,
+          MunicipioPS: '',
+        }),
+      })
+      console.log(`[TotalEnergies] GetClientesPost full: ${r.status}`)
+      if (r.ok) { res = r }
+      else { lastError = `GetClientesPost full ${r.status}: ${await r.text().catch(() => '')}` }
+    } catch (err: any) { lastError = `GetClientesPost full: ${err.message}` }
+  }
+
+  // Attempt 4: POST with CUPS in quotes
+  if (!res) {
+    try {
+      const r = await fetch(`${SIGE_API_BASE}/api/v1/SIPS/GAS/GetClientesPost`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          CodigoCUPS: `"${cups}"`,
+          IsExist: true,
+          LoadAllDatosCliente: true,
+          LoadConsumos: true,
+        }),
+      })
+      console.log(`[TotalEnergies] GetClientesPost quoted: ${r.status}`)
+      if (r.ok) { res = r }
+      else { lastError = `GetClientesPost quoted ${r.status}` }
+    } catch (err: any) { lastError = `GetClientesPost quoted: ${err.message}` }
+  }
+
+  if (!res) {
+    if (lastError.includes('401')) {
+      cachedToken = null
+      tokenExpiry = 0
+      throw new Error('[TotalEnergies] Token expirado, reintenta la consulta')
+    }
+    throw new Error(`[TotalEnergies] ${lastError}`)
   }
 
   const data: TotalEnergiesSipsResponse = await res.json()
