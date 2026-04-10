@@ -417,67 +417,62 @@ export async function fetchTotalEnergiesSipsGas(
     }
   }
 
-  // Attempt 1: POST GetClientesPost — exact format the portal sends
-  // The portal Angular app sends this body structure
-  res = await tryFetch('GetClientes-portal',
-    `${SIGE_API_BASE}/api/v1/SIPS/GAS/GetClientesPost`,
-    { method: 'POST', headers, body: JSON.stringify({
-        CodigoCUPS: cups,
-        NombreEmpresaDistribuidora: null,
-        CodigoPostalPS: null,
-        CodigoProvinciaPS: null,
-        CodigoTarifaATREnVigor: null,
-        IsExist: true,
-        ListCUPS: null,
-        LoadAllDatosCliente: true,
-        LoadConsumos: true,
-        MunicipioPS: null,
-    })})
+  const SIPS_URL = `${SIGE_API_BASE}/api/v1/SIPS/GAS/GetClientesPost`
+  const fullBody = JSON.stringify({
+    CodigoCUPS: cups,
+    NombreEmpresaDistribuidora: '',
+    CodigoPostalPS: '',
+    CodigoProvinciaPS: '',
+    CodigoTarifaATREnVigor: '',
+    IsExist: true,
+    ListCUPS: '',
+    LoadAllDatosCliente: true,
+    LoadConsumos: true,
+    MunicipioPS: '',
+  })
 
-  // Attempt 2: POST GetClientesPost with empty strings (variant)
-  if (!res) {
-    res = await tryFetch('GetClientes-emptyStr',
-      `${SIGE_API_BASE}/api/v1/SIPS/GAS/GetClientesPost`,
-      { method: 'POST', headers, body: JSON.stringify({
-          CodigoCUPS: cups,
-          NombreEmpresaDistribuidora: '',
-          CodigoPostalPS: '',
-          CodigoProvinciaPS: '',
-          CodigoTarifaATREnVigor: '',
-          IsExist: true,
-          ListCUPS: '',
-          LoadAllDatosCliente: true,
-          LoadConsumos: true,
-          MunicipioPS: '',
-      })})
+  // Try 3 auth header styles × main endpoint
+  const headerStyles: Array<'bearer' | 'validacion' | 'raw'> = ['bearer', 'validacion', 'raw']
+
+  for (const style of headerStyles) {
+    if (res) break
+    const h = buildApiHeaders(token, style)
+    res = await tryFetch(`GetClientes(${style})`, SIPS_URL, {
+      method: 'POST', headers: h, body: fullBody,
+    })
   }
 
-  // Attempt 3: POST GetClientesPost minimal (just CodigoCUPS)
+  // Try with Validacion header + User/Password headers combined
   if (!res) {
-    res = await tryFetch('GetClientes-minimal',
-      `${SIGE_API_BASE}/api/v1/SIPS/GAS/GetClientesPost`,
-      { method: 'POST', headers, body: JSON.stringify({ CodigoCUPS: cups })})
+    const h = buildApiHeaders(token, 'validacion')
+    h['User'] = process.env.TOTALENERGIES_EMAIL || ''
+    h['Password'] = process.env.TOTALENERGIES_PASSWORD || ''
+    res = await tryFetch('GetClientes(val+creds)', SIPS_URL, {
+      method: 'POST', headers: h, body: fullBody,
+    })
   }
 
-  // Attempt 4: GET /api/v1/CNMC/Gas?CUPS="CUPS" (portal also calls this)
+  // Try with Authorization + Validacion both set
   if (!res) {
-    res = await tryFetch('CNMC/Gas-quoted',
+    const h = buildApiHeaders(token, 'bearer')
+    h['Validacion'] = token
+    res = await tryFetch('GetClientes(bearer+val)', SIPS_URL, {
+      method: 'POST', headers: h, body: fullBody,
+    })
+  }
+
+  // Try CNMC/Gas endpoint (GET)
+  if (!res) {
+    res = await tryFetch('CNMC/Gas',
       `${SIGE_API_BASE}/api/v1/CNMC/Gas?CUPS=%22${encodeURIComponent(cups)}%22`,
-      { method: 'GET', headers })
+      { method: 'GET', headers: buildApiHeaders(token, 'bearer') })
   }
 
-  // Attempt 5: GET /api/v1/CNMC/Gas?CUPS=CUPS (without quotes)
+  // Try CNMC/Gas with Validacion header
   if (!res) {
-    res = await tryFetch('CNMC/Gas-plain',
-      `${SIGE_API_BASE}/api/v1/CNMC/Gas?CUPS=${encodeURIComponent(cups)}`,
-      { method: 'GET', headers })
-  }
-
-  // Attempt 6: POST GetConsumoClientePost (alternate endpoint)
-  if (!res) {
-    res = await tryFetch('GetConsumoCliente',
-      `${SIGE_API_BASE}/api/v1/SIPS/Datos/GetConsumoClientePost`,
-      { method: 'POST', headers, body: JSON.stringify({ CodigoCUPS: cups })})
+    res = await tryFetch('CNMC/Gas(val)',
+      `${SIGE_API_BASE}/api/v1/CNMC/Gas?CUPS=%22${encodeURIComponent(cups)}%22`,
+      { method: 'GET', headers: buildApiHeaders(token, 'validacion') })
   }
 
   if (!res) {
