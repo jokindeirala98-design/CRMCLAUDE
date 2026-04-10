@@ -271,11 +271,10 @@ export async function getTotalEnergiesToken(): Promise<string> {
 
 // ─── Helper: build request headers ──────────────────────────────────
 
-function buildApiHeaders(token: string): Record<string, string> {
+function buildApiHeaders(token: string, style: 'bearer' | 'validacion' | 'raw' = 'bearer'): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json;charset=UTF-8',
     'Accept': 'application/json, text/plain, */*',
-    // The portal sends these on every request — required by the API
     'Origin': 'https://agentes.totalenergies.es',
     'Referer': 'https://agentes.totalenergies.es/',
   }
@@ -283,6 +282,12 @@ function buildApiHeaders(token: string): Record<string, string> {
   if (token === '__DIRECT_AUTH__') {
     headers['User'] = process.env.TOTALENERGIES_EMAIL || ''
     headers['Password'] = process.env.TOTALENERGIES_PASSWORD || ''
+  } else if (style === 'validacion') {
+    // Some SigeEnergia APIs use 'Validacion' header instead of Authorization
+    headers['Validacion'] = token
+  } else if (style === 'raw') {
+    // Token without Bearer prefix
+    headers['Authorization'] = token
   } else {
     headers['Authorization'] = `Bearer ${token}`
   }
@@ -390,7 +395,7 @@ export async function fetchTotalEnergiesSipsGas(
 ): Promise<SipsData> {
   const headers = buildApiHeaders(token)
   let res: Response | null = null
-  let lastError = ''
+  const allErrors: string[] = []
 
   // Helper to log response details
   const tryFetch = async (label: string, url: string, opts: RequestInit): Promise<Response | null> => {
@@ -401,12 +406,13 @@ export async function fetchTotalEnergiesSipsGas(
         return r
       }
       const body = await r.text().catch(() => '')
-      console.log(`[TotalEnergies] ${label}: ${r.status} - ${body.substring(0, 300)}`)
-      lastError = `${label} ${r.status}: ${body.substring(0, 200)}`
+      const shortBody = body.substring(0, 200).replace(/<[^>]+>/g, '').trim()
+      console.log(`[TotalEnergies] ${label}: ${r.status} - ${shortBody}`)
+      allErrors.push(`${label}=${r.status}`)
       return null
     } catch (err: any) {
       console.log(`[TotalEnergies] ${label}: ERROR - ${err.message}`)
-      lastError = `${label}: ${err.message}`
+      allErrors.push(`${label}=ERR:${err.message.substring(0, 50)}`)
       return null
     }
   }
@@ -475,12 +481,14 @@ export async function fetchTotalEnergiesSipsGas(
   }
 
   if (!res) {
-    if (lastError.includes('401')) {
+    const summary = allErrors.join(' | ')
+    if (summary.includes('401')) {
       cachedToken = null
       tokenExpiry = 0
       throw new Error('[TotalEnergies] Token expirado, reintenta la consulta')
     }
-    throw new Error(`[TotalEnergies] ${lastError}`)
+    // Show ALL attempt results so we can debug
+    throw new Error(`[TotalEnergies] Todos los intentos fallaron: ${summary}`)
   }
 
   const data: TotalEnergiesSipsResponse = await res.json()
