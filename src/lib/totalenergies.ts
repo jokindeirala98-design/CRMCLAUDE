@@ -32,15 +32,74 @@ let tokenExpiry: number = 0
  * accepts credentials inline rather than via a login endpoint.
  */
 async function sigeLogin(user: string, password: string): Promise<string> {
-  // Strategy 1: Try dedicated login endpoints
+  const errors: string[] = []
+
+  // Helper to extract token from response
+  const extractToken = async (res: Response, label: string): Promise<string | null> => {
+    // Check Authorization response header
+    const authHeader = res.headers.get('Authorization') || res.headers.get('authorization')
+    if (authHeader) {
+      console.log(`[TotalEnergies] ${label}: got token from Authorization header`)
+      return authHeader.replace(/^Bearer\s+/i, '')
+    }
+
+    // Check response body for token
+    try {
+      const text = await res.text()
+      // Try parsing as JSON
+      try {
+        const data = JSON.parse(text)
+        const token = data.token || data.Token || data.access_token ||
+                      data.sessionToken || data.bearerToken || data.SessionToken ||
+                      data.Authorization || data.authorization ||
+                      data.Result?.Token || data.result?.token
+        if (token && typeof token === 'string' && token.length > 20) {
+          console.log(`[TotalEnergies] ${label}: got token from JSON body`)
+          return token.replace(/^Bearer\s+/i, '')
+        }
+      } catch {}
+      // Check if the raw text contains an st2 token
+      const st2Match = text.match(/(st2\.s\.[A-Za-z0-9._-]{50,})/)
+      if (st2Match) {
+        console.log(`[TotalEnergies] ${label}: found st2 token in response`)
+        return st2Match[1]
+      }
+    } catch {}
+    return null
+  }
+
+  // ── Strategy 1: GET resumen.html with User/Password headers ──
+  // (the portal loads this page first after auth — may return token)
+  for (const method of ['GET', 'POST'] as const) {
+    try {
+      const res = await fetch(`${SIGE_API_BASE}/resumen.html`, {
+        method,
+        headers: {
+          'Accept': 'text/html, application/json, */*',
+          'User': user,
+          'Password': password,
+        },
+      })
+      console.log(`[TotalEnergies] Strategy 1 (${method} resumen.html): status ${res.status}`)
+      const token = await extractToken(res, `resumen.html ${method}`)
+      if (token) return token
+    } catch (err: any) {
+      errors.push(`resumen.html ${method}: ${err.message}`)
+    }
+  }
+
+  // ── Strategy 2: POST to login-like endpoints with various body formats ──
   const loginEndpoints = [
     '/api/v1/Login',
     '/api/v1/Account/Login',
     '/api/v1/Auth/Login',
     '/api/Login',
+    '/api/v1/Agente/Login',
+    '/api/v1/Usuario/Login',
   ]
 
   for (const endpoint of loginEndpoints) {
+    // Try JSON body
     try {
       const res = await fetch(`${SIGE_API_BASE}${endpoint}`, {
         method: 'POST',
@@ -52,53 +111,34 @@ async function sigeLogin(user: string, password: string): Promise<string> {
         },
         body: JSON.stringify({ User: user, Password: password }),
       })
-
+      console.log(`[TotalEnergies] Strategy 2 (${endpoint} JSON): status ${res.status}`)
       if (res.ok) {
-        const data = await res.json()
-        // Look for token in various response shapes
-        const token = data.token || data.Token || data.access_token ||
-                      data.sessionToken || data.bearerToken ||
-                      data.Authorization || data.authorization
-        if (token) {
-          console.log(`[TotalEnergies] Login successful via ${endpoint}`)
-          return token.replace(/^Bearer\s+/i, '')
-        }
-
-        // Check Authorization header in response
-        const authHeader = res.headers.get('Authorization') || res.headers.get('authorization')
-        if (authHeader) {
-          console.log(`[TotalEnergies] Login successful via ${endpoint} (header)`)
-          return authHeader.replace(/^Bearer\s+/i, '')
-        }
+        const token = await extractToken(res, endpoint)
+        if (token) return token
       }
-    } catch (err) {
-      console.warn(`[TotalEnergies] Login endpoint ${endpoint} failed:`, err)
+    } catch (err: any) {
+      errors.push(`${endpoint}: ${err.message}`)
     }
+
+    // Try form-urlencoded
+    try {
+      const res = await fetch(`${SIGE_API_BASE}${endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json, text/plain, */*',
+        },
+        body: new URLSearchParams({ User: user, Password: password }).toString(),
+      })
+      console.log(`[TotalEnergies] Strategy 2 (${endpoint} form): status ${res.status}`)
+      if (res.ok) {
+        const token = await extractToken(res, `${endpoint} form`)
+        if (token) return token
+      }
+    } catch {}
   }
 
-  // Strategy 2: Try login via resumen.html (the portal's landing page)
-  try {
-    const res = await fetch(`${SIGE_API_BASE}/resumen.html`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json;charset=UTF-8',
-        'User': user,
-        'Password': password,
-      },
-      body: JSON.stringify({ User: user, Password: password }),
-    })
-
-    const authHeader = res.headers.get('Authorization') || res.headers.get('authorization')
-    if (authHeader) {
-      console.log('[TotalEnergies] Login successful via resumen.html')
-      return authHeader.replace(/^Bearer\s+/i, '')
-    }
-  } catch (err) {
-    console.warn('[TotalEnergies] resumen.html login failed:', err)
-  }
-
-  // Strategy 3: Try a test API call with User/Password headers directly
-  // If this works, return a sentinel so we know to use direct auth
+  // ── Strategy 3: Direct API call with User/Password headers ──
   try {
     const testRes = await fetch(`${SIGE_API_BASE}/api/v1/SIPS/GAS/GetClientesPost`, {
       method: 'POST',
@@ -110,35 +150,33 @@ async function sigeLogin(user: string, password: string): Promise<string> {
       },
       body: JSON.stringify({
         CodigoCUPS: '',
-        NombreEmpresaDistribuidora: '',
-        CodigoPostalPS: '',
-        CodigoProvinciaPS: '',
-        CodigoTarifaATREnVigor: '',
         IsExist: true,
         ListCUPS: '',
         LoadAllDatosCliente: false,
         LoadConsumos: false,
-        MunicipioPS: '',
       }),
     })
-
-    if (testRes.ok || testRes.status === 200) {
-      console.log('[TotalEnergies] Direct auth with User/Password headers works')
+    console.log(`[TotalEnergies] Strategy 3 (direct auth): status ${testRes.status}`)
+    if (testRes.ok) {
+      console.log('[TotalEnergies] Direct auth with User/Password headers works!')
       return '__DIRECT_AUTH__'
     }
-
-    // Check if the response contains a token
-    const authHeader = testRes.headers.get('Authorization') || testRes.headers.get('authorization')
-    if (authHeader) {
-      return authHeader.replace(/^Bearer\s+/i, '')
-    }
-  } catch (err) {
-    console.warn('[TotalEnergies] Direct auth test failed:', err)
+    const token = await extractToken(testRes, 'direct auth')
+    if (token) return token
+  } catch (err: any) {
+    errors.push(`direct auth: ${err.message}`)
   }
 
-  // Strategy 4: Try Gigya authentication as last resort
+  // ── Strategy 4: Gigya fallback ──
   console.log('[TotalEnergies] Trying Gigya fallback...')
-  return await gigyaLogin(user, password)
+  try {
+    return await gigyaLogin(user, password)
+  } catch (err: any) {
+    errors.push(`gigya: ${err.message}`)
+  }
+
+  console.error('[TotalEnergies] All strategies failed:', errors.join(' | '))
+  throw new Error(`[TotalEnergies] Auth failed. Tried ${errors.length} strategies. Last: ${errors[errors.length - 1] || 'unknown'}`)
 }
 
 // ─── Gigya Fallback ─────────────────────────────────────────────────
