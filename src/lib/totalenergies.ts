@@ -227,6 +227,8 @@ async function gigyaLogin(email: string, password: string): Promise<string> {
 
 // ─── Token management ───────────────────────────────────────────────
 
+let manualTokenFailed = false  // skip manual token after it fails once
+
 /**
  * Get a valid auth mechanism, using cache when possible.
  */
@@ -235,15 +237,13 @@ export async function getTotalEnergiesToken(): Promise<string> {
     return cachedToken
   }
 
-  // Priority 1: Manual token (for when auto-auth doesn't work yet)
-  // Set TOTALENERGIES_TOKEN in Vercel with the Bearer token from the portal
+  // Priority 1: Manual token — but skip if it already failed (expired)
   const manualToken = process.env.TOTALENERGIES_TOKEN
-  if (manualToken) {
+  if (manualToken && !manualTokenFailed) {
     const clean = manualToken.replace(/^Bearer\s+/i, '').trim()
     if (clean.length > 50) {
       console.log('[TotalEnergies] Using manual token from TOTALENERGIES_TOKEN env var')
       cachedToken = clean
-      // Manual tokens expire after ~5.5h, cache for 5h
       tokenExpiry = Date.now() + 5 * 60 * 60 * 1000
       return clean
     }
@@ -259,7 +259,7 @@ export async function getTotalEnergiesToken(): Promise<string> {
     )
   }
 
-  console.log('[TotalEnergies] Authenticating...')
+  console.log('[TotalEnergies] Authenticating with email/password...')
   const token = await sigeLogin(email, password)
 
   cachedToken = token
@@ -478,11 +478,13 @@ export async function fetchTotalEnergiesSipsGas(
   if (!res) {
     const summary = allErrors.join(' | ')
     if (summary.includes('401')) {
+      // Token expired — mark manual token as failed so next call uses auto-login
       cachedToken = null
       tokenExpiry = 0
+      manualTokenFailed = true
+      console.log('[TotalEnergies] Token expirado, marcando manual token como fallido')
       throw new Error('[TotalEnergies] Token expirado, reintenta la consulta')
     }
-    // Show ALL attempt results so we can debug
     throw new Error(`[TotalEnergies] Todos los intentos fallaron: ${summary}`)
   }
 
@@ -632,13 +634,22 @@ export async function fetchTotalEnergiesSipsGasBulk(
 // ─── Convenience wrapper ────────────────────────────────────────────
 
 export async function fetchSipsGasForCups(cups: string): Promise<SipsData | null> {
-  try {
-    const cleanCups = cups.replace(/\s/g, '').toUpperCase()
-    if (!cleanCups || cleanCups.length < 20) return null
-    const token = await getTotalEnergiesToken()
-    return await fetchTotalEnergiesSipsGas(cleanCups, token)
-  } catch (err) {
-    console.error(`[TotalEnergies] Error fetching gas SIPS for ${cups}:`, err)
-    return null
+  const cleanCups = cups.replace(/\s/g, '').toUpperCase()
+  if (!cleanCups || cleanCups.length < 20) return null
+
+  // Try up to 2 times: if token expired, auto-retry with fresh login
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const token = await getTotalEnergiesToken()
+      return await fetchTotalEnergiesSipsGas(cleanCups, token)
+    } catch (err: any) {
+      if (attempt === 0 && err?.message?.includes('expirad')) {
+        console.log('[TotalEnergies] Token expired, retrying with fresh auth...')
+        continue // retry — getTotalEnergiesToken will now try auto-login
+      }
+      console.error(`[TotalEnergies] Error fetching gas SIPS for ${cups}:`, err)
+      throw err // re-throw so the UI shows the actual error
+    }
   }
+  return null
 }

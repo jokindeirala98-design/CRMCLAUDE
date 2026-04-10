@@ -28,7 +28,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const token = await getTotalEnergiesToken()
+    // Helper: get token, retry once if expired
+    const getToken = async (): Promise<string> => {
+      try {
+        return await getTotalEnergiesToken()
+      } catch (err: any) {
+        if (err?.message?.includes('expirad')) {
+          console.log('[SIPS-GAS] Token expired on first try, retrying...')
+          return await getTotalEnergiesToken()
+        }
+        throw err
+      }
+    }
+
+    const token = await getToken()
 
     // ── Bulk query ────────────────────────────────────────────────
     if (Array.isArray(cupsList) && cupsList.length > 0) {
@@ -45,7 +58,6 @@ export async function POST(request: NextRequest) {
 
       const results = await fetchTotalEnergiesSipsGasBulk(cleanList, token)
 
-      // Convert Map to object for JSON response
       const data: Record<string, any> = {}
       for (const [k, v] of results.entries()) {
         data[k] = v
@@ -68,7 +80,19 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const data = await fetchTotalEnergiesSipsGas(cleanCups, token)
+    // Try fetch, retry once if token expired mid-request
+    let data
+    try {
+      data = await fetchTotalEnergiesSipsGas(cleanCups, token)
+    } catch (err: any) {
+      if (err?.message?.includes('expirad')) {
+        console.log('[SIPS-GAS] Token expired during fetch, getting fresh token...')
+        const freshToken = await getToken()
+        data = await fetchTotalEnergiesSipsGas(cleanCups, freshToken)
+      } else {
+        throw err
+      }
+    }
 
     return NextResponse.json({ success: true, data })
   } catch (error: any) {
