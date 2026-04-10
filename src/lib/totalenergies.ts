@@ -72,12 +72,18 @@ async function sigeLogin(user: string, password: string): Promise<string> {
   // The agentes.totalenergies.es portal uses this endpoint.
   // It accepts User + Password as custom headers AND/OR JSON body.
   // Returns the Bearer token in the Authorization response header.
+  const commonHeaders = {
+    'Accept': 'application/json, text/plain, */*',
+    'Origin': 'https://agentes.totalenergies.es',
+    'Referer': 'https://agentes.totalenergies.es/',
+  }
+
   const loginVariants = [
-    // Variant A: User/Password as headers + JSON body
+    // Variant A: User/Password as headers + JSON body (portal style)
     {
       headers: {
+        ...commonHeaders,
         'Content-Type': 'application/json;charset=UTF-8',
-        'Accept': 'application/json, text/plain, */*',
         'User': user,
         'Password': password,
       },
@@ -86,8 +92,8 @@ async function sigeLogin(user: string, password: string): Promise<string> {
     // Variant B: User/Password as headers only, empty body
     {
       headers: {
+        ...commonHeaders,
         'Content-Type': 'application/json;charset=UTF-8',
-        'Accept': 'application/json, text/plain, */*',
         'User': user,
         'Password': password,
       },
@@ -96,16 +102,16 @@ async function sigeLogin(user: string, password: string): Promise<string> {
     // Variant C: Credentials in body only
     {
       headers: {
+        ...commonHeaders,
         'Content-Type': 'application/json;charset=UTF-8',
-        'Accept': 'application/json, text/plain, */*',
       },
       body: JSON.stringify({ User: user, Password: password }),
     },
     // Variant D: Form-urlencoded
     {
       headers: {
+        ...commonHeaders,
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': 'application/json, text/plain, */*',
         'User': user,
         'Password': password,
       },
@@ -269,10 +275,12 @@ function buildApiHeaders(token: string): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json;charset=UTF-8',
     'Accept': 'application/json, text/plain, */*',
+    // The portal sends these on every request — required by the API
+    'Origin': 'https://agentes.totalenergies.es',
+    'Referer': 'https://agentes.totalenergies.es/',
   }
 
   if (token === '__DIRECT_AUTH__') {
-    // Direct auth mode: pass credentials on every request
     headers['User'] = process.env.TOTALENERGIES_EMAIL || ''
     headers['Password'] = process.env.TOTALENERGIES_PASSWORD || ''
   } else {
@@ -384,36 +392,47 @@ export async function fetchTotalEnergiesSipsGas(
   let res: Response | null = null
   let lastError = ''
 
-  // Attempt 1: GET /api/v1/CNMC/Gas?CUPS="CUPS" (portal uses this)
-  try {
-    const url = `${SIGE_API_BASE}/api/v1/CNMC/Gas?CUPS=${encodeURIComponent('"' + cups + '"')}`
-    const r = await fetch(url, { method: 'GET', headers })
-    console.log(`[TotalEnergies] CNMC/Gas GET: ${r.status}`)
-    if (r.ok) { res = r }
-    else { lastError = `CNMC/Gas GET ${r.status}` }
-  } catch (err: any) { lastError = `CNMC/Gas: ${err.message}` }
-
-  // Attempt 2: POST /api/v1/SIPS/GAS/GetClientesPost with minimal body
-  if (!res) {
+  // Helper to log response details
+  const tryFetch = async (label: string, url: string, opts: RequestInit): Promise<Response | null> => {
     try {
-      const r = await fetch(`${SIGE_API_BASE}/api/v1/SIPS/GAS/GetClientesPost`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ CodigoCUPS: cups }),
-      })
-      console.log(`[TotalEnergies] GetClientesPost minimal: ${r.status}`)
-      if (r.ok) { res = r }
-      else { lastError = `GetClientesPost minimal ${r.status}` }
-    } catch (err: any) { lastError = `GetClientesPost minimal: ${err.message}` }
+      const r = await fetch(url, opts)
+      if (r.ok) {
+        console.log(`[TotalEnergies] ${label}: ${r.status} OK`)
+        return r
+      }
+      const body = await r.text().catch(() => '')
+      console.log(`[TotalEnergies] ${label}: ${r.status} - ${body.substring(0, 300)}`)
+      lastError = `${label} ${r.status}: ${body.substring(0, 200)}`
+      return null
+    } catch (err: any) {
+      console.log(`[TotalEnergies] ${label}: ERROR - ${err.message}`)
+      lastError = `${label}: ${err.message}`
+      return null
+    }
   }
 
-  // Attempt 3: POST /api/v1/SIPS/GAS/GetClientesPost with full body
+  // Attempt 1: POST GetClientesPost — exact format the portal sends
+  // The portal Angular app sends this body structure
+  res = await tryFetch('GetClientes-portal',
+    `${SIGE_API_BASE}/api/v1/SIPS/GAS/GetClientesPost`,
+    { method: 'POST', headers, body: JSON.stringify({
+        CodigoCUPS: cups,
+        NombreEmpresaDistribuidora: null,
+        CodigoPostalPS: null,
+        CodigoProvinciaPS: null,
+        CodigoTarifaATREnVigor: null,
+        IsExist: true,
+        ListCUPS: null,
+        LoadAllDatosCliente: true,
+        LoadConsumos: true,
+        MunicipioPS: null,
+    })})
+
+  // Attempt 2: POST GetClientesPost with empty strings (variant)
   if (!res) {
-    try {
-      const r = await fetch(`${SIGE_API_BASE}/api/v1/SIPS/GAS/GetClientesPost`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
+    res = await tryFetch('GetClientes-emptyStr',
+      `${SIGE_API_BASE}/api/v1/SIPS/GAS/GetClientesPost`,
+      { method: 'POST', headers, body: JSON.stringify({
           CodigoCUPS: cups,
           NombreEmpresaDistribuidora: '',
           CodigoPostalPS: '',
@@ -424,31 +443,35 @@ export async function fetchTotalEnergiesSipsGas(
           LoadAllDatosCliente: true,
           LoadConsumos: true,
           MunicipioPS: '',
-        }),
-      })
-      console.log(`[TotalEnergies] GetClientesPost full: ${r.status}`)
-      if (r.ok) { res = r }
-      else { lastError = `GetClientesPost full ${r.status}: ${await r.text().catch(() => '')}` }
-    } catch (err: any) { lastError = `GetClientesPost full: ${err.message}` }
+      })})
   }
 
-  // Attempt 4: POST with CUPS in quotes
+  // Attempt 3: POST GetClientesPost minimal (just CodigoCUPS)
   if (!res) {
-    try {
-      const r = await fetch(`${SIGE_API_BASE}/api/v1/SIPS/GAS/GetClientesPost`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          CodigoCUPS: `"${cups}"`,
-          IsExist: true,
-          LoadAllDatosCliente: true,
-          LoadConsumos: true,
-        }),
-      })
-      console.log(`[TotalEnergies] GetClientesPost quoted: ${r.status}`)
-      if (r.ok) { res = r }
-      else { lastError = `GetClientesPost quoted ${r.status}` }
-    } catch (err: any) { lastError = `GetClientesPost quoted: ${err.message}` }
+    res = await tryFetch('GetClientes-minimal',
+      `${SIGE_API_BASE}/api/v1/SIPS/GAS/GetClientesPost`,
+      { method: 'POST', headers, body: JSON.stringify({ CodigoCUPS: cups })})
+  }
+
+  // Attempt 4: GET /api/v1/CNMC/Gas?CUPS="CUPS" (portal also calls this)
+  if (!res) {
+    res = await tryFetch('CNMC/Gas-quoted',
+      `${SIGE_API_BASE}/api/v1/CNMC/Gas?CUPS=%22${encodeURIComponent(cups)}%22`,
+      { method: 'GET', headers })
+  }
+
+  // Attempt 5: GET /api/v1/CNMC/Gas?CUPS=CUPS (without quotes)
+  if (!res) {
+    res = await tryFetch('CNMC/Gas-plain',
+      `${SIGE_API_BASE}/api/v1/CNMC/Gas?CUPS=${encodeURIComponent(cups)}`,
+      { method: 'GET', headers })
+  }
+
+  // Attempt 6: POST GetConsumoClientePost (alternate endpoint)
+  if (!res) {
+    res = await tryFetch('GetConsumoCliente',
+      `${SIGE_API_BASE}/api/v1/SIPS/Datos/GetConsumoClientePost`,
+      { method: 'POST', headers, body: JSON.stringify({ CodigoCUPS: cups })})
   }
 
   if (!res) {
