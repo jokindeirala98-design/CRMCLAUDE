@@ -68,106 +68,73 @@ async function sigeLogin(user: string, password: string): Promise<string> {
     return null
   }
 
-  // ── Strategy 1: GET resumen.html with User/Password headers ──
-  // (the portal loads this page first after auth — may return token)
-  for (const method of ['GET', 'POST'] as const) {
-    try {
-      const res = await fetch(`${SIGE_API_BASE}/resumen.html`, {
-        method,
-        headers: {
-          'Accept': 'text/html, application/json, */*',
-          'User': user,
-          'Password': password,
-        },
-      })
-      console.log(`[TotalEnergies] Strategy 1 (${method} resumen.html): status ${res.status}`)
-      const token = await extractToken(res, `resumen.html ${method}`)
-      if (token) return token
-    } catch (err: any) {
-      errors.push(`resumen.html ${method}: ${err.message}`)
-    }
-  }
-
-  // ── Strategy 2: POST to login-like endpoints with various body formats ──
-  const loginEndpoints = [
-    '/api/v1/Login',
-    '/api/v1/Account/Login',
-    '/api/v1/Auth/Login',
-    '/api/Login',
-    '/api/v1/Agente/Login',
-    '/api/v1/Usuario/Login',
-  ]
-
-  for (const endpoint of loginEndpoints) {
-    // Try JSON body
-    try {
-      const res = await fetch(`${SIGE_API_BASE}${endpoint}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json;charset=UTF-8',
-          'Accept': 'application/json, text/plain, */*',
-          'User': user,
-          'Password': password,
-        },
-        body: JSON.stringify({ User: user, Password: password }),
-      })
-      console.log(`[TotalEnergies] Strategy 2 (${endpoint} JSON): status ${res.status}`)
-      if (res.ok) {
-        const token = await extractToken(res, endpoint)
-        if (token) return token
-      }
-    } catch (err: any) {
-      errors.push(`${endpoint}: ${err.message}`)
-    }
-
-    // Try form-urlencoded
-    try {
-      const res = await fetch(`${SIGE_API_BASE}${endpoint}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Accept': 'application/json, text/plain, */*',
-        },
-        body: new URLSearchParams({ User: user, Password: password }).toString(),
-      })
-      console.log(`[TotalEnergies] Strategy 2 (${endpoint} form): status ${res.status}`)
-      if (res.ok) {
-        const token = await extractToken(res, `${endpoint} form`)
-        if (token) return token
-      }
-    } catch {}
-  }
-
-  // ── Strategy 3: Direct API call with User/Password headers ──
-  try {
-    const testRes = await fetch(`${SIGE_API_BASE}/api/v1/SIPS/GAS/GetClientesPost`, {
-      method: 'POST',
+  // ── Strategy 1: POST /api/v1/Usuario/LoginPost (confirmed from portal) ──
+  // The agentes.totalenergies.es portal uses this endpoint.
+  // It accepts User + Password as custom headers AND/OR JSON body.
+  // Returns the Bearer token in the Authorization response header.
+  const loginVariants = [
+    // Variant A: User/Password as headers + JSON body
+    {
       headers: {
         'Content-Type': 'application/json;charset=UTF-8',
         'Accept': 'application/json, text/plain, */*',
         'User': user,
         'Password': password,
       },
-      body: JSON.stringify({
-        CodigoCUPS: '',
-        IsExist: true,
-        ListCUPS: '',
-        LoadAllDatosCliente: false,
-        LoadConsumos: false,
-      }),
-    })
-    console.log(`[TotalEnergies] Strategy 3 (direct auth): status ${testRes.status}`)
-    if (testRes.ok) {
-      console.log('[TotalEnergies] Direct auth with User/Password headers works!')
-      return '__DIRECT_AUTH__'
+      body: JSON.stringify({ User: user, Password: password }),
+    },
+    // Variant B: User/Password as headers only, empty body
+    {
+      headers: {
+        'Content-Type': 'application/json;charset=UTF-8',
+        'Accept': 'application/json, text/plain, */*',
+        'User': user,
+        'Password': password,
+      },
+      body: JSON.stringify({}),
+    },
+    // Variant C: Credentials in body only
+    {
+      headers: {
+        'Content-Type': 'application/json;charset=UTF-8',
+        'Accept': 'application/json, text/plain, */*',
+      },
+      body: JSON.stringify({ User: user, Password: password }),
+    },
+    // Variant D: Form-urlencoded
+    {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json, text/plain, */*',
+        'User': user,
+        'Password': password,
+      },
+      body: new URLSearchParams({ User: user, Password: password }).toString(),
+    },
+  ]
+
+  for (let i = 0; i < loginVariants.length; i++) {
+    const variant = loginVariants[i]
+    try {
+      const res = await fetch(`${SIGE_API_BASE}/api/v1/Usuario/LoginPost`, {
+        method: 'POST',
+        headers: variant.headers,
+        body: variant.body,
+      })
+      console.log(`[TotalEnergies] LoginPost variant ${i + 1}: status ${res.status}`)
+
+      if (res.ok) {
+        const token = await extractToken(res, `LoginPost variant ${i + 1}`)
+        if (token) return token
+        console.log(`[TotalEnergies] LoginPost variant ${i + 1}: 200 OK but no token found`)
+      }
+    } catch (err: any) {
+      errors.push(`LoginPost v${i + 1}: ${err.message}`)
+      console.warn(`[TotalEnergies] LoginPost variant ${i + 1} error:`, err.message)
     }
-    const token = await extractToken(testRes, 'direct auth')
-    if (token) return token
-  } catch (err: any) {
-    errors.push(`direct auth: ${err.message}`)
   }
 
-  // ── Strategy 4: Gigya fallback ──
+  // ── Strategy 2: Gigya fallback ──
   console.log('[TotalEnergies] Trying Gigya fallback...')
   try {
     return await gigyaLogin(user, password)
@@ -176,7 +143,7 @@ async function sigeLogin(user: string, password: string): Promise<string> {
   }
 
   console.error('[TotalEnergies] All strategies failed:', errors.join(' | '))
-  throw new Error(`[TotalEnergies] Auth failed. Tried ${errors.length} strategies. Last: ${errors[errors.length - 1] || 'unknown'}`)
+  throw new Error(`[TotalEnergies] Auth failed. Details: ${errors.join(' | ')}`)
 }
 
 // ─── Gigya Fallback ─────────────────────────────────────────────────
