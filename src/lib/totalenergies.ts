@@ -262,12 +262,27 @@ export async function getTotalEnergiesToken(): Promise<string> {
     return cachedToken
   }
 
+  // Priority 1: Manual token (for when auto-auth doesn't work yet)
+  // Set TOTALENERGIES_TOKEN in Vercel with the Bearer token from the portal
+  const manualToken = process.env.TOTALENERGIES_TOKEN
+  if (manualToken) {
+    const clean = manualToken.replace(/^Bearer\s+/i, '').trim()
+    if (clean.length > 50) {
+      console.log('[TotalEnergies] Using manual token from TOTALENERGIES_TOKEN env var')
+      cachedToken = clean
+      // Manual tokens expire after ~5.5h, cache for 5h
+      tokenExpiry = Date.now() + 5 * 60 * 60 * 1000
+      return clean
+    }
+  }
+
+  // Priority 2: Auto-login with email/password
   const email = process.env.TOTALENERGIES_EMAIL
   const password = process.env.TOTALENERGIES_PASSWORD
 
   if (!email || !password) {
     throw new Error(
-      'TOTALENERGIES_EMAIL y TOTALENERGIES_PASSWORD deben estar configurados en las variables de entorno'
+      'TOTALENERGIES_EMAIL y TOTALENERGIES_PASSWORD (o TOTALENERGIES_TOKEN) deben estar configurados en las variables de entorno'
     )
   }
 
