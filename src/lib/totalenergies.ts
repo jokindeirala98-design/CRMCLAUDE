@@ -538,22 +538,38 @@ function parseSigeResponse(cups: string, data: SigeSipsResponse): SipsData {
         new Date(b.FechaInicioMesConsumo).getTime()
     )
 
+    // Log first entry for debugging units/values
+    const sample = sorted[0]
+    dbg(`ConsumoSample: P1=${sample.ConsumoEnWhP1} P2=${sample.ConsumoEnWhP2} dates=${sample.FechaInicioMesConsumo}→${sample.FechaFinMesConsumo}`)
+    dbg(`ConsumosSips count: ${sorted.length} entries`)
+
+    // For gas: use only P1 (P2 often duplicates P1 or is a different measurement)
     result.consumptionHistory = sorted.map(entry => {
       const p1 = Math.round(entry.ConsumoEnWhP1 || 0)
-      const p2 = Math.round(entry.ConsumoEnWhP2 || 0)
       return {
         fecha: entry.FechaFinMesConsumo,
         fechaInicio: entry.FechaInicioMesConsumo,
         fechaFin: entry.FechaFinMesConsumo,
-        P1: p1, P2: p2, P3: 0, P4: 0, P5: 0, P6: 0,
-        total: p1 + p2,
+        P1: p1, P2: 0, P3: 0, P4: 0, P5: 0, P6: 0,
+        total: p1,
       }
     })
 
-    const totalKwh = result.consumptionHistory.reduce((s, e) => s + e.total, 0)
-    result.totalConsumptionKwh = totalKwh
-    result.totalConsumption = `${Math.round(totalKwh).toLocaleString('es-ES')} kWh`
-    result.consumoPeriodos = { P1: totalKwh, P2: 0, P3: 0, P4: 0, P5: 0, P6: 0 }
+    // "Consumo Anual" = last 12 months only (matching portal's calculation)
+    const now = new Date()
+    const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate())
+    const last12 = result.consumptionHistory.filter(e => {
+      const d = new Date(e.fechaFin || e.fecha)
+      return d >= oneYearAgo
+    })
+
+    const annualKwh = last12.reduce((s, e) => s + e.total, 0)
+    const allTimeKwh = result.consumptionHistory.reduce((s, e) => s + e.total, 0)
+    dbg(`Consumo: annual(12m)=${annualKwh} allTime=${allTimeKwh} entries12m=${last12.length}`)
+
+    result.totalConsumptionKwh = annualKwh
+    result.totalConsumption = `${Math.round(annualKwh).toLocaleString('es-ES')} kWh`
+    result.consumoPeriodos = { P1: annualKwh, P2: 0, P3: 0, P4: 0, P5: 0, P6: 0 }
   } else {
     result.totalConsumptionKwh = 0
     result.totalConsumption = '0 kWh'
