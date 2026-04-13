@@ -555,14 +555,16 @@ function parseSigeResponse(cups: string, data: SigeSipsResponse): SipsData {
       }
     })
 
-    // Sum ALL entries — the SIPS database only returns the relevant period
-    // (matching how the TotalEnergies portal calculates "Consumo Anual")
-    const totalKwh = result.consumptionHistory.reduce((s, e) => s + e.total, 0)
-    dbg(`Consumo: total=${totalKwh} entries=${result.consumptionHistory.length}`)
+    // "Consumo Anual" = last 12 entries (matching TotalEnergies portal)
+    // The SIPS DB may return 18-24 months of data; portal sums only the last 12.
+    const last12 = result.consumptionHistory.slice(-12)
+    const annualKwh = last12.reduce((s, e) => s + e.total, 0)
+    const allKwh = result.consumptionHistory.reduce((s, e) => s + e.total, 0)
+    dbg(`Consumo: annual(last12)=${annualKwh} allTime(${result.consumptionHistory.length}entries)=${allKwh}`)
 
-    result.totalConsumptionKwh = totalKwh
-    result.totalConsumption = `${Math.round(totalKwh).toLocaleString('es-ES')} kWh`
-    result.consumoPeriodos = { P1: totalKwh, P2: 0, P3: 0, P4: 0, P5: 0, P6: 0 }
+    result.totalConsumptionKwh = annualKwh
+    result.totalConsumption = `${Math.round(annualKwh).toLocaleString('es-ES')} kWh`
+    result.consumoPeriodos = { P1: annualKwh, P2: 0, P3: 0, P4: 0, P5: 0, P6: 0 }
   } else {
     result.totalConsumptionKwh = 0
     result.totalConsumption = '0 kWh'
