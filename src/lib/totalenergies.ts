@@ -18,7 +18,13 @@ const SIPS_GAS_URL = `${SIGE_BASE}/api/v1/SIPS/GAS/GetClientesPost`
 const LOGIN_URL = `${SIGE_BASE}/api/v1/Usuario/LoginPost`
 
 // Gigya CDC (SAP Customer Data Cloud) for automated login
-const GIGYA_BASE = 'https://gigya.connectpro.totalenergies.com'
+// The site proxy (gigya.connectpro.totalenergies.com) returns 500 from server-side.
+// Use the direct Gigya REST API at the EU data center instead.
+const GIGYA_ENDPOINTS = [
+  'https://accounts.eu1.gigya.com',
+  'https://accounts.eu2.gigya.com',
+  'https://accounts.gigya.com',
+]
 const GIGYA_API_KEY = '3_86LLJ8oxhMd9Tk27SuTp5z9SstBGZ8I--VIgS89iQ8RMT-79QfXT8yluZyVzr5tQ'
 
 // ─── Cached state ───────────────────────────────────────────────────
@@ -120,6 +126,7 @@ async function tryGigyaLogin(cups: string): Promise<Response | null> {
 
   try {
     // Step 1: Call Gigya accounts.login with email + password
+    // Try multiple Gigya data center endpoints (site proxy returns 500 server-side)
     const loginParams = new URLSearchParams({
       apiKey: GIGYA_API_KEY,
       loginID: creds.email,
@@ -131,42 +138,63 @@ async function tryGigyaLogin(cups: string): Promise<Response | null> {
       format: 'json',
     })
 
-    const gigyaRes = await fetch(`${GIGYA_BASE}/accounts.login`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Origin': 'https://connectpro.totalenergies.com',
-        'Referer': 'https://connectpro.totalenergies.com/',
-      },
-      body: loginParams.toString(),
-    })
+    let gigyaData: any = null
+    let sessionToken: string | null = null
 
-    const gigyaBody = await gigyaRes.text()
-    dbg(`S0:Gigya:status=${gigyaRes.status}`)
+    for (const endpoint of GIGYA_ENDPOINTS) {
+      try {
+        dbg(`S0:trying:${endpoint}`)
+        const gigyaRes = await fetch(`${endpoint}/accounts.login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: loginParams.toString(),
+        })
 
-    let gigyaData: any
-    try { gigyaData = JSON.parse(gigyaBody) } catch {
-      dbg(`S0:Gigya:not_json=${gigyaBody.substring(0, 80)}`)
-      return null
+        const gigyaBody = await gigyaRes.text()
+        dbg(`S0:${endpoint.split('//')[1]?.split('.')[0]}:status=${gigyaRes.status}`)
+
+        try { gigyaData = JSON.parse(gigyaBody) } catch {
+          dbg(`S0:not_json=${gigyaBody.substring(0, 60)}`)
+          continue
+        }
+
+        // Gigya error 301001 = "Invalid data center" — try next endpoint
+        if (gigyaData.errorCode === 301001) {
+          dbg(`S0:wrong_dc`)
+          continue
+        }
+
+        // Gigya error 403005 = "Unauthorized" — API key not valid for this DC
+        if (gigyaData.errorCode === 403005) {
+          dbg(`S0:wrong_dc_403005`)
+          continue
+        }
+
+        // Any other non-zero error
+        if (gigyaData.errorCode !== 0) {
+          dbg(`S0:Gigya:err=${gigyaData.errorCode}:${(gigyaData.errorMessage || gigyaData.errorDetails || '').substring(0, 60)}`)
+          // Don't continue — this is a real error (bad creds, captcha, etc.)
+          break
+        }
+
+        // Success! Extract session token
+        sessionToken = gigyaData.sessionInfo?.sessionToken ||
+                       gigyaData.sessionToken ||
+                       gigyaData.id_token ||
+                       null
+        break
+      } catch (err: any) {
+        dbg(`S0:${endpoint}:fetch_err=${err.message.substring(0, 40)}`)
+        continue
+      }
     }
-
-    // Gigya returns errorCode 0 on success
-    if (gigyaData.errorCode !== 0) {
-      dbg(`S0:Gigya:err=${gigyaData.errorCode}:${(gigyaData.errorMessage || gigyaData.errorDetails || '').substring(0, 60)}`)
-      return null
-    }
-
-    // Extract session token — it's in sessionInfo.sessionToken
-    const sessionToken = gigyaData.sessionInfo?.sessionToken ||
-                         gigyaData.sessionToken ||
-                         gigyaData.id_token ||
-                         null
 
     if (!sessionToken) {
-      dbg(`S0:Gigya:no_token_in_response keys=[${Object.keys(gigyaData).join(',')}]`)
-      // Log sessionInfo if present
-      if (gigyaData.sessionInfo) {
-        dbg(`S0:sessionInfo_keys=[${Object.keys(gigyaData.sessionInfo).join(',')}]`)
+      if (gigyaData) {
+        dbg(`S0:Gigya:no_token keys=[${Object.keys(gigyaData).join(',')}]`)
+        if (gigyaData.sessionInfo) {
+          dbg(`S0:sessionInfo=[${Object.keys(gigyaData.sessionInfo).join(',')}]`)
+        }
       }
       return null
     }
