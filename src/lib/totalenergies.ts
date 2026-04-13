@@ -1,13 +1,13 @@
 /**
  * TotalEnergies SIPS Gas integration — Multi-strategy approach.
  *
+ * Strategy 0 (PRIMARY): Gigya CDC REST API login → obtain st2.s.* session token
  * Strategy 1: Direct User/Password headers on data endpoints (no login step)
  * Strategy 2: LoginPost → extract token → use token on data endpoints
- * Strategy 3: CNMC official SIPS API (if configured)
+ * Strategy 3: Manual token from env var (fallback)
+ * Strategy 4: CNMC official SIPS API (if configured)
  *
- * The SigeEnergia API at apipatotallb.sigeenergia.com accepts
- * User + Password as custom request headers (confirmed by CORS config).
- * The portal at agentes.totalenergies.es uses this same mechanism.
+ * The Gigya login automates token refresh — no more manual token updates.
  */
 
 import type { SipsData } from '@/lib/sips'
@@ -16,6 +16,10 @@ import type { SipsData } from '@/lib/sips'
 const SIGE_BASE = 'https://apipatotallb.sigeenergia.com'
 const SIPS_GAS_URL = `${SIGE_BASE}/api/v1/SIPS/GAS/GetClientesPost`
 const LOGIN_URL = `${SIGE_BASE}/api/v1/Usuario/LoginPost`
+
+// Gigya CDC (SAP Customer Data Cloud) for automated login
+const GIGYA_BASE = 'https://gigya.connectpro.totalenergies.com'
+const GIGYA_API_KEY = '3_86LLJ8oxhMd9Tk27SuTp5z9SstBGZ8I--VIgS89iQ8RMT-79QfXT8yluZyVzr5tQ'
 
 // ─── Cached state ───────────────────────────────────────────────────
 let cachedToken: string | null = null
@@ -84,6 +88,161 @@ async function tryFetch(
     dbg(`${label}:ERR[${err.message.substring(0, 60)}]`)
     return { label, response: null, status: 0, error: err.message }
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  STRATEGY 0 (PRIMARY): Gigya CDC REST API Login
+//  Calls accounts.login directly with email+password to get a
+//  session token (st2.s.*), then uses it on the SIPS API.
+//  This eliminates the need for manual token updates.
+// ═══════════════════════════════════════════════════════════════════
+
+async function tryGigyaLogin(cups: string): Promise<Response | null> {
+  const creds = getCredentials()
+  if (!creds) { dbg('S0:no_creds'); return null }
+
+  // Check if we have a cached token that hasn't expired
+  if (cachedToken && Date.now() < tokenExpiry) {
+    dbg('S0:using_cached_token')
+    const res = await tryFetch('GigyaCached', SIPS_GAS_URL, {
+      method: 'POST',
+      headers: { ...BASE_HEADERS, 'Authorization': `Bearer ${cachedToken}` },
+      body: sipsBody(cups),
+    })
+    if (res.response) return res.response
+    // Token expired despite our timer — clear it and continue to login
+    cachedToken = null
+    tokenExpiry = 0
+    dbg('S0:cached_expired')
+  }
+
+  dbg('S0:GigyaLogin')
+
+  try {
+    // Step 1: Call Gigya accounts.login with email + password
+    const loginParams = new URLSearchParams({
+      apiKey: GIGYA_API_KEY,
+      loginID: creds.email,
+      password: creds.password,
+      targetEnv: 'jssdk',
+      include: 'profile,data,',
+      includeUserInfo: 'true',
+      lang: 'en',
+      format: 'json',
+    })
+
+    const gigyaRes = await fetch(`${GIGYA_BASE}/accounts.login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Origin': 'https://connectpro.totalenergies.com',
+        'Referer': 'https://connectpro.totalenergies.com/',
+      },
+      body: loginParams.toString(),
+    })
+
+    const gigyaBody = await gigyaRes.text()
+    dbg(`S0:Gigya:status=${gigyaRes.status}`)
+
+    let gigyaData: any
+    try { gigyaData = JSON.parse(gigyaBody) } catch {
+      dbg(`S0:Gigya:not_json=${gigyaBody.substring(0, 80)}`)
+      return null
+    }
+
+    // Gigya returns errorCode 0 on success
+    if (gigyaData.errorCode !== 0) {
+      dbg(`S0:Gigya:err=${gigyaData.errorCode}:${(gigyaData.errorMessage || gigyaData.errorDetails || '').substring(0, 60)}`)
+      return null
+    }
+
+    // Extract session token — it's in sessionInfo.sessionToken
+    const sessionToken = gigyaData.sessionInfo?.sessionToken ||
+                         gigyaData.sessionToken ||
+                         gigyaData.id_token ||
+                         null
+
+    if (!sessionToken) {
+      dbg(`S0:Gigya:no_token_in_response keys=[${Object.keys(gigyaData).join(',')}]`)
+      // Log sessionInfo if present
+      if (gigyaData.sessionInfo) {
+        dbg(`S0:sessionInfo_keys=[${Object.keys(gigyaData.sessionInfo).join(',')}]`)
+      }
+      return null
+    }
+
+    dbg(`S0:Gigya:token=${sessionToken.substring(0, 25)}...`)
+
+    // Cache the token (Gigya sessions last ~6h, we'll use 5h to be safe)
+    cachedToken = sessionToken
+    tokenExpiry = Date.now() + 5 * 60 * 60 * 1000
+
+    // Step 2: Use the session token on the SIPS data endpoint
+    const body = sipsBody(cups)
+
+    // Try Bearer auth (most common)
+    const r1 = await tryFetch('Gigya(Bearer)', SIPS_GAS_URL, {
+      method: 'POST',
+      headers: { ...BASE_HEADERS, 'Authorization': `Bearer ${sessionToken}` },
+      body,
+    })
+    if (r1.response) return r1.response
+
+    // The SIPS API might need the token validated via LoginPost first
+    // LoginPost with Bearer token to get SigeEnergia session
+    dbg('S0:trying_LoginPost_with_gigya_token')
+    const loginRes = await fetch(LOGIN_URL, {
+      method: 'POST',
+      headers: {
+        ...BASE_HEADERS,
+        'Authorization': `Bearer ${sessionToken}`,
+      },
+      body: JSON.stringify({}),
+    })
+
+    if (loginRes.ok) {
+      const loginBody = await loginRes.text()
+      dbg(`S0:LoginPost:${loginRes.status}:${loginBody.substring(0, 80)}`)
+
+      // Extract possible SigeEnergia token from LoginPost response
+      let sigeToken: string | null = null
+      const authHeader = loginRes.headers.get('Authorization')
+      if (authHeader) {
+        sigeToken = authHeader.replace(/^Bearer\s+/i, '')
+      }
+      if (!sigeToken) {
+        try {
+          const d = JSON.parse(loginBody)
+          sigeToken = d.token || d.Token || d.access_token || d.sessionToken || null
+        } catch {}
+      }
+
+      if (sigeToken) {
+        dbg(`S0:SigeToken=${sigeToken.substring(0, 25)}...`)
+        const r2 = await tryFetch('Gigya(SigeToken)', SIPS_GAS_URL, {
+          method: 'POST',
+          headers: { ...BASE_HEADERS, 'Authorization': `Bearer ${sigeToken}` },
+          body,
+        })
+        if (r2.response) return r2.response
+      }
+    } else {
+      dbg(`S0:LoginPost:${loginRes.status}`)
+    }
+
+    // Try Validacion header
+    const r3 = await tryFetch('Gigya(Validacion)', SIPS_GAS_URL, {
+      method: 'POST',
+      headers: { ...BASE_HEADERS, 'Validacion': sessionToken },
+      body,
+    })
+    if (r3.response) return r3.response
+
+  } catch (err: any) {
+    dbg(`S0:err=${err.message.substring(0, 80)}`)
+  }
+
+  return null
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -407,6 +566,18 @@ export async function fetchTotalEnergiesSipsGas(
 
   if (!creds && !process.env.TOTALENERGIES_TOKEN) {
     throw new Error('No hay credenciales configuradas. Configura TOTALENERGIES_EMAIL + TOTALENERGIES_PASSWORD en Vercel.')
+  }
+
+  // ── Strategy 0: Gigya automated login (PRIMARY — no manual token needed) ──
+  try {
+    const res = await tryGigyaLogin(cups)
+    if (res) {
+      const data = await res.json()
+      dbg('S0 SUCCESS')
+      return parseSigeResponse(cups, data)
+    }
+  } catch (err: any) {
+    dbg(`S0 ERR: ${err.message.substring(0, 80)}`)
   }
 
   // ── Strategy 1: Direct credentials (fastest, no login step) ──
