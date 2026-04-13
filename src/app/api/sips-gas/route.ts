@@ -60,6 +60,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Strategy A: Try ADX Energía first (more reliable auth)
+    let adxError: string | null = null
     const hasAdx = process.env.ADX_SESSION || process.env.ADX_USER
     if (hasAdx) {
       try {
@@ -68,14 +69,29 @@ export async function POST(request: NextRequest) {
         console.log('[SIPS-GAS] ADX SUCCESS')
         return NextResponse.json({ success: true, data, source: 'adx' })
       } catch (adxErr: any) {
-        console.log('[SIPS-GAS] ADX failed:', adxErr.message?.substring(0, 100))
-        // Fall through to TotalEnergies
+        adxError = adxErr.message || 'Unknown ADX error'
+        console.log('[SIPS-GAS] ADX failed:', adxError?.substring(0, 100))
       }
     }
 
     // Strategy B: TotalEnergies (fallback)
-    const data = await fetchTotalEnergiesSipsGas(cleanCups)
-    return NextResponse.json({ success: true, data, source: 'totalenergies' })
+    const hasTe = process.env.TOTALENERGIES_EMAIL || process.env.TOTALENERGIES_TOKEN
+    if (hasTe) {
+      try {
+        const data = await fetchTotalEnergiesSipsGas(cleanCups)
+        return NextResponse.json({ success: true, data, source: 'totalenergies' })
+      } catch (teErr: any) {
+        const teError = teErr.message || 'Unknown TE error'
+        const combined = [adxError ? `ADX: ${adxError}` : null, `TE: ${teError}`].filter(Boolean).join(' | ')
+        throw new Error(combined)
+      }
+    }
+
+    // Neither source worked — show ADX error if available
+    if (adxError) {
+      throw new Error(adxError)
+    }
+    throw new Error('No hay fuentes SIPS Gas configuradas. Configura ADX_SESSION+ADX_TOKEN o TOTALENERGIES_EMAIL+TOTALENERGIES_PASSWORD en Vercel.')
 
   } catch (error: any) {
     console.error('[SIPS-GAS] Route error:', error)
