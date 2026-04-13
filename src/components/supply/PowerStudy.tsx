@@ -140,13 +140,16 @@ function calcAdjustments(
 // SVG CHART BUILDERS (pure functions → reusable in PDF/Excel export)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function buildConsumptionSVG(meses: PowerStudyResult['meses']): string {
+export function buildConsumptionSVG(rawMeses: PowerStudyResult['meses']): string {
   const W = 820, H = 300
   const m = { top: 24, right: 20, bottom: 80, left: 64 }
   const cW = W - m.left - m.right
   const cH = H - m.top - m.bottom
 
-  if (!meses?.length) return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"></svg>`
+  if (!rawMeses?.length) return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"></svg>`
+
+  // Sort chronologically: oldest first (left) → newest last (right)
+  const meses = [...rawMeses].sort((a, b) => new Date(a.fechaFin).getTime() - new Date(b.fechaFin).getTime())
 
   // Active periods (have any data)
   const activePeriods = PERIODS.filter(p => meses.some(mes => (mes.consumo?.[p] ?? 0) > 0))
@@ -235,7 +238,7 @@ export function buildConsumptionSVG(meses: PowerStudyResult['meses']): string {
 }
 
 export function buildMaximetroSVG(
-  meses: PowerStudyResult['meses'],
+  rawMeses: PowerStudyResult['meses'],
   potenciaContratada?: Record<string, number>
 ): string {
   const W = 820, H = 300
@@ -243,7 +246,10 @@ export function buildMaximetroSVG(
   const cW = W - m.left - m.right
   const cH = H - m.top - m.bottom
 
-  if (!meses?.length) return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"></svg>`
+  if (!rawMeses?.length) return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"></svg>`
+
+  // Sort chronologically: oldest first (left) → newest last (right)
+  const meses = [...rawMeses].sort((a, b) => new Date(a.fechaFin).getTime() - new Date(b.fechaFin).getTime())
 
   const activePeriods = PERIODS.filter(p =>
     meses.some(mes => (mes.maximetro?.[p] ?? 0) > 0)
@@ -451,9 +457,11 @@ export function PowerStudy({
   }, [clientName, pc, onStudyGenerated])
 
   // ── Convert SVG div to PNG base64 ───────────────────────────────────────
-  async function svgDivToPng(divRef: React.RefObject<HTMLDivElement | null>): Promise<string | undefined> {
+  async function svgDivToPng(divRef: React.RefObject<HTMLDivElement | null>, scale = 2): Promise<string | undefined> {
     const svg = divRef.current?.querySelector('svg')
     if (!svg) return undefined
+    const w = parseInt(svg.getAttribute('width') || '820')
+    const h = parseInt(svg.getAttribute('height') || '300')
     const svgStr = new XMLSerializer().serializeToString(svg)
     const blob = new Blob([svgStr], { type: 'image/svg+xml' })
     const url = URL.createObjectURL(blob)
@@ -461,11 +469,12 @@ export function PowerStudy({
       const img = new Image()
       img.onload = () => {
         const canvas = document.createElement('canvas')
-        canvas.width = 820; canvas.height = 300
+        canvas.width = w * scale; canvas.height = h * scale
         const ctx = canvas.getContext('2d')!
         ctx.fillStyle = '#ffffff'
-        ctx.fillRect(0, 0, 820, 300)
-        ctx.drawImage(img, 0, 0)
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+        ctx.scale(scale, scale)
+        ctx.drawImage(img, 0, 0, w, h)
         URL.revokeObjectURL(url)
         resolve(canvas.toDataURL('image/png'))
       }
@@ -835,7 +844,8 @@ function DataTable({
   pc: Record<string, number> | undefined
   adjustments: PeriodAdjustment[]
 }) {
-  const meses = study.meses ?? []
+  // Table: most recent first (descending by fechaFin)
+  const meses = [...(study.meses ?? [])].sort((a, b) => new Date(b.fechaFin).getTime() - new Date(a.fechaFin).getTime())
   const hasMax = meses.some(m => PERIODS.some(p => (m.maximetro?.[p] ?? 0) > 0))
 
   // Color scales — computed from all data

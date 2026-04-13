@@ -41,6 +41,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const body = await request.json()
     const study: PowerStudyResult = body.study ?? body
     const pc = study.potenciaContratada ?? ({} as Record<string, number>)
+    // Client may send browser-rendered chart PNGs (base64 data URLs)
+    const clientCharts = body.charts as { consumption?: string; maximetro?: string } | undefined
 
     // ── Load template ─────────────────────────────────────────────────────────
     const templatePath = path.join(process.cwd(), 'public', 'templates', 'estudio-potencias-template.xlsx')
@@ -97,8 +99,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     }
 
-    // ── Fill data rows (sorted chronologically: oldest → newest) ─────────────
-    const meses = [...(study.meses ?? [])].sort((a, b) => new Date(a.fechaFin).getTime() - new Date(b.fechaFin).getTime())
+    // ── Fill data rows (sorted: most recent first) ─────────────
+    const meses = [...(study.meses ?? [])].sort((a, b) => new Date(b.fechaFin).getTime() - new Date(a.fechaFin).getTime())
     meses.forEach((m, i) => {
       const r = DATA_START_ROW + i
       ws.getCell(r, 1).value = { formula: `SUM(D${r}:I${r})` }
@@ -118,13 +120,35 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       })
     })
 
-    // ── Generate chart PNGs server-side ───────────────────────────────────────
-    const consumoSvg = buildConsumptionSVG(study.meses, 820, 300)
-    const maximetroSvg = buildMaximetroSVG(study.meses, pc as Record<string, number>, 820, 300)
-    const [consumoPng, maximetroPng] = await Promise.all([
-      svgToPng(consumoSvg, 1640, 600),   // 2x for sharpness
-      svgToPng(maximetroSvg, 1640, 600),
-    ])
+    // ── Chart PNGs: prefer browser-rendered (fonts work), fall back to server-side
+    let consumoPng: Buffer | null = null
+    let maximetroPng: Buffer | null = null
+
+    // Use client-provided PNGs if available (base64 data URLs from browser canvas)
+    if (clientCharts?.consumption) {
+      try {
+        const b64 = clientCharts.consumption.replace(/^data:image\/\w+;base64,/, '')
+        consumoPng = Buffer.from(b64, 'base64')
+      } catch { /* fall through to server-side */ }
+    }
+    if (clientCharts?.maximetro) {
+      try {
+        const b64 = clientCharts.maximetro.replace(/^data:image\/\w+;base64,/, '')
+        maximetroPng = Buffer.from(b64, 'base64')
+      } catch { /* fall through to server-side */ }
+    }
+
+    // Fallback: generate server-side (may have font issues on Vercel)
+    if (!consumoPng || !maximetroPng) {
+      const consumoSvg = buildConsumptionSVG(study.meses, 820, 300)
+      const maximetroSvg = buildMaximetroSVG(study.meses, pc as Record<string, number>, 820, 300)
+      const [serverConsumoPng, serverMaximetroPng] = await Promise.all([
+        svgToPng(consumoSvg, 1640, 600),
+        svgToPng(maximetroSvg, 1640, 600),
+      ])
+      if (!consumoPng) consumoPng = serverConsumoPng
+      if (!maximetroPng) maximetroPng = serverMaximetroPng
+    }
 
     // ── Serialize with ExcelJS ────────────────────────────────────────────────
     const excelBuffer = Buffer.from(await wb.xlsx.writeBuffer())
