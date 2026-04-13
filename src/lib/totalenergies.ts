@@ -555,21 +555,14 @@ function parseSigeResponse(cups: string, data: SigeSipsResponse): SipsData {
       }
     })
 
-    // "Consumo Anual" = last 12 months only (matching portal's calculation)
-    const now = new Date()
-    const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate())
-    const last12 = result.consumptionHistory.filter(e => {
-      const d = new Date(e.fechaFin || e.fecha)
-      return d >= oneYearAgo
-    })
+    // Sum ALL entries — the SIPS database only returns the relevant period
+    // (matching how the TotalEnergies portal calculates "Consumo Anual")
+    const totalKwh = result.consumptionHistory.reduce((s, e) => s + e.total, 0)
+    dbg(`Consumo: total=${totalKwh} entries=${result.consumptionHistory.length}`)
 
-    const annualKwh = last12.reduce((s, e) => s + e.total, 0)
-    const allTimeKwh = result.consumptionHistory.reduce((s, e) => s + e.total, 0)
-    dbg(`Consumo: annual(12m)=${annualKwh} allTime=${allTimeKwh} entries12m=${last12.length}`)
-
-    result.totalConsumptionKwh = annualKwh
-    result.totalConsumption = `${Math.round(annualKwh).toLocaleString('es-ES')} kWh`
-    result.consumoPeriodos = { P1: annualKwh, P2: 0, P3: 0, P4: 0, P5: 0, P6: 0 }
+    result.totalConsumptionKwh = totalKwh
+    result.totalConsumption = `${Math.round(totalKwh).toLocaleString('es-ES')} kWh`
+    result.consumoPeriodos = { P1: totalKwh, P2: 0, P3: 0, P4: 0, P5: 0, P6: 0 }
   } else {
     result.totalConsumptionKwh = 0
     result.totalConsumption = '0 kWh'
