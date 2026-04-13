@@ -538,20 +538,23 @@ function parseSigeResponse(cups: string, data: SigeSipsResponse): SipsData {
         new Date(b.FechaInicioMesConsumo).getTime()
     )
 
-    // Log first entry for debugging units/values
+    // Log first entry for debugging — check if ConsumoEnWh (total) field exists
     const sample = sorted[0]
-    dbg(`ConsumoSample: P1=${sample.ConsumoEnWhP1} P2=${sample.ConsumoEnWhP2} dates=${sample.FechaInicioMesConsumo}→${sample.FechaFinMesConsumo}`)
+    dbg(`ConsumoSample: P1=${sample.ConsumoEnWhP1} P2=${sample.ConsumoEnWhP2} total=${sample.ConsumoEnWh} dates=${sample.FechaInicioMesConsumo}→${sample.FechaFinMesConsumo}`)
     dbg(`ConsumosSips count: ${sorted.length} entries`)
 
-    // For gas: use only P1 (P2 often duplicates P1 or is a different measurement)
+    // For gas: prefer ConsumoEnWh (total field) if it exists and differs from P1,
+    // otherwise fall back to P1. Do NOT round per-entry to preserve precision.
     result.consumptionHistory = sorted.map(entry => {
-      const p1 = Math.round(entry.ConsumoEnWhP1 || 0)
+      const p1 = entry.ConsumoEnWhP1 || 0
+      const totalField = entry.ConsumoEnWh != null ? Number(entry.ConsumoEnWh) : null
+      const consumption = (totalField != null && totalField > 0) ? totalField : p1
       return {
         fecha: entry.FechaFinMesConsumo,
         fechaInicio: entry.FechaInicioMesConsumo,
         fechaFin: entry.FechaFinMesConsumo,
-        P1: p1, P2: 0, P3: 0, P4: 0, P5: 0, P6: 0,
-        total: p1,
+        P1: Math.round(consumption), P2: 0, P3: 0, P4: 0, P5: 0, P6: 0,
+        total: consumption,
       }
     })
 
@@ -560,11 +563,11 @@ function parseSigeResponse(cups: string, data: SigeSipsResponse): SipsData {
     const last12 = result.consumptionHistory.slice(-12)
     const annualKwh = last12.reduce((s, e) => s + e.total, 0)
     const allKwh = result.consumptionHistory.reduce((s, e) => s + e.total, 0)
-    dbg(`Consumo: annual(last12)=${annualKwh} allTime(${result.consumptionHistory.length}entries)=${allKwh}`)
+    dbg(`Consumo: annual(last12)=${Math.round(annualKwh)} allTime(${result.consumptionHistory.length}entries)=${Math.round(allKwh)}`)
 
-    result.totalConsumptionKwh = annualKwh
+    result.totalConsumptionKwh = Math.round(annualKwh)
     result.totalConsumption = `${Math.round(annualKwh).toLocaleString('es-ES')} kWh`
-    result.consumoPeriodos = { P1: annualKwh, P2: 0, P3: 0, P4: 0, P5: 0, P6: 0 }
+    result.consumoPeriodos = { P1: Math.round(annualKwh), P2: 0, P3: 0, P4: 0, P5: 0, P6: 0 }
   } else {
     result.totalConsumptionKwh = 0
     result.totalConsumption = '0 kWh'
