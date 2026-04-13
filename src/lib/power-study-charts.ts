@@ -53,14 +53,21 @@ export function buildConsumptionSVG(rawMeses: PowerStudyResult['meses'], width =
   const xOf = (i: number) => m.left + slotW * i + slotW / 2
 
   let paths = ''
+  let dataLabels = ''
   for (let i = 0; i < meses.length; i++) {
     let stackY = cH
+    const total = meses[i].consumoTotal ?? 0
     for (const p of activePeriods) {
       const v = meses[i].consumo?.[p] ?? 0
       if (v <= 0) continue
       const barH = (v / yMax) * cH
       stackY -= barH
       paths += `<rect x="${(xOf(i) - barW/2).toFixed(1)}" y="${(m.top + stackY).toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${PERIOD_COLORS[p]}" />`
+    }
+    if (total > 0) {
+      const labelY = m.top + stackY - 4
+      const fmtVal = total >= 1000 ? (total / 1000).toFixed(1) + 'k' : Math.round(total).toString()
+      dataLabels += `<text x="${xOf(i).toFixed(1)}" y="${labelY.toFixed(1)}" text-anchor="middle" font-size="${meses.length > 18 ? 7 : 9}" fill="#374151" font-weight="bold" font-family="${SVG_FONT}">${fmtVal}</text>`
     }
   }
 
@@ -90,7 +97,7 @@ export function buildConsumptionSVG(rawMeses: PowerStudyResult['meses'], width =
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" style="background:#fff">
     <text x="${W/2}" y="18" text-anchor="middle" font-size="13" font-weight="bold" fill="#111827" font-family="${SVG_FONT}">CONSUMO MENSUAL (kWh)</text>
-    ${grid}${paths}
+    ${grid}${paths}${dataLabels}
     <line x1="${m.left}" y1="${m.top}" x2="${m.left}" y2="${m.top+cH}" stroke="#9CA3AF"/>
     <line x1="${m.left}" y1="${m.top+cH}" x2="${m.left+cW}" y2="${m.top+cH}" stroke="#9CA3AF"/>
     ${xLabels}
@@ -123,6 +130,7 @@ export function buildMaximetroSVG(rawMeses: PowerStudyResult['meses'], potenciaC
   const groupPad = (groupW - barW * barsPerGroup) / 2
 
   let bars = ''
+  let maxLabels = ''
   for (let i = 0; i < meses.length; i++) {
     for (let pi = 0; pi < activePeriods.length; pi++) {
       const p = activePeriods[pi]
@@ -130,7 +138,11 @@ export function buildMaximetroSVG(rawMeses: PowerStudyResult['meses'], potenciaC
       if (v <= 0) continue
       const x = m.left + i * groupW + groupPad + pi * barW
       const barH = (v / yMax) * cH
-      bars += `<rect x="${x.toFixed(1)}" y="${(m.top + yScale(v)).toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${PERIOD_COLORS[p]}" opacity="0.85" />`
+      const y = m.top + yScale(v)
+      bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${PERIOD_COLORS[p]}" opacity="0.85" />`
+      if (meses.length <= 18 || pi === 0) {
+        maxLabels += `<text x="${(x + barW / 2).toFixed(1)}" y="${(y - 3).toFixed(1)}" text-anchor="middle" font-size="${meses.length > 14 ? 6 : 8}" fill="#374151" font-family="${SVG_FONT}">${Math.round(v)}</text>`
+      }
     }
   }
 
@@ -174,7 +186,7 @@ export function buildMaximetroSVG(rawMeses: PowerStudyResult['meses'], potenciaC
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" style="background:#fff">
     <text x="${W/2}" y="18" text-anchor="middle" font-size="13" font-weight="bold" fill="#111827" font-family="${SVG_FONT}">MAXÍMETROS MENSUALES (kW)</text>
-    ${grid}${refLines}${bars}
+    ${grid}${refLines}${bars}${maxLabels}
     <line x1="${m.left}" y1="${m.top}" x2="${m.left}" y2="${m.top+cH}" stroke="#9CA3AF"/>
     <line x1="${m.left}" y1="${m.top+cH}" x2="${m.left+cW}" y2="${m.top+cH}" stroke="#9CA3AF"/>
     ${xLabels}

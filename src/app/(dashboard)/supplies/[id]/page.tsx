@@ -1352,7 +1352,11 @@ export default function SupplyDetailPage() {
               inactiveClass: 'border-outline-variant/30 bg-white text-on-surface hover:border-amber-300 hover:bg-amber-50/40',
               dot: supply.power_study_result ? 'bg-amber-500' : 'bg-gray-300',
             },
-          ]).map(tab => {
+          ]).filter(tab => {
+            // Hide POTENCIAS Y CONSUMOS for gas supplies
+            if (tab.key === 'potencias' && (supply.type === 'gas' || /^RL/i.test(supply.tariff || ''))) return false
+            return true
+          }).map(tab => {
             const Icon = tab.icon
             const isActive = activeTab === tab.key
             return (
@@ -1823,7 +1827,7 @@ export default function SupplyDetailPage() {
         )}
 
         {/* ═══════ POTENCIAS Y CONSUMOS panel ═══════ */}
-        {activeTab === 'potencias' && supply.cups && (
+        {activeTab === 'potencias' && supply.cups && supply.type !== 'gas' && !/^RL/i.test(supply.tariff || '') && (
           <PowerStudy
             supplyId={supply.id}
             cups={supply.cups}

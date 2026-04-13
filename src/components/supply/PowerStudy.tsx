@@ -162,9 +162,11 @@ export function buildConsumptionSVG(meses: PowerStudyResult['meses']): string {
   const xOf = (i: number) => m.left + slotW * i + slotW / 2
 
   let paths = ''
+  let dataLabels = ''
   // Stacked bars
   for (let i = 0; i < meses.length; i++) {
     let stackY = cH
+    const total = meses[i].consumoTotal ?? 0
     for (const p of activePeriods) {
       const v = meses[i].consumo?.[p] ?? 0
       if (v <= 0) continue
@@ -172,6 +174,12 @@ export function buildConsumptionSVG(meses: PowerStudyResult['meses']): string {
       stackY -= barH
       const x = xOf(i) - barW / 2
       paths += `<rect x="${x.toFixed(1)}" y="${(m.top + stackY).toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${PERIOD_COLORS[p]}" />`
+    }
+    // Data label on top of each bar (total)
+    if (total > 0) {
+      const labelY = m.top + stackY - 4
+      const fmtVal = total >= 1000 ? (total / 1000).toFixed(1) + 'k' : Math.round(total).toString()
+      dataLabels += `<text x="${xOf(i).toFixed(1)}" y="${labelY.toFixed(1)}" text-anchor="middle" font-size="${meses.length > 18 ? 6 : 8}" fill="#374151" font-family="Arial, sans-serif" font-weight="bold">${fmtVal}</text>`
     }
   }
 
@@ -217,6 +225,7 @@ export function buildConsumptionSVG(meses: PowerStudyResult['meses']): string {
   ${title}
   ${gridLines}
   ${paths}
+  ${dataLabels}
   <line x1="${m.left}" y1="${m.top}" x2="${m.left}" y2="${m.top + cH}" stroke="#9CA3AF" stroke-width="1"/>
   <line x1="${m.left}" y1="${m.top + cH}" x2="${m.left + cW}" y2="${m.top + cH}" stroke="#9CA3AF" stroke-width="1"/>
   ${xLabels}
@@ -259,6 +268,7 @@ export function buildMaximetroSVG(
   const groupPad = (groupW - barW * barsPerGroup) / 2
 
   let bars = ''
+  let maxLabels = ''
   for (let i = 0; i < meses.length; i++) {
     for (let pi = 0; pi < activePeriods.length; pi++) {
       const p = activePeriods[pi]
@@ -268,6 +278,10 @@ export function buildMaximetroSVG(
       const barH = (v / yMax) * cH
       const y = m.top + yScale(v)
       bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${PERIOD_COLORS[p]}" opacity="0.85" />`
+      // Data label on top of each bar (only if enough space)
+      if (meses.length <= 18 || pi === 0) {
+        maxLabels += `<text x="${(x + barW / 2).toFixed(1)}" y="${(y - 3).toFixed(1)}" text-anchor="middle" font-size="${meses.length > 14 ? 5 : 7}" fill="#374151" font-family="Arial, sans-serif">${Math.round(v)}</text>`
+      }
     }
   }
 
@@ -328,6 +342,7 @@ export function buildMaximetroSVG(
   ${gridLines}
   ${refLines}
   ${bars}
+  ${maxLabels}
   <line x1="${m.left}" y1="${m.top}" x2="${m.left}" y2="${m.top + cH}" stroke="#9CA3AF" stroke-width="1"/>
   <line x1="${m.left}" y1="${m.top + cH}" x2="${m.left + cW}" y2="${m.top + cH}" stroke="#9CA3AF" stroke-width="1"/>
   ${xLabels}
