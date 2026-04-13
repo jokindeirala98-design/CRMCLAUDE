@@ -18,18 +18,10 @@ const SIPS_GAS_URL = `${SIGE_BASE}/api/v1/SIPS/GAS/GetClientesPost`
 const LOGIN_URL = `${SIGE_BASE}/api/v1/Usuario/LoginPost`
 
 // Gigya CDC (SAP Customer Data Cloud) for automated login
-// The site proxy (gigya.connectpro.totalenergies.com) returns 500 from server-side.
-// Use the direct Gigya REST API at the EU data center instead.
-// Try all known Gigya data centers — the API key is DC-specific
-const GIGYA_ENDPOINTS = [
-  'https://accounts.eu1.gigya.com',
-  'https://accounts.eu2.gigya.com',
-  'https://accounts.eu5.gigya.com',
-  'https://accounts.us1.gigya.com',
-  'https://accounts.gigya.com',
-  'https://gigya.connectpro.totalenergies.com',  // site proxy (last resort)
-]
+// The API key is bound to TotalEnergies' private Gigya domain — only works there.
+const GIGYA_BASE = 'https://gigya.connectpro.totalenergies.com'
 const GIGYA_API_KEY = '3_86LLJ8oxhMd9Tk27SuTp5z9SstBGZ8I--VIgS89iQ8RMT-79QfXT8yluZyVzr5tQ'
+const GIGYA_CLIENT_ID = 'C3t1SR2NgvteSa4VR6rJUJxg'
 
 // ─── Cached state ───────────────────────────────────────────────────
 let cachedToken: string | null = null
@@ -120,7 +112,6 @@ async function tryGigyaLogin(cups: string): Promise<Response | null> {
       body: sipsBody(cups),
     })
     if (res.response) return res.response
-    // Token expired despite our timer — clear it and continue to login
     cachedToken = null
     tokenExpiry = 0
     dbg('S0:cached_expired')
@@ -129,99 +120,103 @@ async function tryGigyaLogin(cups: string): Promise<Response | null> {
   dbg('S0:GigyaLogin')
 
   try {
-    // Step 1: Call Gigya accounts.login with email + password
-    // Try multiple Gigya data center endpoints (site proxy returns 500 server-side)
+    // Step 1: Call Gigya accounts.login — replicate exact portal parameters
+    // Portal sends APIKey (uppercase), cid, authMode, sdk, etc.
     const loginParams = new URLSearchParams({
-      apiKey: GIGYA_API_KEY,
       loginID: creds.email,
       password: creds.password,
+      APIKey: GIGYA_API_KEY,
+      cid: GIGYA_CLIENT_ID,
       targetEnv: 'jssdk',
       include: 'profile,data,',
       includeUserInfo: 'true',
+      sessionExpiration: '-2',
       lang: 'en',
+      sdk: 'js_latest',
+      authMode: 'cookie',
+      pageURL: 'https://connectpro.totalenergies.com/oidc_index?gig_client_id=' + GIGYA_CLIENT_ID,
+      sdkBuild: '1535',
       format: 'json',
     })
 
-    let gigyaData: any = null
-    let sessionToken: string | null = null
+    const gigyaRes = await fetch(`${GIGYA_BASE}/accounts.login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': '*/*',
+        'Origin': 'https://connectpro.totalenergies.com',
+        'Referer': 'https://connectpro.totalenergies.com/',
+      },
+      body: loginParams.toString(),
+    })
 
-    for (const endpoint of GIGYA_ENDPOINTS) {
-      try {
-        dbg(`S0:trying:${endpoint}`)
-        const gigyaRes = await fetch(`${endpoint}/accounts.login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: loginParams.toString(),
-        })
+    const gigyaBody = await gigyaRes.text()
+    dbg(`S0:status=${gigyaRes.status}:len=${gigyaBody.length}`)
 
-        const gigyaBody = await gigyaRes.text()
-        dbg(`S0:${endpoint.split('//')[1]?.split('.')[0]}:status=${gigyaRes.status}`)
-
-        try { gigyaData = JSON.parse(gigyaBody) } catch {
-          dbg(`S0:not_json=${gigyaBody.substring(0, 60)}`)
-          continue
-        }
-
-        // Data-center / API-key errors → try next endpoint
-        const dcErrors = [301001, 400093, 403005, 403007]
-        if (dcErrors.includes(gigyaData.errorCode)) {
-          dbg(`S0:wrong_dc(${gigyaData.errorCode})`)
-          continue
-        }
-
-        // Any other non-zero error (bad creds, captcha, account locked, etc.)
-        if (gigyaData.errorCode !== 0) {
-          dbg(`S0:Gigya:err=${gigyaData.errorCode}:${(gigyaData.errorMessage || gigyaData.errorDetails || '').substring(0, 60)}`)
-          break
-        }
-
-        // Success! Extract session token
-        sessionToken = gigyaData.sessionInfo?.sessionToken ||
-                       gigyaData.sessionToken ||
-                       gigyaData.id_token ||
-                       null
-        break
-      } catch (err: any) {
-        dbg(`S0:${endpoint}:fetch_err=${err.message.substring(0, 40)}`)
-        continue
-      }
-    }
-
-    if (!sessionToken) {
-      if (gigyaData) {
-        dbg(`S0:Gigya:no_token keys=[${Object.keys(gigyaData).join(',')}]`)
-        if (gigyaData.sessionInfo) {
-          dbg(`S0:sessionInfo=[${Object.keys(gigyaData.sessionInfo).join(',')}]`)
-        }
-      }
+    let gigyaData: any
+    try { gigyaData = JSON.parse(gigyaBody) } catch {
+      dbg(`S0:not_json=${gigyaBody.substring(0, 100)}`)
       return null
     }
 
-    dbg(`S0:Gigya:token=${sessionToken.substring(0, 25)}...`)
+    dbg(`S0:errCode=${gigyaData.errorCode}`)
+
+    if (gigyaData.errorCode !== 0) {
+      dbg(`S0:Gigya:err=${gigyaData.errorCode}:${(gigyaData.errorMessage || gigyaData.errorDetails || '').substring(0, 80)}`)
+      return null
+    }
+
+    // Extract session token from response
+    const sessionToken = gigyaData.sessionInfo?.sessionToken ||
+                         gigyaData.sessionToken ||
+                         gigyaData.id_token ||
+                         null
+
+    // Also check cookies in response (Gigya sometimes returns token via Set-Cookie)
+    let cookieToken: string | null = null
+    const setCookie = gigyaRes.headers.get('set-cookie') || ''
+    const gltMatch = setCookie.match(/glt_[^=]+=([^;]+)/)
+    if (gltMatch) {
+      cookieToken = gltMatch[1]
+      dbg(`S0:cookie_token=${cookieToken.substring(0, 25)}...`)
+    }
+
+    const finalToken = sessionToken || cookieToken
+
+    if (!finalToken) {
+      dbg(`S0:no_token keys=[${Object.keys(gigyaData).join(',')}]`)
+      if (gigyaData.sessionInfo) {
+        dbg(`S0:sessionInfo=[${JSON.stringify(gigyaData.sessionInfo).substring(0, 100)}]`)
+      }
+      // Log UID for debugging (indicates successful auth even without token)
+      if (gigyaData.UID) dbg(`S0:UID=${gigyaData.UID.substring(0, 20)}`)
+      return null
+    }
+
+    dbg(`S0:Gigya:token=${finalToken.substring(0, 25)}...`)
 
     // Cache the token (Gigya sessions last ~6h, we'll use 5h to be safe)
-    cachedToken = sessionToken
+    cachedToken = finalToken
     tokenExpiry = Date.now() + 5 * 60 * 60 * 1000
 
     // Step 2: Use the session token on the SIPS data endpoint
     const body = sipsBody(cups)
 
-    // Try Bearer auth (most common)
+    // Try Bearer auth first (this is what the portal uses)
     const r1 = await tryFetch('Gigya(Bearer)', SIPS_GAS_URL, {
       method: 'POST',
-      headers: { ...BASE_HEADERS, 'Authorization': `Bearer ${sessionToken}` },
+      headers: { ...BASE_HEADERS, 'Authorization': `Bearer ${finalToken}` },
       body,
     })
     if (r1.response) return r1.response
 
-    // The SIPS API might need the token validated via LoginPost first
-    // LoginPost with Bearer token to get SigeEnergia session
+    // If Bearer fails, the SIPS API might need a SigeEnergia session via LoginPost
     dbg('S0:trying_LoginPost_with_gigya_token')
     const loginRes = await fetch(LOGIN_URL, {
       method: 'POST',
       headers: {
         ...BASE_HEADERS,
-        'Authorization': `Bearer ${sessionToken}`,
+        'Authorization': `Bearer ${finalToken}`,
       },
       body: JSON.stringify({}),
     })
@@ -230,12 +225,9 @@ async function tryGigyaLogin(cups: string): Promise<Response | null> {
       const loginBody = await loginRes.text()
       dbg(`S0:LoginPost:${loginRes.status}:${loginBody.substring(0, 80)}`)
 
-      // Extract possible SigeEnergia token from LoginPost response
       let sigeToken: string | null = null
       const authHeader = loginRes.headers.get('Authorization')
-      if (authHeader) {
-        sigeToken = authHeader.replace(/^Bearer\s+/i, '')
-      }
+      if (authHeader) sigeToken = authHeader.replace(/^Bearer\s+/i, '')
       if (!sigeToken) {
         try {
           const d = JSON.parse(loginBody)
@@ -259,7 +251,7 @@ async function tryGigyaLogin(cups: string): Promise<Response | null> {
     // Try Validacion header
     const r3 = await tryFetch('Gigya(Validacion)', SIPS_GAS_URL, {
       method: 'POST',
-      headers: { ...BASE_HEADERS, 'Validacion': sessionToken },
+      headers: { ...BASE_HEADERS, 'Validacion': finalToken },
       body,
     })
     if (r3.response) return r3.response
