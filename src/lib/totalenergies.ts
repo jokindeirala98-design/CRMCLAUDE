@@ -20,10 +20,14 @@ const LOGIN_URL = `${SIGE_BASE}/api/v1/Usuario/LoginPost`
 // Gigya CDC (SAP Customer Data Cloud) for automated login
 // The site proxy (gigya.connectpro.totalenergies.com) returns 500 from server-side.
 // Use the direct Gigya REST API at the EU data center instead.
+// Try all known Gigya data centers — the API key is DC-specific
 const GIGYA_ENDPOINTS = [
   'https://accounts.eu1.gigya.com',
   'https://accounts.eu2.gigya.com',
+  'https://accounts.eu5.gigya.com',
+  'https://accounts.us1.gigya.com',
   'https://accounts.gigya.com',
+  'https://gigya.connectpro.totalenergies.com',  // site proxy (last resort)
 ]
 const GIGYA_API_KEY = '3_86LLJ8oxhMd9Tk27SuTp5z9SstBGZ8I--VIgS89iQ8RMT-79QfXT8yluZyVzr5tQ'
 
@@ -158,22 +162,16 @@ async function tryGigyaLogin(cups: string): Promise<Response | null> {
           continue
         }
 
-        // Gigya error 301001 = "Invalid data center" — try next endpoint
-        if (gigyaData.errorCode === 301001) {
-          dbg(`S0:wrong_dc`)
+        // Data-center / API-key errors → try next endpoint
+        const dcErrors = [301001, 400093, 403005, 403007]
+        if (dcErrors.includes(gigyaData.errorCode)) {
+          dbg(`S0:wrong_dc(${gigyaData.errorCode})`)
           continue
         }
 
-        // Gigya error 403005 = "Unauthorized" — API key not valid for this DC
-        if (gigyaData.errorCode === 403005) {
-          dbg(`S0:wrong_dc_403005`)
-          continue
-        }
-
-        // Any other non-zero error
+        // Any other non-zero error (bad creds, captcha, account locked, etc.)
         if (gigyaData.errorCode !== 0) {
           dbg(`S0:Gigya:err=${gigyaData.errorCode}:${(gigyaData.errorMessage || gigyaData.errorDetails || '').substring(0, 60)}`)
-          // Don't continue — this is a real error (bad creds, captcha, etc.)
           break
         }
 
