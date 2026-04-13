@@ -99,8 +99,8 @@ function make3PointScale(colors: [string, string, string], vals: number[]): (v: 
 
 // GYR: green→yellow→red (consumo — low is better)
 const GYR: [string, string, string] = ['#63BE7B', '#FFEB84', '#F8696B']
-// BWR: blue→white→red (maxímetros — deviation from center is bad)
-const BWR: [string, string, string] = ['#5A8AC6', '#FCFCFF', '#F8696B']
+// BWR: blue→white→red (maxímetros — high values = red to flag >15% excess)
+const BWR: [string, string, string] = ['#5A8AC6', '#FCFCFF', '#E32727']
 
 // ─────────────────────────────────────────────────────────────────────────────
 // OPTIMIZATION LOGIC
@@ -857,7 +857,7 @@ function DataTable({
 
   const FONT = '"Arial Narrow", "Calibri", Arial, sans-serif'
   const BASE: React.CSSProperties = {
-    padding: '2px 5px', border: '1px solid #D0D0D0', fontSize: 10,
+    padding: '2px 5px', border: '1px solid #000', fontSize: 10,
     fontFamily: FONT, whiteSpace: 'nowrap', background: '#fff',
   }
   const HDR: React.CSSProperties = {
@@ -994,25 +994,31 @@ function DataTable({
         </thead>
         <tbody>
           {meses.map((mes, i) => (
-            <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : '#F9FAFB' }}>
-              <td style={{ ...BASE, textAlign: 'right', minWidth: 44 }}>
+            <tr key={i}>
+              <td style={{ ...BASE, textAlign: 'right', minWidth: 44, fontWeight: 700 }}>
                 {fmtKwh(mes.consumoTotal ?? 0)}
               </td>
-              <td style={{ ...BASE, textAlign: 'center', fontSize: 9, color: '#555' }}>
+              <td style={{ ...BASE, textAlign: 'center', fontSize: 9, color: '#333' }}>
                 {fmtDate(mes.fechaInicio)} – {fmtDate(mes.fechaFin)}
               </td>
               <td style={BASE} />
-              {PERIODS.map(p => (
-                <td key={p} style={{ ...BASE, textAlign: 'right', background: consumoCs(mes.consumo?.[p] ?? 0) }}>
-                  {(mes.consumo?.[p] ?? 0) > 0 ? fmtKwh(mes.consumo[p]) : ''}
-                </td>
-              ))}
+              {PERIODS.map(p => {
+                const v = mes.consumo?.[p] ?? 0
+                return (
+                  <td key={p} style={{ ...BASE, textAlign: 'right', background: v > 0 ? consumoCs(v) : '#fff' }}>
+                    {v > 0 ? fmtKwh(v) : ''}
+                  </td>
+                )
+              })}
               {hasMax && <td style={SEP} />}
-              {hasMax && PERIODS.map(p => (
-                <td key={`m${p}`} style={{ ...BASE, textAlign: 'right', background: maxCs(mes.maximetro?.[p] ?? 0) }}>
-                  {(mes.maximetro?.[p] ?? 0) > 0 ? fmtKw(mes.maximetro[p]) : ''}
-                </td>
-              ))}
+              {hasMax && PERIODS.map(p => {
+                const v = mes.maximetro?.[p] ?? 0
+                return (
+                  <td key={`m${p}`} style={{ ...BASE, textAlign: 'right', background: v > 0 ? maxCs(v) : '#fff' }}>
+                    {v > 0 ? fmtKw(v) : ''}
+                  </td>
+                )
+              })}
             </tr>
           ))}
         </tbody>

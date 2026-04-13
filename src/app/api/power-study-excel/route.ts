@@ -21,6 +21,35 @@ const MAX_COL:     Record<Period, number> = { P1: 11, P2: 12, P3: 13, P4: 14, P5
 const DATA_START_ROW = 5
 const MAX_TEMPLATE_ROWS = 39
 
+/** Thin black border style for ExcelJS */
+const THIN_BORDER: Partial<ExcelJS.Border> = { style: 'thin', color: { argb: 'FF000000' } }
+const ALL_BORDERS: Partial<ExcelJS.Borders> = { top: THIN_BORDER, bottom: THIN_BORDER, left: THIN_BORDER, right: THIN_BORDER }
+
+/** Excel-style 3-point color scale interpolation */
+function excelColorScale(value: number, min: number, mid: number, max: number, colors: [string, string, string]): string {
+  if (value <= min) return colors[0]
+  if (value >= max) return colors[2]
+  if (value <= mid) {
+    const t = mid > min ? (value - min) / (mid - min) : 0
+    return lerpColor(colors[0], colors[1], t)
+  }
+  const t = max > mid ? (value - mid) / (max - mid) : 1
+  return lerpColor(colors[1], colors[2], t)
+}
+
+function lerpColor(c1: string, c2: string, t: number): string {
+  const h = (s: string) => [parseInt(s.slice(0, 2), 16), parseInt(s.slice(2, 4), 16), parseInt(s.slice(4, 6), 16)]
+  const [r1, g1, b1] = h(c1)
+  const [r2, g2, b2] = h(c2)
+  const ch = (a: number, b: number) => Math.round(a + (b - a) * t).toString(16).padStart(2, '0')
+  return `${ch(r1, r2)}${ch(g1, g2)}${ch(b1, b2)}`
+}
+
+// GYR: green→yellow→red (consumo)
+const GYR_COLORS: [string, string, string] = ['63BE7B', 'FFEB84', 'F8696B']
+// Blue→white→red (maxímetros) — pure red for high values, not brown
+const BWR_COLORS: [string, string, string] = ['5A8AC6', 'FCFCFF', 'E32727']
+
 /** Convert an SVG string to PNG buffer using sharp */
 async function svgToPng(svg: string, width: number, height: number): Promise<Buffer | null> {
   try {
@@ -91,32 +120,91 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       ? 'PRIORIZAR CONSUMO ' + activePeriods.slice(0, 3).join(' - ')
       : ''
 
-    // ── Clear template data rows ──────────────────────────────────────────────
-    for (let r = DATA_START_ROW; r <= MAX_TEMPLATE_ROWS; r++) {
+    // ── Clear ALL possible data rows (template + overflow) ─────────────────────
+    const meses = [...(study.meses ?? [])].sort((a, b) => new Date(b.fechaFin).getTime() - new Date(a.fechaFin).getTime())
+    const lastDataRow = DATA_START_ROW + meses.length - 1
+    const clearTo = Math.max(MAX_TEMPLATE_ROWS, lastDataRow + 5)
+    for (let r = DATA_START_ROW; r <= clearTo; r++) {
       for (let c = 1; c <= 16; c++) {
         if (c === 10) continue
-        ws.getCell(r, c).value = null
+        const cell = ws.getCell(r, c)
+        cell.value = null
+        cell.fill = { type: 'pattern', pattern: 'none' }
+        cell.border = {}
       }
     }
 
-    // ── Fill data rows (sorted: most recent first) ─────────────
-    const meses = [...(study.meses ?? [])].sort((a, b) => new Date(b.fechaFin).getTime() - new Date(a.fechaFin).getTime())
+    // ── Collect all values for color scale calculation ────────────────────────
+    const allConsumoVals = meses.flatMap(m => PERIODS.map(p => m.consumo?.[p] ?? 0)).filter(v => v > 0)
+    const allMaxVals = meses.flatMap(m => PERIODS.map(p => m.maximetro?.[p] ?? 0)).filter(v => v > 0)
+
+    const consumoMin = allConsumoVals.length ? Math.min(...allConsumoVals) : 0
+    const consumoMax = allConsumoVals.length ? Math.max(...allConsumoVals) : 0
+    const consumoSorted = [...allConsumoVals].sort((a, b) => a - b)
+    const consumoMid = consumoSorted.length ? consumoSorted[Math.floor((consumoSorted.length - 1) / 2)] : 0
+
+    const maxMin = allMaxVals.length ? Math.min(...allMaxVals) : 0
+    const maxMax = allMaxVals.length ? Math.max(...allMaxVals) : 0
+    const maxSorted = [...allMaxVals].sort((a, b) => a - b)
+    const maxMid = maxSorted.length ? maxSorted[Math.floor((maxSorted.length - 1) / 2)] : 0
+
+    // ── Fill data rows (sorted: most recent first) ───────────────────────────
     meses.forEach((m, i) => {
       const r = DATA_START_ROW + i
-      ws.getCell(r, 1).value = { formula: `SUM(D${r}:I${r})` }
+      // Consumo total (formula)
+      const cellA = ws.getCell(r, 1)
+      cellA.value = { formula: `SUM(D${r}:I${r})` }
+      cellA.border = ALL_BORDERS
+      cellA.font = { bold: true, size: 10 }
+      cellA.numFmt = '#,##0'
+
+      // Dates
       if (m.fechaInicio) {
         const d = new Date(m.fechaInicio)
-        ws.getCell(r, 2).value = isNaN(d.getTime()) ? m.fechaInicio : d
-        ws.getCell(r, 2).numFmt = 'DD/MM/YYYY'
+        const cellB = ws.getCell(r, 2)
+        cellB.value = isNaN(d.getTime()) ? m.fechaInicio : d
+        cellB.numFmt = 'DD/MM/YYYY'
+        cellB.border = ALL_BORDERS
+        cellB.alignment = { horizontal: 'center' }
       }
       if (m.fechaFin) {
         const d = new Date(m.fechaFin)
-        ws.getCell(r, 3).value = isNaN(d.getTime()) ? m.fechaFin : d
-        ws.getCell(r, 3).numFmt = 'DD/MM/YYYY'
+        const cellC = ws.getCell(r, 3)
+        cellC.value = isNaN(d.getTime()) ? m.fechaFin : d
+        cellC.numFmt = 'DD/MM/YYYY'
+        cellC.border = ALL_BORDERS
+        cellC.alignment = { horizontal: 'center' }
       }
+
+      // Consumo per period (with GYR color scale + borders)
       PERIODS.forEach(p => {
-        ws.getCell(r, CONSUMO_COL[p]).value = m.consumo?.[p] ?? 0
-        ws.getCell(r, MAX_COL[p]).value = m.maximetro?.[p] ?? 0
+        const v = m.consumo?.[p] ?? 0
+        const cell = ws.getCell(r, CONSUMO_COL[p])
+        cell.value = v
+        cell.numFmt = '#,##0'
+        cell.border = ALL_BORDERS
+        cell.alignment = { horizontal: 'right' }
+        if (v > 0 && allConsumoVals.length > 1) {
+          const color = excelColorScale(v, consumoMin, consumoMid, consumoMax, GYR_COLORS)
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${color}` } }
+        }
+      })
+
+      // Separator col J
+      ws.getCell(r, 10).border = {}
+
+      // Maxímetro per period (with BWR color scale + borders)
+      PERIODS.forEach(p => {
+        const v = m.maximetro?.[p] ?? 0
+        const cell = ws.getCell(r, MAX_COL[p])
+        cell.value = v
+        cell.numFmt = '#,##0'
+        cell.border = ALL_BORDERS
+        cell.alignment = { horizontal: 'right' }
+        if (v > 0 && allMaxVals.length > 1) {
+          const color = excelColorScale(v, maxMin, maxMid, maxMax, BWR_COLORS)
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${color}` } }
+        }
       })
     })
 
