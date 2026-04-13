@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { fetchAdxSipsGas } from '@/lib/adxenergia'
 import {
   fetchTotalEnergiesSipsGas,
   fetchTotalEnergiesSipsGasBulk,
@@ -7,11 +8,8 @@ import {
 /**
  * POST /api/sips-gas
  *
- * Queries SIPS Gas data using multiple strategies:
- * 1. Direct credentials on SigeEnergia API
- * 2. LoginPost → token → SigeEnergia API
- * 3. Manual token from env var
- * 4. CNMC official SIPS API (if configured)
+ * Queries SIPS Gas data. Tries ADX Energía first (simpler auth),
+ * falls back to TotalEnergies multi-strategy if ADX fails.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -25,7 +23,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // ── Bulk query ────────────────────────────────────────────────
+    // ── Bulk query (TotalEnergies only for now) ──────────────────
     if (Array.isArray(cupsList) && cupsList.length > 0) {
       const cleanList = cupsList
         .map((c: string) => c.replace(/\s/g, '').toUpperCase())
@@ -61,19 +59,27 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Strategy A: Try ADX Energía first (more reliable auth)
+    const hasAdx = process.env.ADX_SESSION || process.env.ADX_USER
+    if (hasAdx) {
+      try {
+        console.log('[SIPS-GAS] Trying ADX Energía...')
+        const data = await fetchAdxSipsGas(cleanCups)
+        console.log('[SIPS-GAS] ADX SUCCESS')
+        return NextResponse.json({ success: true, data, source: 'adx' })
+      } catch (adxErr: any) {
+        console.log('[SIPS-GAS] ADX failed:', adxErr.message?.substring(0, 100))
+        // Fall through to TotalEnergies
+      }
+    }
+
+    // Strategy B: TotalEnergies (fallback)
     const data = await fetchTotalEnergiesSipsGas(cleanCups)
-    return NextResponse.json({ success: true, data })
+    return NextResponse.json({ success: true, data, source: 'totalenergies' })
+
   } catch (error: any) {
     console.error('[SIPS-GAS] Route error:', error)
     const msg = error.message || 'Error consultando SIPS Gas'
-
-    if (msg.includes('deben estar configurados')) {
-      return NextResponse.json(
-        { success: false, error: 'Credenciales de TotalEnergies no configuradas en el servidor' },
-        { status: 500 }
-      )
-    }
-
     return NextResponse.json(
       { success: false, error: msg },
       { status: 500 }
