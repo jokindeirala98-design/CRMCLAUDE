@@ -73,15 +73,15 @@ async function tryFetch(
   try {
     const r = await fetch(url, opts)
     if (r.ok) {
-      console.log(`[TE] ${label}: ${r.status} OK`)
+      dbg(`${label}:${r.status}OK`)
       return { label, response: r, status: r.status }
     }
     const body = await r.text().catch(() => '')
-    const clean = body.substring(0, 300).replace(/<[^>]+>/g, '').trim()
-    console.log(`[TE] ${label}: ${r.status} — ${clean.substring(0, 100)}`)
-    return { label, response: null, status: r.status, error: clean.substring(0, 100) }
+    const clean = body.substring(0, 200).replace(/<[^>]+>/g, '').trim().substring(0, 80)
+    dbg(`${label}:${r.status}[${clean}]`)
+    return { label, response: null, status: r.status, error: clean }
   } catch (err: any) {
-    console.log(`[TE] ${label}: ERR — ${err.message}`)
+    dbg(`${label}:ERR[${err.message.substring(0, 60)}]`)
     return { label, response: null, status: 0, error: err.message }
   }
 }
@@ -94,9 +94,9 @@ async function tryFetch(
 
 async function tryDirectCredentials(cups: string): Promise<Response | null> {
   const creds = getCredentials()
-  if (!creds) return null
+  if (!creds) { dbg('S1:no_creds'); return null }
 
-  console.log('[TE] Strategy 1: Direct User/Password on data endpoint')
+  dbg('S1:DirectCreds')
   const body = sipsBody(cups)
 
   // 1a: User + Password headers
@@ -139,9 +139,9 @@ async function tryDirectCredentials(cups: string): Promise<Response | null> {
 
 async function tryLoginThenFetch(cups: string): Promise<Response | null> {
   const creds = getCredentials()
-  if (!creds) return null
+  if (!creds) { dbg('S2:no_creds'); return null }
 
-  console.log('[TE] Strategy 2: LoginPost → token → data')
+  dbg('S2:LoginPost')
 
   // Step A: Try LoginPost and log EVERYTHING it returns
   let token: string | null = null
@@ -159,18 +159,18 @@ async function tryLoginThenFetch(cups: string): Promise<Response | null> {
       body: JSON.stringify({ User: creds.email, Password: creds.password }),
     })
 
-    console.log(`[TE] LoginPost: status=${loginRes.status}`)
+    dbg(`Login:status=${loginRes.status}`)
 
-    // Log ALL response headers
+    // Capture ALL response headers
     const headerEntries: string[] = []
     loginRes.headers.forEach((val, key) => {
-      headerEntries.push(`${key}: ${val}`)
+      headerEntries.push(`${key}=${val.substring(0, 40)}`)
     })
-    console.log(`[TE] LoginPost headers: ${headerEntries.join(' | ')}`)
+    dbg(`Login:hdrs=[${headerEntries.join(',')}]`)
 
-    // Read and log full body
+    // Read and log body
     const bodyText = await loginRes.text()
-    console.log(`[TE] LoginPost body: ${bodyText.substring(0, 500)}`)
+    dbg(`Login:body=${bodyText.substring(0, 150).replace(/\s+/g, ' ')}`)
 
     if (loginRes.ok) {
       // Try to extract token from headers
@@ -200,12 +200,12 @@ async function tryLoginThenFetch(cups: string): Promise<Response | null> {
           // Log all keys for debugging
           if (!token) {
             const keys = Object.keys(data)
-            console.log(`[TE] LoginPost JSON keys: ${keys.join(', ')}`)
+            dbg(`Login:keys=[${keys.join(',')}]`)
             // Check if any value looks like a token
             for (const k of keys) {
               const v = data[k]
               if (typeof v === 'string' && v.length > 30) {
-                console.log(`[TE] LoginPost potential token in "${k}": ${v.substring(0, 50)}...`)
+                dbg(`Login:token_in_"${k}"=${v.substring(0, 30)}`)
                 token = v
                 break
               }
@@ -223,15 +223,15 @@ async function tryLoginThenFetch(cups: string): Promise<Response | null> {
       }
     }
   } catch (err: any) {
-    console.log(`[TE] LoginPost error: ${err.message}`)
+    dbg(`Login:err=${err.message.substring(0, 60)}`)
   }
 
   if (!token) {
-    console.log('[TE] Strategy 2: No token obtained from LoginPost')
+    dbg('S2:no_token_from_login')
     return null
   }
 
-  console.log(`[TE] Strategy 2: Got token (${token.substring(0, 20)}...), trying data endpoint`)
+  dbg(`S2:got_token=${token.substring(0, 25)}...`)
   cachedToken = token
   tokenExpiry = Date.now() + 5 * 60 * 60 * 1000
 
@@ -266,7 +266,7 @@ async function tryManualToken(cups: string): Promise<Response | null> {
   const token = manualToken.replace(/^Bearer\s+/i, '').trim()
   if (token.length < 50) return null
 
-  console.log('[TE] Strategy 3: Manual TOTALENERGIES_TOKEN')
+  dbg('S3:ManualToken')
   const body = sipsBody(cups)
 
   const r = await tryFetch('ManualToken', SIPS_GAS_URL, {
@@ -276,7 +276,7 @@ async function tryManualToken(cups: string): Promise<Response | null> {
   })
 
   if (r.status === 401) {
-    console.log('[TE] Manual token expired')
+    dbg('S3:expired')
     return null
   }
 
@@ -293,7 +293,7 @@ async function tryCnmcSips(cups: string): Promise<SipsData | null> {
   const token = process.env.CNMC_OAUTH_TOKEN
   if (!token) return null
 
-  console.log('[TE] Strategy 4: CNMC SIPS API')
+  dbg('S4:CNMC')
 
   try {
     // Fetch supply point data
@@ -302,7 +302,7 @@ async function tryCnmcSips(cups: string): Promise<SipsData | null> {
       { headers: { 'Authorization': `Bearer ${token}` } }
     )
     if (!psRes.ok) {
-      console.log(`[TE] CNMC PS_GAS: ${psRes.status}`)
+      dbg(`S4:CNMC_PS=${psRes.status}`)
       return null
     }
 
@@ -317,7 +317,7 @@ async function tryCnmcSips(cups: string): Promise<SipsData | null> {
 
     return parseCnmcCsv(cups, psText, consumoText)
   } catch (err: any) {
-    console.log(`[TE] CNMC error: ${err.message}`)
+    dbg(`S4:CNMC_err=${err.message.substring(0, 50)}`)
     return null
   }
 }
@@ -386,27 +386,39 @@ function parseCnmcCsv(cups: string, psCsv: string, consumoCsv: string): SipsData
 }
 
 // ═══════════════════════════════════════════════════════════════════
-//  MAIN: Orchestrate all strategies
+//  MAIN: Orchestrate all strategies — collects detailed debug info
 // ═══════════════════════════════════════════════════════════════════
+
+// Global debug log for the current request (included in error messages)
+let debugLog: string[] = []
+
+function dbg(msg: string) {
+  debugLog.push(msg)
+  console.log(`[TE] ${msg}`)
+}
 
 export async function fetchTotalEnergiesSipsGas(
   cups: string,
   _token?: string
 ): Promise<SipsData> {
-  console.log(`[TE] Fetching SIPS Gas for ${cups}`)
-  const allErrors: string[] = []
+  debugLog = [] // reset for this request
+  const creds = getCredentials()
+  dbg(`CUPS=${cups}, creds=${creds ? creds.email : 'NONE'}, manualToken=${process.env.TOTALENERGIES_TOKEN ? 'SET' : 'NONE'}`)
+
+  if (!creds && !process.env.TOTALENERGIES_TOKEN) {
+    throw new Error('No hay credenciales configuradas. Configura TOTALENERGIES_EMAIL + TOTALENERGIES_PASSWORD en Vercel.')
+  }
 
   // ── Strategy 1: Direct credentials (fastest, no login step) ──
   try {
     const res = await tryDirectCredentials(cups)
     if (res) {
       const data = await res.json()
-      console.log(`[TE] Strategy 1 (Direct creds) SUCCESS`)
+      dbg('S1 SUCCESS')
       return parseSigeResponse(cups, data)
     }
-    allErrors.push('S1:DirectCreds=no_success')
   } catch (err: any) {
-    allErrors.push(`S1:DirectCreds=${err.message.substring(0, 50)}`)
+    dbg(`S1 ERR: ${err.message.substring(0, 80)}`)
   }
 
   // ── Strategy 2: LoginPost → token → fetch ──
@@ -414,12 +426,11 @@ export async function fetchTotalEnergiesSipsGas(
     const res = await tryLoginThenFetch(cups)
     if (res) {
       const data = await res.json()
-      console.log(`[TE] Strategy 2 (LoginPost) SUCCESS`)
+      dbg('S2 SUCCESS')
       return parseSigeResponse(cups, data)
     }
-    allErrors.push('S2:LoginPost=no_success')
   } catch (err: any) {
-    allErrors.push(`S2:LoginPost=${err.message.substring(0, 50)}`)
+    dbg(`S2 ERR: ${err.message.substring(0, 80)}`)
   }
 
   // ── Strategy 3: Manual token from env ──
@@ -427,30 +438,27 @@ export async function fetchTotalEnergiesSipsGas(
     const res = await tryManualToken(cups)
     if (res) {
       const data = await res.json()
-      console.log(`[TE] Strategy 3 (ManualToken) SUCCESS`)
+      dbg('S3 SUCCESS')
       return parseSigeResponse(cups, data)
     }
-    allErrors.push('S3:ManualToken=expired_or_missing')
   } catch (err: any) {
-    allErrors.push(`S3:ManualToken=${err.message.substring(0, 50)}`)
+    dbg(`S3 ERR: ${err.message.substring(0, 80)}`)
   }
 
   // ── Strategy 4: CNMC official API ──
   try {
     const cnmc = await tryCnmcSips(cups)
     if (cnmc) {
-      console.log(`[TE] Strategy 4 (CNMC) SUCCESS`)
+      dbg('S4 SUCCESS')
       return cnmc
     }
-    allErrors.push('S4:CNMC=not_configured_or_failed')
   } catch (err: any) {
-    allErrors.push(`S4:CNMC=${err.message.substring(0, 50)}`)
+    dbg(`S4 ERR: ${err.message.substring(0, 80)}`)
   }
 
-  // All strategies failed
-  const summary = allErrors.join(' | ')
-  console.error(`[TE] All strategies failed: ${summary}`)
-  throw new Error(`Todas las estrategias SIPS Gas fallaron: ${summary}`)
+  // All strategies failed — include FULL debug log in error
+  const fullDebug = debugLog.join(' → ')
+  throw new Error(`SIPS Gas debug: ${fullDebug}`)
 }
 
 // ─── SigeEnergia response parser ───────────────────────────────────
