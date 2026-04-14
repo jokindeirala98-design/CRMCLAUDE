@@ -153,10 +153,19 @@ async function callGeminiOnce(prompt: string, base64Data: string, mimeType: stri
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType, data: base64Data } }] }],
-          generationConfig: { temperature: 0, maxOutputTokens: 8192, responseMimeType: 'application/json' },
+          // systemInstruction separates the extraction rules from the document
+          // so the model treats them as instructions, not as part of the invoice.
+          system_instruction: { parts: [{ text: prompt }] },
+          contents: [{
+            role: 'user',
+            parts: [
+              { text: 'Analiza el documento adjunto y extrae los datos siguiendo estrictamente las instrucciones del sistema. Devuelve SOLO JSON sin texto adicional.' },
+              { inlineData: { mimeType, data: base64Data } },
+            ],
+          }],
+          generationConfig: { temperature: 0, maxOutputTokens: 16384, responseMimeType: 'application/json' },
         }),
-        signal: AbortSignal.timeout(50000),
+        signal: AbortSignal.timeout(90000),
       }
     )
   } catch (e: any) {
@@ -482,6 +491,310 @@ GAS-5. **BUCLE DE AUTOCONTROL MATEMÁTICO:**
    - Paso A: extrae totalFactura del "Total a Pagar" impreso.
    - Paso B: suma (costeBrutoConsumo + terminoFijoTotal + impuestoHidrocarbTotal + alquilerTotal) − (descuentoEnergia + descuentoTerminoFijo + descuentoOtros) + ivaTotal.
    - Paso C: si |B − A| > 0.05€, RE-ESCANEA.
+
+════════════════════════════════════════════════════════════════════════════
+BASE DE CONOCIMIENTO — ASESORÍA ENERGÉTICA ESPAÑA (V2.0)
+════════════════════════════════════════════════════════════════════════════
+Esta sección contiene el conocimiento de un asesor energético senior para
+resolver ambigüedades. Aplica estas reglas ANTES de emitir el JSON final.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+A. IDENTIFICACIÓN DE COMERCIALIZADORA Y SUS PATRONES PROPIOS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+A1. IBERDROLA / i-DE:
+   - Energía: UN flat "Energía Precio horario X.XXX kWh × 0,XXXXXX €/kWh"
+     → energia_comercializacion, periodo=null. NO confundas ese total flat con P1.
+   - Debajo de la energía flat aparecen por separado peajes/cargos POR PERIODO:
+     "Energía facturada peajes P1 1.080 kWh × 0,028528 €/kWh" → energia_peaje
+     "Energía facturada cargos P1 1.080 kWh × 0,032503 €/kWh" → energia_cargo
+   - Potencia: siempre desglosada en peaje+cargo por cada uno de los 6 periodos (3.0TD) o 2 periodos (2.0TD).
+   - No hay "subtotal energía" intermedio — ve directo al flat + peajes/cargos.
+   - IVA siempre 21% para Península, IGIC 7% para Canarias.
+   - Bono social: línea "Financiación Bono Social Fijo" → bono_social (cargo positivo, no crédito).
+   - SRAD (Servicio de Recarga Auto Día): si aparece, → otro.
+
+A2. ENDESA / e-distribución:
+   - 3.0TD empresarial: puede mostrar la energía como SUMA por periodo consolidada
+     "Coste Energía P1 = X kWh × Y €/kWh = Z €" → cada periodo → energia_comercializacion.
+   - También puede mostrar el clásico flat de comercialización + peajes separados.
+   - Siempre verifica si hay "Ajuste por desvíos" o "Desvíos de energía" → otro.
+   - Facturas domésticas 2.0TD: pueden incluir "Precio Fijo de Energía" (mercado libre)
+     o tarifas horarias P1/P2 (PVPC o discriminación horaria). Consulta sección D.
+
+A3. NATURGY / UnionFenosa:
+   - Formato similar a Iberdrola pero con peajes/cargos a veces consolidados.
+   - "Acceso a redes" = suma de peajes + cargos. Si viene así, clasifica como
+     energia_peaje el tramo de peaje y energia_cargo el tramo de cargos.
+   - Gas: "Término Variable" = gas_termino_variable, "Término Fijo" = gas_termino_fijo.
+   - Puede tener "Financiación del Bono Social de Gas" → bono_social (positivo, cargo).
+   - "Tasa CNMC" → gas_tasa_cnmc, "Cuota del GTS" → gas_cuota_gts.
+
+A4. REPSOL / Respol LUZ y GAS:
+   - Formato compacto. Energía a veces en tabla única con columnas P1–P6.
+   - Si la tabla muestra "Término de energía" con un precio único para todos los periodos
+     y luego "Peajes y cargos de energía" también como único concepto → suma ambos como
+     costa bruta de consumo total; distribúyelos en rawLineItems por categoría.
+   - Frecuentemente incluye descuento en % ("Descuento comercial X%") → descuento_energia.
+
+A5. EDP / Hidrocantábrico:
+   - Similar a Naturgy pero puede tener "Término de Potencia Acceso" consolidado.
+   - A veces la potencia viene como "kW × días × €/kW·día" en una sola línea por periodo.
+   - En facturas 3.0TD puede haber un "Total Potencia P1" que agrupa peaje+cargo.
+     Si ves un solo importe por periodo de potencia, clasifica como potencia_comercializacion.
+
+A6. TOTALENERGIES / GDF Suez:
+   - Usa el formato clásico desglosado (peaje + cargo + comercialización por periodo).
+   - Puede incluir "Prima de reserva de capacidad" → otro.
+   - "Ajuste por reactiva" o "Energía reactiva" → exceso_potencia (penalización).
+
+A7. ACCIONA / CIDE / Som Energia / Facturas 6.1TD consolidadas:
+   - No muestran peajes/cargos por separado sino un "Total coste energía P2 = X€".
+   - Ves las lecturas (kWh por periodo) y el coste total del periodo como un bloque.
+   - Debes emitir energía como energia_comercializacion con periodo, kwh y total del periodo.
+   - Para potencia: "Total potencia P1 = kW × días × €/kW·día" → potencia_comercializacion.
+
+A8. AUDAX / HOLALUZ / FACTOR ENERGÍA / ESCANDINAVA:
+   - Formatos muy variables, frecuentemente solo UN precio de energía (libre).
+   - Si no ves desglose peajes/cargos, puede ser que la comercializadora los incluya
+     en su precio comercial. En ese caso todo va a energia_comercializacion.
+   - Verifica que la suma cuadre con el total.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+B. PVPC VS. MERCADO LIBRE — CÓMO DISTINGUIRLOS Y EXTRAER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+B1. PVPC (Precio Voluntario al Pequeño Consumidor — tarifa regulada):
+   - Indicadores: "PVPC", "Precio regulado", "Tarifa de Último Recurso (TUR)", "BOE".
+   - Los precios varían hora a hora. La factura muestra un precio medio del periodo.
+   - En la factura: "Término de energía PVPC X.XXX kWh × Y €/kWh" → energia_comercializacion.
+   - Con discriminación horaria 2.0DHA: P1 (punta), P2 (llano/valle) distintos precios.
+   - costeBrutoConsumo = el importe del término de energía ANTES de impuestos.
+   - IVA en PVPC puede ser temporal 5% o 10% en períodos de crisis energética (2022–2023).
+     A partir de 2024 vuelve a 21%. Extrae el IVA que aparezca, no asumas siempre 21%.
+
+B2. MERCADO LIBRE:
+   - Precio fijo pactado con la comercializadora.
+   - Puede ser un único precio por kWh o diferenciado por periodos.
+   - Si ves precios de energía diferentes por periodo Y no es PVPC, es mercado libre.
+   - Los descuentos comerciales (tipo "5% descuento en energía") son típicos del mercado libre.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+C. CUÁL "TOTAL" USAR EN CASOS AMBIGUOS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+C1. JERARQUÍA DE TOTALES (usa en este orden de prioridad):
+   1. "Total a Pagar" / "Importe Total" / "Total con Impuestos" → totalFactura (SIEMPRE este).
+   2. Si solo ves "Base Imponible" → es el total SIN IVA. totalFactura = base + IVA.
+   3. Si hay "Subtotal" y "Total" distintos → usa el "Total" final después de IVA.
+
+C2. FACTURAS CON VARIOS BLOQUES:
+   - Algunas facturas tienen un bloque "Consumo estimado" y otro "Regularización".
+     Suma AMBOS para obtener totalFactura final. Suma también kWh de ambos bloques.
+   - Si hay "Abono anterior" o "Ajuste de lectura" → puede restar del total. Inclúyelo.
+
+C3. REDONDEOS Y DESCUENTOS GLOBALES:
+   - Si hay "Redondeo" o "Descuento por pronto pago" sobre el total final → inclúyelo
+     como rawLineItem category="otro" y réstalo si es negativo.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+D. TRATAMIENTO DE DESCUENTOS — REGLAS DE CLASIFICACIÓN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+D1. DESCUENTO ENERGÍA (category: descuento_energia, total: NEGATIVO):
+   - "Descuento comercial X% sobre término de energía" → descuento_energia.
+   - "Bonificación por consumo" / "Dto. consumo" → descuento_energia.
+   - "Descuento precio fijo garantizado" → descuento_energia.
+   - SIEMPRE guarda el total como valor NEGATIVO o positivo pero al calcular
+     descuentoEnergia en economics usa el VALOR ABSOLUTO.
+
+D2. DESCUENTO POTENCIA (category: descuento_potencia):
+   - "Descuento sobre potencia contratada" → descuento_potencia.
+   - Este descuento reduce costeTotalPotencia, NO aparece en otrosConceptos.
+
+D3. DESCUENTO SOBRE FACTURA COMPLETA:
+   - "Descuento por domiciliación" / "Dto. cliente fidelizado" aplicado al total:
+     Si solo hay un importe global sin especificar a qué se aplica → descuento_energia
+     como aproximación conservadora (afecta el término energético).
+   - Si viene desglosado en energía + potencia → separa en descuento_energia y descuento_potencia.
+
+D4. COMPENSACIÓN DE EXCEDENTES (autoconsumo):
+   - "Energía excedentaria compensada" / "Autoconsumo vertido" → compensacion_excedentes.
+   - Total NEGATIVO (resta de la factura). No confundas con descuento.
+   - Extrae el kWh vertido y el precio de compensación si aparecen.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+E. POTENCIA — CASOS ESPECIALES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+E1. POTENCIA CONTRATADA vs FACTURADA vs EXCEDIDA:
+   - "Potencia contratada P1: 15 kW" → es un dato informativo, NO lo emitas como coste.
+   - "Potencia facturada P1: 15,00 kW × 31 días × 0,040 €/kW·día = 18,60 €" → SÍ es un coste.
+   - Si facturada ≠ contratada, la comercializadora ha aplicado potencia máxica (maxímetro).
+   - "Maxímetro" / "Potencia máxica" / "Potencia medida" > contratada → la diferencia
+     de coste va a otrosConceptos como 'EXCESO DE POTENCIA'.
+
+E2. EXCESO DE POTENCIA — DETECCIÓN:
+   - "Exceso de potencia P1" / "Penalización por exceso" / "Método cuarto-horario" → exceso_potencia.
+   - El exceso suele calcularse como 2× el precio de la potencia del exceso detectado.
+   - Si ves "Potencia Reactiva" / "Energía reactiva" / "cos φ" → es una penalización
+     por bajo factor de potencia. Clasifica como exceso_potencia.
+   - Cuando aparece TANTO "Exceso de potencia P1 (puntas)" COMO "Exceso de potencia P1 (método
+     cuarto-horario)", son el MISMO concepto expresado de dos maneras → emite SOLO UNO con
+     el mayor importe (evita doble conteo).
+
+E3. TARIFA 2.0TD (doméstica, 1 o 2 periodos):
+   - 2.0TD estándar: UN solo periodo de potencia (P1). Potencia típica: 3,5 – 15 kW.
+   - 2.0DHA / 2.0A (discriminación horaria): P1 (punta) y P2 (valle). Potencia idéntica en ambos.
+   - Si ves dos precios de potencia pero el kW es el mismo → es 2.0DHA. OK.
+
+E4. TARIFA 3.0TD (pequeña/mediana empresa):
+   - 6 periodos de potencia y 6 de energía. kW contratado puede ser diferente por periodo.
+   - P1 (punta), P2 (llano alto), P3 (llano bajo), P4 (valle alto), P5 (valle bajo), P6 (supervalle nocturno).
+   - En verano P1/P2/P3 se desplazan. La factura siempre indica qué periodo es cuál.
+
+E5. TARIFA 6.1TD y superiores (gran empresa):
+   - Igual que 3.0TD pero con límites de potencia mayores (>15 kW en algún periodo).
+   - Puede tener facturación por "Término de Inspección" (SRAD) → otro.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+F. IVA E IMPUESTOS — REGLAS ESPECÍFICAS ESPAÑA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+F1. IVA ELECTRICIDAD (España peninsular):
+   - Tipo general: 21%. Temporal reducción 5% o 10% durante crisis energética 2022–2023.
+   - Canarias / Ceuta / Melilla: IGIC 7% (o 3% para colectivos específicos), NO IVA.
+   - La BASE del IVA = costeBrutoConsumo + costeTotalPotencia + impuestoEléctrico
+     + alquilerEquipos + bonoSocial + otrosConceptos (SIN contar el propio IVA).
+   - Si la base imponible no cuadra con la suma de conceptos, probablemente hay un
+     concepto no extractado. RE-ESCANEA.
+
+F2. IMPUESTO SOBRE LA ELECTRICIDAD (IE — antes "Impuesto Eléctrico"):
+   - Tipo: 5,11269% sobre la base del IE (que es ≈ energía + potencia + alquiler + bono social).
+   - NUNCA apliques el IE sobre el IVA, ni viceversa.
+   - Algunos años (2022–2023) se redujo temporalmente al 0,5%. Extrae el porcentaje impreso.
+   - La base del IE se calcula ANTES de IVA. Si ves "IE 5,11% s/ 812,92" → base = 812,92.
+
+F3. GAS — IMPUESTO ESPECIAL SOBRE HIDROCARBUROS (IEH):
+   - Se expresa en €/GJ o €/kWh. Ejemplo: "IEH 0,00234 €/kWh × 2.450 kWh = 5,73 €".
+   - La base del IVA en gas incluye término variable + término fijo + IEH + alquiler.
+   - IVA del gas = 21% general. En períodos de crisis puede haber reducciones.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+G. FACTURAS ESTIMADAS, AJUSTES Y TIPOS ESPECIALES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+G1. FACTURA ESTIMADA ("E" en lectura):
+   - Si ves "Lectura estimada" o una "E" junto a la lectura, el consumo es estimado.
+   - Extrae los kWh indicados igualmente. El consumo real se regularizará en la siguiente.
+   - consumoTotalKwh = kWh estimados facturados.
+
+G2. FACTURA DE REGULARIZACIÓN / LIQUIDACIÓN:
+   - Suele venir con dos bloques: un periodo estimado (negativo, abono) + periodo real.
+   - totalFactura = suma neta de TODOS los conceptos incluyendo el abono.
+   - Puede resultar negativa (abono puro). En ese caso TODOS los valores negativos son correctos.
+
+G3. FACTURA DE COMPLEMENTO / AJUSTE DE ACCESO:
+   - "Factura complementaria de acceso" / "Ajuste de peajes" → extraer IGUAL que factura normal.
+   - Puede tener importes negativos (devolución de peajes) o positivos (cargo adicional).
+   - Identifica si es solo ajuste de peajes o incluye también comercialización.
+
+G4. FACTURA RESUMEN (MULTI-PUNTO):
+   - Si una sola factura cubre varios CUPS → extrae el CUPS principal del suministro.
+   - totalFactura = total del punto de suministro facturado (no el global multi-punto).
+   - Si no puedes distinguir cuál es el principal, extrae el primer CUPS que aparezca.
+
+G5. FACTURA DE ANULACIÓN / ABONO:
+   - "Nota de crédito" / "Factura rectificativa" / "Abono factura Nº XXXXXX" → todos los importes en NEGATIVO.
+   - El titular, CUPS y periodo son los de la factura original que se anula.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+H. PRECIOS DESGLOSADOS — CÓMO CONSOLIDAR EN UN PRECIO REPRESENTATIVO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+H1. precioKwh EN consumo[] (precio neto representativo por periodo):
+   - Para un asesor energético el precio útil es el €/kWh ALL-IN del periodo:
+       precioKwh = (peaje_energia_P1 + cargo_energia_P1 + comercializacion_P1) / kWh_P1
+   - Si hay descuento global, aplícalo proporcionalmente:
+       precioKwhNeto = precioKwhBruto × (costeTotalConsumo / costeBrutoConsumo)
+   - Cuando el precio de la comercializadora es un flat (no por periodo), prorratéalo
+     por kWh: prorrateado_P1 = (flat_total × kWh_P1) / totalKWh.
+
+H2. costeMedioKwhNeto — LA MÉTRICA CLAVE DEL ASESOR:
+   - costeMedioKwhNeto = costeNetoConsumo / consumoTotalKwh.
+   - Este precio incluye peajes, cargos y comercialización pero NO incluye potencia,
+     impuestos ni alquiler. Es el precio "puro de la energía consumida".
+   - Rango habitual España 2024: 0,08 – 0,22 €/kWh. Si obtienes un valor fuera de este
+     rango, probablemente hay un error en la extracción (doble conteo o campo faltante).
+   - Para gas: rango habitual 2024: 0,04 – 0,12 €/kWh.
+
+H3. SEÑALES DE ALARMA — VALORES FUERA DE RANGO:
+   - costeMedioKwhNeto > 0,35 €/kWh → doble conteo (peajes + cargos + plano = triple).
+   - costeTotalPotencia > totalFactura × 0,6 → probablemente potencia mal extraída.
+   - consumoTotalKwh < 1 → OCR fallido o unidades incorrectas (puede ser MWh → × 1000).
+   - totalFactura < 1 € → posible error de punto/coma decimal.
+   - descuentoEnergia > costeBrutoConsumo → imposible, revisa.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+I. BONO SOCIAL — CARGO O CRÉDITO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+I1. FINANCIACIÓN DEL BONO SOCIAL (cargo para todos los consumidores):
+   - "Financiación Bono Social Fijo" / "Coste bono social" → bono_social, total POSITIVO.
+   - Todos los consumidores pagan esto para financiar las tarifas sociales.
+   - Rango habitual: 0,20–2,00 €/mes según tarifa y días.
+
+I2. DESCUENTO DEL BONO SOCIAL (beneficio para consumidores vulnerables):
+   - "Descuento Bono Social X%" / "Bono Social aplicado" → es un descuento, total NEGATIVO.
+   - Solo aparece en facturas de consumidores acogidos al Bono Social.
+   - En rawLineItems: category="descuento_energia", total negativo.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+J. LECTURA DE CONTADORES Y VALIDACIÓN DE kWh
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+J1. LECTURA ACTUAL − LECTURA ANTERIOR = kWh FACTURADOS:
+   - Si ves lecturas de contador, verifica: (actual − anterior) × multiplicador = kWh P1.
+   - Multiplicador típico para contadores de BT: 1. Para MT: puede ser 4, 40, 400, etc.
+   - Si la diferencia de lecturas no cuadra con el kWh de la factura → puede haber
+     estimación o corrección de lecturas anteriores.
+
+J2. MWh vs kWh:
+   - Algunos contadores en alta tensión miden en MWh. Si ves "consumo: 45,23 MWh" en
+     vez de kWh, convierte: 45,23 MWh × 1000 = 45.230 kWh.
+   - El precio por kWh en MT suele ser 10–30× menor que en BT porque ya no incluye
+     costes de distribución de baja tensión.
+
+J3. ENERGÍA REACTIVA:
+   - "kVArh", "cos φ", "factor de potencia" → energía reactiva (no activa).
+   - No incluyas kVArh en consumoTotalKwh (que es solo kWh activos).
+   - La penalización por reactiva sí va en otrosConceptos como 'EXCESO DE POTENCIA'.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+K. GAS NATURAL — CONOCIMIENTO ADICIONAL DE ASESOR
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+K1. TARIFAS DE GAS EN ESPAÑA:
+   - RL.1: consumo < 5.000 kWh/año (doméstico básico).
+   - RL.2: consumo 5.000 – 50.000 kWh/año (doméstico alto / PYME pequeña).
+   - RL.3: consumo 50.000 – 100.000 kWh/año (mediana empresa).
+   - 3.1, 3.2, 3.3: industrial.
+   - La tarifa determina el peaje regulado y los cargos aplicables.
+
+K2. CONVERSIÓN m³ → kWh:
+   - Algunas facturas muestran el consumo en m³ con un factor de conversión.
+   - kWh = m³ × factor calórico × factor de compresión (Z). Típico: 1 m³ ≈ 11 kWh.
+   - Si la factura usa m³, extrae los kWh ya convertidos (suelen aparecer calculados).
+
+K3. PRECIO €/kWh ESTIMADO:
+   - Si la factura no muestra explícitamente €/kWh sino solo "consumo X kWh × precio":
+     precioKwh = costeBrutoConsumo / consumoKwh. Márcalo como estimado.
+
+K4. DIFERENCIA ENTRE DISTRIBUIDORAS Y COMERCIALIZADORAS EN GAS:
+   - Distrigás Sur, Nedgia, Nortegas, Distrinalia → distribuidoras (no comercializadoras).
+   - La factura la emite la COMERCIALIZADORA (Naturgy, Endesa Gas, Repsol, etc.).
+   - El CUPS de gas empieza por "ES" igual que electricidad pero tiene una estructura
+     ligeramente diferente. Puede tener sufijo "GN" o similar.
 
 ════════════════════════════════════════════════════════════════════════════
 FORMATO JSON DE RESPUESTA PARA FACTURAS
