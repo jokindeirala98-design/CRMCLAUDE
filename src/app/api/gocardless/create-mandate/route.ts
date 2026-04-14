@@ -6,15 +6,16 @@ import { createClient as supabaseCreateClient } from '@supabase/supabase-js'
  *
  * Creates a GoCardless SEPA mandate using the Billing Request Flow (hosted).
  *
- * Flujo optimizado para MINIMA friccion del cliente:
- *   1. Voltis rellena todo en el CRM (nombre, email, IBAN, plan)
- *   2. Se crea Billing Request + Flow con TODO pre-rellenado
- *   3. El cliente recibe un enlace (SMS/email/WhatsApp)
- *   4. Abre el enlace → ve sus datos ya puestos → solo pulsa "Confirmar"
- *   5. GoCardless crea el mandato SEPA → activamos cobros automaticamente
+ * Flujo con MINIMA friccion — el cliente solo confirma:
+ *   1. Voltis crea la suscripcion en el CRM con IBAN del cliente
+ *   2. Se llama a la API de GoCardless para pre-rellenar IBAN + datos del cliente
+ *      directamente (sin que el cliente tenga que escribir nada)
+ *   3. Se crea el Billing Request Flow → solo muestra pantalla de confirmacion
+ *   4. El cliente recibe el enlace, abre y ve TODO ya rellenado → pulsa "Confirmar"
+ *   5. GoCardless activa el mandato SEPA → webhook dispara el cobro automaticamente
  *
- * Pre-fills: nombre, email, pais (ES), IBAN
- * El cliente solo tiene que revisar y confirmar. Nada más.
+ * Pre-fills via API: nombre, email, IBAN completo
+ * El cliente SOLO hace clic en "Confirmar". Nada más.
  */
 
 interface CreateMandateRequest {
@@ -115,19 +116,53 @@ export async function POST(request: NextRequest) {
     const billingRequestId = brRes.billing_requests.id
     console.log(`[GoCardless] Billing Request created: ${billingRequestId}`)
 
-    // ── Step 2: Create Billing Request Flow ──
-    // Pre-fill EVERYTHING so the client only has to click "Confirmar"
-    console.log('[GoCardless] Creating Billing Request Flow (max pre-fill)...')
+    // ── Step 2: Collect Bank Account via API (pre-fill IBAN server-side) ──
+    // This uses the partner flow to skip the IBAN entry step entirely.
+    // The hosted form will then only ask for confirmation, not for bank details.
+    if (clientIban) {
+      const cleanIban = clientIban.replace(/\s+/g, '').toUpperCase()
+      try {
+        console.log('[GoCardless] Pre-filling bank account (IBAN)...')
+        await gcFetch(`/billing_requests/${billingRequestId}/actions/collect_bank_account`, 'POST', {
+          data: {
+            country_code: 'ES',
+            iban: cleanIban,
+            account_holder_name: clientName,
+          },
+        }, `${idempotencyBase}-bank`)
+        console.log('[GoCardless] Bank account pre-filled OK.')
+      } catch (ibanErr: any) {
+        // If pre-filling fails (e.g. invalid IBAN format) we continue to the hosted
+        // flow and let the client enter it manually. Non-fatal.
+        console.warn('[GoCardless] Could not pre-fill IBAN (client will enter manually):', ibanErr?.message)
+      }
+    }
 
-    // Build the flow payload — pre-fill customer details
-    // Note: GoCardless hosted flow does NOT allow pre-filling IBAN —
-    // the client must type it themselves (security requirement).
-    // We pre-fill: name, email, country → client only enters IBAN and confirms.
+    // ── Step 3: Collect Customer Details via API (pre-fill name, email) ──
+    try {
+      console.log('[GoCardless] Pre-filling customer details...')
+      await gcFetch(`/billing_requests/${billingRequestId}/actions/collect_customer_details`, 'POST', {
+        data: {
+          given_name: givenName,
+          family_name: familyName,
+          email: clientEmail,
+        },
+      }, `${idempotencyBase}-customer`)
+      console.log('[GoCardless] Customer details pre-filled OK.')
+    } catch (custErr: any) {
+      console.warn('[GoCardless] Could not pre-fill customer details:', custErr?.message)
+    }
+
+    // ── Step 4: Create Billing Request Flow (Hosted confirmation page) ──
+    // At this point IBAN and customer data are already filled via the API above.
+    // The client only sees a confirmation screen — one click to authorize.
+    console.log('[GoCardless] Creating Billing Request Flow (confirmation only)...')
     const flowRes = await gcFetch('/billing_request_flows', 'POST', {
       billing_request_flows: {
         redirect_uri: `${origin}/subscriptions?gc_complete=true&sub=${subscriptionId}`,
         exit_uri: `${origin}/subscriptions?gc_exit=true&sub=${subscriptionId}`,
         show_redirect_buttons: true,
+        // Fallback pre-fill in case the API steps above were skipped
         prefilled_customer: {
           given_name: givenName,
           family_name: familyName,

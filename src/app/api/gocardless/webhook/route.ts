@@ -91,8 +91,8 @@ export async function POST(request: NextRequest) {
         }
 
         switch (action) {
-          case 'active':
-            // Mandate is now active — ready to collect payments
+          case 'active': {
+            // 1. Mark subscription as active
             await supabase
               .from('subscriptions')
               .update({ status: 'active' })
@@ -105,7 +105,83 @@ export async function POST(request: NextRequest) {
               description: `Mandato SEPA activo. Listo para cobros. Mandate: ${mandateId}`,
               performed_by: 'system',
             })
+
+            // 2. AUTO-TRIGGER PAYMENT: create the first payment automatically
+            // so no manual "solicitar pago" step is needed.
+            if (subscription.annual_amount && subscription.annual_amount > 0) {
+              try {
+                const origin = process.env.NEXT_PUBLIC_APP_URL || 'https://voltisenergia.com'
+                const isImmediate = subscription.payment_mode === 'immediate'
+
+                // For immediate: one single payment of the full annual amount.
+                // For quarterly: GoCardless creates a recurring subscription (4 payments every 3 months).
+                // Amounts include 21% VAT — annual_amount is the base (before VAT).
+                const baseAmount = subscription.annual_amount
+                const totalWithVat = Math.round(baseAmount * 1.21 * 100) / 100
+                const amountCents = isImmediate
+                  ? Math.round(totalWithVat * 100)
+                  : Math.round((totalWithVat / 4) * 100)
+
+                const clientName = (subscription.client as any)?.name
+                  || subscription.external_client_name
+                  || 'Cliente'
+
+                const description = isImmediate
+                  ? `Servicio Voltis Energía — Gestión anual ${new Date().getFullYear()}`
+                  : `Servicio Voltis Energía — Cuota trimestral 1/4`
+
+                console.log(`[GoCardless Webhook] Auto-triggering payment: ${amountCents} cents, mode=${isImmediate ? 'single' : 'quarterly'}`)
+
+                const payRes = await fetch(`${origin}/api/gocardless/create-payment`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    mandateId,
+                    subscriptionId: subscription.id,
+                    clientId: subscription.client_id || null,
+                    amountCents,
+                    description,
+                    mode: isImmediate ? 'single' : 'quarterly',
+                    installments: isImmediate ? undefined : 4,
+                  }),
+                })
+
+                if (!payRes.ok) {
+                  const errText = await payRes.text()
+                  console.error('[GoCardless Webhook] Auto-payment failed:', errText)
+                  await supabase.from('activity_log').insert({
+                    entity_type: 'subscription',
+                    entity_id: subscription.id,
+                    action: 'auto_payment_error',
+                    description: `Error al crear pago automático tras activación del mandato: ${errText}`,
+                    performed_by: 'system',
+                  })
+                } else {
+                  const payData = await payRes.json()
+                  console.log('[GoCardless Webhook] Auto-payment created:', payData)
+                  await supabase.from('activity_log').insert({
+                    entity_type: 'subscription',
+                    entity_id: subscription.id,
+                    action: 'auto_payment_created',
+                    description: `Pago creado automáticamente al activarse el mandato. ${isImmediate ? `Payment: ${payData.paymentId}` : `GC Sub: ${payData.gcSubscriptionId}`}`,
+                    performed_by: 'system',
+                  })
+                }
+              } catch (payErr: any) {
+                console.error('[GoCardless Webhook] Error auto-creating payment:', payErr?.message)
+                await supabase.from('activity_log').insert({
+                  entity_type: 'subscription',
+                  entity_id: subscription.id,
+                  action: 'auto_payment_error',
+                  description: `Excepción al crear pago automático: ${payErr?.message}`,
+                  performed_by: 'system',
+                })
+              }
+            } else {
+              console.warn(`[GoCardless Webhook] Mandate active but no annual_amount on subscription ${subscription.id} — payment NOT auto-created.`)
+            }
             break
+          }
 
           case 'failed':
           case 'cancelled':
