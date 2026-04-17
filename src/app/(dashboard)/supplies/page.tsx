@@ -74,6 +74,18 @@ export default function SuppliesPage() {
       })
     }
 
+    // Fallback: for supplies with no invoices, use SIPS totalKwh from consumption_data
+    if (suppliesResult.data) {
+      suppliesResult.data.forEach((supply: any) => {
+        if (!consumptionData[supply.id]) {
+          const sipsKwh = supply.consumption_data?.totalKwh ?? supply.consumption_data?.total
+          if (sipsKwh && sipsKwh > 0) {
+            consumptionData[supply.id] = sipsKwh
+          }
+        }
+      })
+    }
+
     setConsumptionMap(consumptionData)
     setSupplies(suppliesResult.data || [])
     setLoading(false)
@@ -137,14 +149,21 @@ export default function SuppliesPage() {
     },
     {
       key: 'consumption',
-      header: 'Consumo',
+      header: 'Consumo anual',
       render: (item: any) => {
         const consumption = consumptionMap[item.id]
         if (!consumption) return <span className="text-sm text-on-surface-variant">—</span>
+        // Determine source: if supply has no invoices but has SIPS data, show SIPS tag
+        const fromSips = !!(item.consumption_data?.totalKwh && !item.invoices?.length)
         return (
-          <span className="text-sm text-on-surface font-medium">
-            {consumption.toLocaleString('es-ES', { maximumFractionDigits: 0 })} kWh
-          </span>
+          <div className="flex flex-col gap-0.5">
+            <span className="text-sm text-on-surface font-medium">
+              {consumption.toLocaleString('es-ES', { maximumFractionDigits: 0 })} kWh
+            </span>
+            {fromSips && (
+              <span className="text-[10px] text-on-surface-variant/60 font-medium">SIPS</span>
+            )}
+          </div>
         )
       },
     },
