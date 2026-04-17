@@ -16,6 +16,7 @@ export default function EditClientPage() {
   const router = useRouter()
   const [form, setForm] = useState({
     name: '',
+    alias: '',
     type: 'empresa' as ClientType,
     cif: '',
     cif_file_url: '',
@@ -37,6 +38,11 @@ export default function EditClientPage() {
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   useEffect(() => {
+    // Auto-run migration to add alias column (no-op if already exists)
+    fetch('/api/migrate-client-alias', { method: 'POST' }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
     const fetchData = async () => {
       const supabase = createClient()
 
@@ -49,6 +55,7 @@ export default function EditClientPage() {
         const c = clientRes.data
         setForm({
           name: c.name || '',
+          alias: c.alias || '',
           type: c.type,
           cif: c.cif || '',
           cif_file_url: c.cif_file_url || '',
@@ -91,6 +98,7 @@ export default function EditClientPage() {
         .from('clients')
         .update({
           name: form.name.trim(),
+          alias: form.alias.trim() || null,
           type: form.type,
           cif_nif: cifNif,
           cif: form.cif.trim() || null,
@@ -153,6 +161,18 @@ export default function EditClientPage() {
               onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
               error={errors.name}
             />
+            <div>
+              <Input
+                id="alias"
+                label="Alias / Nombre comercial"
+                placeholder="Ej: Maderas Orkoyen"
+                value={form.alias}
+                onChange={(e) => setForm((p) => ({ ...p, alias: e.target.value }))}
+              />
+              <p className="mt-1 text-[11px] text-on-surface-variant/60">
+                Nombre alternativo para buscar y mostrar en el CRM. El nombre oficial sigue siendo el de arriba.
+              </p>
+            </div>
             <Select
               id="type"
               label="Tipo de cliente"

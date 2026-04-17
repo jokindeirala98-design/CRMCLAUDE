@@ -117,13 +117,14 @@ export default function ClientsPage() {
       if (search) {
         const q = search.toLowerCase()
         const nameMatch = c.name?.toLowerCase().includes(q)
+        const aliasMatch = c.alias?.toLowerCase().includes(q)
         const cifMatch = (c.cif || c.nif || c.cif_nif || '').toLowerCase().includes(q)
         const emailMatch = (c.email || '').toLowerCase().includes(q)
         const cupsMatch = c.supplies?.some((s: any) =>
           (s.cups || '').toLowerCase().includes(q) ||
           (s.name || '').toLowerCase().includes(q)
         )
-        if (!nameMatch && !cifMatch && !emailMatch && !cupsMatch) return false
+        if (!nameMatch && !aliasMatch && !cifMatch && !emailMatch && !cupsMatch) return false
       }
       // Status filter
       if (statusFilter && !clientMatchesStatus(c, statusFilter)) return false
@@ -400,10 +401,10 @@ export default function ClientsPage() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <h3 className="text-sm font-semibold text-on-surface truncate group-hover:text-primary transition-colors">
-                          {client.name}
+                          {client.alias || client.name}
                         </h3>
                         <p className="text-xs text-on-surface-variant truncate">
-                          {client.cif || client.nif || client.cif_nif || 'Sin CIF/NIF'}
+                          {client.alias ? client.name : (client.cif || client.nif || client.cif_nif || 'Sin CIF/NIF')}
                         </p>
                       </div>
                       <ChevronRight className="w-4 h-4 text-on-surface-variant/30 group-hover:text-primary flex-shrink-0 transition-colors" />
@@ -486,10 +487,12 @@ export default function ClientsPage() {
                     <Icon className="w-4.5 h-4.5 text-primary" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-on-surface truncate group-hover:text-primary transition-colors">{client.name}</p>
+                    <p className="text-sm font-medium text-on-surface truncate group-hover:text-primary transition-colors">
+                      {client.alias || client.name}
+                    </p>
                     <p className="text-xs text-on-surface-variant truncate">
-                      {client.cif || client.nif || client.cif_nif || 'Sin CIF/NIF'}
-                      {client.email && ` · ${client.email}`}
+                      {client.alias ? client.name : (client.cif || client.nif || client.cif_nif || 'Sin CIF/NIF')}
+                      {!client.alias && client.email && ` · ${client.email}`}
                     </p>
                   </div>
                   <div className="hidden lg:flex items-center gap-2">
@@ -562,10 +565,10 @@ export default function ClientsPage() {
                     </div>
                   )})()}
                   <div className="min-w-0">
-                    <h2 className="font-display font-semibold text-lg text-on-surface">{selectedClient.name}</h2>
+                    <h2 className="font-display font-semibold text-lg text-on-surface">{selectedClient.alias || selectedClient.name}</h2>
                     <p className="text-xs text-on-surface-variant truncate">
-                      {selectedClient.cif || selectedClient.nif || selectedClient.cif_nif || 'Sin CIF/NIF'}
-                      {selectedClient.email && ` · ${selectedClient.email}`}
+                      {selectedClient.alias ? selectedClient.name : (selectedClient.cif || selectedClient.nif || selectedClient.cif_nif || 'Sin CIF/NIF')}
+                      {!selectedClient.alias && selectedClient.email && ` · ${selectedClient.email}`}
                     </p>
                   </div>
                 </div>

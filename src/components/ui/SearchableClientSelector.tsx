@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils/cn'
 export interface ClientOption {
   id: string
   name: string
+  alias?: string | null
   cif?: string | null
   nif?: string | null
   cif_nif?: string | null
@@ -45,8 +46,9 @@ export const SearchableClientSelector = ({
   const normalizedSearch = search.toLowerCase().trim()
   const filteredClients = clients.filter((c) => {
     const nameMatch = c.name.toLowerCase().includes(normalizedSearch)
+    const aliasMatch = (c.alias || '').toLowerCase().includes(normalizedSearch)
     const cifMatch = (c.cif || c.nif || c.cif_nif || '').toLowerCase().includes(normalizedSearch)
-    return normalizedSearch === '' || nameMatch || cifMatch
+    return normalizedSearch === '' || nameMatch || aliasMatch || cifMatch
   })
 
   // Close dropdown when clicking outside — clear unmatched search text
@@ -93,7 +95,7 @@ export const SearchableClientSelector = ({
           <input
             ref={inputRef}
             type="text"
-            value={selectedClient && !isOpen ? selectedClient.name : search}
+            value={selectedClient && !isOpen ? (selectedClient.alias || selectedClient.name) : search}
             onChange={(e) => {
               setSearch(e.target.value)
               setIsOpen(true)
@@ -154,12 +156,10 @@ export const SearchableClientSelector = ({
                 type="button"
               >
                 <div>
-                  <p className="text-sm font-medium text-on-surface">{client.name}</p>
-                  {(client.cif || client.nif || client.cif_nif) && (
-                    <p className="text-xs text-on-surface-variant">
-                      {client.cif || client.nif || client.cif_nif}
-                    </p>
-                  )}
+                  <p className="text-sm font-medium text-on-surface">{client.alias || client.name}</p>
+                  <p className="text-xs text-on-surface-variant">
+                    {client.alias ? client.name : (client.cif || client.nif || client.cif_nif || '')}
+                  </p>
                 </div>
               </button>
             ))}

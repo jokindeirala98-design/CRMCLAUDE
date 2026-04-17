@@ -152,7 +152,7 @@ export default function SupplyDetailPage() {
       .from('supplies')
       .select(`
         *,
-        client:clients(id, name, cif, nif, cif_nif, email, phone, type),
+        client:clients(id, name, alias, cif, nif, cif_nif, email, phone, type, fiscal_address),
         comercializadora:comercializadoras(id, name, signing_method),
         contracts(*),
         prescorings:prescorings(*),
@@ -1151,11 +1151,24 @@ export default function SupplyDetailPage() {
               )}
             </div>
             <div className="space-y-3">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 group/cups">
                 <Zap className="w-4 h-4 text-primary flex-shrink-0" />
-                <div>
+                <div className="flex-1 min-w-0">
                   <p className="text-xs text-on-surface-variant">CUPS</p>
-                  <p className="text-sm font-mono font-medium text-on-surface">{supply.cups || 'Sin CUPS'}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-mono font-medium text-on-surface truncate">{supply.cups || 'Sin CUPS'}</p>
+                    {supply.cups && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); copyToClip('cups_main', supply.cups) }}
+                        className="p-1 rounded-md text-on-surface-variant/30 hover:text-primary hover:bg-primary/10 transition-all opacity-0 group-hover/cups:opacity-100 flex-shrink-0"
+                        title="Copiar CUPS"
+                      >
+                        {copiedField === 'cups_main'
+                          ? <Check className="w-3.5 h-3.5 text-success" />
+                          : <Copy className="w-3.5 h-3.5" />}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -1240,8 +1253,30 @@ export default function SupplyDetailPage() {
             </div>
             {supply.client ? (
               <div className="space-y-2">
+                {/* Name row — shows alias prominently if set, real name as subtag */}
+                <div className="flex items-start gap-2.5 group/row">
+                  <Building2 className="w-4 h-4 text-on-surface-variant/60 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm text-on-surface truncate block">
+                      {supply.client.alias || supply.client.name}
+                    </span>
+                    {supply.client.alias && (
+                      <span className="text-[10px] text-on-surface-variant/50 truncate block">
+                        {supply.client.name}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); copyToClip('cl_name', supply.client.alias || supply.client.name) }}
+                    className="p-1 rounded-md text-on-surface-variant/30 hover:text-primary hover:bg-primary/10 transition-all opacity-0 group-hover/row:opacity-100 flex-shrink-0"
+                    title="Copiar nombre"
+                  >
+                    {copiedField === 'cl_name' ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+
+                {/* Other fields */}
                 {([
-                  { key: 'cl_name', label: 'Nombre', value: supply.client.name, icon: Building2 },
                   { key: 'cl_id', label: supply.client.cif ? 'CIF' : 'NIF', value: supply.client.cif || supply.client.nif || supply.client.cif_nif, icon: FileText },
                   { key: 'cl_phone', label: 'Teléfono', value: supply.client.phone, icon: PhoneIcon },
                   { key: 'cl_email', label: 'Email', value: supply.client.email, icon: Mail },
