@@ -1474,10 +1474,11 @@ Esta entrada es una IMAGEN (no PDF). La imagen puede estar comprimida, pixelada 
 Debes esforzarte al máximo para extraer TODOS los campos, incluso si el texto parece borroso o difícil de leer.
 
 1. CUPS (CAMPO CRÍTICO):
-   - Busca cualquier código que empiece por "ES" seguido de ~20 caracteres alfanuméricos.
+   - Busca cualquier código que empiece por "ES" seguido de exactamente 20 caracteres alfanuméricos (total 22 chars).
    - Puede aparecer en cualquier parte de la factura: cabecera, cuerpo, pie, tabla de datos del punto de suministro.
-   - Si ves algo que podría ser un CUPS aunque esté parcialmente ilegible, intenta reconstruirlo con los caracteres que sí puedas leer.
-   - Formatos típicos: ES0000000000000000XX00 (luz) o ES0000000000000000 (gas).
+   - REGLA ABSOLUTA: Si NO puedes leer claramente el CUPS completo, devuelve null. NUNCA inventes, aproximes ni rellenes con ceros. Un CUPS inventado es mucho peor que null.
+   - Solo extrae el CUPS si puedes leer al menos 15 de sus 22 caracteres con certeza. Los caracteres que no puedas leer son motivo para devolver null.
+   - Formatos reales de ejemplo: ES0031405000001234XY (luz Navarra), ES0220401800075123 (gas). NO uses estos como plantilla.
 
 2. ECONOMICS (TODOS LOS CAMPOS OBLIGATORIOS):
    - consumo[]: Extrae CADA línea de energía con fecha_inicio, fecha_fin, kwh, precioKwh, importe. No omitas ningún período.
@@ -1504,6 +1505,19 @@ Debes esforzarte al máximo para extraer TODOS los campos, incluso si el texto p
     if (!cups && content) {
       // Gemini might have returned the CUPS embedded in text — try to extract it
       cups = extractCups(content) || undefined
+    }
+    // Sanity-check: reject hallucinated/fake CUPS
+    // A real CUPS has varied characters. Reject if the 20 chars after "ES" are too uniform
+    // (e.g. ES0020000000000000000 or ES1111111111111111 — Gemini filling with zeros/repeats)
+    if (cups) {
+      const body = cups.slice(2) // everything after "ES"
+      const uniqueChars = new Set(body.replace(/\D/g, '').split('')).size
+      const zeroCount = (body.match(/0/g) || []).length
+      // Reject if fewer than 3 distinct digits OR more than 14 zeros in a 20-char code
+      if (uniqueChars < 3 || zeroCount > 14) {
+        console.warn(`[Gemini] Rejecting likely hallucinated CUPS: ${cups} (uniqueChars=${uniqueChars}, zeros=${zeroCount})`)
+        cups = undefined
+      }
     }
 
     return {
