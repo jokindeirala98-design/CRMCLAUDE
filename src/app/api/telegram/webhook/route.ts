@@ -488,80 +488,17 @@ async function handleDocumentFile(msg: TelegramMessage) {
 
     const now = Date.now()
 
-    // ── Media group handling: buffer pages and process together ──
-    // We store only the file URL (not base64) to avoid large JSON in the DB.
-    // When the final page arrives, we re-download previous pages from storage.
+    // ── Process each file individually (even when part of a media group/album) ──
+    // Each photo is analyzed by Gemini independently.  Multi-page invoice merging
+    // is handled intelligently inside processTelegramInboxItem:
+    //   • If the page has a CUPS → found in step 5 (exact supply match).
+    //   • If the page has no CUPS but same client → section 8b reuses/patches
+    //     an existing supply (no-CUPS match OR recent-supply recency match).
+    // This correctly handles N photos from M different invoices in one album.
     if (mediaGroupId) {
-      const groupKey = `mg_${mediaGroupId}`
-      const convo = await getConvo(chatId) || { step: 'idle', data: {}, expiresAt: 0 }
-      type GroupEntry = { fileUrl: string; mimeType: string; inboxId: string }
-      const existingGroup: { pages: GroupEntry[] } | undefined = convo.data?.[groupKey]
-
-      if (!existingGroup) {
-        // First page — store URL reference and wait for more
-        const groupData = { pages: [{ fileUrl: urlData.publicUrl, mimeType, inboxId: insertedRow.id }] }
-        await setConvo(chatId, convo.step, { ...(convo.data || {}), [groupKey]: groupData, last_notif_at: now })
-        sendMessage(chatId, `📥 Recibido ✓ — Procesando automáticamente...`).catch(() => {})
-        console.log(`[Telegram] Media group ${mediaGroupId}: stored page 1, waiting for more`)
-        return
-      } else {
-        // Subsequent page — download all previous pages and process together
-        const allEntries: GroupEntry[] = [...existingGroup.pages, { fileUrl: urlData.publicUrl, mimeType, inboxId: insertedRow.id }]
-        const [primaryEntry, ...restEntries] = allEntries
-
-        console.log(`[Telegram] Media group ${mediaGroupId}: got page ${allEntries.length}, downloading all & processing together`)
-
-        // Clear group from state
-        const clearedData = { ...(convo.data || {}) }
-        delete clearedData[groupKey]
-        await setConvo(chatId, convo.step, clearedData)
-
-        // Download all extra pages from storage
-        const extraPages: Array<{ base64Data: string; mimeType: string }> = []
-        // Current page is already in base64, but may be for a rest entry — check if it's the primary
-        // Current base64/mimeType is the LAST entry. Extra pages are all except the last one (primary is first).
-        for (const entry of restEntries) {
-          if (entry.inboxId === insertedRow.id) {
-            // This is the current page — use in-memory base64
-            extraPages.push({ base64Data: base64, mimeType: entry.mimeType })
-          } else {
-            // Download from storage
-            try {
-              const pageRes = await fetch(entry.fileUrl)
-              if (pageRes.ok) {
-                const pageBuffer = Buffer.from(await pageRes.arrayBuffer())
-                extraPages.push({ base64Data: pageBuffer.toString('base64'), mimeType: entry.mimeType })
-              }
-            } catch (dlErr) {
-              console.error(`[Telegram] Failed to re-download page ${entry.inboxId}:`, dlErr)
-            }
-          }
-        }
-
-        // Re-download primary if needed, or use the stored fileUrl
-        // Primary is always a previous entry, never the current one
-        let primaryBase64: string
-        try {
-          const primaryRes = await fetch(primaryEntry.fileUrl)
-          if (!primaryRes.ok) throw new Error(`HTTP ${primaryRes.status}`)
-          const primaryBuffer = Buffer.from(await primaryRes.arrayBuffer())
-          primaryBase64 = primaryBuffer.toString('base64')
-        } catch (dlErr) {
-          console.error(`[Telegram] Failed to re-download primary page:`, dlErr)
-          // Fallback: if can't re-download primary, process current page alone
-          await processMediaGroupPage(chatId, insertedRow.id, base64, mimeType, isTelegramPhoto, user, [])
-          return
-        }
-
-        // Process primary inbox item with all pages combined
-        await processMediaGroupPage(chatId, primaryEntry.inboxId, primaryBase64, primaryEntry.mimeType, isTelegramPhoto, user, extraPages)
-        // Mark the secondary inbox item as processed (merged into primary)
-        await supabase.from('telegram_inbox').update({ status: 'processed', processed_at: new Date().toISOString() }).eq('id', insertedRow.id)
-        return
-      }
+      console.log(`[Telegram] Media group ${mediaGroupId}: processing page individually (recency-merge strategy)`)
     }
 
-    // ── Standard single-file processing ──
     const convo = await getConvo(chatId) || { step: 'idle', data: {}, expiresAt: 0 }
     const DEBOUNCE_MS = 5000
     const lastNotifAt = convo.data?.last_notif_at || 0
@@ -583,24 +520,7 @@ async function handleDocumentFile(msg: TelegramMessage) {
 }
 
 /**
- * Process a media group page — used for both the initial single-page fallback
- * and the final multi-page combined processing.
- */
-async function processMediaGroupPage(
-  chatId: number,
-  inboxId: string,
-  base64: string,
-  mimeType: string,
-  isTelegramPhoto: boolean,
-  user: { userId: string; userName: string },
-  extraPages: Array<{ base64Data: string; mimeType: string }>,
-) {
-  const now = Date.now()
-  await processAndNotify(chatId, inboxId, base64, mimeType, isTelegramPhoto, user, extraPages, now)
-}
-
-/**
- * Core process + notify function used by both single-file and media-group flows.
+ * Core process + notify function used by all document flows.
  */
 async function processAndNotify(
   chatId: number,

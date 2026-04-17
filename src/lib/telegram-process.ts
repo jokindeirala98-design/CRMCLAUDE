@@ -287,26 +287,48 @@ export async function processTelegramInboxItem(
   }
 
   // 8b. If we matched client by CIF/name (not by CUPS), look for an existing supply
-  // for this client that has no CUPS — we can reuse it and fill in the missing data.
+  // for this client that we can reuse instead of creating a duplicate.
+  //
+  // Priority order:
+  //   1. Exact CUPS match (safety net — step 5 should have caught this already)
+  //   2. Supply with no CUPS + same type → fill in the missing data
+  //   3. Any supply updated within the last 3 minutes + same type →
+  //      handles multi-page invoices processed as individual photos:
+  //      page 1 creates the supply (with CUPS), page 2 (no CUPS, economics detail)
+  //      arrives seconds later and should merge into that same supply.
   if (clientId && !supplyId) {
     const { data: clientSupplies } = await supabase
       .from('supplies')
-      .select('id, cups, tariff, address, type')
+      .select('id, cups, tariff, address, type, updated_at')
       .eq('client_id', clientId)
-      .order('created_at', { ascending: false })
+      .order('updated_at', { ascending: false })
       .limit(10)
 
     if (clientSupplies?.length) {
       // 1st priority: exact CUPS match (shouldn't happen here but safety net)
       const exactMatch = cups ? clientSupplies.find(s => s.cups === cups) : null
+
       // 2nd priority: supply without CUPS and same type → fill in the gap
       const noCupsMatch = clientSupplies.find(s => !s.cups && (s.type === supplyType || !s.type))
-      const targetSupply = exactMatch || noCupsMatch
+
+      // 3rd priority: any supply updated within last 3 minutes for same type.
+      // Only used when this page has no CUPS (it needs to latch onto an existing supply).
+      // This handles the common case where page 1 (CUPS) and page 2 (economics) of
+      // the same invoice arrive as separate Telegram photos within seconds of each other.
+      const threeMinAgo = new Date(Date.now() - 3 * 60 * 1000).toISOString()
+      const recentMatch = !cups
+        ? clientSupplies.find(
+            s => (s.updated_at || '') > threeMinAgo && (s.type === supplyType || !s.type)
+          )
+        : null
+
+      const targetSupply = exactMatch || noCupsMatch || recentMatch
 
       if (targetSupply) {
         supplyId = targetSupply.id
         isExistingSupply = true
-        console.log(`[TelegramProcess] Reusing supply ${supplyId} (was: cups=${targetSupply.cups || 'null'})`)
+        const matchReason = exactMatch ? 'exact CUPS' : noCupsMatch ? 'no-CUPS supply' : 'recent supply (recency merge)'
+        console.log(`[TelegramProcess] Reusing supply ${supplyId} via ${matchReason} (was: cups=${targetSupply.cups || 'null'})`)
 
         // Patch any missing fields on the existing supply
         const patch: Record<string, any> = {}
@@ -315,6 +337,7 @@ export async function processTelegramInboxItem(
         if (address && !targetSupply.address) patch.address = address
         if (supplyType && !targetSupply.type) patch.type = supplyType
         if (Object.keys(patch).length) {
+          patch.updated_at = new Date().toISOString()
           await supabase.from('supplies').update(patch).eq('id', supplyId)
           console.log(`[TelegramProcess] Patched supply ${supplyId}:`, patch)
         }
