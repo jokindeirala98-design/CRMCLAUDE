@@ -433,27 +433,77 @@ async function tryLoginThenFetch(cups: string): Promise<Response | null> {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-//  STRATEGY 3: Manual token from env var
+//  STRATEGY 3: Manual token
+//
+//  Fuentes posibles, por orden:
+//    3a. Supabase (tabla external_sessions.provider='totalenergies')
+//        — lo escribe el bookmarklet tras login manual. No requiere redeploy.
+//    3b. Env var TOTALENERGIES_TOKEN (legacy fallback).
 // ═══════════════════════════════════════════════════════════════════
 
+async function getTokenFromSupabase(): Promise<string | null> {
+  try {
+    const { createClient } = require('@supabase/supabase-js') as typeof import('@supabase/supabase-js')
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    if (!url || !key) { dbg('S3:supa:no_env'); return null }
+
+    const supabase = createClient(url, key)
+    const { data, error } = await supabase
+      .from('external_sessions')
+      .select('token, expires_at')
+      .eq('provider', 'totalenergies')
+      .maybeSingle()
+
+    if (error) { dbg(`S3:supa:err=${error.message.substring(0, 60)}`); return null }
+    if (!data) { dbg('S3:supa:empty'); return null }
+
+    const expires = new Date(data.expires_at).getTime()
+    const now = Date.now()
+    if (expires <= now) {
+      dbg(`S3:supa:expired(${Math.round((now - expires) / 60_000)}m ago)`)
+      return null
+    }
+
+    const mins = Math.round((expires - now) / 60_000)
+    dbg(`S3:supa:ok(${mins}m left)`)
+    return data.token as string
+  } catch (err: any) {
+    dbg(`S3:supa:crash=${err.message?.substring(0, 60)}`)
+    return null
+  }
+}
+
 async function tryManualToken(cups: string): Promise<Response | null> {
-  const manualToken = process.env.TOTALENERGIES_TOKEN
-  if (!manualToken) return null
+  // 3a: Supabase first
+  let token = await getTokenFromSupabase()
+  let source = 'Supa'
 
-  const token = manualToken.replace(/^Bearer\s+/i, '').trim()
-  if (token.length < 50) return null
+  // 3b: env var fallback
+  if (!token) {
+    const envToken = process.env.TOTALENERGIES_TOKEN
+    if (envToken) {
+      token = envToken.replace(/^Bearer\s+/i, '').trim()
+      source = 'Env'
+    }
+  }
 
-  dbg('S3:ManualToken')
+  if (!token || token.length < 50) {
+    dbg('S3:no_token')
+    return null
+  }
+
+  dbg(`S3:ManualToken(${source})`)
   const body = sipsBody(cups)
 
-  const r = await tryFetch('ManualToken', SIPS_GAS_URL, {
+  const r = await tryFetch(`ManualToken(${source})`, SIPS_GAS_URL, {
     method: 'POST',
     headers: { ...BASE_HEADERS, 'Authorization': `Bearer ${token}` },
     body,
   })
 
   if (r.status === 401) {
-    dbg('S3:expired')
+    dbg(`S3:expired(${source})`)
     return null
   }
 

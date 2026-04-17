@@ -20,6 +20,7 @@ interface TelegramMessage {
   document?: { file_id: string; file_name?: string; mime_type?: string }
   photo?: { file_id: string; width: number; height: number }[]
   caption?: string
+  media_group_id?: string
 }
 
 interface CallbackQuery {
@@ -403,7 +404,7 @@ async function getLinkedUser(chatId: number): Promise<{ userId: string; userName
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
-/*  DOCUMENT PROCESSING — SIMPLE FILE UPLOAD                                 */
+/*  DOCUMENT PROCESSING — WITH MULTI-PAGE (MEDIA GROUP) SUPPORT             */
 /* ═══════════════════════════════════════════════════════════════════════════ */
 async function handleDocumentFile(msg: TelegramMessage) {
   const chatId = msg.chat.id
@@ -431,11 +432,16 @@ async function handleDocumentFile(msg: TelegramMessage) {
     return sendMessage(chatId, '❌ No pude detectar el archivo. Envía una foto o PDF.')
   }
 
+  const isTelegramPhoto = !!msg.photo
+  const mimeType = fileType === 'pdf' ? 'application/pdf' : 'image/jpeg'
+  const mediaGroupId = msg.media_group_id
+
   try {
     // Download file from Telegram
-    console.log(`[Telegram] Downloading file ${fileId} for user ${user.userId}`)
+    console.log(`[Telegram] Downloading file ${fileId}${mediaGroupId ? ` (group ${mediaGroupId})` : ''} for user ${user.userId}`)
     const { buffer, fileName: dlFileName } = await downloadFile(fileId)
     console.log(`[Telegram] Downloaded ${buffer.length} bytes`)
+    const base64 = Buffer.from(buffer).toString('base64')
 
     // Prepare upload path and extension
     const ext = fileType === 'pdf' ? 'pdf' : 'jpg'
@@ -446,30 +452,20 @@ async function handleDocumentFile(msg: TelegramMessage) {
 
     // Upload to Supabase storage
     const supabase = createBotSupabase()
-
-    // Convert Buffer to Uint8Array for edge runtime compatibility
     const fileData = new Uint8Array(buffer)
 
     const { error: uploadError } = await supabase.storage
       .from('documents')
-      .upload(storagePath, fileData, {
-        contentType,
-        upsert: true,
-      })
+      .upload(storagePath, fileData, { contentType, upsert: true })
 
     if (uploadError) {
       console.error('[Telegram] Upload error:', JSON.stringify(uploadError))
       return sendMessage(chatId, `❌ Error subiendo documento: ${uploadError.message || 'Error de storage'}`)
     }
 
-    // Get public URL
-    const { data: urlData } = supabase.storage
-      .from('documents')
-      .getPublicUrl(storagePath)
+    const { data: urlData } = supabase.storage.from('documents').getPublicUrl(storagePath)
+    console.log(`[Telegram] Uploaded to ${storagePath}`)
 
-    console.log(`[Telegram] Uploaded to ${storagePath}, URL: ${urlData.publicUrl}`)
-
-    // Build sender display name from Telegram user info
     const senderName = msg.from
       ? [msg.from.first_name, msg.from.username ? `(@${msg.from.username})` : ''].filter(Boolean).join(' ')
       : 'Desconocido'
@@ -490,88 +486,175 @@ async function handleDocumentFile(msg: TelegramMessage) {
       return sendMessage(chatId, `❌ Error guardando: ${insertError?.message || 'Error DB'}`)
     }
 
-    // ── Debounced "Recibido" notification ──
-    // When rapid-firing files, only send one "Recibido" per 5-second window
+    const now = Date.now()
+
+    // ── Media group handling: buffer pages and process together ──
+    // We store only the file URL (not base64) to avoid large JSON in the DB.
+    // When the final page arrives, we re-download previous pages from storage.
+    if (mediaGroupId) {
+      const groupKey = `mg_${mediaGroupId}`
+      const convo = await getConvo(chatId) || { step: 'idle', data: {}, expiresAt: 0 }
+      type GroupEntry = { fileUrl: string; mimeType: string; inboxId: string }
+      const existingGroup: { pages: GroupEntry[] } | undefined = convo.data?.[groupKey]
+
+      if (!existingGroup) {
+        // First page — store URL reference and wait for more
+        const groupData = { pages: [{ fileUrl: urlData.publicUrl, mimeType, inboxId: insertedRow.id }] }
+        await setConvo(chatId, convo.step, { ...(convo.data || {}), [groupKey]: groupData, last_notif_at: now })
+        sendMessage(chatId, `📥 Recibido ✓ — Procesando automáticamente...`).catch(() => {})
+        console.log(`[Telegram] Media group ${mediaGroupId}: stored page 1, waiting for more`)
+        return
+      } else {
+        // Subsequent page — download all previous pages and process together
+        const allEntries: GroupEntry[] = [...existingGroup.pages, { fileUrl: urlData.publicUrl, mimeType, inboxId: insertedRow.id }]
+        const [primaryEntry, ...restEntries] = allEntries
+
+        console.log(`[Telegram] Media group ${mediaGroupId}: got page ${allEntries.length}, downloading all & processing together`)
+
+        // Clear group from state
+        const clearedData = { ...(convo.data || {}) }
+        delete clearedData[groupKey]
+        await setConvo(chatId, convo.step, clearedData)
+
+        // Download all extra pages from storage
+        const extraPages: Array<{ base64Data: string; mimeType: string }> = []
+        // Current page is already in base64, but may be for a rest entry — check if it's the primary
+        // Current base64/mimeType is the LAST entry. Extra pages are all except the last one (primary is first).
+        for (const entry of restEntries) {
+          if (entry.inboxId === insertedRow.id) {
+            // This is the current page — use in-memory base64
+            extraPages.push({ base64Data: base64, mimeType: entry.mimeType })
+          } else {
+            // Download from storage
+            try {
+              const pageRes = await fetch(entry.fileUrl)
+              if (pageRes.ok) {
+                const pageBuffer = Buffer.from(await pageRes.arrayBuffer())
+                extraPages.push({ base64Data: pageBuffer.toString('base64'), mimeType: entry.mimeType })
+              }
+            } catch (dlErr) {
+              console.error(`[Telegram] Failed to re-download page ${entry.inboxId}:`, dlErr)
+            }
+          }
+        }
+
+        // Re-download primary if needed, or use the stored fileUrl
+        // Primary is always a previous entry, never the current one
+        let primaryBase64: string
+        try {
+          const primaryRes = await fetch(primaryEntry.fileUrl)
+          if (!primaryRes.ok) throw new Error(`HTTP ${primaryRes.status}`)
+          const primaryBuffer = Buffer.from(await primaryRes.arrayBuffer())
+          primaryBase64 = primaryBuffer.toString('base64')
+        } catch (dlErr) {
+          console.error(`[Telegram] Failed to re-download primary page:`, dlErr)
+          // Fallback: if can't re-download primary, process current page alone
+          await processMediaGroupPage(chatId, insertedRow.id, base64, mimeType, isTelegramPhoto, user, [])
+          return
+        }
+
+        // Process primary inbox item with all pages combined
+        await processMediaGroupPage(chatId, primaryEntry.inboxId, primaryBase64, primaryEntry.mimeType, isTelegramPhoto, user, extraPages)
+        // Mark the secondary inbox item as processed (merged into primary)
+        await supabase.from('telegram_inbox').update({ status: 'processed', processed_at: new Date().toISOString() }).eq('id', insertedRow.id)
+        return
+      }
+    }
+
+    // ── Standard single-file processing ──
     const convo = await getConvo(chatId) || { step: 'idle', data: {}, expiresAt: 0 }
     const DEBOUNCE_MS = 5000
     const lastNotifAt = convo.data?.last_notif_at || 0
     const fileCount = (convo.data?.pending_file_count || 0) + 1
-    const now = Date.now()
 
     if (now - lastNotifAt > DEBOUNCE_MS) {
       await setConvo(chatId, convo.step, { ...(convo.data || {}), last_notif_at: now, pending_file_count: 1 })
       sendMessage(chatId, `📥 Recibido ✓ — Procesando automáticamente...`).catch(() => {})
     } else {
-      // Just increment counter silently
       await setConvo(chatId, convo.step, { ...(convo.data || {}), pending_file_count: fileCount })
     }
 
-    // ── Process inline ──
-    const base64 = Buffer.from(buffer).toString('base64')
-    const mimeType = fileType === 'pdf' ? 'application/pdf' : 'image/jpeg'
-
-    try {
-      const result = await processTelegramInboxItem(
-        insertedRow.id,
-        base64,
-        mimeType,
-        {
-          file_url: urlData.publicUrl,
-          file_type: fileType,
-          file_name: dlFileName || fileName,
-          user_id: user.userId,
-        }
-      )
-      console.log(`[Telegram] Process result for ${insertedRow.id}:`, JSON.stringify(result))
-
-      // ── Smart notification: debounce rapid results too ──
-      // For rapid-fire sends, batch results into a single summary notification
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
-      const convoAfter = await getConvo(chatId) || { step: 'idle', data: {}, expiresAt: 0 }
-      const lastResultAt = convoAfter.data?.last_result_at || 0
-      const RESULT_DEBOUNCE = 4000
-
-      if (result.ok && !result.skipped) {
-        if (now - lastResultAt > RESULT_DEBOUNCE) {
-          // First result in window — send detailed notification
-          await setConvo(chatId, convoAfter.step, { ...(convoAfter.data || {}), last_result_at: now, batch_count: 1 })
-          try {
-            const supabaseNotif = createBotSupabase()
-            const { data: cl } = await supabaseNotif.from('clients').select('name, type').eq('id', result.client_id!).single()
-            const clientName = cl?.name || ''
-            const isAyto = result.client_type === 'ayuntamiento' || cl?.type === 'ayuntamiento'
-            const emoji = result.is_existing_supply ? '📂' : '🆕'
-            const typeLabel = result.is_existing_supply ? 'Añadida a suministro existente' : 'Nuevo suministro creado'
-            const aytoTag = isAyto ? '\n🏛 <i>Ayuntamiento — sincronizando datos SIPS e informe de consumos...</i>' : ''
-            sendMessage(chatId,
-              `${emoji} <b>${typeLabel}</b>\n\n` +
-              `👤 ${clientName}\n` +
-              `🔌 <code>${result.cups || 'Sin CUPS'}</code>${aytoTag}\n\n` +
-              `<a href="${appUrl}/supplies/${result.supply_id}">Ver suministro →</a>`
-            ).catch(() => {})
-          } catch {
-            sendMessage(chatId, `✅ Factura procesada → ${result.cups || 'sin CUPS'}`).catch(() => {})
-          }
-        } else {
-          // Subsequent results in rapid window — just increment counter, send summary later
-          const batchCount = (convoAfter.data?.batch_count || 1) + 1
-          await setConvo(chatId, convoAfter.step, { ...(convoAfter.data || {}), batch_count: batchCount })
-          // Every 5th result, send a compact summary
-          if (batchCount % 5 === 0) {
-            sendMessage(chatId, `📊 ${batchCount} facturas procesadas... Seguimos analizando.`).catch(() => {})
-          }
-        }
-      } else if (!result.ok) {
-        sendMessage(chatId, `⚠️ Error procesando: ${result.error || 'desconocido'}`).catch(() => {})
-      }
-    } catch (processErr: any) {
-      console.error(`[Telegram] Inline process error:`, processErr.message)
-      sendMessage(chatId, `⚠️ Error en procesamiento: ${processErr.message}`).catch(() => {})
-    }
+    await processAndNotify(chatId, insertedRow.id, base64, mimeType, isTelegramPhoto, user, [], now)
 
   } catch (err: any) {
     console.error('[Telegram] Document processing error:', err)
     return sendMessage(chatId, `❌ Error procesando documento: ${err.message || 'Error desconocido'}\nInténtalo de nuevo.`)
+  }
+}
+
+/**
+ * Process a media group page — used for both the initial single-page fallback
+ * and the final multi-page combined processing.
+ */
+async function processMediaGroupPage(
+  chatId: number,
+  inboxId: string,
+  base64: string,
+  mimeType: string,
+  isTelegramPhoto: boolean,
+  user: { userId: string; userName: string },
+  extraPages: Array<{ base64Data: string; mimeType: string }>,
+) {
+  const now = Date.now()
+  await processAndNotify(chatId, inboxId, base64, mimeType, isTelegramPhoto, user, extraPages, now)
+}
+
+/**
+ * Core process + notify function used by both single-file and media-group flows.
+ */
+async function processAndNotify(
+  chatId: number,
+  inboxId: string,
+  base64: string,
+  mimeType: string,
+  isTelegramPhoto: boolean,
+  user: { userId: string; userName: string },
+  extraPages: Array<{ base64Data: string; mimeType: string }>,
+  now: number,
+) {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
+
+  try {
+    const result = await processTelegramInboxItem(
+      inboxId,
+      base64,
+      mimeType,
+      { file_url: '', file_type: mimeType.includes('pdf') ? 'pdf' : 'image', file_name: 'photo.jpg', user_id: user.userId },
+      extraPages.length > 0 ? extraPages : undefined,
+    )
+    console.log(`[Telegram] Process result for ${inboxId}:`, JSON.stringify(result))
+
+    if (result.ok && !result.skipped) {
+      try {
+        const supabaseNotif = createBotSupabase()
+        const { data: cl } = await supabaseNotif.from('clients').select('name, type').eq('id', result.client_id!).single()
+        const clientName = cl?.name || ''
+        const isAyto = result.client_type === 'ayuntamiento' || cl?.type === 'ayuntamiento'
+        const emoji = result.is_existing_supply ? '📂' : '🆕'
+        const typeLabel = result.is_existing_supply ? 'Añadida a suministro existente' : 'Nuevo suministro creado'
+        const aytoTag = isAyto ? '\n🏛 <i>Ayuntamiento — sincronizando datos SIPS e informe de consumos...</i>' : ''
+        const multiPageTag = extraPages.length > 0 ? '\n📄 <i>Procesadas ' + (extraPages.length + 1) + ' páginas juntas</i>' : ''
+
+        // If CUPS wasn't extracted AND it was sent as a compressed photo, guide the user
+        const noCupsPhotoHint = (!result.cups && isTelegramPhoto)
+          ? '\n\n📎 <i>Sin CUPS detectado. Para mejor extracción, envía la factura como <b>archivo</b> (📎 adjunto) en lugar de como foto.</i>'
+          : (!result.cups ? '\n\n⚠️ <i>CUPS no detectado. Verifica la calidad de la imagen o complétalo manualmente en el CRM.</i>' : '')
+
+        sendMessage(chatId,
+          `${emoji} <b>${typeLabel}</b>\n\n` +
+          `👤 ${clientName}\n` +
+          `🔌 <code>${result.cups || 'Sin CUPS'}</code>${aytoTag}${multiPageTag}${noCupsPhotoHint}\n\n` +
+          `<a href="${appUrl}/supplies/${result.supply_id}">Ver suministro →</a>`
+        ).catch(() => {})
+      } catch {
+        sendMessage(chatId, `✅ Factura procesada → ${result.cups || 'sin CUPS'}`).catch(() => {})
+      }
+    } else if (!result.ok) {
+      sendMessage(chatId, `⚠️ Error procesando: ${result.error || 'desconocido'}`).catch(() => {})
+    }
+  } catch (processErr: any) {
+    console.error(`[Telegram] Inline process error:`, processErr.message)
+    sendMessage(chatId, `⚠️ Error en procesamiento: ${processErr.message}`).catch(() => {})
   }
 }
 

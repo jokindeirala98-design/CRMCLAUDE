@@ -1355,10 +1355,17 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
       const { month } = getAssignedMonth(start, end)
       const mesLabel = getMonthYear(end || start)
       const totalKwh = eco.consumoTotalKwh || 0
-      const energia = eco.costeTotalConsumo || 0
+      const energia = eco.costeTotalConsumo || eco.costeNetoConsumo || 0  // net
       // Precio medio = costeMedioKwh directo, o costeTotalConsumo/consumoTotalKwh
-      const avgPrice = eco.costeMedioKwh || (totalKwh > 0 ? energia / totalKwh : 0)
+      const avgPrice = eco.costeMedioKwhNeto || eco.costeMedioKwh || (totalKwh > 0 ? energia / totalKwh : 0)
       const totalFactura = eco.totalFactura || inv.total_amount || 0
+
+      // Discount factor: consumo[].total is GROSS (before discount).
+      // Scale period amounts proportionally to get net values.
+      const energiaBruta = eco.costeBrutoConsumo || energia
+      const discountFactor = (energiaBruta > 0 && (eco.descuentoEnergia || 0) > 0)
+        ? energia / energiaBruta
+        : 1
 
       const kwhByPeriod: Record<string, number> = {}
       const pricesByPeriod: Record<string, number> = {}
@@ -1367,13 +1374,19 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
       PERIODS.forEach(p => {
         const item = eco.consumo?.find(c => c.periodo === p)
         kwhByPeriod[p] = item?.kwh || 0
-        pricesByPeriod[p] = item?.precioKwh || 0
+        // Apply discount factor to price
+        pricesByPeriod[p] = (item?.precioKwh || 0) * discountFactor
 
         let eur = 0, isEstimated = false
         if (item) {
-          if (item.total > 0) { eur = item.total }
-          else if (item.precioKwh > 0 && item.kwh > 0) { eur = item.kwh * item.precioKwh }
-          else if (item.kwh > 0 && avgEnergyPrice > 0) { eur = item.kwh * avgEnergyPrice; isEstimated = true }
+          if (item.total > 0) {
+            // item.total is gross — scale to net
+            eur = item.total * discountFactor
+          } else if (item.precioKwh > 0 && item.kwh > 0) {
+            eur = item.kwh * item.precioKwh * discountFactor
+          } else if (item.kwh > 0 && avgEnergyPrice > 0) {
+            eur = item.kwh * avgEnergyPrice; isEstimated = true
+          }
         }
         periodSpend[p] = { eur, isEstimated }
       })

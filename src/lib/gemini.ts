@@ -139,11 +139,28 @@ class GeminiError extends Error {
  * Low-level single Gemini call. Throws GeminiError with retryable flag so the
  * wrapper can backoff properly on 503/429/timeout/"high demand".
  */
-async function callGeminiOnce(prompt: string, base64Data: string, mimeType: string): Promise<string> {
+async function callGeminiOnce(
+  prompt: string,
+  base64Data: string,
+  mimeType: string,
+  extraPages?: Array<{ base64Data: string; mimeType: string }>
+): Promise<string> {
   const apiKey = getApiKey()
   if (!apiKey) throw new GeminiError('GEMINI_API_KEY no configurada', 0, false)
 
   const model = await getWorkingModel(apiKey)
+
+  // Build image parts — first page + any additional pages (multi-page invoice support)
+  const imageParts: any[] = [{ inlineData: { mimeType, data: base64Data } }]
+  if (extraPages?.length) {
+    const pageLabel = extraPages.length === 1
+      ? 'NOTA: Se adjunta una segunda página de la misma factura. Analiza AMBAS páginas juntas para una extracción completa.'
+      : `NOTA: Se adjuntan ${extraPages.length} páginas adicionales de la misma factura. Analiza TODAS las páginas juntas.`
+    imageParts.push({ text: pageLabel })
+    for (const page of extraPages) {
+      imageParts.push({ inlineData: { mimeType: page.mimeType, data: page.base64Data } })
+    }
+  }
 
   let response: Response
   try {
@@ -160,7 +177,7 @@ async function callGeminiOnce(prompt: string, base64Data: string, mimeType: stri
             role: 'user',
             parts: [
               { text: 'Analiza el documento adjunto y extrae los datos siguiendo estrictamente las instrucciones del sistema. Devuelve SOLO JSON sin texto adicional.' },
-              { inlineData: { mimeType, data: base64Data } },
+              ...imageParts,
             ],
           }],
           generationConfig: { temperature: 0, maxOutputTokens: 16384, responseMimeType: 'application/json' },
@@ -211,12 +228,13 @@ export async function callGemini(
   prompt: string,
   base64Data: string,
   mimeType: string,
-  maxAttempts = 3
+  maxAttempts = 3,
+  extraPages?: Array<{ base64Data: string; mimeType: string }>
 ): Promise<string> {
   let lastErr: any = null
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
-      return await callGeminiOnce(prompt, base64Data, mimeType)
+      return await callGeminiOnce(prompt, base64Data, mimeType, extraPages)
     } catch (e: any) {
       lastErr = e
       const retryable = e instanceof GeminiError ? e.retryable : false
@@ -1433,13 +1451,49 @@ function postProcessEconomics(economics: any): any {
 /*  ANALYSIS                                                                 */
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
-export async function analyzeDocument(base64Data: string, mimeType: string, docType?: DocumentType): Promise<ExtractedDocumentData> {
+export async function analyzeDocument(
+  base64Data: string,
+  mimeType: string,
+  docType?: DocumentType,
+  extraPages?: Array<{ base64Data: string; mimeType: string }>
+): Promise<ExtractedDocumentData> {
   const apiKey = getApiKey()
   if (!apiKey) return { mode: 'manual', documentType: 'otro', error: 'GEMINI_API_KEY no configurada en el servidor' }
 
   try {
-    const prompt = docType === 'factura' ? INVOICE_PROMPT : INVOICE_PROMPT // Always use invoice prompt - it handles all doc types
-    const content = await callGemini(prompt, base64Data, mimeType)
+    let prompt = docType === 'factura' ? INVOICE_PROMPT : INVOICE_PROMPT // Always use invoice prompt - it handles all doc types
+
+    // When ANY page is an image (e.g. Telegram photo → JPEG), apply extra extraction guidance.
+    // Telegram compresses photos to 1280×1280 JPEG so small text (CUPS, prices) can be blurry.
+    // These instructions push Gemini to try harder before giving up on any field.
+    const hasImagePage = mimeType.startsWith('image/') || extraPages?.some(p => p.mimeType.startsWith('image/'))
+    if (hasImagePage) {
+      const imageHints = `
+INSTRUCCIONES ESPECIALES PARA IMÁGENES (PRIORIDAD MÁXIMA):
+Esta entrada es una IMAGEN (no PDF). La imagen puede estar comprimida, pixelada o de baja resolución.
+Debes esforzarte al máximo para extraer TODOS los campos, incluso si el texto parece borroso o difícil de leer.
+
+1. CUPS (CAMPO CRÍTICO):
+   - Busca cualquier código que empiece por "ES" seguido de ~20 caracteres alfanuméricos.
+   - Puede aparecer en cualquier parte de la factura: cabecera, cuerpo, pie, tabla de datos del punto de suministro.
+   - Si ves algo que podría ser un CUPS aunque esté parcialmente ilegible, intenta reconstruirlo con los caracteres que sí puedas leer.
+   - Formatos típicos: ES0000000000000000XX00 (luz) o ES0000000000000000 (gas).
+
+2. ECONOMICS (TODOS LOS CAMPOS OBLIGATORIOS):
+   - consumo[]: Extrae CADA línea de energía con fecha_inicio, fecha_fin, kwh, precioKwh, importe. No omitas ningún período.
+   - potencia[]: Extrae CADA línea de potencia con kw, precioKwDia, dias, importe. Busca en las tablas de desglose.
+   - otrosConceptos[]: Incluye alquiler de equipo, impuesto eléctrico, descuentos, bonificaciones, cualquier concepto adicional.
+   - Si los valores son difíciles de leer, aproxima con los dígitos que puedas distinguir.
+
+3. IMPORTE TOTAL: Busca "Total a pagar", "Importe total", "Total factura" — puede estar en negrita o recuadrado.
+
+4. NO dejes ningún campo como null si hay alguna posibilidad de leerlo, aunque sea con baja confianza.
+
+`.trimStart()
+      prompt = imageHints + prompt
+    }
+
+    const content = await callGemini(prompt, base64Data, mimeType, 3, extraPages)
     const result = safeParseGeminiJSON(content)
 
     const detectedType: DocumentType = result.documentType || docType || 'otro'
@@ -1488,8 +1542,12 @@ export async function analyzeDocument(base64Data: string, mimeType: string, docT
 
 export type ExtractedInvoiceData = ExtractedDocumentData
 
-export async function analyzeInvoice(base64Data: string, mimeType: string): Promise<ExtractedInvoiceData> {
-  return analyzeDocument(base64Data, mimeType, 'factura')
+export async function analyzeInvoice(
+  base64Data: string,
+  mimeType: string,
+  extraPages?: Array<{ base64Data: string; mimeType: string }>
+): Promise<ExtractedInvoiceData> {
+  return analyzeDocument(base64Data, mimeType, 'factura', extraPages)
 }
 
 export function getMimeType(fileName: string, fileType?: string): string {

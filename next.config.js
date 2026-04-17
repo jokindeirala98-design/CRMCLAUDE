@@ -6,6 +6,10 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  // Include DOCX contract templates in the server bundle (for API routes)
+  outputFileTracingIncludes: {
+    '/api/signwell/send': ['./public/contract-templates/**'],
+  },
   images: {
     remotePatterns: [
       {

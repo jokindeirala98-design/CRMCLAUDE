@@ -155,6 +155,7 @@ export interface Contract {
   file_url: string | null
   signed_file_url: string | null
   docusign_envelope_id: string | null
+  signwell_document_id: string | null
   status: ContractStatus
   generated_at: string | null
   sent_at: string | null

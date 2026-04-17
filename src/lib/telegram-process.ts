@@ -69,6 +69,7 @@ export async function processTelegramInboxItem(
   base64Data?: string,
   mimeType?: string,
   itemData?: { file_url: string; file_type: string; file_name: string; user_id: string },
+  extraPages?: Array<{ base64Data: string; mimeType: string }>,
 ): Promise<ProcessResult> {
   const supabase = getSupabase()
 
@@ -123,7 +124,7 @@ export async function processTelegramInboxItem(
   // 3. Analyze with Gemini
   let extractedData: any
   try {
-    extractedData = await analyzeInvoice(base64, fileMime)
+    extractedData = await analyzeInvoice(base64, fileMime, extraPages)
     console.log(`[TelegramProcess] Analysis done:`, {
       cups: extractedData?.cups,
       holder: extractedData?.holder_name,
@@ -145,11 +146,11 @@ export async function processTelegramInboxItem(
   const holderCif = extractedData?.holder_cif || extractedData?.economics?.cif_titular || null
   const tariff = extractedData?.tariff || extractedData?.economics?.tarifa || null
   const address = extractedData?.supply_address || extractedData?.billing_address || null
-  // Detect supply type: gas if RL tariff, otherwise use extracted type or default to 'luz'
-  const rawType = extractedData?.type?.toLowerCase() || ''
+  // Detect supply type: gas if RL tariff, otherwise use extracted supply_type or default to 'luz'
+  const rawType = (extractedData?.supply_type || extractedData?.economics?.supply_type || '').toLowerCase()
   const supplyType: string = tariff && /^RL/i.test(tariff) ? 'gas'
-    : rawType.includes('gas') ? 'gas'
-    : rawType.includes('telef') || rawType.includes('fibra') ? 'telefonia'
+    : rawType === 'gas' || rawType.includes('gas') ? 'gas'
+    : rawType === 'telefonia' || rawType.includes('telef') || rawType.includes('fibra') ? 'telefonia'
     : 'luz'
 
   // 5. Try to find existing supply by CUPS
@@ -160,7 +161,7 @@ export async function processTelegramInboxItem(
   if (cups && cups.length >= 20) {
     const { data: existingSupplies } = await supabase
       .from('supplies')
-      .select('id, client_id, cups, status')
+      .select('id, client_id, cups, tariff, address, type, status')
       .eq('cups', cups)
       .limit(1)
 
@@ -169,6 +170,16 @@ export async function processTelegramInboxItem(
       clientId = existingSupplies[0].client_id
       isExistingSupply = true
       console.log(`[TelegramProcess] Found existing supply ${supplyId} for CUPS ${cups}`)
+
+      // Patch any missing fields on the existing supply
+      const existing = existingSupplies[0] as any
+      const patch: Record<string, any> = {}
+      if (tariff && !existing.tariff) patch.tariff = tariff
+      if (address && !existing.address) patch.address = address
+      if (Object.keys(patch).length) {
+        await supabase.from('supplies').update(patch).eq('id', supplyId)
+        console.log(`[TelegramProcess] Patched existing supply ${supplyId}:`, patch)
+      }
     }
   }
 
@@ -273,6 +284,42 @@ export async function processTelegramInboxItem(
       .eq('id', clientId)
       .single()
     clientType = existingClient?.type || 'empresa'
+  }
+
+  // 8b. If we matched client by CIF/name (not by CUPS), look for an existing supply
+  // for this client that has no CUPS — we can reuse it and fill in the missing data.
+  if (clientId && !supplyId) {
+    const { data: clientSupplies } = await supabase
+      .from('supplies')
+      .select('id, cups, tariff, address, type')
+      .eq('client_id', clientId)
+      .order('created_at', { ascending: false })
+      .limit(10)
+
+    if (clientSupplies?.length) {
+      // 1st priority: exact CUPS match (shouldn't happen here but safety net)
+      const exactMatch = cups ? clientSupplies.find(s => s.cups === cups) : null
+      // 2nd priority: supply without CUPS and same type → fill in the gap
+      const noCupsMatch = clientSupplies.find(s => !s.cups && (s.type === supplyType || !s.type))
+      const targetSupply = exactMatch || noCupsMatch
+
+      if (targetSupply) {
+        supplyId = targetSupply.id
+        isExistingSupply = true
+        console.log(`[TelegramProcess] Reusing supply ${supplyId} (was: cups=${targetSupply.cups || 'null'})`)
+
+        // Patch any missing fields on the existing supply
+        const patch: Record<string, any> = {}
+        if (cups && !targetSupply.cups) patch.cups = cups
+        if (tariff && !targetSupply.tariff) patch.tariff = tariff
+        if (address && !targetSupply.address) patch.address = address
+        if (supplyType && !targetSupply.type) patch.type = supplyType
+        if (Object.keys(patch).length) {
+          await supabase.from('supplies').update(patch).eq('id', supplyId)
+          console.log(`[TelegramProcess] Patched supply ${supplyId}:`, patch)
+        }
+      }
+    }
   }
 
   // 9. Create new supply if none exists — with race-condition protection
