@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { X, Upload, FileText, AlertCircle } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { X, Upload, FileText, AlertCircle, CheckCircle2, Loader2, Zap } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from '@/components/ui/Button'
 import { SearchableClientSelector } from '@/components/ui/SearchableClientSelector'
@@ -20,11 +21,19 @@ interface BulkUploadModalProps {
   preselectedClientId?: string
 }
 
+// Simple client-side CUPS validation: ES + 18 alphanumeric chars (20 chars total)
+const CUPS_RE = /^ES[A-Z0-9]{18}/i
+function isCupsValid(val: string): boolean {
+  const clean = val.trim().toUpperCase().replace(/\s+/g, '')
+  return clean.length >= 20 && CUPS_RE.test(clean)
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════ */
 /*  COMPONENT                                                                */
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
 export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId }: BulkUploadModalProps) {
+  const router = useRouter()
   const [localFiles, setLocalFiles] = useState<{ id: string; file: File }[]>([])
   const [clientId, setClientId] = useState(preselectedClientId || '')
   const [clients, setClients] = useState<{ id: string; name: string }[]>([])
@@ -34,6 +43,15 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const addJob = useUploadQueue((s) => s.addJob)
 
+  // ── CUPS quick-create state ──
+  const [cupsInput, setCupsInput] = useState('')
+  const [cupsLoading, setCupsLoading] = useState(false)
+  const [cupsSuccessId, setCupsSuccessId] = useState<string | null>(null)
+  const [cupsSuccessMsg, setCupsSuccessMsg] = useState('')
+  const [cupsErr, setCupsErr] = useState('')
+
+  const cupsValid = isCupsValid(cupsInput)
+
   // ── Initialize ──
   useEffect(() => {
     if (!open) return
@@ -41,6 +59,11 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
     setError('')
     setUploading(false)
     setClientId(preselectedClientId || '')
+    setCupsInput('')
+    setCupsLoading(false)
+    setCupsSuccessId(null)
+    setCupsSuccessMsg('')
+    setCupsErr('')
 
     const fetchClients = async () => {
       const supabase = createClient()
@@ -92,7 +115,64 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
 
   const removeFile = (id: string) => setLocalFiles((prev) => prev.filter((f) => f.id !== id))
 
-  // ── Submit: upload to storage, create job, close ──
+  // ── CUPS handler ──
+  const handleCupsChange = (val: string) => {
+    // Auto-uppercase and strip spaces
+    setCupsInput(val.toUpperCase().replace(/\s+/g, ''))
+    setCupsSuccessId(null)
+    setCupsSuccessMsg('')
+    setCupsErr('')
+  }
+
+  const handleCreateFromCups = async () => {
+    if (!clientId) {
+      setCupsErr('Selecciona un cliente antes de crear el suministro')
+      return
+    }
+    if (!cupsValid) {
+      setCupsErr('El CUPS no tiene un formato válido')
+      return
+    }
+
+    setCupsLoading(true)
+    setCupsErr('')
+
+    try {
+      const res = await fetch('/api/supplies/create-from-cups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cups: cupsInput.trim(), client_id: clientId }),
+      })
+      const result = await res.json()
+
+      if (!res.ok || !result.ok) {
+        setCupsErr(result.error || 'Error creando el suministro')
+        return
+      }
+
+      const msg = result.is_existing
+        ? '✓ Suministro ya existente con ese CUPS'
+        : result.has_sips
+          ? '✓ Suministro creado con datos SIPS'
+          : '✓ Suministro creado (SIPS no disponible)'
+
+      setCupsSuccessId(result.supply_id)
+      setCupsSuccessMsg(msg)
+      onCreated()
+
+      // Navigate to the new supply after a brief flash
+      setTimeout(() => {
+        onClose()
+        router.push(`/supplies/${result.supply_id}`)
+      }, 1200)
+    } catch (err: any) {
+      setCupsErr(err.message || 'Error desconocido')
+    } finally {
+      setCupsLoading(false)
+    }
+  }
+
+  // ── Submit files ──
   const handleSubmit = async () => {
     if (localFiles.length === 0) {
       setError('Añade al menos un archivo')
@@ -106,30 +186,25 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
       const queuedFiles: QueuedFile[] = localFiles.map(lf => ({
         id: lf.id,
         file: lf.file,
-        url: '', // Will be filled in the background
-        storagePath: '', // Will be filled in the background
+        url: '',
+        storagePath: '',
         status: 'pending',
       }))
 
-      // Get client name for the widget
       const client = clients.find((c) => c.id === clientId)
       const clientName = client?.name || 'Auto-detectar cliente'
 
-      // Create background job
       const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2)}`
       addJob({
         id: jobId,
-        clientId: clientId || '', // Can be empty, processor will find/create it
+        clientId: clientId || '',
         clientName,
         files: queuedFiles,
         status: 'uploading',
         createdAt: Date.now(),
       })
 
-      // Close modal immediately — user is free
       onClose()
-      
-      // OnCreated is still called to potentially refresh some parent state
       onCreated()
     } catch (err: any) {
       setError(err.message || 'Error al encolar archivos')
@@ -153,7 +228,7 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
             onClick={(e) => e.stopPropagation()}
-            className="bg-surface rounded-2xl shadow-ambient-lg w-full max-w-lg overflow-hidden max-h-[85vh] flex flex-col"
+            className="bg-surface rounded-2xl shadow-ambient-lg w-full max-w-lg overflow-hidden max-h-[90vh] flex flex-col"
           >
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-outline-variant/30 flex-shrink-0">
@@ -177,84 +252,187 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
 
             {/* Content */}
             <div className="p-6 overflow-y-auto flex-1 space-y-5">
-              {/* Client selector */}
-                <SearchableClientSelector
-                  label="Cliente (opcional)"
-                  value={clientId}
-                  onChange={setClientId}
-                  clients={clients}
-                  placeholder="Buscar cliente existente..."
-                  showAutoDetect
-                />
 
-              {/* Drop zone */}
-              <div
-                ref={dragZoneRef}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-                className="border-2 border-dashed border-outline-variant/40 rounded-2xl p-8 text-center transition-all cursor-pointer hover:border-secondary/40 hover:bg-secondary/5"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <Upload className="w-8 h-8 text-secondary mx-auto mb-3" />
-                <p className="text-sm font-medium text-on-surface">
-                  Arrastra todas las facturas aquí
-                </p>
-                <p className="text-xs text-on-surface-variant mt-1">
-                  PDF o imágenes · Se agruparán por CUPS automáticamente
-                </p>
-              </div>
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept=".pdf,.jpg,.jpeg,.png"
-                onChange={handleFileInputChange}
-                className="hidden"
+              {/* ── Shared client selector ── */}
+              <SearchableClientSelector
+                label="Cliente (opcional)"
+                value={clientId}
+                onChange={setClientId}
+                clients={clients}
+                placeholder="Buscar cliente existente..."
+                showAutoDetect
               />
 
-              {/* File list */}
-              {localFiles.length > 0 && (
-                <div className="space-y-1.5">
-                  <p className="text-xs font-medium text-on-surface-variant">
-                    {localFiles.length} archivo{localFiles.length !== 1 ? 's' : ''} seleccionado{localFiles.length !== 1 ? 's' : ''}
-                  </p>
-                  <div className="max-h-52 overflow-y-auto space-y-1 pr-1">
-                    {localFiles.map((lf) => (
-                      <div key={lf.id} className="flex items-center gap-2 py-1.5 px-3 bg-surface-container-low rounded-lg text-xs">
-                        <FileText className="w-3.5 h-3.5 text-on-surface-variant flex-shrink-0" />
-                        <span className="flex-1 truncate text-on-surface">{lf.file.name}</span>
-                        <span className="text-on-surface-variant">{(lf.file.size / 1024 / 1024).toFixed(1)} MB</span>
-                        <button
-                          onClick={() => removeFile(lf.id)}
-                          className="p-0.5 text-on-surface-variant hover:text-error flex-shrink-0"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
+              {/* ════════════════════════════════════════════
+                  SECCIÓN 1 — CREAR DESDE CUPS
+              ════════════════════════════════════════════ */}
+              <div className="space-y-3">
+                {/* Divider */}
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 h-px bg-outline-variant/30" />
+                  <span className="text-[10px] font-semibold tracking-wider text-on-surface-variant/60 uppercase">
+                    Crear desde CUPS
+                  </span>
+                  <div className="flex-1 h-px bg-outline-variant/30" />
+                </div>
+
+                {/* CUPS input */}
+                <div>
+                  <label className="block text-xs font-medium text-on-surface-variant mb-1.5">
+                    CUPS del suministro
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={cupsInput}
+                      onChange={(e) => handleCupsChange(e.target.value)}
+                      placeholder="ES0021000000000000AB"
+                      maxLength={22}
+                      disabled={cupsLoading || !!cupsSuccessId}
+                      className={`w-full h-10 px-3 pr-9 rounded-xl border text-sm font-mono bg-surface-container-low outline-none transition-all
+                        ${cupsSuccessId
+                          ? 'border-success/50 text-success'
+                          : cupsInput.length > 0 && !cupsValid
+                            ? 'border-error/40 text-on-surface'
+                            : cupsValid
+                              ? 'border-success/50 text-on-surface'
+                              : 'border-outline-variant/40 text-on-surface'}
+                        focus:border-secondary/60 disabled:opacity-60`}
+                    />
+                    {/* Validation icon */}
+                    {cupsSuccessId ? (
+                      <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-success" />
+                    ) : cupsValid ? (
+                      <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-success/60" />
+                    ) : null}
                   </div>
-                </div>
-              )}
 
-              {/* Info box */}
-              {localFiles.length > 0 && (
-                <div className="bg-secondary/5 border border-secondary/20 rounded-xl px-4 py-3 text-xs text-on-surface-variant">
-                  <p>
-                    Al pulsar <b className="text-on-surface">Procesar</b>, el modal se cerrará y las facturas se
-                    analizarán en segundo plano. Podrás seguir usando la app normalmente.
-                    Verás el progreso en la esquina inferior derecha.
+                  {/* CUPS success message */}
+                  {cupsSuccessMsg && (
+                    <p className="mt-1.5 text-xs text-success font-medium">{cupsSuccessMsg}</p>
+                  )}
+
+                  {/* CUPS error */}
+                  {cupsErr && (
+                    <p className="mt-1.5 text-xs text-error">{cupsErr}</p>
+                  )}
+
+                  {/* Hint when CUPS valid but no client selected */}
+                  {cupsValid && !cupsSuccessId && !clientId && !cupsErr && (
+                    <p className="mt-1.5 text-xs text-amber-600">
+                      ⚠ Selecciona un cliente arriba para continuar
+                    </p>
+                  )}
+                </div>
+
+                {/* Create button — only visible when CUPS is valid and not yet done */}
+                {cupsValid && !cupsSuccessId && (
+                  <button
+                    onClick={handleCreateFromCups}
+                    disabled={cupsLoading || !clientId}
+                    className={`w-full flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-medium transition-all
+                      ${clientId
+                        ? 'bg-secondary text-on-secondary hover:opacity-90 active:scale-[0.98]'
+                        : 'bg-surface-container text-on-surface-variant/50 cursor-not-allowed'}
+                      disabled:opacity-60`}
+                  >
+                    {cupsLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Consultando SIPS...
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="w-4 h-4" />
+                        Crear suministro desde SIPS
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+
+              {/* ════════════════════════════════════════════
+                  SECCIÓN 2 — IMPORTAR FACTURAS
+              ════════════════════════════════════════════ */}
+              <div className="space-y-4">
+                {/* Divider */}
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 h-px bg-outline-variant/30" />
+                  <span className="text-[10px] font-semibold tracking-wider text-on-surface-variant/60 uppercase">
+                    O importar facturas
+                  </span>
+                  <div className="flex-1 h-px bg-outline-variant/30" />
+                </div>
+
+                {/* Drop zone */}
+                <div
+                  ref={dragZoneRef}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  className="border-2 border-dashed border-outline-variant/40 rounded-2xl p-8 text-center transition-all cursor-pointer hover:border-secondary/40 hover:bg-secondary/5"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload className="w-8 h-8 text-secondary mx-auto mb-3" />
+                  <p className="text-sm font-medium text-on-surface">
+                    Arrastra todas las facturas aquí
+                  </p>
+                  <p className="text-xs text-on-surface-variant mt-1">
+                    PDF o imágenes · Se agruparán por CUPS automáticamente
                   </p>
                 </div>
-              )}
 
-              {error && (
-                <div className="bg-error-container rounded-xl px-4 py-2.5 flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 text-error flex-shrink-0" />
-                  <p className="text-sm text-error font-medium">{error}</p>
-                </div>
-              )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept=".pdf,.jpg,.jpeg,.png"
+                  onChange={handleFileInputChange}
+                  className="hidden"
+                />
+
+                {/* File list */}
+                {localFiles.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-medium text-on-surface-variant">
+                      {localFiles.length} archivo{localFiles.length !== 1 ? 's' : ''} seleccionado{localFiles.length !== 1 ? 's' : ''}
+                    </p>
+                    <div className="max-h-40 overflow-y-auto space-y-1 pr-1">
+                      {localFiles.map((lf) => (
+                        <div key={lf.id} className="flex items-center gap-2 py-1.5 px-3 bg-surface-container-low rounded-lg text-xs">
+                          <FileText className="w-3.5 h-3.5 text-on-surface-variant flex-shrink-0" />
+                          <span className="flex-1 truncate text-on-surface">{lf.file.name}</span>
+                          <span className="text-on-surface-variant">{(lf.file.size / 1024 / 1024).toFixed(1)} MB</span>
+                          <button
+                            onClick={() => removeFile(lf.id)}
+                            className="p-0.5 text-on-surface-variant hover:text-error flex-shrink-0"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Info box */}
+                {localFiles.length > 0 && (
+                  <div className="bg-secondary/5 border border-secondary/20 rounded-xl px-4 py-3 text-xs text-on-surface-variant">
+                    <p>
+                      Al pulsar <b className="text-on-surface">Procesar</b>, el modal se cerrará y las facturas se
+                      analizarán en segundo plano. Podrás seguir usando la app normalmente.
+                      Verás el progreso en la esquina inferior derecha.
+                    </p>
+                  </div>
+                )}
+
+                {error && (
+                  <div className="bg-error-container rounded-xl px-4 py-2.5 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-error flex-shrink-0" />
+                    <p className="text-sm text-error font-medium">{error}</p>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Footer */}
