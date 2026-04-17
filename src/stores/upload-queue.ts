@@ -532,6 +532,36 @@ export async function processJobInBackground(jobId: string): Promise<void> {
     }
   }
 
+  // ── Phase 2b: Merge "no-CUPS" pages into matching CUPS groups ──
+  // When a multi-page invoice is uploaded as separate images, one page may have the
+  // CUPS and another may have detailed economics but no CUPS. After individual analysis,
+  // try to reunite them: if a no-CUPS file shares the same holder + billing period as a
+  // known CUPS group, attach it (its economics data may fill in gaps).
+  const mergedNoCups: QueuedFile[] = []
+  for (const nf of noCupsFiles) {
+    const nHolder = (nf.extractedData?.holder_cif_nif || nf.extractedData?.holder_name || '').toUpperCase().trim()
+    const nPeriod = nf.extractedData?.billing_period?.trim() || ''
+    let matched = false
+    if (nHolder || nPeriod) {
+      for (const [, group] of cupsMap) {
+        const gf = group[0]
+        const gHolder = (gf.extractedData?.holder_cif_nif || gf.extractedData?.holder_name || '').toUpperCase().trim()
+        const gPeriod = gf.extractedData?.billing_period?.trim() || ''
+        const holderMatch = nHolder && gHolder && (nHolder.includes(gHolder) || gHolder.includes(nHolder))
+        const periodMatch = nPeriod && gPeriod && nPeriod === gPeriod
+        if (holderMatch || periodMatch) {
+          group.push(nf)
+          matched = true
+          console.log(`[UploadQueue] Merged no-CUPS file "${nf.file.name}" into CUPS group (holderMatch=${holderMatch}, periodMatch=${periodMatch})`)
+          break
+        }
+      }
+    }
+    if (!matched) mergedNoCups.push(nf)
+  }
+  // Replace noCupsFiles with only the truly unmatched ones
+  noCupsFiles.splice(0, noCupsFiles.length, ...mergedNoCups)
+
   if (analyzedInvoices.length === 0) {
     if (clientDocs.length > 0) {
       // Only document (CIF/NIF/IBAN) uploads, no invoices

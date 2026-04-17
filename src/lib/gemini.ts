@@ -288,12 +288,18 @@ REGLAS CRÍTICAS DE EXTRACCIÓN (V3.0) — APLICAN A FACTURAS DE LUZ Y GAS
 
 0. **CUPS (MANDATORIO — MÁXIMA PRIORIDAD):**
    - El CUPS (Código Universal de Punto de Suministro) SIEMPRE empieza por "ES" seguido de 16 dígitos y 2 caracteres de control = 20 caracteres mínimo (puede tener 22 con sufijo).
-   - UBICACIÓN VISUAL: Suele aparecer en la zona superior de la factura, cerca de "Datos del suministro" o "Punto de suministro". Busca un código largo que empiece por "ES0" o "ES00".
+   - UBICACIÓN VISUAL — Escanea TODO el documento, no solo la cabecera. El CUPS puede aparecer en CUALQUIERA de estas zonas:
+     * Cabecera/datos del suministro (zona superior)
+     * Sección "DATOS DEL CONTRATO" o "INFORMACIÓN DEL CONTRATO" (frecuente en la parte inferior)
+     * Sección "Datos del punto de suministro"
+     * Pie de página o reverso de la factura
+     * Junto al texto "Código unificado de punto de suministro", "CUPS", "Punto de suministro", "Contrato de acceso"
+     * Debajo del nombre del titular, CIF o dirección de suministro
    - FORMATO OBLIGATORIO: ES + 4 dígitos (distribuidora) + 12 dígitos (punto) + 2 alfanuméricos (control). Ejemplo: "ES0021000012345678AB".
-   - VALIDACIÓN: Si el código extraído NO tiene 20-22 caracteres o NO empieza por "ES" seguido de dígitos, re-examina el documento.
+   - VALIDACIÓN: Si el código extraído NO tiene 20-22 caracteres o NO empieza por "ES" seguido de dígitos, re-examina TODO el documento.
    - ERRORES COMUNES OCR: No confundas "0" (cero) con "O" (letra), ni "1" con "l". Los 16 caracteres centrales son SIEMPRE DÍGITOS.
    - Si hay VARIOS CUPS en el documento (ej: factura resumen multi-punto), extrae el CUPS PRINCIPAL del punto de suministro facturado.
-   - NUNCA inventes un CUPS. Si no lo encuentras claramente, deja el campo vacío.
+   - NUNCA inventes un CUPS. Si no lo encuentras claramente después de revisar TODO el documento, deja el campo vacío.
 
 1. **DATOS DE TITULAR Y SUMINISTRO (MANDATORIO):**
    - holder_name: nombre EXACTO del titular tal como aparece (ej: "AYUNTAMIENTO DE AOIZ", no "Ayuntamiento").

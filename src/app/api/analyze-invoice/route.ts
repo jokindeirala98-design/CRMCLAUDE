@@ -9,19 +9,25 @@ export type { ExtractedInvoiceData } from '@/lib/gemini'
 
 // Vercel Pro supports up to 300s. Extraction with large line-item lists
 // and 3-attempt retry wrapper can take 60+ seconds worst case.
-export const maxDuration = 60
+export const maxDuration = 120
 
-interface InvoiceAnalysisRequest {
+interface InvoicePageData {
   file_base64: string
   file_type: string
   file_name?: string
+}
+
+interface InvoiceAnalysisRequest extends InvoicePageData {
+  // Optional additional pages (e.g. a 2-page invoice scanned as 2 images).
+  // All pages are sent to Gemini together in a single request for best extraction.
+  extra_pages?: InvoicePageData[]
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse<ExtractedInvoiceData>> {
   try {
     const body = await request.json() as InvoiceAnalysisRequest
 
-    const { file_base64, file_type, file_name } = body
+    const { file_base64, file_type, file_name, extra_pages } = body
 
     if (!file_base64) {
       return NextResponse.json(
@@ -31,7 +37,14 @@ export async function POST(request: NextRequest): Promise<NextResponse<Extracted
     }
 
     const mimeType = getMimeType(file_name || '', file_type)
-    const result = await analyzeInvoice(file_base64, mimeType)
+
+    // Build extra pages array for multi-page invoices
+    const extraPages = extra_pages?.map(p => ({
+      base64Data: p.file_base64,
+      mimeType: getMimeType(p.file_name || '', p.file_type),
+    }))
+
+    const result = await analyzeInvoice(file_base64, mimeType, extraPages?.length ? extraPages : undefined)
     return NextResponse.json(result)
   } catch (error) {
     console.error('API route error:', error)

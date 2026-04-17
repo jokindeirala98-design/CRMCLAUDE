@@ -369,79 +369,98 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
 
     setUploadedFiles((prev) => [...prev, ...newFiles])
 
-    // Analyze each file — read as base64 and send directly to avoid Storage access issues
-    for (const uploadedFile of newFiles) {
-      try {
-        const fileType = uploadedFile.file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image'
+    // ── Multi-page invoice support ──
+    // When multiple files are uploaded together they likely represent the same
+    // invoice spread across pages (e.g. front + detail scan). Send them ALL to
+    // Gemini in a single request so it can see the CUPS from page 2 while
+    // reading economics from page 1, etc.
+    //
+    // Single-file uploads use the same path (no extra_pages sent).
 
-        // Read file as base64 directly from the File object in memory
-        const base64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader()
-          reader.onload = () => {
-            const result = reader.result as string
-            // Remove data URL prefix (e.g. "data:application/pdf;base64,")
-            const base64Data = result.split(',')[1]
-            resolve(base64Data)
-          }
-          reader.onerror = () => reject(new Error('Error leyendo archivo'))
-          reader.readAsDataURL(uploadedFile.file)
+    try {
+      // Step 1: Read all new files as base64 in parallel
+      const filePages = await Promise.all(
+        newFiles.map(async (uploadedFile) => {
+          const fileType = uploadedFile.file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image'
+          const base64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => {
+              const result = reader.result as string
+              resolve(result.split(',')[1])
+            }
+            reader.onerror = () => reject(new Error('Error leyendo archivo'))
+            reader.readAsDataURL(uploadedFile.file)
+          })
+          return { id: uploadedFile.id, base64, fileType, fileName: uploadedFile.file.name }
         })
+      )
 
-        const controller = new AbortController()
-        const timeout = setTimeout(() => controller.abort(), 120000) // 2 min timeout
+      // Step 2: Send all pages in one request (primary + extra_pages)
+      const [primary, ...rest] = filePages
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 180000) // 3 min for multi-page
 
-        const response = await fetch('/api/analyze-invoice', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            file_base64: base64,
-            file_type: fileType,
-            file_name: uploadedFile.file.name,
+      const response = await fetch('/api/analyze-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          file_base64: primary.base64,
+          file_type: primary.fileType,
+          file_name: primary.fileName,
+          ...(rest.length > 0 && {
+            extra_pages: rest.map(p => ({
+              file_base64: p.base64,
+              file_type: p.fileType,
+              file_name: p.fileName,
+            }))
           }),
-          signal: controller.signal,
-        })
+        }),
+        signal: controller.signal,
+      })
 
-        clearTimeout(timeout)
+      clearTimeout(timeout)
 
-        if (!response.ok) {
-          const errorText = await response.text().catch(() => 'Error del servidor')
-          throw new Error(`Error ${response.status}: ${errorText.substring(0, 200)}`)
-        }
-
-        const result = (await response.json()) as ExtractedInvoiceData
-        console.log('[Invoice Analysis] Result for', uploadedFile.file.name, ':', JSON.stringify(result))
-
-        setUploadedFiles((prev) =>
-          prev.map((f) =>
-            f.id === uploadedFile.id
-              ? {
-                  ...f,
-                  analyzing: false,
-                  extractedData: result,
-                  error: result.mode === 'manual' && result.error ? result.error : undefined,
-                }
-              : f
-          )
-        )
-      } catch (err: any) {
-        console.error('Analysis error:', err)
-        const errorMsg = err.name === 'AbortError'
-          ? 'Tiempo de espera agotado. El archivo puede ser demasiado grande.'
-          : err.message === 'Failed to fetch'
-            ? 'Error de conexion. Verifica tu conexion a internet e intenta de nuevo.'
-            : err.message || 'Error al analizar'
-        setUploadedFiles((prev) =>
-          prev.map((f) =>
-            f.id === uploadedFile.id
-              ? {
-                  ...f,
-                  analyzing: false,
-                  error: errorMsg,
-                }
-              : f
-          )
-        )
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => 'Error del servidor')
+        throw new Error(`Error ${response.status}: ${errorText.substring(0, 200)}`)
       }
+
+      const result = (await response.json()) as ExtractedInvoiceData
+      console.log('[Invoice Analysis] Multi-page result (', filePages.length, 'pages ):', JSON.stringify(result))
+
+      // Step 3: Assign the combined result to the primary file, mark rest as analysed
+      setUploadedFiles((prev) =>
+        prev.map((f) => {
+          if (f.id === primary.id) {
+            return {
+              ...f,
+              analyzing: false,
+              extractedData: result,
+              error: result.mode === 'manual' && result.error ? result.error : undefined,
+            }
+          }
+          if (rest.some(r => r.id === f.id)) {
+            // Secondary pages: mark done but share the combined result
+            return { ...f, analyzing: false, extractedData: result }
+          }
+          return f
+        })
+      )
+    } catch (err: any) {
+      console.error('Analysis error:', err)
+      const errorMsg = err.name === 'AbortError'
+        ? 'Tiempo de espera agotado. El archivo puede ser demasiado grande.'
+        : err.message === 'Failed to fetch'
+          ? 'Error de conexion. Verifica tu conexion a internet e intenta de nuevo.'
+          : err.message || 'Error al analizar'
+      // Mark all new files as failed
+      setUploadedFiles((prev) =>
+        prev.map((f) =>
+          newFiles.some(nf => nf.id === f.id)
+            ? { ...f, analyzing: false, error: errorMsg }
+            : f
+        )
+      )
     }
   }
 
@@ -470,8 +489,33 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
       ]
 
   const handleProceedToReview = () => {
-    // Extract data from first file that has Gemini-extracted data
-    const firstFileWithData = uploadedFiles.find((f) => f.extractedData?.mode === 'gemini' && !f.error)
+    // Merge extracted data from ALL files: take the best value for each field
+    // (e.g. CUPS from page 2, economics from page 1)
+    const allExtracted = uploadedFiles
+      .filter((f) => f.extractedData?.mode === 'gemini' && !f.error)
+      .map((f) => f.extractedData!)
+
+    if (allExtracted.length === 0) return
+
+    // Build merged data: for each field, take first non-null value across all pages
+    const merged: typeof allExtracted[0] = { ...allExtracted[0] }
+    for (const d of allExtracted.slice(1)) {
+      if (!merged.cups && d.cups) merged.cups = d.cups
+      if (!merged.holder_name && d.holder_name) merged.holder_name = d.holder_name
+      if (!merged.holder_cif_nif && d.holder_cif_nif) merged.holder_cif_nif = d.holder_cif_nif
+      if (!merged.supply_address && d.supply_address) merged.supply_address = d.supply_address
+      if (!merged.tariff && d.tariff) merged.tariff = d.tariff
+      if (!merged.comercializadora && d.comercializadora) merged.comercializadora = d.comercializadora
+      if (!merged.billing_period && d.billing_period) merged.billing_period = d.billing_period
+      if (!merged.total_amount && d.total_amount) merged.total_amount = d.total_amount
+      if (!merged.type && d.type) merged.type = d.type
+      // Prefer the economics with more entries (more detailed)
+      const curCount = (merged.economics?.consumo?.length || 0) + (merged.economics?.potencia?.length || 0)
+      const newCount = (d.economics?.consumo?.length || 0) + (d.economics?.potencia?.length || 0)
+      if (newCount > curCount) merged.economics = d.economics
+    }
+
+    const firstFileWithData = { extractedData: merged }
     if (firstFileWithData?.extractedData) {
       const data = firstFileWithData.extractedData
       const extractedType = (data.type as SupplyType) || 'luz'
