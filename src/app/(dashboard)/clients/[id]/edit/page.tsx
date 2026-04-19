@@ -210,7 +210,7 @@ export default function EditClientPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input
                   id="cif"
-                  label="Numero CIF"
+                  label="Número CIF"
                   placeholder="Ej: B12345678"
                   value={form.cif}
                   onChange={(e) => setForm((p) => ({ ...p, cif: e.target.value.toUpperCase() }))}
@@ -234,7 +234,7 @@ export default function EditClientPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input
                   id="nif"
-                  label="Numero NIF"
+                  label="Número NIF"
                   placeholder="Ej: 12345678A"
                   value={form.nif}
                   onChange={(e) => setForm((p) => ({ ...p, nif: e.target.value.toUpperCase() }))}
@@ -258,7 +258,7 @@ export default function EditClientPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input
                   id="iban"
-                  label="Numero IBAN"
+                  label="Número IBAN"
                   placeholder="Ej: ES91 2100 0418 4502 0005 1332"
                   value={form.iban}
                   onChange={(e) => setForm((p) => ({ ...p, iban: e.target.value.toUpperCase() }))}
@@ -284,7 +284,7 @@ export default function EditClientPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Input id="email" label="Email" type="email" value={form.email}
               onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))} />
-            <Input id="phone" label="Telefono" type="tel" value={form.phone}
+            <Input id="phone" label="Teléfono" type="tel" value={form.phone}
               onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))} />
             <div className="md:col-span-2">
               <Input id="fiscal_address" label="Direccion fiscal" value={form.fiscal_address}

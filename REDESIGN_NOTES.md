@@ -70,9 +70,36 @@ Migrar de "Kinetic Precision" (azul marino + gradientes) a "Editorial + Instrume
 
 ### Fase 8 — Resto de páginas *(pendiente)*
 
-### Fase 9 — Limpieza *(pendiente)*
+### Fase 9 — Limpieza
 
-### Fase 10 — Copy y localización *(pendiente)*
+- `console.log` en rutas API: todos son logging de producción intencionado (webhooks GoCardless, SignWell, Telegram, SIPS). Conservados.
+- `focus-glow`, `glass-panel`, `gradient-primary`, `accent-bar-active`: redefinidos en globals.css como aliases del nuevo sistema. Se mantienen para backward compat.
+- Cero colores Tailwind hardcoded en toda la app tras el barrido de fases 4–8.
+- Transición de ruta reducida a 100ms fade (era spring 25/200).
+
+### Fase 10 — Copy y localización
+
+**Tildes corregidas:**
+- `Numero` → `Número` (CIF, NIF, IBAN) — clients/new, clients/[id]/edit
+- `Telefono` → `Teléfono` — settings, clients forms, modals, export CSV
+- `Configuracion` → `Configuración` — settings page
+- `Facturacion` → `Facturación` — billing page, modals
+- `Presentacion` → `Presentación` — agenda, calendar, reports, modals
+- `Codigo Universal...` → `Código Universal...` — NewSupplyModal
+- `Direccion Fiscal` → `Dirección Fiscal` — export CSV
+- `Formato IBAN invalido` → `inválido` — format.ts
+- `IBAN no valido` → `no válido` — format.ts
+- `gestion del equipo` → `gestión del equipo` — settings subtitle
+- `Gestion de facturas` → `Gestión de facturas` — billing subtitle
+
+**Formatos verificados:**
+- Moneda: `Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' })` ✓
+- Fechas: `Intl.DateTimeFormat('es-ES', { day:'2-digit', month:'short', year:'numeric' })` ✓
+- Números: `Intl.NumberFormat('es-ES')` ✓ y `toLocaleString('es-ES')` ✓
+
+**Placeholders:** ninguno visible al usuario encontrado.
+
+**Error messages:** específicos en settings; toasts con contexto.
 
 ---
 

@@ -110,7 +110,7 @@ export function NewObjectiveModal({ open, onClose, onCreated }: Props) {
               options={[
                 { value: 'contracts', label: 'Contratos' },
                 { value: 'supplies', label: 'Suministros' },
-                { value: 'revenue', label: 'Facturacion (€)' },
+                { value: 'revenue', label: 'Facturación (€)' },
               ]}
             />
             <Input

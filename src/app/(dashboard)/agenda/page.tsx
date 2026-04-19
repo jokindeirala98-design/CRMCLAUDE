@@ -88,7 +88,7 @@ const TYPE_COLORS: Record<string, string> = {
   other: 'bg-bg-2 text-ink-3',
 }
 const TYPE_LABELS: Record<string, string> = {
-  presentation: 'Presentacion',
+  presentation: 'Presentación',
   followup: 'Seguimiento',
   signing: 'Firma',
   other: 'Otro',

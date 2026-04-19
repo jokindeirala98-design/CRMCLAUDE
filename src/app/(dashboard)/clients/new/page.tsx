@@ -201,7 +201,7 @@ export default function NewClientPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input
                   id="cif"
-                  label="Numero CIF"
+                  label="Número CIF"
                   placeholder="Ej: B12345678"
                   value={form.cif}
                   onChange={(e) => updateField('cif', e.target.value.toUpperCase())}
@@ -227,7 +227,7 @@ export default function NewClientPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input
                   id="nif"
-                  label="Numero NIF"
+                  label="Número NIF"
                   placeholder="Ej: 12345678A"
                   value={form.nif}
                   onChange={(e) => updateField('nif', e.target.value.toUpperCase())}
@@ -253,7 +253,7 @@ export default function NewClientPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input
                   id="iban"
-                  label="Numero IBAN"
+                  label="Número IBAN"
                   placeholder="Ej: ES91 2100 0418 4502 0005 1332"
                   value={form.iban}
                   onChange={(e) => updateField('iban', e.target.value.toUpperCase())}
@@ -289,7 +289,7 @@ export default function NewClientPage() {
             />
             <Input
               id="phone"
-              label="Telefono"
+              label="Teléfono"
               type="tel"
               placeholder="+34 600 000 000"
               value={form.phone}

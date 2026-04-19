@@ -952,7 +952,7 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
                     placeholder="ES0000000000000000XX"
                     value={form.cups}
                     onChange={(e) => handleCupsChange(e.target.value)}
-                    hint="Codigo Universal de Punto de Suministro"
+                    hint="Código Universal de Punto de Suministro"
                   />
 
                   {/* CUPS duplicate detection feedback */}

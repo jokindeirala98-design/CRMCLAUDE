@@ -101,7 +101,7 @@ export function NewAppointmentModal({ open, onClose, onCreated, preselectedDate 
             value={form.type}
             onChange={(e) => setForm({ ...form, type: e.target.value })}
             options={[
-              { value: 'presentation', label: 'Presentacion' },
+              { value: 'presentation', label: 'Presentación' },
               { value: 'followup', label: 'Seguimiento' },
               { value: 'signing', label: 'Firma' },
               { value: 'other', label: 'Otro' },

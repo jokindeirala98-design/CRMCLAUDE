@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
         let q = supabase.from('clients').select('id, name, type, cif_nif, email, phone, fiscal_address, origin, created_at, commercial:users_profile!commercial_id(full_name)')
         if (commercial_id) q = q.eq('commercial_id', commercial_id)
         const { data: rows } = await q.order('created_at', { ascending: false }).limit(5000)
-        columns = ['Nombre', 'Tipo', 'CIF/NIF', 'Email', 'Telefono', 'Direccion Fiscal', 'Origen', 'Comercial', 'Fecha Alta']
+        columns = ['Nombre', 'Tipo', 'CIF/NIF', 'Email', 'Teléfono', 'Dirección Fiscal', 'Origen', 'Comercial', 'Fecha Alta']
         data = (rows || []).map((r: any) => [
           r.name, r.type, r.cif_nif || '', r.email || '', r.phone || '',
           r.fiscal_address || '', r.origin || '', r.commercial?.full_name || '',

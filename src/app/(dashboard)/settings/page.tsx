@@ -407,7 +407,7 @@ export default function SettingsPage() {
 
   return (
     <div>
-      <Header title="Configuracion" subtitle="Perfil y gestion del equipo" />
+      <Header title="Configuración" subtitle="Perfil y gestión del equipo" />
 
       <div className="px-6 lg:px-8 pb-8 space-y-6">
         {/* Profile */}
@@ -426,7 +426,7 @@ export default function SettingsPage() {
               hint="El email no se puede cambiar"
             />
             <Input
-              label="Telefono"
+              label="Teléfono"
               value={profile.phone}
               onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
             />

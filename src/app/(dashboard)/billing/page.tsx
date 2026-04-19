@@ -127,8 +127,8 @@ export default function BillingPage() {
   return (
     <div>
       <Header
-        title="Facturacion"
-        subtitle="Gestion de facturas propias de Voltis Energia"
+        title="Facturación"
+        subtitle="Gestión de facturas propias de Voltis Energía"
         actions={
           <Button onClick={() => setShowModal(true)}>
             <Plus className="w-4 h-4" />
