@@ -775,7 +775,8 @@ export default function AgendaPage() {
                         key={day}
                         onClick={() => setSelectedDay(selectedDay === day ? null : day)}
                         onDoubleClick={() => {
-                          const dateStr = new Date(year, month, day).toISOString().split('T')[0]
+                          // Build date string directly to avoid UTC timezone shift
+                          const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
                           setModalDate(dateStr)
                           setShowQuickModal(true)
                         }}
