@@ -92,6 +92,8 @@ interface Props {
   invoices: InvoiceRow[]
   supplyId: string
   onInvoicesUpdated: () => void
+  /** Authoritative supply type from the supply record (overrides invoice extracted_data) */
+  supplyType?: 'luz' | 'gas' | 'telefonia' | string
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -233,15 +235,27 @@ function hasUsableData(inv: InvoiceRow): boolean {
   return getEco(inv) !== null
 }
 
-/** Detect if this is a gas supply based on invoices: tariff starts with RL or supply_type=gas */
-function isGasSupply(invoices: InvoiceRow[]): boolean {
+/**
+ * Detect if this is a gas supply.
+ * Uses the authoritative supply-level type when available (avoids false positives
+ * from mis-classified invoice pages).  Falls back to invoice-based heuristics.
+ */
+function isGasSupply(invoices: InvoiceRow[], authoritativeType?: string): boolean {
+  // Supply-record type is the ground truth — trust it above everything else
+  if (authoritativeType === 'luz' || authoritativeType === 'telefonia') return false
+  if (authoritativeType === 'gas') return true
+
+  // Fall back to invoice-level indicators only when no supply type available
   for (const inv of invoices) {
     const eco = getEco(inv)
     const tariff = eco?.tarifa || inv.extracted_data?.tariff || ''
-    const supplyType = eco?.supply_type || inv.extracted_data?.supply_type
-    if (supplyType === 'gas') return true
+    // RL tariff = definitively gas access tariff
     if (/^RL/i.test(String(tariff).replace(/\s+/g, ''))) return true
+    // gasPricing structure present in economics = gas
     if (eco?.gasPricing) return true
+    // supply_type=gas in extracted_data — only trust when no electricity tariff present
+    const invoiceType = eco?.supply_type || inv.extracted_data?.supply_type
+    if (invoiceType === 'gas' && !/^[236]\./i.test(String(tariff))) return true
   }
   return false
 }
@@ -721,7 +735,7 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete }: {
     indent?: boolean
   }
 
-  const isGas = isGasSupply(invoices)
+  const isGas = isGasSupply(invoices, propSupplyType)
 
   // ── Common header rows (both luz & gas) ──
   const headerRows: RowDef[] = [
@@ -2110,7 +2124,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated }: Props) {
+export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated, supplyType: propSupplyType }: Props) {
   const [view, setView] = useState<'tabla' | 'informe'>('tabla')
   const [busyRescan, setBusyRescan] = useState<string | null>(null)
   const [busyDelete, setBusyDelete] = useState<string | null>(null)
@@ -2119,7 +2133,7 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated 
   const withEco = invoices.filter(hasUsableData)
   const withoutEco = invoices.filter(inv => !hasUsableData(inv))
   const supplyName = withEco.length > 0 ? getEco(withEco[0])?.titular : undefined
-  const isGas = isGasSupply(invoices)
+  const isGas = isGasSupply(invoices, propSupplyType)
 
   // Aggregate validation status across all invoices
   const validationSummary = (() => {

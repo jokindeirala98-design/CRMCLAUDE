@@ -1466,6 +1466,43 @@ function postProcessEconomics(economics: any): any {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
+/*  IMAGE PRE-PROCESSING                                                      */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Enhance JPEG/PNG images before sending to Gemini to improve OCR accuracy.
+ * Telegram photos arrive at ~1280px with heavy JPEG compression which makes
+ * small text (CUPS, prices, kWh values) blurry.  Normalizing + sharpening
+ * recovers contrast and makes character edges cleaner so Gemini reads them
+ * more reliably.
+ *
+ * Returns the original base64 unchanged if sharp is unavailable or fails.
+ */
+async function enhanceImageForOcr(
+  base64Data: string,
+  mimeType: string,
+): Promise<{ base64Data: string; mimeType: string }> {
+  if (!mimeType.startsWith('image/')) return { base64Data, mimeType }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const sharp = require('sharp') as typeof import('sharp').default
+    const inputBuffer = Buffer.from(base64Data, 'base64')
+
+    const outputBuffer = await sharp(inputBuffer)
+      .normalize()                     // Auto-adjust levels (rescale dark/light to full range)
+      .sharpen({ sigma: 1.5 })         // Enhance text edges
+      .jpeg({ quality: 95 })           // High-quality JPEG output
+      .toBuffer()
+
+    console.log(`[Gemini] Image preprocessed: ${inputBuffer.length} → ${outputBuffer.length} bytes`)
+    return { base64Data: outputBuffer.toString('base64'), mimeType: 'image/jpeg' }
+  } catch (err: any) {
+    console.warn('[Gemini] Image preprocessing skipped:', err?.message)
+    return { base64Data, mimeType }
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
 /*  ANALYSIS                                                                 */
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
@@ -1479,6 +1516,20 @@ export async function analyzeDocument(
   if (!apiKey) return { mode: 'manual', documentType: 'otro', error: 'GEMINI_API_KEY no configurada en el servidor' }
 
   try {
+    // ── Pre-process images to improve OCR quality ──────────────────────────
+    const enhanced = await enhanceImageForOcr(base64Data, mimeType)
+    base64Data = enhanced.base64Data
+    mimeType = enhanced.mimeType
+
+    if (extraPages?.length) {
+      extraPages = await Promise.all(
+        extraPages.map(async (p) => {
+          const e = await enhanceImageForOcr(p.base64Data, p.mimeType)
+          return { base64Data: e.base64Data, mimeType: e.mimeType }
+        })
+      )
+    }
+
     let prompt = docType === 'factura' ? INVOICE_PROMPT : INVOICE_PROMPT // Always use invoice prompt - it handles all doc types
 
     // When ANY page is an image (e.g. Telegram photo → JPEG), apply extra extraction guidance.
@@ -1487,26 +1538,52 @@ export async function analyzeDocument(
     const hasImagePage = mimeType.startsWith('image/') || extraPages?.some(p => p.mimeType.startsWith('image/'))
     if (hasImagePage) {
       const imageHints = `
-INSTRUCCIONES ESPECIALES PARA IMÁGENES (PRIORIDAD MÁXIMA):
-Esta entrada es una IMAGEN (no PDF). La imagen puede estar comprimida, pixelada o de baja resolución.
-Debes esforzarte al máximo para extraer TODOS los campos, incluso si el texto parece borroso o difícil de leer.
+INSTRUCCIONES ESPECIALES PARA IMÁGENES (PRIORIDAD MÁXIMA — LEE TODO ANTES DE RESPONDER):
+Esta entrada es una IMAGEN de factura energética. Puede estar comprimida o ligeramente borrosa.
+La imagen ha sido mejorada (normalizada y enfocada) para facilitar la lectura. Usa esa mejora al máximo.
 
-1. CUPS (CAMPO CRÍTICO):
-   - Busca cualquier código que empiece por "ES" seguido de exactamente 20 caracteres alfanuméricos (total 22 chars).
-   - Puede aparecer en cualquier parte de la factura: cabecera, cuerpo, pie, tabla de datos del punto de suministro.
-   - REGLA ABSOLUTA: Si NO puedes leer claramente el CUPS completo, devuelve null. NUNCA inventes, aproximes ni rellenes con ceros. Un CUPS inventado es mucho peor que null.
-   - Solo extrae el CUPS si puedes leer al menos 15 de sus 22 caracteres con certeza. Los caracteres que no puedas leer son motivo para devolver null.
-   - Formatos reales de ejemplo: ES0031405000001234XY (luz Navarra), ES0220401800075123 (gas). NO uses estos como plantilla.
+════ 1. CUPS ════
+- Busca CUALQUIER secuencia "ES" + 20 caracteres alfanuméricos en TODA la imagen.
+- Puede estar en: cabecera, sección "DATOS DEL CONTRATO", pie, tabla de datos del suministro.
+- ANTI-ALUCINACIÓN: Solo extrae si puedes leer al menos 18 de los 22 caracteres con seguridad.
+  Si lees menos de 18, devuelve null — es mejor null que un CUPS inventado.
+- NUNCA rellenes con ceros ni repitas dígitos para completar. Si no estás seguro de un carácter,
+  el CUPS entero es null.
 
-2. ECONOMICS (TODOS LOS CAMPOS OBLIGATORIOS):
-   - consumo[]: Extrae CADA línea de energía con fecha_inicio, fecha_fin, kwh, precioKwh, importe. No omitas ningún período.
-   - potencia[]: Extrae CADA línea de potencia con kw, precioKwDia, dias, importe. Busca en las tablas de desglose.
-   - otrosConceptos[]: Incluye alquiler de equipo, impuesto eléctrico, descuentos, bonificaciones, cualquier concepto adicional.
-   - Si los valores son difíciles de leer, aproxima con los dígitos que puedas distinguir.
+════ 2. TIPO DE SUMINISTRO ════
+- Si la tarifa contiene "TD" o empieza por 2, 3 o 6 (ej: 2.0TD, 3.0TD, 6.1TD) → supply_type: "luz"
+- Si la tarifa empieza por "RL" → supply_type: "gas"
+- Si no hay tarifa visible → mira si hay "kWh" (luz) o "m³" (gas) en las tablas de consumo.
+- NUNCA pongas supply_type:"gas" si ves kWh o tarifa 3.0TD/2.0TD/6.1TD.
 
-3. IMPORTE TOTAL: Busca "Total a pagar", "Importe total", "Total factura" — puede estar en negrita o recuadrado.
+════ 3. ECONOMICS — OBLIGATORIO EXTRAER TODO ════
+Aunque la imagen sea borrosa, DEBES extraer todos los valores numéricos de las tablas.
 
-4. NO dejes ningún campo como null si hay alguna posibilidad de leerlo, aunque sea con baja confianza.
+3a. consumo[] — Una entrada por CADA período de energía (P1, P2, P3, P4, P5, P6):
+   { periodo:"P1", kwh: X, precioKwh: Y, importe: Z, fecha_inicio:"YYYY-MM-DD", fecha_fin:"YYYY-MM-DD" }
+   - Busca columnas: "Energía", "Término de energía", "Consumo activa", "Período", "kWh", "€/kWh"
+   - Si ves "P1 7.351 kWh" → kwh=7351. Si ves "P2 4.548 kWh" → kwh=4548. Extrae TODOS los períodos.
+
+3b. potencia[] — Una entrada por CADA período de potencia (P1–P6 para 3.0TD):
+   { periodo:"P1", kw: X, precioKwDia: Y, dias: Z, importe: W }
+   - Busca: "Potencia contratada", "Término de potencia", "kW contratados", "€/kW·día"
+   - En 3.0TD los 6 períodos suelen tener la misma potencia (ej: 69 kW cada uno).
+
+3c. otrosConceptos[] — TODOS los conceptos adicionales:
+   - Impuesto eléctrico (7%), alquiler equipo, financiación, descuentos, etc.
+
+3d. Totales obligatorios:
+   - totalFactura: busca "Total a pagar", "Total factura", "Importe total" (con IVA)
+   - costeBrutoConsumo: suma de los importes de energía antes de impuestos
+   - costeTotalPotencia: suma de los importes de potencia
+
+════ 4. FECHAS ════
+- fechaInicio / fechaFin del período de facturación (formato YYYY-MM-DD)
+- Busca "Período de facturación", "Del ... al ..."
+
+════ 5. REGLA GENERAL ════
+Extrae TODO lo que puedas leer, aunque sea con baja confianza. Es mejor un valor aproximado
+que un null. La única excepción es el CUPS — ahí null es mejor que inventar.
 
 `.trimStart()
       prompt = imageHints + prompt

@@ -1881,6 +1881,7 @@ export default function SupplyDetailPage() {
         {activeTab === 'economics' && (
           <AnnualEconomics
             supplyId={supply.id}
+            supplyType={supply.type}
             invoices={supply.invoices || []}
             onInvoicesUpdated={async () => {
               // Re-fetch supply data to update indicators
