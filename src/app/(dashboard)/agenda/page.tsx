@@ -33,6 +33,7 @@ import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { NewTaskModal } from '@/components/modals/NewTaskModal'
 import { NewAppointmentModal } from '@/components/modals/NewAppointmentModal'
+import { QuickCreateModal } from '@/components/modals/QuickCreateModal'
 import { createClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/auth'
 import { cn } from '@/lib/utils/cn'
@@ -120,6 +121,9 @@ export default function AgendaPage() {
   const [appointments, setAppointments] = useState<any[]>([])
   const [showAppointmentModal, setShowAppointmentModal] = useState(false)
   const [selectedDay, setSelectedDay] = useState<number | null>(null)
+  const [showQuickModal, setShowQuickModal] = useState(false)
+  const [modalDate, setModalDate] = useState('')
+  const [realizadasOpen, setRealizadasOpen] = useState(false)
 
   const year = currentDate.getFullYear()
   const month = currentDate.getMonth()
@@ -543,8 +547,8 @@ export default function AgendaPage() {
                 </Button>
               </Card>
             ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* LEFT COLUMN: Tareas Pendientes */}
+              <div className="space-y-4">
+                {/* PENDIENTES — full width */}
                 <div>
                   <div className="flex items-center gap-2 mb-4">
                     <div className="w-2 h-2 rounded-full bg-brand" />
@@ -656,70 +660,76 @@ export default function AgendaPage() {
                   </div>
                 </div>
 
-                {/* RIGHT COLUMN: Tareas Realizadas */}
+                {/* REALIZADAS — plegable */}
                 <div>
-                  <div className="flex items-center gap-2 mb-4">
-                    <div className="w-2 h-2 rounded-full bg-ok" />
-                    <h3 className="text-sm font-bold text-ink uppercase tracking-wider">Realizadas</h3>
-                    <span className="text-xs text-ink-3 ml-auto">{completedTasks.length}</span>
-                  </div>
-                  <div className="space-y-1.5">
-                    {completedTasks.length === 0 ? (
-                      <div className="text-center py-10 bg-bg rounded-2xl">
-                        <Circle className="w-8 h-8 text-ink-3/20 mx-auto mb-2" />
-                        <p className="text-xs text-ink-3">Aun no hay tareas realizadas</p>
-                      </div>
-                    ) : (
-                      <>
-                        {(showCompleted ? completedTasks : completedTasks.slice(0, 10)).map((task) => (
-                          <div
-                            key={task.id}
-                            className="group flex items-center gap-3 p-3 bg-bg rounded-xl hover:bg-bg-2 transition-all"
-                          >
-                            {/* Undo button */}
-                            <button
-                              onClick={() => updateTaskStatus(task.id, 'pending')}
-                              className="shrink-0 transition-all"
-                              title="Deshacer"
-                            >
-                              <CheckCircle2 className="w-5 h-5 text-ok group-hover:text-success/50" />
-                            </button>
-                            {/* Task info */}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm text-ink-3 line-through truncate">{task.title}</p>
-                              <div className="flex items-center gap-2 mt-0.5">
-                                {task.completed_at && (
-                                  <span className="text-[10px] text-ink-3/60">
-                                    {new Date(task.completed_at).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' })}
-                                    {' '}
-                                    {new Date(task.completed_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
-                                  </span>
-                                )}
-                                {task.client && (
-                                  <span className="text-[10px] text-secondary/60">{task.client.name}</span>
-                                )}
-                              </div>
+                  <button
+                    onClick={() => setRealizadasOpen(!realizadasOpen)}
+                    className="w-full flex items-center gap-3 px-4 py-3 bg-ok-container/30 hover:bg-ok-container/50 rounded-2xl transition-all"
+                  >
+                    <div className="w-2 h-2 rounded-full bg-ok flex-shrink-0" />
+                    <span className="text-sm font-bold text-ok uppercase tracking-wider">Realizadas</span>
+                    <span className="text-xs font-semibold text-ok/70 ml-1">({completedTasks.length})</span>
+                    <ChevronDown className={cn(
+                      'w-4 h-4 text-ok ml-auto transition-transform duration-200',
+                      realizadasOpen ? 'rotate-0' : '-rotate-90'
+                    )} />
+                  </button>
+
+                  <AnimatePresence>
+                    {realizadasOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="space-y-1.5 mt-2">
+                          {completedTasks.length === 0 ? (
+                            <div className="text-center py-8 bg-bg rounded-2xl">
+                              <Circle className="w-8 h-8 text-ink-3/20 mx-auto mb-2" />
+                              <p className="text-xs text-ink-3">Aun no hay tareas realizadas</p>
                             </div>
-                            {/* Delete */}
-                            {isAdmin && (
-                              <button onClick={() => deleteTask(task.id)} className="p-1 rounded-lg hover:bg-error/10 text-ink-3/30 hover:text-err transition-all opacity-0 group-hover:opacity-100">
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </div>
-                        ))}
-                        {/* Show history toggle */}
-                        {completedTasks.length > 10 && (
-                          <button
-                            onClick={() => setShowCompleted(!showCompleted)}
-                            className="w-full text-center py-2.5 text-xs font-semibold text-brand hover:text-primary/80 transition-colors rounded-xl hover:bg-primary/5"
-                          >
-                            {showCompleted ? 'Mostrar menos' : `Historial (${completedTasks.length} tareas)`}
-                          </button>
-                        )}
-                      </>
+                          ) : (
+                            <>
+                              {(showCompleted ? completedTasks : completedTasks.slice(0, 10)).map((task) => (
+                                <div key={task.id} className="group flex items-center gap-3 p-3 bg-bg rounded-xl hover:bg-bg-2 transition-all">
+                                  <button onClick={() => updateTaskStatus(task.id, 'pending')} className="shrink-0 transition-all" title="Deshacer">
+                                    <CheckCircle2 className="w-5 h-5 text-ok group-hover:text-success/50" />
+                                  </button>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm text-ink-3 line-through truncate">{task.title}</p>
+                                    <div className="flex items-center gap-2 mt-0.5">
+                                      {task.completed_at && (
+                                        <span className="text-[10px] text-ink-3/60">
+                                          {new Date(task.completed_at).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' })}
+                                          {' '}{new Date(task.completed_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                                        </span>
+                                      )}
+                                      {task.client && <span className="text-[10px] text-secondary/60">{task.client.name}</span>}
+                                    </div>
+                                  </div>
+                                  {isAdmin && (
+                                    <button onClick={() => deleteTask(task.id)} className="p-1 rounded-lg hover:bg-error/10 text-ink-3/30 hover:text-err transition-all opacity-0 group-hover:opacity-100">
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              ))}
+                              {completedTasks.length > 10 && (
+                                <button
+                                  onClick={() => setShowCompleted(!showCompleted)}
+                                  className="w-full text-center py-2.5 text-xs font-semibold text-brand hover:text-primary/80 transition-colors rounded-xl hover:bg-primary/5"
+                                >
+                                  {showCompleted ? 'Mostrar menos' : `Ver todas (${completedTasks.length} tareas)`}
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </motion.div>
                     )}
-                  </div>
+                  </AnimatePresence>
                 </div>
               </div>
             )}
@@ -764,6 +774,11 @@ export default function AgendaPage() {
                       <div
                         key={day}
                         onClick={() => setSelectedDay(selectedDay === day ? null : day)}
+                        onDoubleClick={() => {
+                          const dateStr = new Date(year, month, day).toISOString().split('T')[0]
+                          setModalDate(dateStr)
+                          setShowQuickModal(true)
+                        }}
                         className={cn(
                           'min-h-[80px] rounded-xl p-2 transition-all cursor-pointer',
                           isToday(day) ? 'bg-primary/5 ring-1 ring-primary/30'
@@ -852,6 +867,12 @@ export default function AgendaPage() {
 
       <NewTaskModal open={showTaskModal} onClose={() => setShowTaskModal(false)} onCreated={fetchTasks} />
       <NewAppointmentModal open={showAppointmentModal} onClose={() => setShowAppointmentModal(false)} onCreated={fetchAppointments} />
+      <QuickCreateModal
+        open={showQuickModal}
+        onClose={() => { setShowQuickModal(false); setModalDate('') }}
+        onCreated={() => { fetchTasks(); fetchAppointments() }}
+        date={modalDate}
+      />
     </div>
   )
 }

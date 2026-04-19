@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
-import { createClient } from '@/lib/supabase/server'
+import { createServerSupabaseClient } from '@/lib/supabase/server'
 
 /**
  * POST /api/invite-user
@@ -14,7 +14,7 @@ import { createClient } from '@/lib/supabase/server'
 export async function POST(req: NextRequest) {
   try {
     // 1. Verify the caller is an admin
-    const supabaseUser = createClient()
+    const supabaseUser = createServerSupabaseClient()
     const { data: { user }, error: authErr } = await supabaseUser.auth.getUser()
     if (authErr || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
