@@ -3,6 +3,7 @@ import { analyzeInvoice } from '@/lib/gemini'
 import { normalizeCups } from '@/lib/utils/cups'
 import { fetchSipsForCups } from '@/lib/sips'
 import { advanceSupplyPipeline } from '@/lib/supply-pipeline'
+import { ensurePendingPrescoring } from '@/lib/ensurePrescoring'
 
 /**
  * Shared processing logic for telegram_inbox items.
@@ -399,22 +400,6 @@ export async function processTelegramInboxItem(
     } else if (newSupply) {
       supplyId = newSupply.id
       console.log(`[TelegramProcess] Created new supply: ${supplyId}`)
-
-      // Create prescoring for non-2.0 tariffs
-      const tariffNorm = (tariff || '').replace(/\s+/g, '').toUpperCase()
-      const skip20 = tariffNorm.startsWith('2.0') || tariffNorm === '20TD' || tariffNorm === '20'
-      if (!skip20 && tariff) {
-        await supabase.from('prescorings').insert({
-          supply_id: supplyId,
-          client_name: holderName || 'Telegram',
-          cups: cups,
-          tariff: tariff,
-          status: 'pending',
-          requested_by: item.user_id,
-        }).then(r => {
-          if (r.error) console.error('[TelegramProcess] Prescoring error:', r.error)
-        })
-      }
     }
   }
 
@@ -444,7 +429,15 @@ export async function processTelegramInboxItem(
     console.error(`[TelegramProcess] Invoice creation error:`, invoiceErr)
   }
 
-  // 10b. Auto-advance pipeline (for existing supplies that may be in early stages)
+  // 10b. Ensure prescoring row exists and is fully populated from invoice data
+  if (supplyId) {
+    await ensurePendingPrescoring(supabase, supplyId, {
+      userId: item.user_id,
+      updateNulls: true,
+    })
+  }
+
+  // 10c. Auto-advance pipeline (for existing supplies that may be in early stages)
   if (supplyId) {
     await advanceSupplyPipeline({
       supabase,
@@ -528,6 +521,10 @@ export async function fetchSipsAndStudy(supplyId: string, cups: string, holderNa
   }).eq('id', supplyId)
 
   console.log(`[TelegramProcess] SIPS saved for supply ${supplyId}`)
+
+  // Patch prescoring with SIPS-derived fields (consumo_anual, poblacion, entidad)
+  // This runs after SIPS is saved, so ensurePrescoring will pick up consumption_data
+  await ensurePendingPrescoring(supabase, supplyId, { updateNulls: true })
 
   // Power study auto-generation
   if (sipsData.consumptionHistory?.length && sipsData.potenciaContratada) {

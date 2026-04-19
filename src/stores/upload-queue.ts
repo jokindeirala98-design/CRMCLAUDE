@@ -714,7 +714,7 @@ export async function processJobInBackground(jobId: string): Promise<void> {
 
       // Ensure a pending prescoring row exists for this supply (no-op if already there)
       if (supplyId) {
-        await ensurePendingPrescoring(supabase, supplyId).catch((err) =>
+        await ensurePendingPrescoring(supabase, supplyId, { updateNulls: true }).catch((err) =>
           console.error(`[UploadQueue] ensurePendingPrescoring failed for ${cups}:`, err)
         )
         // Auto-advance pipeline for existing supplies (new ones already start at estudio_en_curso)

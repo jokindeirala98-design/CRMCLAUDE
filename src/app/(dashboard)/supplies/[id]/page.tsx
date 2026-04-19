@@ -708,10 +708,10 @@ export default function SupplyDetailPage() {
     // Reset file input
     if (invoiceInputRef.current) invoiceInputRef.current.value = ''
 
-    // Ensure a prescoring row exists now that we have invoice data — runs
-    // exactly once per upload batch and is a no-op if one already exists.
+    // Ensure prescoring row exists and is fully populated from invoice data.
+    // updateNulls: true means if a row already exists, we patch any missing fields.
     const sb = createClient()
-    await ensurePendingPrescoring(sb, supply.id, { userId: user?.id })
+    await ensurePendingPrescoring(sb, supply.id, { userId: user?.id, updateNulls: true })
 
     // Auto-advance pipeline: if supply is in early stages, move to estudio_en_curso
     await advanceSupplyPipeline({

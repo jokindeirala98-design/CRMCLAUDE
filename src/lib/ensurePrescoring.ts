@@ -25,6 +25,12 @@ export interface EnsurePrescoringOptions {
   userId?: string | null
   /** Force creation even if a row already exists (rarely needed). */
   force?: boolean
+  /**
+   * If true and a row already exists, patch any null/empty fields with
+   * freshly-computed data (non-destructive — never overwrites existing values).
+   * Useful after invoices are added to an existing supply.
+   */
+  updateNulls?: boolean
 }
 
 /** True if the tariff is a 2.0 (residential) tariff that does not need prescoring. */
@@ -40,10 +46,11 @@ export async function ensurePendingPrescoring(
   options: EnsurePrescoringOptions = {}
 ): Promise<boolean> {
   if (!supplyId) return false
-  const { userId = null, force = false } = options
+  const { userId = null, force = false, updateNulls = false } = options
 
   try {
     // 1. Check existing prescoring row (any status) — idempotency guard
+    let existingId: string | null = null
     if (!force) {
       const { data: existing } = await supabase
         .from('prescorings')
@@ -51,7 +58,10 @@ export async function ensurePendingPrescoring(
         .eq('supply_id', supplyId)
         .limit(1)
         .maybeSingle()
-      if (existing) return false
+      if (existing) {
+        if (!updateNulls) return false
+        existingId = existing.id
+      }
     }
 
     // 2. Load supply with client + latest invoice
@@ -130,6 +140,38 @@ export async function ensurePendingPrescoring(
       status: 'pending',
       requested_at: new Date().toISOString(),
       requested_by: userId || 'system',
+    }
+
+    // If updating nulls on an existing row, patch only the fields that are currently null/empty
+    if (existingId) {
+      const { data: currentRow } = await supabase
+        .from('prescorings')
+        .select('client_name, cif, producto, consumo_anual, entidad, telefono, poblacion, direccion_fiscal')
+        .eq('id', existingId)
+        .single()
+
+      if (currentRow) {
+        const patch: Record<string, unknown> = {}
+        const nullOrEmpty = (v: unknown) => v === null || v === undefined || v === ''
+        if (nullOrEmpty(currentRow.client_name) && payload.client_name) patch.client_name = payload.client_name
+        if (nullOrEmpty(currentRow.cif) && payload.cif) patch.cif = payload.cif
+        if (nullOrEmpty(currentRow.producto) && payload.producto) patch.producto = payload.producto
+        if (nullOrEmpty(currentRow.consumo_anual) && payload.consumo_anual) patch.consumo_anual = payload.consumo_anual
+        if (nullOrEmpty(currentRow.entidad) && payload.entidad) patch.entidad = payload.entidad
+        if (nullOrEmpty(currentRow.telefono) && payload.telefono) patch.telefono = payload.telefono
+        if (nullOrEmpty(currentRow.poblacion) && payload.poblacion) patch.poblacion = payload.poblacion
+        if (nullOrEmpty(currentRow.direccion_fiscal) && payload.direccion_fiscal) patch.direccion_fiscal = payload.direccion_fiscal
+
+        if (Object.keys(patch).length > 0) {
+          const { error: patchErr } = await supabase.from('prescorings').update(patch).eq('id', existingId)
+          if (patchErr) {
+            console.error('[ensurePrescoring] patch failed', { supplyId, patchErr })
+            return false
+          }
+          console.log('[ensurePrescoring] patched null fields for supply', supplyId, Object.keys(patch))
+        }
+      }
+      return true
     }
 
     const { error: insertErr } = await supabase.from('prescorings').insert(payload)

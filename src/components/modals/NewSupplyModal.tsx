@@ -708,7 +708,7 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
       // row already exists. Runs for both brand-new and pre-existing supplies
       // so a CUPS that lacked one (e.g. created via an older path) gets it now.
       if (targetSupplyId) {
-        await ensurePendingPrescoring(supabase, targetSupplyId, { userId: user?.id })
+        await ensurePendingPrescoring(supabase, targetSupplyId, { userId: user?.id, updateNulls: true })
       }
 
       onCreated()
