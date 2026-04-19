@@ -146,9 +146,14 @@ export async function processTelegramInboxItem(
   const holderCif = extractedData?.holder_cif || extractedData?.economics?.cif_titular || null
   const tariff = extractedData?.tariff || extractedData?.economics?.tarifa || null
   const address = extractedData?.supply_address || extractedData?.billing_address || null
-  // Detect supply type: gas if RL tariff, otherwise use extracted supply_type or default to 'luz'
+  // Detect supply type: gas ONLY if tariff is RL.x (gas access tariff) or supply_type explicitly gas.
+  // Never classify as gas based on supply_type alone when a non-RL tariff is present —
+  // secondary pages (charts, contract detail) can be mis-classified by Gemini without full context.
   const rawType = (extractedData?.supply_type || extractedData?.economics?.supply_type || '').toLowerCase()
-  const supplyType: string = tariff && /^RL/i.test(tariff) ? 'gas'
+  const tariffIsGas = tariff && /^RL/i.test(tariff)
+  const tariffIsElec = tariff && /^[236]\./i.test(tariff) // 2.0TD, 3.0TD, 6.1TD → always electricity
+  const supplyType: string = tariffIsGas ? 'gas'
+    : tariffIsElec ? 'luz'  // explicit electricity tariff overrides any rawType
     : rawType === 'gas' || rawType.includes('gas') ? 'gas'
     : rawType === 'telefonia' || rawType.includes('telef') || rawType.includes('fibra') ? 'telefonia'
     : 'luz'
@@ -311,15 +316,15 @@ export async function processTelegramInboxItem(
       // 2nd priority: supply without CUPS and same type → fill in the gap
       const noCupsMatch = clientSupplies.find(s => !s.cups && (s.type === supplyType || !s.type))
 
-      // 3rd priority: any supply updated within last 3 minutes for same type.
-      // Only used when this page has no CUPS (it needs to latch onto an existing supply).
-      // This handles the common case where page 1 (CUPS) and page 2 (economics) of
-      // the same invoice arrive as separate Telegram photos within seconds of each other.
+      // 3rd priority: any supply updated within last 3 minutes (TYPE-AGNOSTIC when no CUPS).
+      // Only used when this page has no CUPS — it needs to latch onto an existing supply.
+      // Multi-page invoices sent as separate Telegram photos: one page may have the CUPS
+      // (and be mis-classified as a different type due to limited context) while another
+      // has the economics data.  We must NOT require a type match here — whichever page
+      // ran first already set the correct type; the secondary page just adds its data.
       const threeMinAgo = new Date(Date.now() - 3 * 60 * 1000).toISOString()
       const recentMatch = !cups
-        ? clientSupplies.find(
-            s => (s.updated_at || '') > threeMinAgo && (s.type === supplyType || !s.type)
-          )
+        ? clientSupplies.find(s => (s.updated_at || '') > threeMinAgo)
         : null
 
       const targetSupply = exactMatch || noCupsMatch || recentMatch
@@ -330,12 +335,17 @@ export async function processTelegramInboxItem(
         const matchReason = exactMatch ? 'exact CUPS' : noCupsMatch ? 'no-CUPS supply' : 'recent supply (recency merge)'
         console.log(`[TelegramProcess] Reusing supply ${supplyId} via ${matchReason} (was: cups=${targetSupply.cups || 'null'})`)
 
-        // Patch any missing fields on the existing supply
+        // Patch any missing fields on the existing supply.
+        // IMPORTANT: never overwrite an established type (e.g. 'luz') with a
+        // mis-detected type from a secondary page ('gas') — preserve the first page's value.
         const patch: Record<string, any> = {}
         if (cups && !targetSupply.cups) patch.cups = cups
         if (tariff && !targetSupply.tariff) patch.tariff = tariff
         if (address && !targetSupply.address) patch.address = address
         if (supplyType && !targetSupply.type) patch.type = supplyType
+        // Correct type if the existing supply was wrongly set to gas for an electricity CUPS
+        // (can happen when the CUPS-bearing page arrives first with limited context)
+        if (targetSupply.type === 'gas' && supplyType === 'luz') patch.type = 'luz'
         if (Object.keys(patch).length) {
           patch.updated_at = new Date().toISOString()
           await supabase.from('supplies').update(patch).eq('id', supplyId)
