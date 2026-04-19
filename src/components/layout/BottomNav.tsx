@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   Inbox,
   Users,
+  Zap,
   Menu,
   LucideIcon
 } from 'lucide-react'
@@ -19,9 +20,10 @@ interface TabItem {
 }
 
 const tabs: TabItem[] = [
-  { label: 'Panel', href: '/panel', icon: LayoutDashboard },
-  { label: 'Bandeja', href: '/inbox', icon: Inbox },
-  { label: 'Clientes', href: '/clients', icon: Users },
+  { label: 'Panel',        href: '/panel',    icon: LayoutDashboard },
+  { label: 'Bandeja',      href: '/inbox',    icon: Inbox },
+  { label: 'Clientes',     href: '/clients',  icon: Users },
+  { label: 'Suministros',  href: '/supplies', icon: Zap },
 ]
 
 interface BottomNavProps {
@@ -33,9 +35,10 @@ export function BottomNav({ onMenuClick }: BottomNavProps) {
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 lg:hidden">
-      <div className="absolute inset-0 bg-surface/80 backdrop-blur-xl border-t border-outline-variant/10" />
+      {/* Background */}
+      <div className="absolute inset-0 bg-bg/90 backdrop-blur-xl border-t border-line" />
 
-      <div className="relative flex items-center justify-around h-16 px-2 pb-safe">
+      <div className="relative flex items-center justify-around h-16 px-1 pb-safe">
         {tabs.map((tab) => {
           const isActive = pathname.startsWith(tab.href)
           const Icon = tab.icon
@@ -45,17 +48,20 @@ export function BottomNav({ onMenuClick }: BottomNavProps) {
               key={tab.href}
               href={tab.href}
               className={cn(
-                "flex flex-col items-center justify-center gap-1.5 flex-1 h-full transition-all active:scale-90",
-                isActive ? "text-primary" : "text-on-surface-variant"
+                'flex flex-col items-center justify-center gap-1 flex-1 h-full transition-all active:scale-90',
+                isActive ? 'text-ink' : 'text-ink-4'
               )}
             >
               <div className={cn(
-                "p-1 rounded-full transition-colors",
-                isActive && "bg-primary/10"
+                'p-1 rounded-md transition-colors',
+                isActive && 'bg-line'
               )}>
-                <Icon className={cn("w-6 h-6", isActive ? "stroke-[2.5]" : "stroke-[2]")} />
+                <Icon className={cn('w-5 h-5', isActive ? 'stroke-[2.5]' : 'stroke-[2]')} />
               </div>
-              <span className="text-[10px] font-semibold tracking-wide">
+              <span className={cn(
+                'text-[9px] font-semibold tracking-wide',
+                isActive ? 'text-ink' : 'text-ink-4'
+              )}>
                 {tab.label}
               </span>
             </Link>
@@ -64,14 +70,12 @@ export function BottomNav({ onMenuClick }: BottomNavProps) {
 
         <button
           onClick={onMenuClick}
-          className="flex flex-col items-center justify-center gap-1.5 flex-1 h-full transition-all active:scale-90 text-on-surface-variant"
+          className="flex flex-col items-center justify-center gap-1 flex-1 h-full transition-all active:scale-90 text-ink-4"
         >
           <div className="p-1">
-            <Menu className="w-6 h-6 stroke-[2]" />
+            <Menu className="w-5 h-5 stroke-[2]" />
           </div>
-          <span className="text-[10px] font-semibold tracking-wide">
-            Menu
-          </span>
+          <span className="text-[9px] font-semibold tracking-wide">Menú</span>
         </button>
       </div>
     </nav>

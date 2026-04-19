@@ -4,11 +4,10 @@ import React from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { 
-  X, 
-  Settings, 
-  LogOut, 
-  User,
+import {
+  X,
+  Settings,
+  LogOut,
   Zap,
   ClipboardCheck,
   FileSpreadsheet,
@@ -32,16 +31,27 @@ interface NavItem {
   adminOnly?: boolean
 }
 
-const navItems: NavItem[] = [
-  { href: '/supplies', label: 'Suministros', icon: Zap },
-  { href: '/prescorings', label: 'Prescorings', icon: ClipboardCheck, permission: 'prescorings' },
-  { href: '/informes', label: 'Informes', icon: FileSpreadsheet, adminOnly: true },
-  { href: '/contracts', label: 'Contratos', icon: FileText },
-  { href: '/subscriptions', label: 'Suscripciones', icon: CreditCard, permission: 'billing' },
-  { href: '/billing', label: 'Facturacion', icon: Receipt, permission: 'billing' },
-  { href: '/agenda', label: 'Agenda', icon: CalendarDays },
-  { href: '/commissions', label: 'Comisiones', icon: DollarSign },
-  { href: '/reports', label: 'Estadisticas', icon: BarChart3, permission: 'reports' },
+// ── Drawer nav groups ─────────────────────────────────────────────────────────
+const drawerGroups: { label: string; items: NavItem[] }[] = [
+  {
+    label: 'Operación',
+    items: [
+      { href: '/supplies',    label: 'Suministros',  icon: Zap },
+      { href: '/prescorings', label: 'Prescorings',  icon: ClipboardCheck, permission: 'prescorings' },
+      { href: '/informes',    label: 'Informes',     icon: FileSpreadsheet, adminOnly: true },
+      { href: '/contracts',   label: 'Contratos',    icon: FileText },
+      { href: '/agenda',      label: 'Agenda',       icon: CalendarDays },
+    ],
+  },
+  {
+    label: 'Finanzas',
+    items: [
+      { href: '/subscriptions', label: 'Suscripciones', icon: CreditCard,  permission: 'billing' },
+      { href: '/billing',       label: 'Facturación',   icon: Receipt,     permission: 'billing' },
+      { href: '/commissions',   label: 'Comisiones',    icon: DollarSign },
+      { href: '/reports',       label: 'Estadísticas',  icon: BarChart3,   permission: 'reports' },
+    ],
+  },
 ]
 
 interface MobileDrawerProps {
@@ -53,11 +63,11 @@ export function MobileDrawer({ isOpen, onClose }: MobileDrawerProps) {
   const pathname = usePathname()
   const { user, hasPermission, isAdmin } = useAuthStore()
 
-  const filteredItems = navItems.filter((item) => {
+  const filterItem = (item: NavItem) => {
     if (item.adminOnly && !isAdmin()) return false
     if (item.permission && !hasPermission(item.permission)) return false
     return true
-  })
+  }
 
   const handleLogout = async () => {
     const supabase = getAuthClient()
@@ -76,81 +86,95 @@ export function MobileDrawer({ isOpen, onClose }: MobileDrawerProps) {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 z-[60] bg-on-surface/40 backdrop-blur-sm lg:hidden"
+            className="fixed inset-0 z-[60] bg-ink/30 backdrop-blur-sm lg:hidden"
           />
 
-          {/* Drawer Content */}
+          {/* Drawer */}
           <motion.div
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
-            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="fixed top-0 right-0 bottom-0 z-[70] w-[85%] max-w-sm bg-surface shadow-2xl lg:hidden flex flex-col"
+            transition={{ type: 'spring', damping: 28, stiffness: 220 }}
+            className="fixed top-0 right-0 bottom-0 z-[70] w-[82%] max-w-xs bg-bg border-l border-line lg:hidden flex flex-col shadow-ambient-lg"
           >
             {/* Header */}
-            <div className="flex items-center justify-between p-5 border-b border-outline-variant/10">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-line">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full gradient-primary flex items-center justify-center">
-                  <span className="text-white text-sm font-bold">
-                    {user?.full_name?.charAt(0) || 'U'}
+                <div className="w-9 h-9 rounded-full bg-brand flex items-center justify-center">
+                  <span className="text-volt text-sm font-bold">
+                    {user?.full_name?.charAt(0) || 'V'}
                   </span>
                 </div>
                 <div>
-                  <p className="text-sm font-bold text-on-surface">{user?.full_name}</p>
-                  <p className="text-[11px] text-on-surface-variant capitalize">{user?.role}</p>
+                  <p className="text-sm font-semibold text-ink">{user?.full_name || user?.email}</p>
+                  <p className="text-[10px] text-ink-4 capitalize">{user?.role}</p>
                 </div>
               </div>
-              <button 
+              <button
                 onClick={onClose}
-                className="p-2 rounded-xl bg-surface-container-high/50 text-on-surface active:scale-90"
+                className="p-1.5 rounded-lg bg-bg-2 text-ink-3 active:scale-90 hover:bg-line transition-all"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Nav List */}
-            <div className="flex-1 overflow-y-auto px-4 py-6 space-y-2">
-              <p className="px-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-4 opacity-50">
-                Herramientas
-              </p>
-              {filteredItems.map((item) => {
-                const isActive = pathname === item.href
-                const Icon = item.icon
+            {/* Nav Groups */}
+            <div className="flex-1 overflow-y-auto px-4 py-5 space-y-5">
+              {drawerGroups.map((group) => {
+                const visibleItems = group.items.filter(filterItem)
+                if (visibleItems.length === 0) return null
+
                 return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={onClose}
-                    className={cn(
-                      "flex items-center gap-4 px-4 py-3.5 rounded-2xl transition-all active:scale-95",
-                      isActive 
-                        ? "bg-primary/10 text-primary" 
-                        : "text-on-surface-variant hover:bg-surface-container-low"
-                    )}
-                  >
-                    <Icon className={cn("w-5 h-5", isActive ? "stroke-[2.5]" : "stroke-[2]")} />
-                    <span className="text-sm font-semibold">{item.label}</span>
-                  </Link>
+                  <div key={group.label}>
+                    <p className="label-mono text-ink-4 px-3 mb-2">{group.label}</p>
+                    <div className="space-y-0.5">
+                      {visibleItems.map((item) => {
+                        const isActive = pathname.startsWith(item.href)
+                        const Icon = item.icon
+                        return (
+                          <Link
+                            key={item.href}
+                            href={item.href}
+                            onClick={onClose}
+                            className={cn(
+                              'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all active:scale-95',
+                              isActive
+                                ? 'bg-ink text-bg'
+                                : 'text-ink-3 hover:bg-line/60 hover:text-ink'
+                            )}
+                          >
+                            <Icon className="w-4 h-4 flex-shrink-0" />
+                            <span>{item.label}</span>
+                          </Link>
+                        )
+                      })}
+                    </div>
+                  </div>
                 )
               })}
             </div>
 
             {/* Footer */}
-            <div className="p-4 bg-surface-container-low border-t border-outline-variant/10 space-y-2">
+            <div className="px-4 pb-6 pt-3 border-t border-line space-y-0.5">
               <Link
                 href="/settings"
                 onClick={onClose}
-                className="flex items-center gap-4 px-4 py-3.5 rounded-2xl text-on-surface-variant active:bg-surface-container-high transition-all"
+                className={cn(
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all',
+                  pathname.startsWith('/settings')
+                    ? 'bg-ink text-bg'
+                    : 'text-ink-3 hover:bg-line/60 hover:text-ink'
+                )}
               >
-                <Settings className="w-5 h-5" />
-                <span className="text-sm font-semibold">Configuración</span>
+                <Settings className="w-4 h-4" />
+                <span>Configuración</span>
               </Link>
               <button
                 onClick={handleLogout}
-                className="w-full flex items-center gap-4 px-4 py-3.5 rounded-2xl text-error active:bg-error-container/30 transition-all font-semibold"
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-err hover:bg-err-container/30 transition-all"
               >
-                <LogOut className="w-5 h-5" />
-                <span className="text-sm">Cerrar sesión</span>
+                <LogOut className="w-4 h-4" />
+                <span>Cerrar sesión</span>
               </button>
             </div>
           </motion.div>
