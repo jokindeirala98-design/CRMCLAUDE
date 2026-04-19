@@ -403,7 +403,7 @@ function GlowOrb({ className = '', size = 'lg' }: { className?: string; size?: '
     lg: 'w-[500px] h-[500px] blur-[150px]',
     xl: 'w-[800px] h-[800px] blur-[200px]',
   }
-  return <div className={`absolute rounded-full bg-blue-500/10 ${sizes[size]} ${className}`} />
+  return <div className={`absolute rounded-full bg-info-container/400/10 ${sizes[size]} ${className}`} />
 }
 
 // ─── CountUp Animation ───────────────────────────────────────────────────────
@@ -656,11 +656,11 @@ function ReExtractBanner({ invoices, onDone }: { invoices: InvoiceRow[]; onDone:
   }
 
   return (
-    <div className="mx-4 mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+    <div className="mx-4 mb-4 rounded-xl border border-warn/30/30 bg-warn-container/400/10 p-4">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 text-amber-400" />
-          <span className="text-amber-300 text-sm font-medium">
+          <AlertCircle className="w-4 h-4 text-warn" />
+          <span className="text-warn text-sm font-medium">
             {invoices.length} factura{invoices.length !== 1 ? 's' : ''} sin datos económicos
           </span>
         </div>
@@ -668,7 +668,7 @@ function ReExtractBanner({ invoices, onDone }: { invoices: InvoiceRow[]; onDone:
           <button
             onClick={reExtractAll}
             disabled={busy !== null}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-bold transition disabled:opacity-50"
+            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-warn-container/400/20 hover:bg-warn-container/400/30 text-warn text-xs font-bold transition disabled:opacity-50"
           >
             <RefreshCw className="w-3 h-3" />
             Re-extraer todas
@@ -676,7 +676,7 @@ function ReExtractBanner({ invoices, onDone }: { invoices: InvoiceRow[]; onDone:
         )}
       </div>
       {error && (
-        <div className="mb-3 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs">
+        <div className="mb-3 px-3 py-2 rounded-lg bg-err-container/400/10 border border-err/30/20 text-err text-xs">
           {error}
         </div>
       )}
@@ -689,7 +689,7 @@ function ReExtractBanner({ invoices, onDone }: { invoices: InvoiceRow[]; onDone:
             <button
               onClick={() => reExtract(inv)}
               disabled={busy === inv.id}
-              className="flex items-center gap-1 px-3 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 transition disabled:opacity-50"
+              className="flex items-center gap-1 px-3 py-1 rounded-lg bg-warn-container/400/20 hover:bg-warn-container/400/30 text-warn transition disabled:opacity-50"
             >
               {busy === inv.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
               Re-extraer
@@ -764,7 +764,7 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete }: {
         const { start, end } = getInvoiceDates(inv)
         const { month, year } = getAssignedMonth(start, end)
         const label = year > 0 ? `${CANONICAL_MONTHS_FULL[month]?.toUpperCase() || '—'} ${year}` : '—'
-        return <span className={`${isGas ? 'text-orange-400' : 'text-[#60a5fa]'} font-bold text-sm tracking-wide`}>{label}</span>
+        return <span className={`${isGas ? 'text-warn' : 'text-[#60a5fa]'} font-bold text-sm tracking-wide`}>{label}</span>
       },
     },
     { key: 'sep1', label: '', isSeparator: true, render: () => null },
@@ -785,13 +785,13 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete }: {
       key: 'descuentoEnergia', label: 'DESCUENTO ENERGÍA (€)',
       render: (eco) => {
         const v = eco?.descuentoEnergia
-        return <span className="text-green-400/80 text-sm">{v && v > 0 ? `-${fmt(v)}` : '—'}</span>
+        return <span className="text-ok/80 text-sm">{v && v > 0 ? `-${fmt(v)}` : '—'}</span>
       },
     },
     {
       key: 'costeNetoConsumo', label: 'COSTE NETO ENERGÍA (€)',
       isHighlight: true,
-      render: (eco) => <span className="text-orange-400 font-bold text-sm">{fmt(eco?.costeNetoConsumo)}</span>,
+      render: (eco) => <span className="text-warn font-bold text-sm">{fmt(eco?.costeNetoConsumo)}</span>,
     },
     {
       key: 'precioKwh', label: '€/KWH',
@@ -827,7 +827,7 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete }: {
       indent: true,
       render: (eco) => {
         const v = eco?.gasPricing?.descuentoTerminoFijo
-        return <span className="text-green-400/80 text-sm">{v && v > 0 ? `-${fmt(v)}` : '—'}</span>
+        return <span className="text-ok/80 text-sm">{v && v > 0 ? `-${fmt(v)}` : '—'}</span>
       },
     },
     { key: 'sep_gas2', label: '', isSeparator: true, render: () => null },
@@ -848,7 +848,7 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete }: {
       isHighlight: true, isTotal: true,
       render: (eco, inv) => {
         const v = eco?.totalFactura ?? inv.total_amount
-        return <span className="text-orange-400 font-bold text-sm">{v ? `${fmt(v)} €` : '—'}</span>
+        return <span className="text-warn font-bold text-sm">{v ? `${fmt(v)} €` : '—'}</span>
       },
     },
   ]
@@ -946,7 +946,7 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete }: {
       <table className="w-full border-collapse text-left" style={{ minWidth: `${CONCEPT_COL_W + invoices.length * 280}px` }}>
         <thead>
           <tr className="border-b border-white/10">
-            <th className={`sticky left-0 z-10 bg-[#020617] py-3 px-4 text-xs font-bold tracking-widest ${isGas ? 'text-orange-400' : 'text-[#60a5fa]'}`}
+            <th className={`sticky left-0 z-10 bg-[#020617] py-3 px-4 text-xs font-bold tracking-widest ${isGas ? 'text-warn' : 'text-[#60a5fa]'}`}
               style={{ width: CONCEPT_COL_W, minWidth: CONCEPT_COL_W }}>
               {isGas ? '🔥 GAS NATURAL' : 'CONCEPTO / PERIODO'}
             </th>
@@ -959,12 +959,12 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete }: {
                   <div className="text-white text-xs font-medium truncate max-w-[230px]">{fileName}</div>
                   <div className="mt-1 flex items-center gap-1.5 flex-wrap">
                     {eco ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 text-[10px]">
-                        <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" /> Extraído ✓
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-ok-container/400/20 text-ok text-[10px]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-ok inline-block" /> Extraído ✓
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-[10px]">
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" /> Sin datos
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warn-container/400/20 text-warn text-[10px]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-warn inline-block" /> Sin datos
                       </span>
                     )}
                     {onRescan && (
@@ -972,7 +972,7 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete }: {
                         onClick={(e) => { e.stopPropagation(); onRescan(inv) }}
                         disabled={busyRescan === inv.id}
                         title="Re-escanear factura"
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 text-[10px] transition disabled:opacity-50"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-info-container/400/20 hover:bg-info-container/400/30 text-info text-[10px] transition disabled:opacity-50"
                       >
                         {busyRescan === inv.id ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <RefreshCw className="w-2.5 h-2.5" />}
                         Re-escanear
@@ -983,7 +983,7 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete }: {
                         onClick={(e) => { e.stopPropagation(); onDelete(inv) }}
                         disabled={busyDelete === inv.id}
                         title="Eliminar factura"
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-500/20 hover:bg-red-500/30 text-red-400 text-[10px] transition disabled:opacity-50"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-err-container/400/20 hover:bg-err-container/400/30 text-err text-[10px] transition disabled:opacity-50"
                       >
                         {busyDelete === inv.id ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <X className="w-2.5 h-2.5" />}
                         Eliminar
@@ -1001,13 +1001,13 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete }: {
               <tr key={row.key}><td colSpan={invoices.length + 1} className="py-1"><div className="h-px bg-white/5 mx-4" /></td></tr>
             )
             return (
-              <tr key={row.key} className={['border-b border-white/5 transition-colors', row.isHighlight ? (isGas ? 'bg-orange-500/5' : 'bg-[#60a5fa]/5') : 'hover:bg-white/[0.02]'].join(' ')}>
+              <tr key={row.key} className={['border-b border-white/5 transition-colors', row.isHighlight ? (isGas ? 'bg-warn-container/400/5' : 'bg-[#60a5fa]/5') : 'hover:bg-white/[0.02]'].join(' ')}>
                 <td className="sticky left-0 z-10 py-3 px-4"
                   style={{ backgroundColor: row.isHighlight ? (isGas ? 'rgba(249,115,22,0.05)' : 'rgba(96,165,250,0.05)') : '#020617', width: CONCEPT_COL_W, minWidth: CONCEPT_COL_W }}>
                   {row.isSectionHeader ? (
                     <span className="text-white text-xs font-bold tracking-wider">{row.label}</span>
                   ) : row.isHighlight ? (
-                    <span className={`flex items-center gap-2 ${isGas ? 'text-orange-400' : 'text-[#60a5fa]'} text-xs font-bold tracking-wider`}>{row.label}</span>
+                    <span className={`flex items-center gap-2 ${isGas ? 'text-warn' : 'text-[#60a5fa]'} text-xs font-bold tracking-wider`}>{row.label}</span>
                   ) : row.indent ? (
                     <span className="flex items-center gap-2 text-white/50 text-xs tracking-wider">
                       <span className="w-1.5 h-1.5 rounded-full bg-white/30 flex-shrink-0" />{row.label}
@@ -1149,7 +1149,7 @@ function GasReportView({ invoices, supplyName, onBack }: {
       <div className="relative z-10 max-w-7xl mx-auto px-8 py-20 space-y-12">
         {/* Title */}
         <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} className="text-center">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-orange-500/20 text-orange-400 text-xs font-bold tracking-widest mb-4">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-warn-container/400/20 text-warn text-xs font-bold tracking-widest mb-4">
             <Flame className="w-4 h-4" /> INFORME DE GAS NATURAL
           </div>
           <h1 className="text-4xl font-black tracking-tight">{supplyName || 'SUMINISTRO'}</h1>
@@ -1159,10 +1159,10 @@ function GasReportView({ invoices, supplyName, onBack }: {
         {/* KPIs */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[
-            { icon: <Flame className="w-7 h-7 text-orange-500" />, label: 'CONSUMO TOTAL', value: `${summaryStats.totalKwh.toLocaleString('es-ES', { maximumFractionDigits: 0 })} kWh` },
-            { icon: <DollarSign className="w-7 h-7 text-orange-400" />, label: 'COSTE TOTAL', value: `${summaryStats.totalEur.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` },
+            { icon: <Flame className="w-7 h-7 text-warn" />, label: 'CONSUMO TOTAL', value: `${summaryStats.totalKwh.toLocaleString('es-ES', { maximumFractionDigits: 0 })} kWh` },
+            { icon: <DollarSign className="w-7 h-7 text-warn" />, label: 'COSTE TOTAL', value: `${summaryStats.totalEur.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` },
             { icon: <Activity className="w-7 h-7 text-yellow-500" />, label: 'PRECIO MEDIO', value: `${summaryStats.avgPrice.toLocaleString('es-ES', { minimumFractionDigits: 4, maximumFractionDigits: 4 })} €/kWh` },
-            { icon: <TrendingUp className="w-7 h-7 text-amber-500" />, label: 'FACTURAS CON AJUSTE', value: `${summaryStats.adjustedCount}` },
+            { icon: <TrendingUp className="w-7 h-7 text-warn" />, label: 'FACTURAS CON AJUSTE', value: `${summaryStats.adjustedCount}` },
           ].map((kpi, i) => (
             <motion.div key={i} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}
               className="rounded-2xl p-6" style={kpiGlassStyle}>
@@ -1205,8 +1205,8 @@ function GasReportView({ invoices, supplyName, onBack }: {
                   <th className="px-3 py-3 text-center">TARIFA</th>
                   <th className="px-3 py-3 text-right">KWH</th>
                   <th className="px-3 py-3 text-right">BRUTO EN.</th>
-                  <th className="px-3 py-3 text-right text-green-500/70">DESC. EN.</th>
-                  <th className="px-3 py-3 text-right text-orange-400">NETO EN.</th>
+                  <th className="px-3 py-3 text-right text-ok/70">DESC. EN.</th>
+                  <th className="px-3 py-3 text-right text-warn">NETO EN.</th>
                   <th className="px-3 py-3 text-right">€/KWH</th>
                   <th className="px-3 py-3 text-right">T. FIJO</th>
                   <th className="px-3 py-3 text-right">IMP.</th>
@@ -1218,11 +1218,11 @@ function GasReportView({ invoices, supplyName, onBack }: {
                 {tableData.map((row, idx) => (
                   <tr key={idx} className="hover:bg-white/[0.04] transition-colors">
                     <td className="px-4 py-3 font-bold text-white">{row.mes}</td>
-                    <td className="px-3 py-3 text-center text-orange-400 font-bold">{row.tarifa}</td>
+                    <td className="px-3 py-3 text-center text-warn font-bold">{row.tarifa}</td>
                     <td className="px-3 py-3 text-right font-mono text-white/80">{row.kwh.toLocaleString('es-ES', { maximumFractionDigits: 0 })}</td>
                     <td className="px-3 py-3 text-right font-mono text-white/60">{row.costeBruto.toFixed(2)}€</td>
-                    <td className="px-3 py-3 text-right font-mono text-green-400/60">{row.descuentoEnergia > 0 ? `-${row.descuentoEnergia.toFixed(2)}€` : '—'}</td>
-                    <td className="px-3 py-3 text-right font-mono text-orange-400 font-bold">{row.costeNeto.toFixed(2)}€</td>
+                    <td className="px-3 py-3 text-right font-mono text-ok/60">{row.descuentoEnergia > 0 ? `-${row.descuentoEnergia.toFixed(2)}€` : '—'}</td>
+                    <td className="px-3 py-3 text-right font-mono text-warn font-bold">{row.costeNeto.toFixed(2)}€</td>
                     <td className={`px-3 py-3 text-right font-mono ${row.precioEstimated ? 'text-yellow-400' : 'text-white/70'}`}>
                       {row.precioKwh > 0 ? row.precioKwh.toFixed(4) : '—'}
                       {row.precioEstimated && <span className="block text-[8px] text-yellow-500/50 leading-none">est.</span>}
@@ -1242,11 +1242,11 @@ function GasReportView({ invoices, supplyName, onBack }: {
                   <td className="px-3 py-4 text-right tabular-nums text-white/60">
                     {tableData.reduce((s, r) => s + r.costeBruto, 0).toFixed(2)}€
                   </td>
-                  <td className="px-3 py-4 text-right tabular-nums text-green-400/60">
+                  <td className="px-3 py-4 text-right tabular-nums text-ok/60">
                     {tableData.reduce((s, r) => s + r.descuentoEnergia, 0) > 0
                       ? `-${tableData.reduce((s, r) => s + r.descuentoEnergia, 0).toFixed(2)}€` : '—'}
                   </td>
-                  <td className="px-3 py-4 text-right tabular-nums text-orange-400">{summaryStats.totalEnergyNet.toFixed(2)}€</td>
+                  <td className="px-3 py-4 text-right tabular-nums text-warn">{summaryStats.totalEnergyNet.toFixed(2)}€</td>
                   <td className="px-3 py-4 text-right tabular-nums text-white">{summaryStats.avgPrice.toFixed(4)}</td>
                   <td className="px-3 py-4 text-right tabular-nums text-white/50">{summaryStats.totalTerminoFijo.toFixed(2)}€</td>
                   <td className="px-3 py-4 text-right tabular-nums text-white/50">{summaryStats.totalImpuesto.toFixed(2)}€</td>
@@ -1534,7 +1534,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
                 className={`w-9 h-9 rounded-xl text-xs font-medium transition ${
                   isSelected && hasData ? 'bg-[#3b82f6] text-white shadow-lg shadow-blue-500/30' :
                   isSelected && !hasData ? 'bg-white/20 text-white/40' :
-                  hasData ? 'bg-white/10 text-white/60 hover:bg-white/20 border border-blue-500/30' :
+                  hasData ? 'bg-white/10 text-white/60 hover:bg-white/20 border border-info/30/30' :
                   'bg-white/5 text-white/20 border border-white/5'
                 }`}>
                 {i + 1}
@@ -1699,7 +1699,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
                 const allTotals = tableData.map(r => r.totalKwh)
                 const maxV = Math.max(...allTotals)
                 const isMax = v === maxV && v > 0
-                return <span className={`font-bold text-sm ${isMax ? 'text-red-400 bg-red-500/10 px-2 py-0.5 rounded' : 'text-blue-400'}`}>{fmt(v, 0)}</span>
+                return <span className={`font-bold text-sm ${isMax ? 'text-err bg-err-container/400/10 px-2 py-0.5 rounded' : 'text-info'}`}>{fmt(v, 0)}</span>
               }}
               footerRow={
                 <div className="grid items-center py-4 px-4 border-t border-white/10 bg-white/[0.03]"
@@ -1707,9 +1707,9 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
                   <span className="text-[#60a5fa] font-black text-sm tracking-wider">TOTAL</span>
                   {PERIODS.map(p => {
                     const total = tableData.reduce((s, r) => s + (r.kwhByPeriod[p] || 0), 0)
-                    return <span key={p} className="text-blue-300 font-bold text-sm">{total > 0 ? fmt(total, 0) : '-'}</span>
+                    return <span key={p} className="text-info font-bold text-sm">{total > 0 ? fmt(total, 0) : '-'}</span>
                   })}
-                  <span className="text-blue-400 font-black text-sm">{fmt(summaryStats.kwh, 0)}</span>
+                  <span className="text-info font-black text-sm">{fmt(summaryStats.kwh, 0)}</span>
                 </div>
               }
             />
@@ -1719,7 +1719,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
           <motion.div id="scene-5" initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.1 }} variants={sectionVariants}
             className="report-page px-8 py-12">
             <div className="mb-3">
-              <p className="text-cyan-400 text-xs tracking-[0.4em] mb-2">PRICING MATRIX</p>
+              <p className="text-info text-xs tracking-[0.4em] mb-2">PRICING MATRIX</p>
               <h3 className="text-3xl md:text-4xl font-black tracking-tight mb-6">MATRIZ DE COSTE POR PERIODO (€/KWH)</h3>
             </div>
             <AuditMatrixTable
@@ -1732,7 +1732,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
               renderTotal={(row) => {
                 const v = row.total as number
                 if (!v) return <span className="text-white/20 text-sm">—</span>
-                return <span className={`font-bold text-sm ${v > avgPriceAll ? 'text-red-400' : 'text-cyan-400'}`}>{fmt(v, 4)}</span>
+                return <span className={`font-bold text-sm ${v > avgPriceAll ? 'text-err' : 'text-info'}`}>{fmt(v, 4)}</span>
               }}
               onRowClick={(row) => setSelectedPriceBillId((row as any).id)}
             />
@@ -1743,7 +1743,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
           <motion.div id="scene-6" initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.1 }} variants={sectionVariants}
             className="report-page px-8 py-12">
             <div className="mb-3">
-              <p className="text-indigo-400 text-xs tracking-[0.4em] mb-2">SPENDING MATRIX</p>
+              <p className="text-info text-xs tracking-[0.4em] mb-2">SPENDING MATRIX</p>
               <h3 className="text-3xl md:text-4xl font-black tracking-tight mb-6">MATRIZ DE GASTO POR PERIODO (€)</h3>
             </div>
             <AuditMatrixTable
@@ -1753,38 +1753,38 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
                 if (!cell || cell.eur === 0) return <span className="text-white/20 text-sm">—</span>
                 return <span className={`text-sm ${cell.isEstimated ? 'text-yellow-400' : 'text-white/60'}`}>{fmt(cell.eur)}</span>
               }}
-              renderTotal={(row) => <span className="text-indigo-400 font-bold text-sm">{fmt(row.total as number)} €</span>}
+              renderTotal={(row) => <span className="text-info font-bold text-sm">{fmt(row.total as number)} €</span>}
               onRowClick={(row) => setSelectedBillId((row as any).id)}
               footerRow={
                 <div className="grid items-center py-4 px-4 border-t border-white/10 bg-white/[0.03]"
                   style={{ gridTemplateColumns: '220px repeat(6, 1fr) 180px' }}>
                   <span className="text-white font-black text-sm tracking-wider">TOTAL</span>
-                  {PERIODS.map(p => <span key={p} className="text-indigo-300 font-bold text-sm">{spendTotals[p] > 0 ? fmt(spendTotals[p]) : '—'}</span>)}
-                  <span className="text-indigo-400 font-black text-sm">{fmt(spendTotals.grandTotal)} €</span>
+                  {PERIODS.map(p => <span key={p} className="text-info font-bold text-sm">{spendTotals[p] > 0 ? fmt(spendTotals[p]) : '—'}</span>)}
+                  <span className="text-info font-black text-sm">{fmt(spendTotals.grandTotal)} €</span>
                 </div>
               }
             />
 
             {hasExcesses && (
-              <div className="mt-8 rounded-2xl p-4 md:p-6 border border-amber-500/20"
+              <div className="mt-8 rounded-2xl p-4 md:p-6 border border-warn/30/20"
                 style={{ ...glassStyle, borderColor: 'rgba(245,158,11,0.2)' }}>
-                <h4 className="flex items-center gap-2 text-xs font-bold tracking-[0.3em] text-amber-400/80 mb-4">
+                <h4 className="flex items-center gap-2 text-xs font-bold tracking-[0.3em] text-warn/80 mb-4">
                   <Activity className="w-3.5 h-3.5" /> SEGUIMIENTO DE EXCESOS DE POTENCIA
                 </h4>
                 <table className="w-full text-sm">
-                  <thead><tr className="border-b border-amber-500/20">
-                    <th className="text-left py-2 px-3 text-amber-400/60 text-xs tracking-widest">PERIODO</th>
-                    <th className="text-right py-2 px-3 text-amber-400/60 text-xs tracking-widest">IMPORTE EXCESO</th>
+                  <thead><tr className="border-b border-warn/30/20">
+                    <th className="text-left py-2 px-3 text-warn/60 text-xs tracking-widest">PERIODO</th>
+                    <th className="text-right py-2 px-3 text-warn/60 text-xs tracking-widest">IMPORTE EXCESO</th>
                   </tr></thead>
                   <tbody>{excessData.map(row => (
-                    <tr key={row.id} className="border-b border-amber-500/10">
+                    <tr key={row.id} className="border-b border-warn/30/10">
                       <td className="py-3 px-3 text-white/70">{row.name}</td>
-                      <td className="py-3 px-3 text-right text-amber-400 font-bold">{row.excessAmount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</td>
+                      <td className="py-3 px-3 text-right text-warn font-bold">{row.excessAmount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</td>
                     </tr>
                   ))}</tbody>
-                  <tfoot><tr className="border-t border-amber-500/30">
+                  <tfoot><tr className="border-t border-warn/30/30">
                     <td className="py-3 px-3 text-white font-black text-sm">TOTAL EXCESOS</td>
-                    <td className="py-3 px-3 text-right text-amber-400 font-black text-sm">{totalExcessAmount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</td>
+                    <td className="py-3 px-3 text-right text-warn font-black text-sm">{totalExcessAmount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</td>
                   </tr></tfoot>
                 </table>
               </div>
@@ -1837,8 +1837,8 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
 
                 <div className="grid grid-cols-2 gap-3 mb-4">
                   {/* Total Factura */}
-                  <div className="col-span-2 rounded-xl p-4 bg-blue-600/20 border border-blue-500/30">
-                    <p className="text-blue-300 text-xs tracking-wider mb-1">TOTAL FACTURA</p>
+                  <div className="col-span-2 rounded-xl p-4 bg-info-container border border-info/20">
+                    <p className="text-info text-xs tracking-wider mb-1">TOTAL FACTURA</p>
                     <p className="text-white text-2xl font-black">{fmt(bill.totalFactura)} €</p>
                   </div>
 
@@ -1861,21 +1861,21 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
                   </div>
 
                   {/* Power */}
-                  <div className="rounded-xl p-4 bg-purple-600/20 border border-purple-500/30">
-                    <p className="text-purple-300 text-xs tracking-wider mb-1">POTENCIA</p>
+                  <div className="rounded-xl p-4 bg-neutral-container border border-neutral/20">
+                    <p className="text-info text-xs tracking-wider mb-1">POTENCIA</p>
                     <p className="text-white text-lg font-bold">{fmt(bill.potencia)} €</p>
                   </div>
 
                   {/* Taxes */}
-                  <div className="rounded-xl p-4 bg-emerald-600/20 border border-emerald-500/30">
-                    <p className="text-emerald-300 text-xs tracking-wider mb-1">IMPUESTOS</p>
+                  <div className="rounded-xl p-4 bg-ok-container border border-ok/20">
+                    <p className="text-ok text-xs tracking-wider mb-1">IMPUESTOS</p>
                     <p className="text-white text-lg font-bold">{fmt(bill.impuestos)} €</p>
                   </div>
 
                   {/* Others */}
                   {bill.otrosTotal > 0 && (
-                    <div className="col-span-2 rounded-xl p-4 bg-amber-600/10 border border-amber-500/20">
-                      <p className="text-amber-300 text-xs tracking-wider mb-1">OTROS CONCEPTOS</p>
+                    <div className="col-span-2 rounded-xl p-4 bg-warn-container border border-warn/20">
+                      <p className="text-warn text-xs tracking-wider mb-1">OTROS CONCEPTOS</p>
                       <p className="text-white text-lg font-bold">{fmt(bill.otrosTotal)} €</p>
                     </div>
                   )}
@@ -1924,9 +1924,9 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
                 </div>
 
                 <div className="rounded-xl p-4 bg-cyan-600/10 border border-cyan-500/30">
-                  <p className="text-cyan-300 text-xs tracking-wider mb-2">PRECIO MEDIO PONDERADO</p>
+                  <p className="text-info text-xs tracking-wider mb-2">PRECIO MEDIO PONDERADO</p>
                   <p className="text-white/50 text-xs mb-1">Σ(kWh × Precio) / ΣkWh</p>
-                  <p className="text-cyan-400 text-2xl font-black">{fmt(bill.avgPrice, 4)} €/kWh</p>
+                  <p className="text-info text-2xl font-black">{fmt(bill.avgPrice, 4)} €/kWh</p>
                 </div>
               </motion.div>
             </motion.div>
@@ -2240,20 +2240,20 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated 
           {withEco.length > 0 && (
             validationSummary.anyFail ? (
               <span
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-[10px] tracking-wide border border-red-500/30"
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-err-container/400/20 text-err text-[10px] tracking-wide border border-err/30/30"
                 title="La suma de conceptos no cuadra con el total de la factura"
               >
                 ⚠ REVISAR EXTRACCIÓN
               </span>
             ) : validationSummary.anyWarn ? (
               <span
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-[10px] tracking-wide border border-amber-500/30"
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warn-container/400/20 text-warn text-[10px] tracking-wide border border-warn/30/30"
                 title={`${validationSummary.totalWarnings} aviso(s) en la extracción`}
               >
                 ⚠ REVISAR AVISOS
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 text-[10px] tracking-wide border border-green-500/30">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-ok-container/400/20 text-ok text-[10px] tracking-wide border border-ok/30/30">
                 AI VERIFIED ✓
               </span>
             )
@@ -2296,8 +2296,8 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated 
               style={{ background: 'rgba(15,23,42,0.95)', border: '1px solid rgba(255,255,255,0.15)', backdropFilter: 'blur(24px)' }}
             >
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-xl bg-red-500/20 flex items-center justify-center">
-                  <Trash2 className="w-5 h-5 text-red-400" />
+                <div className="w-10 h-10 rounded-xl bg-err-container/400/20 flex items-center justify-center">
+                  <Trash2 className="w-5 h-5 text-err" />
                 </div>
                 <div>
                   <h3 className="text-white font-bold text-sm">Eliminar factura</h3>
@@ -2310,7 +2310,7 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated 
                   Cancelar
                 </button>
                 <button onClick={confirmDelete}
-                  className="px-4 py-2 rounded-xl text-sm font-bold text-white bg-red-500/80 hover:bg-red-500 transition">
+                  className="px-4 py-2 rounded-xl text-sm font-bold text-white bg-err-container/400/80 hover:bg-err-container/400 transition">
                   Eliminar
                 </button>
               </div>

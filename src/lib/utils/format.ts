@@ -65,7 +65,7 @@ export function validateIBAN(iban: string): { valid: boolean; error?: string } {
 
   // Basic format check: 2 letters + 2 digits + up to 30 alphanumeric chars
   if (!/^[A-Z]{2}\d{2}[A-Z0-9]{4,30}$/.test(cleaned)) {
-    return { valid: false, error: 'Formato IBAN invalido' }
+    return { valid: false, error: 'Formato IBAN inválido' }
   }
 
   // Country-specific length validation
@@ -95,7 +95,7 @@ export function validateIBAN(iban: string): { valid: boolean; error?: string } {
   }
 
   if (remainder !== 1) {
-    return { valid: false, error: 'IBAN no valido (checksum incorrecto)' }
+    return { valid: false, error: 'IBAN no válido (checksum incorrecto)' }
   }
 
   return { valid: true }

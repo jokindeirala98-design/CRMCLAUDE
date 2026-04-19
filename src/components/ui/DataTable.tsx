@@ -23,14 +23,14 @@ export function DataTable<T>({
   data,
   keyExtractor,
   onRowClick,
-  emptyMessage = 'No hay datos',
+  emptyMessage = 'Aún no hay datos',
   loading,
 }: DataTableProps<T>) {
   if (loading) {
     return (
-      <div className="bg-surface-container-lowest rounded-2xl p-8">
-        <div className="flex items-center justify-center gap-3 text-on-surface-variant">
-          <svg className="animate-spin w-5 h-5" viewBox="0 0 24 24">
+      <div className="bg-card rounded-xl border border-line p-8">
+        <div className="flex items-center justify-center gap-3 text-ink-3">
+          <svg className="animate-spin w-4 h-4 shrink-0" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
@@ -42,23 +42,25 @@ export function DataTable<T>({
 
   if (data.length === 0) {
     return (
-      <div className="bg-surface-container-lowest rounded-2xl p-12 text-center">
-        <p className="text-sm text-on-surface-variant">{emptyMessage}</p>
+      <div className="bg-card rounded-xl border border-line p-12 text-center">
+        <p className="text-sm text-ink-3">{emptyMessage}</p>
+        <p className="text-xs text-ink-4 mt-1">Crea el primero para empezar a operar.</p>
       </div>
     )
   }
 
   return (
-    <div className="bg-surface-container-lowest rounded-2xl overflow-hidden shadow-ambient-sm">
+    <div className="bg-card rounded-xl border border-line overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
-            <tr className="bg-surface-container-low">
+            <tr className="border-b border-line bg-bg-2">
               {columns.map((col) => (
                 <th
                   key={col.key}
                   className={cn(
-                    'text-left text-xs font-semibold text-on-surface-variant uppercase tracking-wider px-5 py-3',
+                    'text-left px-5 py-3',
+                    'font-mono text-[0.65rem] font-medium text-ink-3 uppercase tracking-[0.08em]',
                     col.className
                   )}
                 >
@@ -73,13 +75,16 @@ export function DataTable<T>({
                 key={keyExtractor(item)}
                 onClick={() => onRowClick?.(item)}
                 className={cn(
-                  'transition-colors duration-150',
-                  onRowClick && 'cursor-pointer hover:bg-surface-container-low',
-                  idx !== data.length - 1 && 'border-b border-surface-container-low'
+                  'transition-colors duration-100',
+                  onRowClick && 'cursor-pointer hover:bg-bg',
+                  idx !== data.length - 1 && 'border-b border-line'
                 )}
               >
                 {columns.map((col) => (
-                  <td key={col.key} className={cn('px-5 py-3.5 text-sm', col.className)}>
+                  <td
+                    key={col.key}
+                    className={cn('px-5 py-3.5 text-sm text-ink tabular-nums', col.className)}
+                  >
                     {col.render
                       ? col.render(item)
                       : String((item as Record<string, unknown>)[col.key] ?? '')}

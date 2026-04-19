@@ -936,7 +936,7 @@ export default function SupplyDetailPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent" />
+        <div className="animate-spin rounded-full h-8 w-8 border-2 border-brand border-t-transparent" />
       </div>
     )
   }
@@ -944,8 +944,8 @@ export default function SupplyDetailPage() {
   if (!supply) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-4">
-        <AlertTriangle className="w-12 h-12 text-warning" />
-        <p className="text-on-surface-variant">Suministro no encontrado</p>
+        <AlertTriangle className="w-12 h-12 text-warn" />
+        <p className="text-ink-3">Suministro no encontrado</p>
         <Button variant="secondary" onClick={() => router.push('/supplies')}>
           Volver a suministros
         </Button>
@@ -994,14 +994,14 @@ export default function SupplyDetailPage() {
         {/* ═══════ PIPELINE STEPPER ═══════ */}
         <Card className="overflow-hidden">
           <div className="p-4">
-            <h3 className="text-sm font-semibold text-on-surface-variant mb-4 uppercase tracking-wider">
+            <h3 className="text-sm font-semibold text-ink-3 mb-4 uppercase tracking-wider">
               Pipeline del suministro
             </h3>
 
             {isRejected && (
-              <div className="flex items-center gap-3 mb-4 p-3 bg-error-container/30 rounded-xl">
-                <XCircle className="w-5 h-5 text-error flex-shrink-0" />
-                <p className="text-sm font-medium text-error">
+              <div className="flex items-center gap-3 mb-4 p-3 bg-err-container/30 rounded-xl">
+                <XCircle className="w-5 h-5 text-err flex-shrink-0" />
+                <p className="text-sm font-medium text-err">
                   Este suministro ha sido rechazado. Puedes reabrirlo desde las acciones.
                 </p>
               </div>
@@ -1022,10 +1022,10 @@ export default function SupplyDetailPage() {
                       title={step.label}
                       className={`h-2.5 flex-1 rounded-full transition-all hover:opacity-80 active:scale-95 disabled:cursor-default ${
                         isCompleted
-                          ? 'bg-success'
+                          ? 'bg-ok'
                           : isCurrent
-                          ? 'gradient-primary'
-                          : 'bg-surface-container-high hover:bg-on-surface-variant/30'
+                          ? 'bg-brand'
+                          : 'bg-bg-2 hover:bg-ink-3/30'
                       }`}
                     />
                   )
@@ -1037,12 +1037,12 @@ export default function SupplyDetailPage() {
                 const CurrentIcon = PIPELINE_STEPS[currentIndex].icon
                 return (
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl gradient-primary text-white flex items-center justify-center flex-shrink-0">
+                    <div className="w-10 h-10 rounded-xl bg-brand text-white flex items-center justify-center flex-shrink-0">
                       <CurrentIcon className="w-5 h-5" />
                     </div>
                     <div>
-                      <p className="text-sm font-bold text-on-surface">{PIPELINE_STEPS[currentIndex].label}</p>
-                      <p className="text-xs text-on-surface-variant">
+                      <p className="text-sm font-bold text-ink">{PIPELINE_STEPS[currentIndex].label}</p>
+                      <p className="text-xs text-ink-3">
                         Paso {currentIndex + 1} de {PIPELINE_STEPS.length}
                       </p>
                     </div>
@@ -1069,10 +1069,10 @@ export default function SupplyDetailPage() {
                       <div
                         className={`w-9 h-9 rounded-full flex items-center justify-center transition-all ${
                           isCompleted
-                            ? 'bg-success text-white group-hover:ring-2 group-hover:ring-success/30'
+                            ? 'bg-ok text-white group-hover:ring-2 group-hover:ring-success/30'
                             : isCurrent
-                            ? 'gradient-primary text-white ring-4 ring-primary/20'
-                            : 'bg-surface-container-high text-on-surface-variant group-hover:bg-primary/20 group-hover:text-primary group-hover:ring-2 group-hover:ring-primary/20'
+                            ? 'bg-brand text-white ring-4 ring-primary/20'
+                            : 'bg-bg-2 text-ink-3 group-hover:bg-primary/20 group-hover:text-brand group-hover:ring-2 group-hover:ring-primary/20'
                         }`}
                       >
                         {isCompleted ? (
@@ -1089,10 +1089,10 @@ export default function SupplyDetailPage() {
                       <span
                         className={`text-[10px] font-medium whitespace-nowrap transition-colors ${
                           isCurrent
-                            ? 'text-primary font-bold'
+                            ? 'text-brand font-bold'
                             : isCompleted
-                            ? 'text-success'
-                            : 'text-on-surface-variant group-hover:text-primary'
+                            ? 'text-ok'
+                            : 'text-ink-3 group-hover:text-brand'
                         }`}
                       >
                         {step.label}
@@ -1101,7 +1101,7 @@ export default function SupplyDetailPage() {
                     {index < PIPELINE_STEPS.length - 1 && (
                       <div
                         className={`w-10 h-0.5 mx-1 flex-shrink-0 ${
-                          isCompleted ? 'bg-success' : 'bg-surface-container-high'
+                          isCompleted ? 'bg-ok' : 'bg-bg-2'
                         }`}
                       />
                     )}
@@ -1141,30 +1141,30 @@ export default function SupplyDetailPage() {
             onClick={() => { if (siblingSupplies.length > 1) setSupplyOverlayOpen(true) }}
           >
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-on-surface-variant uppercase tracking-wider">
+              <h3 className="text-sm font-semibold text-ink-3 uppercase tracking-wider">
                 Datos del suministro
               </h3>
               {siblingSupplies.length > 1 && (
-                <span className="text-[10px] text-primary font-medium opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                <span className="text-[10px] text-brand font-medium opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
                   Ver todos <ChevronRight className="w-3 h-3" />
                 </span>
               )}
             </div>
             <div className="space-y-3">
               <div className="flex items-center gap-3 group/cups">
-                <Zap className="w-4 h-4 text-primary flex-shrink-0" />
+                <Zap className="w-4 h-4 text-brand flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs text-on-surface-variant">CUPS</p>
+                  <p className="text-xs text-ink-3">CUPS</p>
                   <div className="flex items-center gap-2">
-                    <p className="text-sm font-mono font-medium text-on-surface truncate">{supply.cups || 'Sin CUPS'}</p>
+                    <p className="text-sm font-mono font-medium text-ink truncate">{supply.cups || 'Sin CUPS'}</p>
                     {supply.cups && (
                       <button
                         onClick={(e) => { e.stopPropagation(); copyToClip('cups_main', supply.cups) }}
-                        className="p-1 rounded-md text-on-surface-variant/30 hover:text-primary hover:bg-primary/10 transition-all opacity-0 group-hover/cups:opacity-100 flex-shrink-0"
+                        className="p-1 rounded-md text-ink-3/30 hover:text-brand hover:bg-primary/10 transition-all opacity-0 group-hover/cups:opacity-100 flex-shrink-0"
                         title="Copiar CUPS"
                       >
                         {copiedField === 'cups_main'
-                          ? <Check className="w-3.5 h-3.5 text-success" />
+                          ? <Check className="w-3.5 h-3.5 text-ok" />
                           : <Copy className="w-3.5 h-3.5" />}
                       </button>
                     )}
@@ -1172,27 +1172,27 @@ export default function SupplyDetailPage() {
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                <FileText className="w-4 h-4 text-primary flex-shrink-0" />
+                <FileText className="w-4 h-4 text-brand flex-shrink-0" />
                 <div>
-                  <p className="text-xs text-on-surface-variant">Tipo / Tarifa</p>
-                  <p className="text-sm text-on-surface capitalize">
+                  <p className="text-xs text-ink-3">Tipo / Tarifa</p>
+                  <p className="text-sm text-ink capitalize">
                     {supply.type} · <Badge variant="info">{supply.tariff}</Badge>
                   </p>
                 </div>
               </div>
               {supply.address && (
                 <div className="flex items-center gap-3">
-                  <MapPin className="w-4 h-4 text-primary flex-shrink-0" />
+                  <MapPin className="w-4 h-4 text-brand flex-shrink-0" />
                   <div>
-                    <p className="text-xs text-on-surface-variant">Direccion</p>
-                    <p className="text-sm text-on-surface">{supply.address}</p>
+                    <p className="text-xs text-ink-3">Direccion</p>
+                    <p className="text-sm text-ink">{supply.address}</p>
                   </div>
                 </div>
               )}
               <div className="flex items-center gap-3">
-                <Clock className="w-4 h-4 text-primary flex-shrink-0" />
+                <Clock className="w-4 h-4 text-brand flex-shrink-0" />
                 <div>
-                  <p className="text-xs text-on-surface-variant">Estado actual</p>
+                  <p className="text-xs text-ink-3">Estado actual</p>
                   <StatusBadge status={supply.status} />
                 </div>
               </div>
@@ -1200,7 +1200,7 @@ export default function SupplyDetailPage() {
 
             {/* CUPS chips for sibling supplies */}
             {siblingSupplies.length > 1 && (
-              <div className="pt-3 mt-3 border-t border-outline-variant/10">
+              <div className="pt-3 mt-3 border-t border-line-2-variant/10">
                 <div className="flex flex-wrap gap-1.5">
                   {siblingSupplies.map((s) => {
                     const isCurrent = s.id === id
@@ -1210,8 +1210,8 @@ export default function SupplyDetailPage() {
                         onClick={(e) => { e.stopPropagation(); if (!isCurrent) router.push(`/supplies/${s.id}`) }}
                         className={`px-2 py-0.5 rounded-md text-[11px] font-mono font-semibold transition-colors ${
                           isCurrent
-                            ? 'bg-primary/15 text-primary ring-1 ring-primary/30'
-                            : 'bg-surface-container-high text-on-surface-variant hover:bg-primary/10 hover:text-primary'
+                            ? 'bg-primary/15 text-brand ring-1 ring-primary/30'
+                            : 'bg-bg-2 text-ink-3 hover:bg-primary/10 hover:text-brand'
                         }`}
                         title={s.cups || 'Sin CUPS'}
                       >
@@ -1225,7 +1225,7 @@ export default function SupplyDetailPage() {
                   {supply?.client?.type === 'ayuntamiento' && (
                     <button
                       onClick={(e) => { e.stopPropagation(); setTechnicalModalOpen(true) }}
-                      className="flex items-center gap-1.5 px-3 py-0.5 rounded-md text-[11px] font-bold bg-primary text-white hover:bg-primary-container hover:text-primary transition-all shadow-sm"
+                      className="flex items-center gap-1.5 px-3 py-0.5 rounded-md text-[11px] font-bold bg-brand text-white hover:bg-brand-container hover:text-brand transition-all shadow-sm"
                     >
                       <BarChart3 className="w-3.5 h-3.5" />
                       Estudios de Suministro
@@ -1242,11 +1242,11 @@ export default function SupplyDetailPage() {
             onClick={supply.client ? () => setClientModalOpen(true) : undefined}
           >
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-on-surface-variant uppercase tracking-wider">
+              <h3 className="text-sm font-semibold text-ink-3 uppercase tracking-wider">
                 Cliente
               </h3>
               {supply.client && (
-                <span className="text-[10px] text-primary font-medium opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                <span className="text-[10px] text-brand font-medium opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
                   Ver ficha completa <ChevronRight className="w-3 h-3" />
                 </span>
               )}
@@ -1255,23 +1255,23 @@ export default function SupplyDetailPage() {
               <div className="space-y-2">
                 {/* Name row — shows alias prominently if set, real name as subtag */}
                 <div className="flex items-start gap-2.5 group/row">
-                  <Building2 className="w-4 h-4 text-on-surface-variant/60 flex-shrink-0 mt-0.5" />
+                  <Building2 className="w-4 h-4 text-ink-3/60 flex-shrink-0 mt-0.5" />
                   <div className="flex-1 min-w-0">
-                    <span className="text-sm text-on-surface truncate block">
+                    <span className="text-sm text-ink truncate block">
                       {supply.client.alias || supply.client.name}
                     </span>
                     {supply.client.alias && (
-                      <span className="text-[10px] text-on-surface-variant/50 truncate block">
+                      <span className="text-[10px] text-ink-3/50 truncate block">
                         {supply.client.name}
                       </span>
                     )}
                   </div>
                   <button
                     onClick={(e) => { e.stopPropagation(); copyToClip('cl_name', supply.client.alias || supply.client.name) }}
-                    className="p-1 rounded-md text-on-surface-variant/30 hover:text-primary hover:bg-primary/10 transition-all opacity-0 group-hover/row:opacity-100 flex-shrink-0"
+                    className="p-1 rounded-md text-ink-3/30 hover:text-brand hover:bg-primary/10 transition-all opacity-0 group-hover/row:opacity-100 flex-shrink-0"
                     title="Copiar nombre"
                   >
-                    {copiedField === 'cl_name' ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
+                    {copiedField === 'cl_name' ? <Check className="w-3.5 h-3.5 text-ok" /> : <Copy className="w-3.5 h-3.5" />}
                   </button>
                 </div>
 
@@ -1283,18 +1283,18 @@ export default function SupplyDetailPage() {
                   { key: 'cl_addr', label: 'Dir. fiscal', value: supply.client.fiscal_address, icon: MapPin },
                 ] as const).map((f) => (
                   <div key={f.key} className="flex items-center gap-2.5 group/row">
-                    <f.icon className="w-4 h-4 text-on-surface-variant/60 flex-shrink-0" />
-                    <span className="flex-1 text-sm text-on-surface truncate">
-                      {f.value || <span className="text-on-surface-variant/40 italic text-xs">—</span>}
+                    <f.icon className="w-4 h-4 text-ink-3/60 flex-shrink-0" />
+                    <span className="flex-1 text-sm text-ink truncate">
+                      {f.value || <span className="text-ink-3/40 italic text-xs">—</span>}
                     </span>
                     {f.value && (
                       <button
                         onClick={(e) => { e.stopPropagation(); copyToClip(f.key, String(f.value)) }}
-                        className="p-1 rounded-md text-on-surface-variant/30 hover:text-primary hover:bg-primary/10 transition-all opacity-0 group-hover/row:opacity-100 flex-shrink-0"
+                        className="p-1 rounded-md text-ink-3/30 hover:text-brand hover:bg-primary/10 transition-all opacity-0 group-hover/row:opacity-100 flex-shrink-0"
                         title="Copiar"
                       >
                         {copiedField === f.key
-                          ? <Check className="w-3.5 h-3.5 text-success" />
+                          ? <Check className="w-3.5 h-3.5 text-ok" />
                           : <Copy className="w-3.5 h-3.5" />}
                       </button>
                     )}
@@ -1302,7 +1302,7 @@ export default function SupplyDetailPage() {
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-on-surface-variant">Sin cliente asignado</p>
+              <p className="text-sm text-ink-3">Sin cliente asignado</p>
             )}
           </Card>
 
@@ -1312,11 +1312,11 @@ export default function SupplyDetailPage() {
             onClick={() => setDocsOverlayOpen(true)}
           >
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-on-surface-variant uppercase tracking-wider flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-ink-3 uppercase tracking-wider flex items-center gap-2">
                 <FileText className="w-4 h-4" />
                 Documentos
               </h3>
-              <span className="text-[10px] text-primary font-medium opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+              <span className="text-[10px] text-brand font-medium opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
                 Abrir gestor <ChevronRight className="w-3 h-3" />
               </span>
             </div>
@@ -1325,31 +1325,31 @@ export default function SupplyDetailPage() {
             <div className="space-y-2">
               {/* Facturas */}
               <div className="flex items-center gap-2.5">
-                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${(supply.invoices?.length || 0) > 0 ? 'bg-blue-500' : 'bg-gray-300'}`} />
-                <span className="text-xs text-on-surface flex-1">Facturas</span>
-                <span className="text-xs font-semibold text-on-surface-variant">{supply.invoices?.length || 0}</span>
+                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${(supply.invoices?.length || 0) > 0 ? 'bg-info-container/400' : 'bg-gray-300'}`} />
+                <span className="text-xs text-ink flex-1">Facturas</span>
+                <span className="text-xs font-semibold text-ink-3">{supply.invoices?.length || 0}</span>
               </div>
               {/* Informes */}
               <div className="flex items-center gap-2.5">
-                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${supply.power_study_result || supply.studies?.some((s: any) => s.status === 'completed') ? 'bg-green-500' : 'bg-gray-300'}`} />
-                <span className="text-xs text-on-surface flex-1">Informes</span>
-                <span className="text-xs font-semibold text-on-surface-variant">
+                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${supply.power_study_result || supply.studies?.some((s: any) => s.status === 'completed') ? 'bg-ok-container/400' : 'bg-gray-300'}`} />
+                <span className="text-xs text-ink flex-1">Informes</span>
+                <span className="text-xs font-semibold text-ink-3">
                   {(supply.power_study_result ? 1 : 0) + (supply.studies?.filter((s: any) => s.status === 'completed').length || 0)}
                 </span>
               </div>
               {/* Contratos */}
               <div className="flex items-center gap-2.5">
-                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${(supply.contracts?.length || 0) > 0 ? 'bg-purple-500' : 'bg-gray-300'}`} />
-                <span className="text-xs text-on-surface flex-1">Contratos</span>
-                <span className="text-xs font-semibold text-on-surface-variant">{supply.contracts?.length || 0}</span>
+                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${(supply.contracts?.length || 0) > 0 ? 'bg-info-container/400' : 'bg-gray-300'}`} />
+                <span className="text-xs text-ink flex-1">Contratos</span>
+                <span className="text-xs font-semibold text-ink-3">{supply.contracts?.length || 0}</span>
               </div>
             </div>
 
             {/* Comercializadora pill */}
             {supply.comercializadora && (
-              <div className="flex items-center gap-2 mt-3 px-2 py-1.5 bg-surface-container-low rounded-lg">
-                <Building2 className="w-3.5 h-3.5 text-on-surface-variant flex-shrink-0" />
-                <p className="text-xs font-semibold text-on-surface truncate">{supply.comercializadora.name}</p>
+              <div className="flex items-center gap-2 mt-3 px-2 py-1.5 bg-bg-2 rounded-lg">
+                <Building2 className="w-3.5 h-3.5 text-ink-3 flex-shrink-0" />
+                <p className="text-xs font-semibold text-ink truncate">{supply.comercializadora.name}</p>
               </div>
             )}
           </Card>
@@ -1366,26 +1366,26 @@ export default function SupplyDetailPage() {
               key: 'sips' as const,
               label: 'DATOS SIPS',
               icon: Activity,
-              activeClass: 'border-blue-500 bg-blue-50 text-blue-700 shadow-md',
-              inactiveClass: 'border-outline-variant/30 bg-white text-on-surface hover:border-blue-300 hover:bg-blue-50/40',
-              dot: supply.consumption_data ? 'bg-blue-500' : 'bg-gray-300',
+              activeClass: 'border-info/30 bg-info-container/40 text-info shadow-md',
+              inactiveClass: 'border-line-2-variant/30 bg-white text-ink hover:border-info/30 hover:bg-info-container/40',
+              dot: supply.consumption_data ? 'bg-info-container/400' : 'bg-gray-300',
             },
             {
               key: 'economics' as const,
               label: 'ANUAL ECONOMICS',
               icon: TrendingUp,
-              activeClass: 'border-green-500 bg-green-50 text-green-700 shadow-md',
-              inactiveClass: 'border-outline-variant/30 bg-white text-on-surface hover:border-green-300 hover:bg-green-50/40',
-              dot: (supply.invoices?.some((inv: any) => inv.extracted_data?.economics)) ? 'bg-green-500'
-                : (supply.invoices?.length > 0) ? 'bg-amber-400' : 'bg-gray-300',
+              activeClass: 'border-ok/30 bg-ok-container/40 text-ok shadow-md',
+              inactiveClass: 'border-line-2-variant/30 bg-white text-ink hover:border-ok/30 hover:bg-ok-container/40',
+              dot: (supply.invoices?.some((inv: any) => inv.extracted_data?.economics)) ? 'bg-ok-container/400'
+                : (supply.invoices?.length > 0) ? 'bg-warn' : 'bg-ink-4',
             },
             {
               key: 'potencias' as const,
               label: 'POTENCIAS Y CONSUMOS',
               icon: BarChart3,
-              activeClass: 'border-amber-500 bg-amber-50 text-amber-700 shadow-md',
-              inactiveClass: 'border-outline-variant/30 bg-white text-on-surface hover:border-amber-300 hover:bg-amber-50/40',
-              dot: supply.power_study_result ? 'bg-amber-500' : 'bg-gray-300',
+              activeClass: 'border-warn/30 bg-warn-container/40 text-warn shadow-md',
+              inactiveClass: 'border-line-2-variant/30 bg-white text-ink hover:border-warn/30 hover:bg-warn-container/40',
+              dot: supply.power_study_result ? 'bg-warn-container/400' : 'bg-gray-300',
             },
           ]).filter(tab => {
             // Hide POTENCIAS Y CONSUMOS for gas supplies
@@ -1421,9 +1421,9 @@ export default function SupplyDetailPage() {
                     <RefreshCw className="w-3.5 h-3.5" />
                     {supply.consumption_data ? 'Actualizar datos SIPS' : 'Consultar SIPS'}
                   </Button>
-                  {sipsError && <span className="text-xs text-error">{sipsError}</span>}
+                  {sipsError && <span className="text-xs text-err">{sipsError}</span>}
                   {supply.consumption_data?.fetched_at && (
-                    <span className="text-xs text-on-surface-variant ml-auto">
+                    <span className="text-xs text-ink-3 ml-auto">
                       Actualizado: {formatDate(supply.consumption_data.fetched_at)}
                     </span>
                   )}
@@ -1435,20 +1435,20 @@ export default function SupplyDetailPage() {
                     (a: any, b: any) => new Date(b.requested_at).getTime() - new Date(a.requested_at).getTime()
                   )[0]
                   const cfg: Record<string, { bg: string; text: string; label: string }> = {
-                    pending:  { bg: 'bg-amber-50 border-amber-200',  text: 'text-amber-700',  label: 'Pendiente' },
-                    sent:     { bg: 'bg-blue-50 border-blue-200',    text: 'text-blue-700',   label: 'Enviado'   },
-                    approved: { bg: 'bg-green-50 border-green-200',  text: 'text-green-700',  label: 'Aprobado'  },
-                    rejected: { bg: 'bg-red-50 border-red-200',      text: 'text-red-700',    label: 'Rechazado' },
+                    pending:  { bg: 'bg-warn-container/40 border-warn/30',  text: 'text-warn',  label: 'Pendiente' },
+                    sent:     { bg: 'bg-info-container/40 border-info/30',    text: 'text-info',   label: 'Enviado'   },
+                    approved: { bg: 'bg-ok-container/40 border-ok/30',  text: 'text-ok',  label: 'Aprobado'  },
+                    rejected: { bg: 'bg-err-container/40 border-err/30',      text: 'text-err',    label: 'Rechazado' },
                   }
                   const c = cfg[latest.status] || cfg.pending
                   return (
                     <div className={`rounded-xl border px-3 py-2 flex items-center gap-2 ${c.bg}`}>
                       <ClipboardCheck className={`w-4 h-4 ${c.text} flex-shrink-0`} />
-                      <p className="text-xs font-semibold text-on-surface">
+                      <p className="text-xs font-semibold text-ink">
                         Prescoring: <span className={c.text}>{c.label}</span>
                       </p>
                       {latest.requested_at && (
-                        <span className="text-[10px] text-on-surface-variant ml-auto">{formatDate(latest.requested_at)}</span>
+                        <span className="text-[10px] text-ink-3 ml-auto">{formatDate(latest.requested_at)}</span>
                       )}
                     </div>
                   )
@@ -1458,29 +1458,29 @@ export default function SupplyDetailPage() {
                   <>
                     {/* Summary cards */}
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                      <div className="bg-surface-container-low rounded-xl p-3">
-                        <p className="text-xs text-on-surface-variant">Consumo Total</p>
-                        <p className="text-lg font-bold text-on-surface mt-0.5">
+                      <div className="bg-bg-2 rounded-xl p-3">
+                        <p className="text-xs text-ink-3">Consumo Total</p>
+                        <p className="text-lg font-bold text-ink mt-0.5">
                           {supply.consumption_data.totalKwh
                             ? `${Math.round(supply.consumption_data.totalKwh).toLocaleString('es-ES')} kWh`
                             : supply.consumption_data.total || '-'}
                         </p>
                       </div>
-                      <div className="bg-surface-container-low rounded-xl p-3">
-                        <p className="text-xs text-on-surface-variant">Tarifa SIPS</p>
-                        <p className="text-lg font-bold text-on-surface mt-0.5">
+                      <div className="bg-bg-2 rounded-xl p-3">
+                        <p className="text-xs text-ink-3">Tarifa SIPS</p>
+                        <p className="text-lg font-bold text-ink mt-0.5">
                           {supply.consumption_data.sips_tariff || supply.tariff || '-'}
                         </p>
                       </div>
-                      <div className="bg-surface-container-low rounded-xl p-3">
-                        <p className="text-xs text-on-surface-variant">Distribuidora</p>
-                        <p className="text-xs font-medium text-on-surface mt-1 leading-tight">
+                      <div className="bg-bg-2 rounded-xl p-3">
+                        <p className="text-xs text-ink-3">Distribuidora</p>
+                        <p className="text-xs font-medium text-ink mt-1 leading-tight">
                           {supply.consumption_data.distribuidora || '-'}
                         </p>
                       </div>
-                      <div className="bg-surface-container-low rounded-xl p-3">
-                        <p className="text-xs text-on-surface-variant">Tensión</p>
-                        <p className="text-lg font-bold text-on-surface mt-0.5">
+                      <div className="bg-bg-2 rounded-xl p-3">
+                        <p className="text-xs text-ink-3">Tensión</p>
+                        <p className="text-lg font-bold text-ink mt-0.5">
                           {supply.consumption_data.tension ? `${supply.consumption_data.tension} V` : '-'}
                         </p>
                       </div>
@@ -1491,14 +1491,14 @@ export default function SupplyDetailPage() {
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                         {supply.consumption_data.potenciaContratada && (
                           <div>
-                            <h4 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-2">
+                            <h4 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-2">
                               Potencia Contratada (kW)
                             </h4>
                             <div className="grid grid-cols-6 gap-2">
                               {(['P1', 'P2', 'P3', 'P4', 'P5', 'P6'] as const).map((label, i) => (
-                                <div key={label} className="bg-surface-container-low rounded-lg p-2 text-center">
+                                <div key={label} className="bg-bg-2 rounded-lg p-2 text-center">
                                   <p className="text-[10px] font-semibold" style={{ color: ['#0ea5e9', '#334155', '#f97316', '#06b6d4', '#ec4899', '#eab308'][i] }}>{label}</p>
-                                  <p className="text-sm font-bold text-on-surface">
+                                  <p className="text-sm font-bold text-ink">
                                     {supply.consumption_data.potenciaContratada[label]?.toLocaleString() || '-'}
                                   </p>
                                 </div>
@@ -1508,14 +1508,14 @@ export default function SupplyDetailPage() {
                         )}
                         {supply.consumption_data.consumoPeriodos && (
                           <div>
-                            <h4 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-2">
+                            <h4 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-2">
                               Consumo Anual por Periodo (kWh)
                             </h4>
                             <div className="grid grid-cols-6 gap-2">
                               {(['P1', 'P2', 'P3', 'P4', 'P5', 'P6'] as const).map((label, i) => (
-                                <div key={label} className="bg-surface-container-low rounded-lg p-2 text-center">
+                                <div key={label} className="bg-bg-2 rounded-lg p-2 text-center">
                                   <p className="text-[10px] font-semibold" style={{ color: ['#0ea5e9', '#334155', '#f97316', '#06b6d4', '#ec4899', '#eab308'][i] }}>{label}</p>
-                                  <p className="text-sm font-bold text-on-surface">
+                                  <p className="text-sm font-bold text-ink">
                                     {supply.consumption_data.consumoPeriodos[label]?.toLocaleString() || '-'}
                                   </p>
                                 </div>
@@ -1537,13 +1537,13 @@ export default function SupplyDetailPage() {
                         ...(hasReactivas ? [{ key: 'reactivas', label: 'Reactiva (kvarh)' }] : []),
                       ] as { key: typeof sipsTab; label: string }[]
                       return (
-                        <div className="flex gap-0 border-b border-outline-variant/20 -mt-1">
+                        <div className="flex gap-0 border-b border-line-2-variant/20 -mt-1">
                           {tabs.map((tab) => (
                             <button key={tab.key} type="button" onClick={() => setSipsTab(tab.key)}
                               className={`px-4 py-2 text-xs font-medium border-b-2 transition-colors ${
                                 sipsTab === tab.key
-                                  ? 'border-primary text-primary'
-                                  : 'border-transparent text-on-surface-variant hover:text-on-surface'
+                                  ? 'border-brand text-brand'
+                                  : 'border-transparent text-ink-3 hover:text-ink'
                               }`}
                             >
                               {tab.label}
@@ -1574,41 +1574,41 @@ export default function SupplyDetailPage() {
                         entries.slice(0, 3).forEach(e => topIdx.add(e.idx))
                       })
                       return (
-                        <div className="overflow-x-auto rounded-xl border border-outline-variant/20">
+                        <div className="overflow-x-auto rounded-xl border border-line-2-variant/20">
                           <table className="w-full text-[10px]">
                             <thead>
-                              <tr className="bg-surface-container-low">
-                                <th className="text-left py-1 px-2 font-semibold text-on-surface-variant whitespace-nowrap">Inicio</th>
-                                <th className="text-left py-1 px-2 font-semibold text-on-surface-variant whitespace-nowrap">Fin</th>
+                              <tr className="bg-bg-2">
+                                <th className="text-left py-1 px-2 font-semibold text-ink-3 whitespace-nowrap">Inicio</th>
+                                <th className="text-left py-1 px-2 font-semibold text-ink-3 whitespace-nowrap">Fin</th>
                                 {['P1','P2','P3','P4','P5','P6'].map((p, i) => (
                                   <th key={p} className="text-right py-1 px-1.5 font-semibold whitespace-nowrap" style={{ color: P_COLORS[i] }}>{p}</th>
                                 ))}
-                                <th className="text-right py-1 px-2 font-bold text-on-surface whitespace-nowrap">Total</th>
+                                <th className="text-right py-1 px-2 font-bold text-ink whitespace-nowrap">Total</th>
                               </tr>
                             </thead>
                             <tbody>
                               {history.map((p: any, i: number) => {
                                 const isTop = topIdx.has(i)
-                                const rowCls = isTop ? 'border-t border-outline-variant/10 bg-red-50' : 'border-t border-outline-variant/10 hover:bg-surface-container-low/40'
-                                const textCls = isTop ? 'text-red-700 font-semibold' : 'text-on-surface-variant'
+                                const rowCls = isTop ? 'border-t border-line-2-variant/10 bg-err-container/40' : 'border-t border-line-2-variant/10 hover:bg-bg-2/40'
+                                const textCls = isTop ? 'text-err font-semibold' : 'text-ink-3'
                                 return (
                                   <tr key={i} className={rowCls}>
-                                    <td className={`py-0.5 px-2 whitespace-nowrap ${isTop ? 'text-red-700 font-semibold' : 'text-on-surface'}`}>{fmtD(p.fechaInicio || p.fecha)}</td>
+                                    <td className={`py-0.5 px-2 whitespace-nowrap ${isTop ? 'text-err font-semibold' : 'text-ink'}`}>{fmtD(p.fechaInicio || p.fecha)}</td>
                                     <td className={`py-0.5 px-2 whitespace-nowrap ${textCls}`}>{fmtD(p.fechaFin || '')}</td>
                                     {['P1','P2','P3','P4','P5','P6'].map(k => (
                                       <td key={k} className={`py-0.5 px-1.5 text-right ${textCls}`}>{p[k] ? p[k].toLocaleString() : '-'}</td>
                                     ))}
-                                    <td className={`py-0.5 px-2 text-right ${isTop ? 'text-red-700 font-bold' : 'text-on-surface font-bold'}`}>{p.total?.toLocaleString() || '-'}</td>
+                                    <td className={`py-0.5 px-2 text-right ${isTop ? 'text-err font-bold' : 'text-ink font-bold'}`}>{p.total?.toLocaleString() || '-'}</td>
                                   </tr>
                                 )
                               })}
                             </tbody>
                             {history.length > 1 && (
                               <tfoot>
-                                <tr className="border-t-2 border-outline-variant/30 bg-surface-container-low font-bold">
-                                  <td className="py-1 px-2 text-on-surface text-[10px]" colSpan={2}>TOTAL</td>
+                                <tr className="border-t-2 border-line-2-variant/30 bg-bg-2 font-bold">
+                                  <td className="py-1 px-2 text-ink text-[10px]" colSpan={2}>TOTAL</td>
                                   {['P1','P2','P3','P4','P5','P6','total'].map(key => (
-                                    <td key={key} className="py-1 px-1.5 text-right text-on-surface text-[10px]">
+                                    <td key={key} className="py-1 px-1.5 text-right text-ink text-[10px]">
                                       {history.reduce((s: number, p: any) => s + (p[key] || 0), 0).toLocaleString()}
                                     </td>
                                   ))}
@@ -1625,7 +1625,7 @@ export default function SupplyDetailPage() {
                       const maxHist: any[] = supply.consumption_data.maximetroHistory || []
                       const potencia = supply.consumption_data.potenciaContratada
                       if (maxHist.length === 0) return (
-                        <div className="text-center py-8 text-on-surface-variant text-sm">
+                        <div className="text-center py-8 text-ink-3 text-sm">
                           {sipsLoading
                             ? <p>Obteniendo datos de maxímetros de SIPS...</p>
                             : <p>No hay datos de maxímetros disponibles.<br/><span className="text-xs mt-1 block">Pulsa "Actualizar datos SIPS" para intentar obtenerlos.</span></p>
@@ -1636,12 +1636,12 @@ export default function SupplyDetailPage() {
                       const PERIODS = ['P1','P2','P3','P4','P5','P6'] as const
                       const cellStyle = (val: number, p: string) => {
                         const cont = potencia?.[p] ?? 0
-                        if (!cont || !val) return { cls: 'text-on-surface-variant' }
+                        if (!cont || !val) return { cls: 'text-ink-3' }
                         const r = val / cont
-                        if (r >= 1.15) return { cls: 'text-red-600 font-bold' }
-                        if (r >= 1.00) return { cls: 'text-orange-600 font-semibold' }
+                        if (r >= 1.15) return { cls: 'text-err font-bold' }
+                        if (r >= 1.00) return { cls: 'text-warn font-semibold' }
                         if (r >= 0.90) return { cls: 'text-yellow-700' }
-                        return { cls: 'text-green-700' }
+                        return { cls: 'text-ok' }
                       }
                       return (
                         <div className="space-y-4">
@@ -1651,11 +1651,11 @@ export default function SupplyDetailPage() {
                                 const cont = potencia[p] ?? 0
                                 const maxVal = Math.max(...maxHist.map((h: any) => h[p] ?? 0))
                                 const r = cont > 0 && maxVal > 0 ? maxVal / cont : null
-                                const bg = r === null ? 'bg-surface-container-low text-on-surface'
-                                  : r >= 1.15 ? 'bg-red-100 text-red-700'
-                                  : r >= 1.00 ? 'bg-orange-100 text-orange-700'
+                                const bg = r === null ? 'bg-bg-2 text-ink'
+                                  : r >= 1.15 ? 'bg-err-container text-err'
+                                  : r >= 1.00 ? 'bg-warn-container text-warn'
                                   : r >= 0.90 ? 'bg-yellow-100 text-yellow-700'
-                                  : 'bg-green-100 text-green-700'
+                                  : 'bg-ok-container text-ok'
                                 return (
                                   <div key={p} className={`rounded-xl p-2 text-center ${bg}`}>
                                     <p className="text-[10px] font-semibold" style={{ color: P_COLORS[i] }}>{p}</p>
@@ -1666,12 +1666,12 @@ export default function SupplyDetailPage() {
                               })}
                             </div>
                           )}
-                          <div className="overflow-x-auto rounded-xl border border-outline-variant/20">
+                          <div className="overflow-x-auto rounded-xl border border-line-2-variant/20">
                             <table className="w-full text-xs">
                               <thead>
-                                <tr className="bg-surface-container-low">
-                                  <th className="text-left py-2 px-3 font-semibold text-on-surface-variant whitespace-nowrap">Fecha inicio</th>
-                                  <th className="text-left py-2 px-3 font-semibold text-on-surface-variant whitespace-nowrap">Fecha fin</th>
+                                <tr className="bg-bg-2">
+                                  <th className="text-left py-2 px-3 font-semibold text-ink-3 whitespace-nowrap">Fecha inicio</th>
+                                  <th className="text-left py-2 px-3 font-semibold text-ink-3 whitespace-nowrap">Fecha fin</th>
                                   {PERIODS.map((p, i) => (
                                     <th key={p} className="text-right py-2 px-2 font-semibold whitespace-nowrap" style={{ color: P_COLORS[i] }}>
                                       {p} <span className="font-normal opacity-60 text-[9px]">kW</span>
@@ -1693,9 +1693,9 @@ export default function SupplyDetailPage() {
                                   }
                                   const fmtD2 = (d: Date) => d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
                                   return (
-                                    <tr key={i} className="border-t border-outline-variant/10 hover:bg-surface-container-low/50 transition-colors">
-                                      <td className="py-1.5 px-3 text-on-surface font-medium whitespace-nowrap">{fmtD2(startDate)}</td>
-                                      <td className="py-1.5 px-3 text-on-surface-variant whitespace-nowrap">{fmtD2(endDate)}</td>
+                                    <tr key={i} className="border-t border-line-2-variant/10 hover:bg-bg-2/50 transition-colors">
+                                      <td className="py-1.5 px-3 text-ink font-medium whitespace-nowrap">{fmtD2(startDate)}</td>
+                                      <td className="py-1.5 px-3 text-ink-3 whitespace-nowrap">{fmtD2(endDate)}</td>
                                       {PERIODS.map(p => {
                                         const val = h[p] ?? 0
                                         const { cls } = cellStyle(val, p)
@@ -1710,8 +1710,8 @@ export default function SupplyDetailPage() {
                                 })}
                               </tbody>
                               <tfoot>
-                                <tr className="border-t-2 border-outline-variant/30 bg-surface-container-low font-bold">
-                                  <td className="py-2 px-3 text-on-surface" colSpan={2}>MÁX</td>
+                                <tr className="border-t-2 border-line-2-variant/30 bg-bg-2 font-bold">
+                                  <td className="py-2 px-3 text-ink" colSpan={2}>MÁX</td>
                                   {PERIODS.map(p => {
                                     const maxVal = Math.max(...maxHist.map((h: any) => h[p] ?? 0))
                                     const { cls } = cellStyle(maxVal, p)
@@ -1726,8 +1726,8 @@ export default function SupplyDetailPage() {
                             </table>
                           </div>
                           {potencia && (
-                            <p className="text-[10px] text-on-surface-variant">
-                              Semáforo: <span className="text-green-700 font-medium">&lt;90%</span> · <span className="text-yellow-700 font-medium">90–100%</span> · <span className="text-orange-600 font-medium">100–115%</span> · <span className="text-red-600 font-medium">≥115%</span> de la potencia contratada
+                            <p className="text-[10px] text-ink-3">
+                              Semáforo: <span className="text-ok font-medium">&lt;90%</span> · <span className="text-yellow-700 font-medium">90–100%</span> · <span className="text-warn font-medium">100–115%</span> · <span className="text-err font-medium">≥115%</span> de la potencia contratada
                             </p>
                           )}
                         </div>
@@ -1742,7 +1742,7 @@ export default function SupplyDetailPage() {
                             .filter((m: any) => m.reactiva)
                             .map((m: any) => ({ fecha: m.fechaFin, fechaInicio: m.fechaInicio, fechaFin: m.fechaFin, ...m.reactiva }))
                       if (reactivaHist.length === 0) return (
-                        <div className="text-center py-8 text-on-surface-variant text-sm">
+                        <div className="text-center py-8 text-ink-3 text-sm">
                           {sipsLoading
                             ? <p>Obteniendo datos de reactiva de SIPS...</p>
                             : <p>No hay datos de reactiva disponibles.<br/><span className="text-xs mt-1 block">Pulsa "Actualizar datos SIPS" para intentar obtenerlos.</span></p>
@@ -1755,21 +1755,21 @@ export default function SupplyDetailPage() {
                       const fmtD3 = (d: string) => { try { return new Date(d).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }) } catch { return d?.slice(0, 10) || '' } }
                       return (
                         <div className="space-y-3">
-                          <p className="text-[10px] text-on-surface-variant">
-                            Energía reactiva desde SIPS. Umbral de penalización: <span className="font-semibold text-orange-600">&gt; {THRESHOLD.toLocaleString()} kvarh</span>.
+                          <p className="text-[10px] text-ink-3">
+                            Energía reactiva desde SIPS. Umbral de penalización: <span className="font-semibold text-warn">&gt; {THRESHOLD.toLocaleString()} kvarh</span>.
                           </p>
-                          <div className="overflow-x-auto rounded-xl border border-outline-variant/20">
+                          <div className="overflow-x-auto rounded-xl border border-line-2-variant/20">
                             <table className="w-full text-xs">
                               <thead>
-                                <tr className="bg-surface-container-low">
-                                  <th className="text-left py-2 px-3 font-semibold text-on-surface-variant whitespace-nowrap">Fecha inicio</th>
-                                  <th className="text-left py-2 px-3 font-semibold text-on-surface-variant whitespace-nowrap">Fecha fin</th>
+                                <tr className="bg-bg-2">
+                                  <th className="text-left py-2 px-3 font-semibold text-ink-3 whitespace-nowrap">Fecha inicio</th>
+                                  <th className="text-left py-2 px-3 font-semibold text-ink-3 whitespace-nowrap">Fecha fin</th>
                                   {PERIODS2.map((p, i) => (
                                     <th key={p} className="text-right py-2 px-2 font-semibold whitespace-nowrap" style={{ color: P_COLORS2[i] }}>
                                       {p} <span className="font-normal opacity-60 text-[9px]">kvarh</span>
                                     </th>
                                   ))}
-                                  <th className="text-right py-2 px-3 font-bold text-on-surface whitespace-nowrap">Total</th>
+                                  <th className="text-right py-2 px-3 font-bold text-ink whitespace-nowrap">Total</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -1777,18 +1777,18 @@ export default function SupplyDetailPage() {
                                   const rowTotal = PERIODS2.reduce((s, p) => s + (h[p] || 0), 0)
                                   const hasOver = PERIODS2.some(p => (h[p] || 0) > THRESHOLD)
                                   return (
-                                    <tr key={i} className={`border-t border-outline-variant/10 transition-colors ${hasOver ? 'bg-orange-50/50' : 'hover:bg-surface-container-low/50'}`}>
-                                      <td className="py-1.5 px-3 text-on-surface font-medium whitespace-nowrap">{fmtD3(h.fechaInicio || h.fecha)}</td>
-                                      <td className="py-1.5 px-3 text-on-surface-variant whitespace-nowrap">{fmtD3(h.fechaFin || h.fecha)}</td>
+                                    <tr key={i} className={`border-t border-line-2-variant/10 transition-colors ${hasOver ? 'bg-orange-50/50' : 'hover:bg-bg-2/50'}`}>
+                                      <td className="py-1.5 px-3 text-ink font-medium whitespace-nowrap">{fmtD3(h.fechaInicio || h.fecha)}</td>
+                                      <td className="py-1.5 px-3 text-ink-3 whitespace-nowrap">{fmtD3(h.fechaFin || h.fecha)}</td>
                                       {PERIODS2.map(p => {
                                         const val = h[p] || 0
                                         return (
-                                          <td key={p} className={`py-1.5 px-2 text-right ${val > THRESHOLD ? 'text-orange-600 font-semibold' : 'text-on-surface-variant'}`}>
+                                          <td key={p} className={`py-1.5 px-2 text-right ${val > THRESHOLD ? 'text-warn font-semibold' : 'text-ink-3'}`}>
                                             {val > 0 ? val.toLocaleString() : '-'}
                                           </td>
                                         )
                                       })}
-                                      <td className={`py-1.5 px-3 text-right font-bold ${hasOver ? 'text-orange-600' : 'text-on-surface'}`}>
+                                      <td className={`py-1.5 px-3 text-right font-bold ${hasOver ? 'text-warn' : 'text-ink'}`}>
                                         {rowTotal > 0 ? rowTotal.toLocaleString() : '-'}
                                       </td>
                                     </tr>
@@ -1796,17 +1796,17 @@ export default function SupplyDetailPage() {
                                 })}
                               </tbody>
                               <tfoot>
-                                <tr className="border-t-2 border-outline-variant/30 bg-surface-container-low font-bold">
-                                  <td className="py-2 px-3 text-on-surface" colSpan={2}>TOTAL</td>
+                                <tr className="border-t-2 border-line-2-variant/30 bg-bg-2 font-bold">
+                                  <td className="py-2 px-3 text-ink" colSpan={2}>TOTAL</td>
                                   {PERIODS2.map(p => {
                                     const total = reactivaHist.reduce((s, h) => s + (h[p] || 0), 0)
                                     return (
-                                      <td key={p} className={`py-2 px-2 text-right ${total > THRESHOLD * reactivaHist.length / 12 ? 'text-orange-600' : 'text-on-surface'}`}>
+                                      <td key={p} className={`py-2 px-2 text-right ${total > THRESHOLD * reactivaHist.length / 12 ? 'text-warn' : 'text-ink'}`}>
                                         {total > 0 ? total.toLocaleString() : '-'}
                                       </td>
                                     )
                                   })}
-                                  <td className="py-2 px-3 text-right text-on-surface">
+                                  <td className="py-2 px-3 text-right text-ink">
                                     {reactivaHist.reduce((s, h) => s + PERIODS2.reduce((ps, p) => ps + (h[p] || 0), 0), 0).toLocaleString()}
                                   </td>
                                 </tr>
@@ -1819,7 +1819,7 @@ export default function SupplyDetailPage() {
 
                     {/* Extra info row */}
                     {(supply.consumption_data.codigoPostal || supply.consumption_data.fechaAlta || supply.consumption_data.cnae) && (
-                      <div className="flex flex-wrap gap-4 text-xs text-on-surface-variant pt-2 border-t border-outline-variant/10">
+                      <div className="flex flex-wrap gap-4 text-xs text-ink-3 pt-2 border-t border-line-2-variant/10">
                         {supply.consumption_data.codigoPostal && <span>CP: {supply.consumption_data.codigoPostal}</span>}
                         {supply.consumption_data.municipio && <span>Municipio: {supply.consumption_data.municipio}</span>}
                         {supply.consumption_data.provincia && <span>Provincia: {supply.consumption_data.provincia}</span>}
@@ -1832,7 +1832,7 @@ export default function SupplyDetailPage() {
                 )}
 
                 {!supply.consumption_data && !sipsLoading && (
-                  <div className="text-center py-6 text-on-surface-variant text-sm">
+                  <div className="text-center py-6 text-ink-3 text-sm">
                     <Activity className="w-8 h-8 mx-auto mb-2 opacity-40" />
                     <p>No hay datos SIPS disponibles</p>
                     <p className="text-xs mt-1">Pulsa "Consultar SIPS" para obtener los datos de consumo</p>
@@ -1882,7 +1882,7 @@ export default function SupplyDetailPage() {
         )}
 
         {/* ═══════ TIMESTAMPS ═══════ */}
-        <div className="flex gap-4 text-xs text-on-surface-variant">
+        <div className="flex gap-4 text-xs text-ink-3">
           <span>Creado: {formatDate(supply.created_at)}</span>
           <span>Actualizado: {formatDate(supply.updated_at)}</span>
         </div>
@@ -1893,13 +1893,13 @@ export default function SupplyDetailPage() {
         <>
           <div className="fixed inset-0 bg-black/50 z-[100] backdrop-blur-sm" onClick={() => setShowBulkSign(false)} />
           <div className="fixed inset-0 z-[101] flex items-center justify-center p-4">
-            <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="bg-bg rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
               {/* Header */}
-              <div className="px-6 py-4 border-b border-outline-variant/15">
-                <h3 className="font-display font-semibold text-lg text-on-surface">
+              <div className="px-6 py-4 border-b border-line-2-variant/15">
+                <h3 className="font-sans font-semibold text-lg text-ink">
                   {pendingTransition === 'presentado' ? 'Marcar como presentado' : 'Firma de contratos'}
                 </h3>
-                <p className="text-xs text-on-surface-variant mt-1">
+                <p className="text-xs text-ink-3 mt-1">
                   {pendingTransition === 'presentado'
                     ? `Este cliente tiene ${siblingSupplies.length} suministros. Selecciona los que quieres marcar como presentados.`
                     : `Este cliente tiene ${siblingSupplies.length} suministros. Selecciona los que quieres marcar como firmados bajo la misma suscripción.`
@@ -1933,7 +1933,7 @@ export default function SupplyDetailPage() {
                           ? 'opacity-50 cursor-not-allowed bg-success/5'
                           : isSelected
                             ? 'bg-primary/10 border border-primary/20'
-                            : 'bg-surface-container-high/50 hover:bg-surface-container-high'
+                            : 'bg-bg-2/50 hover:bg-bg-2'
                       }`}
                     >
                       {/* Checkbox */}
@@ -1941,25 +1941,25 @@ export default function SupplyDetailPage() {
                         alreadySigned
                           ? 'bg-success/20 border-success/30'
                           : isSelected
-                            ? 'bg-primary border-primary'
-                            : 'border-outline-variant/30'
+                            ? 'bg-brand border-brand'
+                            : 'border-line-2-variant/30'
                       }`}>
-                        {(isSelected || alreadySigned) && <Check className={`w-3 h-3 ${alreadySigned ? 'text-success' : 'text-white'}`} />}
+                        {(isSelected || alreadySigned) && <Check className={`w-3 h-3 ${alreadySigned ? 'text-ok' : 'text-white'}`} />}
                       </div>
 
-                      <SIcon className="w-4 h-4 text-on-surface-variant flex-shrink-0" />
+                      <SIcon className="w-4 h-4 text-ink-3 flex-shrink-0" />
 
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-on-surface truncate">
+                        <p className="text-sm font-medium text-ink truncate">
                           {s.name || s.cups || 'Sin CUPS'}
                         </p>
                         {s.name && s.cups && (
-                          <p className="text-[10px] text-on-surface-variant font-mono">{s.cups}</p>
+                          <p className="text-[10px] text-ink-3 font-mono">{s.cups}</p>
                         )}
                       </div>
 
                       {alreadySigned ? (
-                        <span className="text-[10px] text-success font-medium">
+                        <span className="text-[10px] text-ok font-medium">
                           {pendingTransition === 'presentado' ? 'Ya presentado' : 'Ya firmado'}
                         </span>
                       ) : (
@@ -1971,8 +1971,8 @@ export default function SupplyDetailPage() {
               </div>
 
               {/* Actions */}
-              <div className="px-6 py-4 border-t border-outline-variant/15 flex items-center justify-between">
-                <p className="text-xs text-on-surface-variant">
+              <div className="px-6 py-4 border-t border-line-2-variant/15 flex items-center justify-between">
+                <p className="text-xs text-ink-3">
                   {bulkSignSelected.size} suministro{bulkSignSelected.size !== 1 ? 's' : ''} seleccionado{bulkSignSelected.size !== 1 ? 's' : ''}
                 </p>
                 <div className="flex gap-2">
@@ -2022,7 +2022,7 @@ export default function SupplyDetailPage() {
                 <button
                   onClick={handleConfirmDelete}
                   disabled={deleting}
-                  className="flex-1 px-4 py-2.5 rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  className="flex-1 px-4 py-2.5 rounded-lg bg-err-container/400 hover:bg-err text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {deleting ? (
                     <>
@@ -2047,11 +2047,11 @@ export default function SupplyDetailPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setSupplyOverlayOpen(false)}>
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
           <div
-            className="relative bg-surface rounded-3xl shadow-ambient-lg w-full max-w-4xl mx-4 max-h-[85vh] overflow-y-auto"
+            className="relative bg-bg rounded-3xl shadow-ambient-lg w-full max-w-4xl mx-4 max-h-[85vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 bg-surface/95 backdrop-blur border-b border-outline-variant/10 rounded-t-3xl">
-              <h2 className="font-display font-semibold text-lg text-on-surface">
+            <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 bg-surface/95 backdrop-blur border-b border-line-2-variant/10 rounded-t-3xl">
+              <h2 className="font-sans font-semibold text-lg text-ink">
                 Suministros del cliente ({siblingSupplies.length})
               </h2>
               <div className="flex items-center gap-2">
@@ -2068,26 +2068,26 @@ export default function SupplyDetailPage() {
                   )}
                   <span className="hidden sm:inline">Descargar facturas</span>
                 </Button>
-                <button onClick={() => setSupplyOverlayOpen(false)} className="p-2 rounded-xl hover:bg-surface-container-low transition-all">
-                  <X className="w-5 h-5 text-on-surface-variant" />
+                <button onClick={() => setSupplyOverlayOpen(false)} className="p-2 rounded-xl hover:bg-bg-2 transition-all">
+                  <X className="w-5 h-5 text-ink-3" />
                 </button>
               </div>
             </div>
 
             {/* Download progress bar */}
             {zipProgress && zipProgress.phase !== 'done' && zipProgress.phase !== 'error' && (
-              <div className="px-6 py-3 bg-primary/5 border-b border-outline-variant/10">
+              <div className="px-6 py-3 bg-primary/5 border-b border-line-2-variant/10">
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-xs font-semibold text-on-surface">
+                  <span className="text-xs font-semibold text-ink">
                     {zipProgress.phase === 'fetching' ? 'Cargando datos...' :
                      zipProgress.phase === 'zipping' ? 'Generando ZIP...' :
                      `Descargando ${zipProgress.downloaded}/${zipProgress.total}`}
                   </span>
-                  <span className="text-[10px] text-on-surface-variant truncate ml-4 max-w-[200px]">{zipProgress.currentFile}</span>
+                  <span className="text-[10px] text-ink-3 truncate ml-4 max-w-[200px]">{zipProgress.currentFile}</span>
                 </div>
                 <div className="w-full h-1.5 bg-outline-variant/20 rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-primary rounded-full transition-all duration-300"
+                    className="h-full bg-brand rounded-full transition-all duration-300"
                     style={{ width: `${zipProgress.total > 0 ? (zipProgress.downloaded / zipProgress.total) * 100 : 10}%` }}
                   />
                 </div>
@@ -2112,7 +2112,7 @@ export default function SupplyDetailPage() {
                     className={`group/card relative rounded-2xl shadow-ambient-sm overflow-hidden transition-all duration-200 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${
                       isCurrent
                         ? 'bg-primary/5 ring-2 ring-primary/30'
-                        : 'bg-surface-container-lowest hover:shadow-ambient-lg hover:-translate-y-0.5'
+                        : 'bg-card hover:shadow-ambient-lg hover:-translate-y-0.5'
                     }`}
                   >
                     <div className={`absolute inset-x-0 top-0 h-16 bg-gradient-to-b ${accentColor} pointer-events-none`} />
@@ -2123,25 +2123,25 @@ export default function SupplyDetailPage() {
                         </div>
                         <div className="flex items-center gap-1.5">
                           <StatusBadge status={s.status} />
-                          {isCurrent && <Check className="w-3.5 h-3.5 text-primary" />}
+                          {isCurrent && <Check className="w-3.5 h-3.5 text-brand" />}
                         </div>
                       </div>
                       <div className="min-w-0">
-                        <h3 className={`text-sm font-semibold truncate transition-colors ${isCurrent ? 'text-primary' : 'text-on-surface group-hover/card:text-primary'}`}>
+                        <h3 className={`text-sm font-semibold truncate transition-colors ${isCurrent ? 'text-brand' : 'text-ink group-hover/card:text-brand'}`}>
                           {s.name || s.cups || 'Sin CUPS'}
                         </h3>
                         {s.name && s.cups && (
-                          <p className="text-[10px] font-mono text-on-surface-variant truncate mt-0.5">{s.cups}</p>
+                          <p className="text-[10px] font-mono text-ink-3 truncate mt-0.5">{s.cups}</p>
                         )}
                       </div>
                       <div className="grid grid-cols-2 gap-2">
-                        <div className="rounded-lg bg-surface-container-low/60 px-2.5 py-1.5">
-                          <p className="text-[9px] uppercase tracking-wider text-on-surface-variant/70 font-semibold">Tarifa</p>
-                          <p className="text-xs text-on-surface font-semibold truncate">{s.tariff || '—'}</p>
+                        <div className="rounded-lg bg-bg-2/60 px-2.5 py-1.5">
+                          <p className="text-[9px] uppercase tracking-wider text-ink-3/70 font-semibold">Tarifa</p>
+                          <p className="text-xs text-ink font-semibold truncate">{s.tariff || '—'}</p>
                         </div>
-                        <div className="rounded-lg bg-surface-container-low/60 px-2.5 py-1.5">
-                          <p className="text-[9px] uppercase tracking-wider text-on-surface-variant/70 font-semibold">Tipo</p>
-                          <p className="text-xs text-on-surface font-semibold capitalize truncate">{s.type || '—'}</p>
+                        <div className="rounded-lg bg-bg-2/60 px-2.5 py-1.5">
+                          <p className="text-[9px] uppercase tracking-wider text-ink-3/70 font-semibold">Tipo</p>
+                          <p className="text-xs text-ink font-semibold capitalize truncate">{s.type || '—'}</p>
                         </div>
                       </div>
                     </div>
@@ -2158,17 +2158,17 @@ export default function SupplyDetailPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setDocsOverlayOpen(false)}>
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
           <div
-            className="relative bg-surface rounded-3xl shadow-ambient-lg w-full max-w-4xl mx-4 max-h-[85vh] overflow-y-auto"
+            className="relative bg-bg rounded-3xl shadow-ambient-lg w-full max-w-4xl mx-4 max-h-[85vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 bg-surface/95 backdrop-blur border-b border-outline-variant/10 rounded-t-3xl">
-              <h2 className="font-display font-semibold text-lg text-on-surface flex items-center gap-2">
+            <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 bg-surface/95 backdrop-blur border-b border-line-2-variant/10 rounded-t-3xl">
+              <h2 className="font-sans font-semibold text-lg text-ink flex items-center gap-2">
                 <FileText className="w-5 h-5" />
                 Gestor de documentos
               </h2>
-              <button onClick={() => setDocsOverlayOpen(false)} className="p-2 rounded-xl hover:bg-surface-container-low transition-all">
-                <X className="w-5 h-5 text-on-surface-variant" />
+              <button onClick={() => setDocsOverlayOpen(false)} className="p-2 rounded-xl hover:bg-bg-2 transition-all">
+                <X className="w-5 h-5 text-ink-3" />
               </button>
             </div>
 
@@ -2177,15 +2177,15 @@ export default function SupplyDetailPage() {
               {/* ── 1. FACTURAS DEL CLIENTE ── */}
               <div>
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-bold text-on-surface uppercase tracking-wider flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-blue-500" />
+                  <h3 className="text-sm font-bold text-ink uppercase tracking-wider flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-info-container/400" />
                     Facturas del cliente
                   </h3>
                   <button
                     type="button"
                     onClick={() => invoiceInputRef.current?.click()}
                     disabled={uploadingInvoices}
-                    className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:text-primary/80 transition disabled:opacity-50"
+                    className="flex items-center gap-1.5 text-xs font-semibold text-brand hover:text-primary/80 transition disabled:opacity-50"
                   >
                     {uploadingInvoices ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
                     Subir facturas
@@ -2196,13 +2196,13 @@ export default function SupplyDetailPage() {
                 {Object.keys(uploadProgress).length > 0 && (
                   <div className="space-y-1.5 mb-3">
                     {Object.entries(uploadProgress).map(([name, status]) => (
-                      <div key={name} className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg bg-surface-container-low">
-                        {status === 'uploading' && <Loader2 className="w-3 h-3 animate-spin text-blue-500" />}
-                        {status === 'analyzing' && <Loader2 className="w-3 h-3 animate-spin text-amber-500" />}
-                        {status === 'done' && <CheckCircle2 className="w-3 h-3 text-green-500" />}
-                        {status === 'error' && <XCircle className="w-3 h-3 text-red-500" />}
-                        <span className="truncate flex-1 text-on-surface-variant">{name}</span>
-                        <span className="text-[10px] font-medium capitalize text-on-surface-variant/70">
+                      <div key={name} className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg bg-bg-2">
+                        {status === 'uploading' && <Loader2 className="w-3 h-3 animate-spin text-info" />}
+                        {status === 'analyzing' && <Loader2 className="w-3 h-3 animate-spin text-warn" />}
+                        {status === 'done' && <CheckCircle2 className="w-3 h-3 text-ok" />}
+                        {status === 'error' && <XCircle className="w-3 h-3 text-err" />}
+                        <span className="truncate flex-1 text-ink-3">{name}</span>
+                        <span className="text-[10px] font-medium capitalize text-ink-3/70">
                           {status === 'uploading' ? 'Subiendo...' : status === 'analyzing' ? 'Analizando...' : status === 'done' ? 'Listo' : 'Error'}
                         </span>
                       </div>
@@ -2221,34 +2221,34 @@ export default function SupplyDetailPage() {
                             ? new Date(inv.period_start).toLocaleDateString('es-ES', { month: 'short', year: '2-digit' })
                             : null
                         return (
-                          <div key={inv.id} className="group flex items-center gap-3 px-3 py-2.5 rounded-xl bg-surface-container-lowest border border-outline-variant/10 hover:border-blue-200 transition">
-                            <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
-                              <FileText className="w-4 h-4 text-blue-500" />
+                          <div key={inv.id} className="group flex items-center gap-3 px-3 py-2.5 rounded-xl bg-card border border-line-2-variant/10 hover:border-info/30 transition">
+                            <div className="w-8 h-8 rounded-lg bg-info-container/40 flex items-center justify-center flex-shrink-0">
+                              <FileText className="w-4 h-4 text-info" />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-xs font-semibold text-on-surface truncate">
+                              <p className="text-xs font-semibold text-ink truncate">
                                 {period || 'Sin periodo'}
                               </p>
                               {inv.extracted_data?.total_amount && (
-                                <p className="text-[10px] text-on-surface-variant">{formatCurrency(inv.extracted_data.total_amount)}</p>
+                                <p className="text-[10px] text-ink-3">{formatCurrency(inv.extracted_data.total_amount)}</p>
                               )}
                             </div>
                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                               {inv.file_url && (
-                                <a href={getViewUrl(inv.file_url)} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded-lg hover:bg-blue-50 transition" title="Ver">
-                                  <ExternalLink className="w-3.5 h-3.5 text-blue-500" />
+                                <a href={getViewUrl(inv.file_url)} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded-lg hover:bg-info-container/40 transition" title="Ver">
+                                  <ExternalLink className="w-3.5 h-3.5 text-info" />
                                 </a>
                               )}
                               <button
                                 onClick={() => handleDeleteInvoice(inv)}
                                 disabled={deletingInvoiceId === inv.id}
-                                className="p-1.5 rounded-lg hover:bg-red-50 transition"
+                                className="p-1.5 rounded-lg hover:bg-err-container/40 transition"
                                 title="Eliminar"
                               >
                                 {deletingInvoiceId === inv.id ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-red-400" />
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-err" />
                                 ) : (
-                                  <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                                  <Trash2 className="w-3.5 h-3.5 text-err" />
                                 )}
                               </button>
                             </div>
@@ -2257,10 +2257,10 @@ export default function SupplyDetailPage() {
                       })}
                   </div>
                 ) : (
-                  <div className="text-center py-6 rounded-xl bg-surface-container-low/50">
-                    <FileText className="w-8 h-8 text-on-surface-variant/30 mx-auto mb-2" />
-                    <p className="text-xs text-on-surface-variant">Sin facturas</p>
-                    <button onClick={() => invoiceInputRef.current?.click()} className="text-xs text-primary font-semibold mt-1 hover:underline">
+                  <div className="text-center py-6 rounded-xl bg-bg-2/50">
+                    <FileText className="w-8 h-8 text-ink-3/30 mx-auto mb-2" />
+                    <p className="text-xs text-ink-3">Sin facturas</p>
+                    <button onClick={() => invoiceInputRef.current?.click()} className="text-xs text-brand font-semibold mt-1 hover:underline">
                       Subir primera factura
                     </button>
                   </div>
@@ -2268,53 +2268,53 @@ export default function SupplyDetailPage() {
               </div>
 
               {/* Divider */}
-              <div className="border-t border-outline-variant/10" />
+              <div className="border-t border-line-2-variant/10" />
 
               {/* ── 2. INFORMES ── */}
               <div>
-                <h3 className="text-sm font-bold text-on-surface uppercase tracking-wider flex items-center gap-2 mb-3">
-                  <div className="w-2 h-2 rounded-full bg-green-500" />
+                <h3 className="text-sm font-bold text-ink uppercase tracking-wider flex items-center gap-2 mb-3">
+                  <div className="w-2 h-2 rounded-full bg-ok-container/400" />
                   Informes
                 </h3>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {/* Potencias */}
-                  <div className="rounded-xl border border-outline-variant/10 bg-surface-container-lowest p-4 flex flex-col gap-2">
+                  <div className="rounded-xl border border-line-2-variant/10 bg-card p-4 flex flex-col gap-2">
                     <div className="flex items-center gap-2 mb-1">
-                      <BarChart3 className="w-4 h-4 text-amber-500" />
-                      <h4 className="text-xs font-bold text-on-surface">Informe de Potencias</h4>
+                      <BarChart3 className="w-4 h-4 text-warn" />
+                      <h4 className="text-xs font-bold text-ink">Informe de Potencias</h4>
                     </div>
                     {supply.power_study_result ? (
                       <div className="flex flex-col gap-2">
                         <div className="flex items-center gap-1.5">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
-                          <span className="text-xs text-green-700 font-medium">Generado</span>
+                          <CheckCircle2 className="w-3.5 h-3.5 text-ok" />
+                          <span className="text-xs text-ok font-medium">Generado</span>
                         </div>
                         <button
                           onClick={handleDownloadPowerStudyPDF}
-                          className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:text-primary/80 transition mt-1"
+                          className="flex items-center gap-1.5 text-xs font-semibold text-brand hover:text-primary/80 transition mt-1"
                         >
                           <Download className="w-3.5 h-3.5" />
                           Ver informe
                         </button>
                       </div>
                     ) : (
-                      <p className="text-xs text-on-surface-variant">Pendiente de datos SIPS</p>
+                      <p className="text-xs text-ink-3">Pendiente de datos SIPS</p>
                     )}
                   </div>
 
                   {/* Económico */}
-                  <div className="rounded-xl border border-outline-variant/10 bg-surface-container-lowest p-4 flex flex-col gap-2">
+                  <div className="rounded-xl border border-line-2-variant/10 bg-card p-4 flex flex-col gap-2">
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-2">
-                        <TrendingUp className="w-4 h-4 text-green-500" />
-                        <h4 className="text-xs font-bold text-on-surface">Informe Económico</h4>
+                        <TrendingUp className="w-4 h-4 text-ok" />
+                        <h4 className="text-xs font-bold text-ink">Informe Económico</h4>
                       </div>
                       <button
                         type="button"
                         onClick={() => studyInputRef.current?.click()}
                         disabled={uploadingStudy}
-                        className="text-xs text-primary font-semibold hover:text-primary/80 transition flex items-center gap-1"
+                        className="text-xs text-brand font-semibold hover:text-primary/80 transition flex items-center gap-1"
                       >
                         {uploadingStudy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
                         Subir
@@ -2326,27 +2326,27 @@ export default function SupplyDetailPage() {
                           .filter((s: any) => s.status === 'completed')
                           .sort((a: any, b: any) => new Date(b.completed_at || b.created_at).getTime() - new Date(a.completed_at || a.created_at).getTime())
                           .map((study: any) => (
-                            <div key={study.id} className="group flex items-center gap-2 px-2.5 py-2 rounded-lg bg-surface-container-low/60 hover:bg-green-50/50 transition">
-                              <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
-                              <span className="text-xs text-on-surface flex-1 truncate">
+                            <div key={study.id} className="group flex items-center gap-2 px-2.5 py-2 rounded-lg bg-bg-2/60 hover:bg-ok-container/50 transition">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-ok flex-shrink-0" />
+                              <span className="text-xs text-ink flex-1 truncate">
                                 {study.completed_at ? formatDate(study.completed_at) : 'Informe'}
                               </span>
                               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                 {study.report_url && (
-                                  <a href={getViewUrl(study.report_url)} target="_blank" rel="noopener noreferrer" className="p-1 rounded-lg hover:bg-green-100 transition" title="Ver">
-                                    <ExternalLink className="w-3.5 h-3.5 text-green-600" />
+                                  <a href={getViewUrl(study.report_url)} target="_blank" rel="noopener noreferrer" className="p-1 rounded-lg hover:bg-ok-container transition" title="Ver">
+                                    <ExternalLink className="w-3.5 h-3.5 text-ok" />
                                   </a>
                                 )}
                                 <button
                                   onClick={() => handleDeleteStudy(study)}
                                   disabled={deletingStudyId === study.id}
-                                  className="p-1 rounded-lg hover:bg-red-50 transition"
+                                  className="p-1 rounded-lg hover:bg-err-container/40 transition"
                                   title="Eliminar"
                                 >
                                   {deletingStudyId === study.id ? (
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin text-red-400" />
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin text-err" />
                                   ) : (
-                                    <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                                    <Trash2 className="w-3.5 h-3.5 text-err" />
                                   )}
                                 </button>
                               </div>
@@ -2354,37 +2354,37 @@ export default function SupplyDetailPage() {
                           ))}
                       </div>
                     ) : (
-                      <p className="text-xs text-on-surface-variant">Sin informes económicos</p>
+                      <p className="text-xs text-ink-3">Sin informes económicos</p>
                     )}
                   </div>
                 </div>
               </div>
 
               {/* Divider */}
-              <div className="border-t border-outline-variant/10" />
+              <div className="border-t border-line-2-variant/10" />
 
               {/* ── 3. CONTRATOS ── */}
               <div>
-                <h3 className="text-sm font-bold text-on-surface uppercase tracking-wider flex items-center gap-2 mb-3">
-                  <div className="w-2 h-2 rounded-full bg-purple-500" />
+                <h3 className="text-sm font-bold text-ink uppercase tracking-wider flex items-center gap-2 mb-3">
+                  <div className="w-2 h-2 rounded-full bg-info-container/400" />
                   Contratos
                 </h3>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {/* Voltis */}
-                  <div className="rounded-xl border border-outline-variant/10 bg-surface-container-lowest p-4">
+                  <div className="rounded-xl border border-line-2-variant/10 bg-card p-4">
                     <div className="flex items-center gap-2 mb-2">
-                      <Zap className="w-4 h-4 text-primary" />
-                      <h4 className="text-xs font-bold text-on-surface">Contrato Voltis</h4>
+                      <Zap className="w-4 h-4 text-brand" />
+                      <h4 className="text-xs font-bold text-ink">Contrato Voltis</h4>
                     </div>
                     {supply.contracts && supply.contracts.filter((c: any) => c.type === 'voltis' || c.contract_type === 'voltis').length > 0 ? (
                       <div className="space-y-2">
                         {supply.contracts
                           .filter((c: any) => c.type === 'voltis' || c.contract_type === 'voltis')
                           .map((contract: any) => (
-                            <div key={contract.id} className="group flex items-center gap-2 px-2.5 py-2 rounded-lg bg-surface-container-low/60 hover:bg-primary/5 transition">
-                              <FileText className="w-3.5 h-3.5 text-primary flex-shrink-0" />
-                              <span className="text-xs text-on-surface flex-1 truncate">
+                            <div key={contract.id} className="group flex items-center gap-2 px-2.5 py-2 rounded-lg bg-bg-2/60 hover:bg-primary/5 transition">
+                              <FileText className="w-3.5 h-3.5 text-brand flex-shrink-0" />
+                              <span className="text-xs text-ink flex-1 truncate">
                                 {contract.signed_at ? formatDate(contract.signed_at) : 'Contrato'}
                               </span>
                               {(contract.document_url || contract.file_url) && (
@@ -2395,34 +2395,34 @@ export default function SupplyDetailPage() {
                                   className="p-1 rounded-lg hover:bg-primary/10 transition opacity-0 group-hover:opacity-100"
                                   title="Ver contrato"
                                 >
-                                  <ExternalLink className="w-3.5 h-3.5 text-primary" />
+                                  <ExternalLink className="w-3.5 h-3.5 text-brand" />
                                 </a>
                               )}
                             </div>
                           ))}
                       </div>
                     ) : (
-                      <p className="text-xs text-on-surface-variant">Sin contrato Voltis</p>
+                      <p className="text-xs text-ink-3">Sin contrato Voltis</p>
                     )}
                   </div>
 
                   {/* Comercializadora */}
-                  <div className="rounded-xl border border-outline-variant/10 bg-surface-container-lowest p-4">
+                  <div className="rounded-xl border border-line-2-variant/10 bg-card p-4">
                     <div className="flex items-center gap-2 mb-2">
-                      <Building2 className="w-4 h-4 text-purple-500" />
-                      <h4 className="text-xs font-bold text-on-surface">Contrato Comercializadora</h4>
+                      <Building2 className="w-4 h-4 text-info" />
+                      <h4 className="text-xs font-bold text-ink">Contrato Comercializadora</h4>
                     </div>
                     {supply.comercializadora && (
-                      <p className="text-[10px] text-on-surface-variant mb-2">{supply.comercializadora.name}</p>
+                      <p className="text-[10px] text-ink-3 mb-2">{supply.comercializadora.name}</p>
                     )}
                     {supply.contracts && supply.contracts.filter((c: any) => c.type === 'comercializadora' || c.contract_type === 'comercializadora').length > 0 ? (
                       <div className="space-y-2">
                         {supply.contracts
                           .filter((c: any) => c.type === 'comercializadora' || c.contract_type === 'comercializadora')
                           .map((contract: any) => (
-                            <div key={contract.id} className="group flex items-center gap-2 px-2.5 py-2 rounded-lg bg-surface-container-low/60 hover:bg-purple-50/50 transition">
-                              <FileText className="w-3.5 h-3.5 text-purple-500 flex-shrink-0" />
-                              <span className="text-xs text-on-surface flex-1 truncate">
+                            <div key={contract.id} className="group flex items-center gap-2 px-2.5 py-2 rounded-lg bg-bg-2/60 hover:bg-info-container/30 transition">
+                              <FileText className="w-3.5 h-3.5 text-info flex-shrink-0" />
+                              <span className="text-xs text-ink flex-1 truncate">
                                 {contract.signed_at ? formatDate(contract.signed_at) : 'Contrato'}
                               </span>
                               {(contract.document_url || contract.file_url) && (
@@ -2430,45 +2430,45 @@ export default function SupplyDetailPage() {
                                   href={getViewUrl(contract.document_url || contract.file_url)}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="p-1 rounded-lg hover:bg-purple-100 transition opacity-0 group-hover:opacity-100"
+                                  className="p-1 rounded-lg hover:bg-info-container transition opacity-0 group-hover:opacity-100"
                                   title="Ver contrato"
                                 >
-                                  <ExternalLink className="w-3.5 h-3.5 text-purple-500" />
+                                  <ExternalLink className="w-3.5 h-3.5 text-info" />
                                 </a>
                               )}
                             </div>
                           ))}
                       </div>
                     ) : (
-                      <p className="text-xs text-on-surface-variant">Sin contrato comercializadora</p>
+                      <p className="text-xs text-ink-3">Sin contrato comercializadora</p>
                     )}
                   </div>
                 </div>
               </div>
 
               {/* Divider */}
-              <div className="border-t border-outline-variant/10" />
+              <div className="border-t border-line-2-variant/10" />
 
               {/* ── 4. FACTURAS DESDE ACTIVACIÓN ── */}
               <div>
-                <h3 className="text-sm font-bold text-on-surface uppercase tracking-wider flex items-center gap-2 mb-3">
-                  <div className="w-2 h-2 rounded-full bg-amber-500" />
+                <h3 className="text-sm font-bold text-ink uppercase tracking-wider flex items-center gap-2 mb-3">
+                  <div className="w-2 h-2 rounded-full bg-warn-container/400" />
                   Facturas desde activación
                 </h3>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {/* Facturas Voltis */}
-                  <div className="rounded-xl border border-outline-variant/10 border-dashed bg-surface-container-low/30 p-4 flex flex-col items-center gap-2">
-                    <Zap className="w-5 h-5 text-on-surface-variant/30" />
-                    <p className="text-xs text-on-surface-variant text-center">Facturas Voltis</p>
-                    <p className="text-[10px] text-on-surface-variant/60 text-center">Disponible tras activación</p>
+                  <div className="rounded-xl border border-line-2-variant/10 border-dashed bg-bg-2/30 p-4 flex flex-col items-center gap-2">
+                    <Zap className="w-5 h-5 text-ink-3/30" />
+                    <p className="text-xs text-ink-3 text-center">Facturas Voltis</p>
+                    <p className="text-[10px] text-ink-3/60 text-center">Disponible tras activación</p>
                   </div>
 
                   {/* Facturas Comercializadora */}
-                  <div className="rounded-xl border border-outline-variant/10 border-dashed bg-surface-container-low/30 p-4 flex flex-col items-center gap-2">
-                    <Building2 className="w-5 h-5 text-on-surface-variant/30" />
-                    <p className="text-xs text-on-surface-variant text-center">Facturas Comercializadora</p>
-                    <p className="text-[10px] text-on-surface-variant/60 text-center">Disponible tras activación</p>
+                  <div className="rounded-xl border border-line-2-variant/10 border-dashed bg-bg-2/30 p-4 flex flex-col items-center gap-2">
+                    <Building2 className="w-5 h-5 text-ink-3/30" />
+                    <p className="text-xs text-ink-3 text-center">Facturas Comercializadora</p>
+                    <p className="text-[10px] text-ink-3/60 text-center">Disponible tras activación</p>
                   </div>
                 </div>
               </div>
@@ -2492,8 +2492,8 @@ export default function SupplyDetailPage() {
           <div
             className={`px-4 py-3 rounded-lg shadow-lg border flex items-center gap-3 max-w-sm animate-in slide-in-from-bottom-4 ${
               notification.type === 'success'
-                ? 'bg-success/10 border-success/30 text-success'
-                : 'bg-error/10 border-error/30 text-error'
+                ? 'bg-success/10 border-success/30 text-ok'
+                : 'bg-error/10 border-error/30 text-err'
             }`}
           >
             {notification.type === 'success' ? (

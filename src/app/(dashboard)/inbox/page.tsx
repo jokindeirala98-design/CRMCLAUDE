@@ -559,7 +559,7 @@ export default function InboxPage() {
 
   // ═══════════════════════════════════════════════════════════════════════════
   return (
-    <div className="min-h-screen bg-surface">
+    <div className="min-h-screen bg-bg">
       <Header title="Agregar Suministro" subtitle="Crea un suministro con sus facturas" />
 
       <div className="px-4 lg:px-8 py-6 max-w-xl mx-auto">
@@ -576,16 +576,16 @@ export default function InboxPage() {
             return (
               <div key={label} className="flex items-center gap-2 flex-1">
                 <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
-                  isDone ? 'bg-primary text-white' :
-                  isCurrent ? 'bg-primary/20 text-primary border-2 border-primary' :
-                  'bg-surface-container-high text-on-surface-variant'
+                  isDone ? 'bg-brand text-white' :
+                  isCurrent ? 'bg-primary/20 text-brand border-2 border-brand' :
+                  'bg-bg-2 text-ink-3'
                 }`}>
                   {isDone ? <Check className="w-3.5 h-3.5" /> : i + 1}
                 </div>
-                <span className={`text-xs font-medium ${isCurrent || isDone ? 'text-on-surface' : 'text-on-surface-variant'}`}>
+                <span className={`text-xs font-medium ${isCurrent || isDone ? 'text-ink' : 'text-ink-3'}`}>
                   {label}
                 </span>
-                {i < 2 && <div className={`flex-1 h-px ${isDone ? 'bg-primary' : 'bg-outline-variant/30'}`} />}
+                {i < 2 && <div className={`flex-1 h-px ${isDone ? 'bg-brand' : 'bg-outline-variant/30'}`} />}
               </div>
             )
           })}
@@ -605,24 +605,24 @@ export default function InboxPage() {
               }}
               className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-primary/40 bg-primary/5 hover:bg-primary/10 transition-all"
             >
-              <div className="w-10 h-10 rounded-xl gradient-primary flex items-center justify-center flex-shrink-0">
+              <div className="w-10 h-10 rounded-xl bg-brand flex items-center justify-center flex-shrink-0">
                 <Sparkles className="w-5 h-5 text-white" />
               </div>
               <div className="text-left flex-1">
-                <p className="text-sm font-bold text-primary">Auto-detectar cliente</p>
-                <p className="text-[11px] text-on-surface-variant">Extraer titular y CIF/NIF de las facturas automáticamente</p>
+                <p className="text-sm font-bold text-brand">Auto-detectar cliente</p>
+                <p className="text-[11px] text-ink-3">Extraer titular y CIF/NIF de las facturas automáticamente</p>
               </div>
-              <ArrowRight className="w-4 h-4 text-primary" />
+              <ArrowRight className="w-4 h-4 text-brand" />
             </button>
 
             <div className="flex items-center gap-2">
               <div className="flex-1 h-px bg-outline-variant/30" />
-              <span className="text-[10px] text-on-surface-variant tracking-wider">O ASIGNAR MANUALMENTE</span>
+              <span className="text-[10px] text-ink-3 tracking-wider">O ASIGNAR MANUALMENTE</span>
               <div className="flex-1 h-px bg-outline-variant/30" />
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-on-surface-variant tracking-wider mb-2 block">
+              <label className="text-xs font-semibold text-ink-3 tracking-wider mb-2 block">
                 SELECCIONA O CREA UN CLIENTE
               </label>
               <input
@@ -631,27 +631,27 @@ export default function InboxPage() {
                 value={clientSearch}
                 onChange={e => { setClientSearch(e.target.value); setCreatingNewClient(false) }}
                 placeholder="Escribe el nombre del cliente..."
-                className="w-full px-4 py-3 bg-surface-container-low rounded-xl text-sm text-on-surface placeholder:text-on-surface-variant/50 outline-none border border-outline-variant/30 focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all"
+                className="w-full px-4 py-3 bg-bg-2 rounded-xl text-sm text-ink placeholder:text-ink-3/50 outline-none border border-line-2-variant/30 focus:border-ink/50 focus:ring-2 focus:ring-primary/20 transition-all"
                 autoFocus
               />
             </div>
 
             {filteredClients.length > 0 && (
-              <div className="bg-surface-container-low rounded-xl border border-outline-variant/20 overflow-hidden divide-y divide-outline-variant/10">
+              <div className="bg-bg-2 rounded-xl border border-line-2-variant/20 overflow-hidden divide-y divide-outline-variant/10">
                 {filteredClients.slice(0, 8).map(c => (
                   <button
                     key={c.id}
                     onClick={() => handleSelectClient(c)}
-                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-surface-container-high transition-colors text-left"
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-bg-2 transition-colors text-left"
                   >
                     <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
-                      <User className="w-4 h-4 text-primary" />
+                      <User className="w-4 h-4 text-brand" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-on-surface truncate">{c.name}</p>
-                      <p className="text-xs text-on-surface-variant truncate">{c.cif_nif || c.type}</p>
+                      <p className="text-sm font-medium text-ink truncate">{c.name}</p>
+                      <p className="text-xs text-ink-3 truncate">{c.cif_nif || c.type}</p>
                     </div>
-                    <ArrowRight className="w-4 h-4 text-on-surface-variant" />
+                    <ArrowRight className="w-4 h-4 text-ink-3" />
                   </button>
                 ))}
               </div>
@@ -663,11 +663,11 @@ export default function InboxPage() {
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-dashed border-primary/30 hover:border-primary/60 hover:bg-primary/5 transition-all"
               >
                 <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
-                  <Plus className="w-4 h-4 text-primary" />
+                  <Plus className="w-4 h-4 text-brand" />
                 </div>
                 <div className="text-left">
-                  <p className="text-sm font-medium text-primary">Crear cliente nuevo</p>
-                  <p className="text-xs text-on-surface-variant">&quot;{clientSearch}&quot;</p>
+                  <p className="text-sm font-medium text-brand">Crear cliente nuevo</p>
+                  <p className="text-xs text-ink-3">&quot;{clientSearch}&quot;</p>
                 </div>
               </button>
             )}
@@ -676,25 +676,25 @@ export default function InboxPage() {
               {creatingNewClient && (
                 <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
                   className="overflow-hidden">
-                  <div className="bg-surface-container-low rounded-xl border border-primary/20 p-4 space-y-3">
-                    <p className="text-xs font-semibold text-primary tracking-wider">NUEVO CLIENTE</p>
+                  <div className="bg-bg-2 rounded-xl border border-primary/20 p-4 space-y-3">
+                    <p className="text-xs font-semibold text-brand tracking-wider">NUEVO CLIENTE</p>
                     <input
                       type="text"
                       value={newClientName}
                       onChange={e => setNewClientName(e.target.value)}
                       placeholder="Nombre del cliente"
-                      className="w-full px-3 py-2.5 bg-surface rounded-lg text-sm text-on-surface border border-outline-variant/30 outline-none focus:border-primary/50 transition"
+                      className="w-full px-3 py-2.5 bg-bg rounded-lg text-sm text-ink border border-line-2-variant/30 outline-none focus:border-ink/50 transition"
                       autoFocus
                       onKeyDown={e => { if (e.key === 'Enter') handleCreateClient() }}
                     />
                     <div className="flex gap-2">
                       <button onClick={() => setCreatingNewClient(false)}
-                        className="flex-1 px-3 py-2 rounded-lg text-xs font-medium text-on-surface-variant hover:bg-surface-container-high transition">
+                        className="flex-1 px-3 py-2 rounded-lg text-xs font-medium text-ink-3 hover:bg-bg-2 transition">
                         Cancelar
                       </button>
                       <button onClick={handleCreateClient}
                         disabled={!newClientName.trim()}
-                        className="flex-1 px-3 py-2 rounded-lg text-xs font-bold text-white gradient-primary disabled:opacity-50 transition">
+                        className="flex-1 px-3 py-2 rounded-lg text-xs font-bold text-white bg-brand disabled:opacity-50 transition">
                         Crear y continuar
                       </button>
                     </div>
@@ -710,16 +710,16 @@ export default function InboxPage() {
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
             <div className="flex items-center gap-2 px-3 py-2 bg-primary/5 rounded-xl border border-primary/20">
               {autoDetectClient ? (
-                <Sparkles className="w-4 h-4 text-primary" />
+                <Sparkles className="w-4 h-4 text-brand" />
               ) : (
-                <User className="w-4 h-4 text-primary" />
+                <User className="w-4 h-4 text-brand" />
               )}
-              <span className="text-sm font-medium text-on-surface flex-1">
+              <span className="text-sm font-medium text-ink flex-1">
                 {autoDetectClient ? 'Auto-detectar cliente de las facturas' : selectedClient?.name}
               </span>
               <button onClick={() => { setSelectedClient(null); setAutoDetectClient(false); setStep('client') }}
                 className="p-1 rounded-lg hover:bg-primary/10 transition">
-                <X className="w-3.5 h-3.5 text-on-surface-variant" />
+                <X className="w-3.5 h-3.5 text-ink-3" />
               </button>
             </div>
 
@@ -728,14 +728,14 @@ export default function InboxPage() {
               onDragOver={handleDragOver}
               onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
-              className="flex flex-col items-center justify-center gap-3 py-12 px-6 rounded-2xl border-2 border-dashed border-outline-variant/30 hover:border-primary/40 hover:bg-primary/[0.02] transition-all cursor-pointer"
+              className="flex flex-col items-center justify-center gap-3 py-12 px-6 rounded-2xl border-2 border-dashed border-line-2-variant/30 hover:border-primary/40 hover:bg-primary/[0.02] transition-all cursor-pointer"
             >
               <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center">
-                <Upload className="w-6 h-6 text-primary" />
+                <Upload className="w-6 h-6 text-brand" />
               </div>
               <div className="text-center">
-                <p className="text-sm font-medium text-on-surface">Arrastra facturas o haz click</p>
-                <p className="text-xs text-on-surface-variant mt-1">PDF o imagenes. Tambien puedes <span className="text-primary font-medium">pegar (Ctrl+V)</span> desde el portapapeles</p>
+                <p className="text-sm font-medium text-ink">Arrastra facturas o haz click</p>
+                <p className="text-xs text-ink-3 mt-1">PDF o imagenes. Tambien puedes <span className="text-brand font-medium">pegar (Ctrl+V)</span> desde el portapapeles</p>
               </div>
             </div>
             <input ref={fileInputRef} type="file" multiple accept=".pdf,image/*" className="hidden"
@@ -744,12 +744,12 @@ export default function InboxPage() {
             {files.length > 0 && (
               <div className="space-y-2">
                 {files.map(f => (
-                  <div key={f.id} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-surface-container-low">
-                    <FileText className="w-4 h-4 text-on-surface-variant flex-shrink-0" />
-                    <span className="text-xs text-on-surface truncate flex-1">{f.file.name}</span>
-                    <span className="text-[10px] text-on-surface-variant">{(f.file.size / 1024).toFixed(0)} KB</span>
-                    <button onClick={() => removeFile(f.id)} className="p-1 rounded-lg hover:bg-surface-container-high transition">
-                      <X className="w-3 h-3 text-on-surface-variant" />
+                  <div key={f.id} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-bg-2">
+                    <FileText className="w-4 h-4 text-ink-3 flex-shrink-0" />
+                    <span className="text-xs text-ink truncate flex-1">{f.file.name}</span>
+                    <span className="text-[10px] text-ink-3">{(f.file.size / 1024).toFixed(0)} KB</span>
+                    <button onClick={() => removeFile(f.id)} className="p-1 rounded-lg hover:bg-bg-2 transition">
+                      <X className="w-3 h-3 text-ink-3" />
                     </button>
                   </div>
                 ))}
@@ -758,13 +758,13 @@ export default function InboxPage() {
 
             <div className="flex gap-3 pt-2">
               <button onClick={() => setStep('client')}
-                className="px-4 py-2.5 rounded-xl text-sm text-on-surface-variant hover:bg-surface-container-high transition">
+                className="px-4 py-2.5 rounded-xl text-sm text-ink-3 hover:bg-bg-2 transition">
                 Atras
               </button>
               <button
                 onClick={startAnalysis}
                 disabled={files.length === 0}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white gradient-primary disabled:opacity-40 transition hover:opacity-90 active:scale-[0.98]"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-brand disabled:opacity-40 transition hover:opacity-90 active:scale-[0.98]"
               >
                 <Zap className="w-4 h-4" />
                 Analizar {files.length} factura{files.length !== 1 ? 's' : ''}
@@ -778,12 +778,12 @@ export default function InboxPage() {
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center py-16 gap-4">
             <div className="relative">
               <div className="w-16 h-16 rounded-full border-4 border-primary/20 border-t-primary animate-spin" />
-              <Zap className="w-6 h-6 text-primary absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+              <Zap className="w-6 h-6 text-brand absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
             </div>
-            <p className="text-sm font-medium text-on-surface">Analizando facturas...</p>
-            <p className="text-xs text-on-surface-variant">{scanProgress.done} / {scanProgress.total} completadas</p>
-            <div className="w-48 h-1.5 rounded-full bg-surface-container-high overflow-hidden">
-              <div className="h-full rounded-full bg-primary transition-all duration-500"
+            <p className="text-sm font-medium text-ink">Analizando facturas...</p>
+            <p className="text-xs text-ink-3">{scanProgress.done} / {scanProgress.total} completadas</p>
+            <div className="w-48 h-1.5 rounded-full bg-bg-2 overflow-hidden">
+              <div className="h-full rounded-full bg-brand transition-all duration-500"
                 style={{ width: `${scanProgress.total > 0 ? (scanProgress.done / scanProgress.total) * 100 : 0}%` }} />
             </div>
           </motion.div>
@@ -793,19 +793,19 @@ export default function InboxPage() {
         {step === 'review' && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
             {existingSupply && (
-              <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200">
-                <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div className="flex items-start gap-3 p-4 rounded-xl bg-warn-container/40 border border-warn/30">
+                <AlertCircle className="w-5 h-5 text-warn flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-medium text-amber-800">CUPS ya existe en el sistema</p>
-                  <p className="text-xs text-amber-600 mt-0.5">
+                  <p className="text-sm font-medium text-warn">CUPS ya existe en el sistema</p>
+                  <p className="text-xs text-warn mt-0.5">
                     Cliente: {existingSupply.client_name} — Las facturas se a&ntilde;adiran al suministro existente.
                   </p>
                 </div>
               </div>
             )}
 
-            <div className="bg-surface-container-low rounded-xl border border-outline-variant/20 p-4 space-y-3">
-              <p className="text-xs font-semibold text-on-surface-variant tracking-wider">DATOS EXTRAIDOS</p>
+            <div className="bg-bg-2 rounded-xl border border-line-2-variant/20 p-4 space-y-3">
+              <p className="text-xs font-semibold text-ink-3 tracking-wider">DATOS EXTRAIDOS</p>
               <div className="grid grid-cols-2 gap-3">
                 {[
                   { label: 'CUPS', value: extractedCups },
@@ -814,38 +814,38 @@ export default function InboxPage() {
                   { label: 'Direccion', value: extractedAddress },
                 ].map(({ label, value }) => (
                   <div key={label}>
-                    <p className="text-[10px] text-on-surface-variant tracking-wider">{label}</p>
-                    <p className="text-sm text-on-surface font-medium truncate">{value || '\u2014'}</p>
+                    <p className="text-[10px] text-ink-3 tracking-wider">{label}</p>
+                    <p className="text-sm text-ink font-medium truncate">{value || '\u2014'}</p>
                   </div>
                 ))}
               </div>
-              <div className="pt-2 border-t border-outline-variant/10">
-                <p className="text-[10px] text-on-surface-variant tracking-wider">CLIENTE</p>
-                <p className="text-sm text-on-surface font-medium flex items-center gap-1.5">
-                  {autoDetectClient && <Sparkles className="w-3.5 h-3.5 text-primary" />}
+              <div className="pt-2 border-t border-line-2-variant/10">
+                <p className="text-[10px] text-ink-3 tracking-wider">CLIENTE</p>
+                <p className="text-sm text-ink font-medium flex items-center gap-1.5">
+                  {autoDetectClient && <Sparkles className="w-3.5 h-3.5 text-brand" />}
                   {selectedClient?.name || autoDetectedClientName || 'Se detectará al crear'}
                 </p>
               </div>
             </div>
 
-            <div className="bg-surface-container-low rounded-xl border border-outline-variant/20 p-4">
-              <p className="text-xs font-semibold text-on-surface-variant tracking-wider mb-2">
+            <div className="bg-bg-2 rounded-xl border border-line-2-variant/20 p-4">
+              <p className="text-xs font-semibold text-ink-3 tracking-wider mb-2">
                 FACTURAS ({successCount}/{files.length} analizadas)
               </p>
               <div className="space-y-1.5">
                 {files.map(f => (
                   <div key={f.id} className="flex items-start gap-2 text-xs">
                     {f.status === 'success' ? (
-                      <CheckCircle className="w-3.5 h-3.5 text-green-500 mt-0.5 flex-shrink-0" />
+                      <CheckCircle className="w-3.5 h-3.5 text-ok mt-0.5 flex-shrink-0" />
                     ) : f.status === 'error' ? (
-                      <AlertCircle className="w-3.5 h-3.5 text-red-500 mt-0.5 flex-shrink-0" />
+                      <AlertCircle className="w-3.5 h-3.5 text-err mt-0.5 flex-shrink-0" />
                     ) : (
-                      <Loader2 className="w-3.5 h-3.5 text-primary animate-spin mt-0.5 flex-shrink-0" />
+                      <Loader2 className="w-3.5 h-3.5 text-brand animate-spin mt-0.5 flex-shrink-0" />
                     )}
                     <div className="flex-1 min-w-0">
-                      <span className="text-on-surface truncate block">{f.file.name}</span>
+                      <span className="text-ink truncate block">{f.file.name}</span>
                       {f.status === 'error' && f.error && (
-                        <span className="text-[10px] text-red-500 block truncate">{f.error}</span>
+                        <span className="text-[10px] text-err block truncate">{f.error}</span>
                       )}
                     </div>
                     {f.status === 'error' && (
@@ -859,7 +859,7 @@ export default function InboxPage() {
                             setFiles(prev => prev.map(x => x.id === f.id ? { ...x, status: 'error', error: err?.message || 'Error' } : x))
                           }
                         }}
-                        className="text-[10px] text-primary font-medium hover:underline flex-shrink-0"
+                        className="text-[10px] text-brand font-medium hover:underline flex-shrink-0"
                       >
                         Reintentar
                       </button>
@@ -870,20 +870,20 @@ export default function InboxPage() {
             </div>
 
             {error && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-error-container/30 text-error text-xs">
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-err-container/30 text-err text-xs">
                 <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" /> {error}
               </div>
             )}
 
             <div className="flex gap-3 pt-2">
               <button onClick={() => setStep('invoices')}
-                className="px-4 py-2.5 rounded-xl text-sm text-on-surface-variant hover:bg-surface-container-high transition">
+                className="px-4 py-2.5 rounded-xl text-sm text-ink-3 hover:bg-bg-2 transition">
                 Atras
               </button>
               <button
                 onClick={submitSupply}
                 disabled={successCount === 0}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white gradient-primary disabled:opacity-40 transition hover:opacity-90 active:scale-[0.98]"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-brand disabled:opacity-40 transition hover:opacity-90 active:scale-[0.98]"
               >
                 {existingSupply ? (
                   <><Plus className="w-4 h-4" /> A&ntilde;adir facturas</>
@@ -898,8 +898,8 @@ export default function InboxPage() {
         {/* ═══ SUBMITTING ═══ */}
         {step === 'submitting' && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center py-16 gap-4">
-            <Loader2 className="w-10 h-10 text-primary animate-spin" />
-            <p className="text-sm font-medium text-on-surface">
+            <Loader2 className="w-10 h-10 text-brand animate-spin" />
+            <p className="text-sm font-medium text-ink">
               {existingSupply ? 'A\u00f1adiendo facturas...' : 'Creando suministro...'}
             </p>
           </motion.div>
@@ -909,23 +909,23 @@ export default function InboxPage() {
         {step === 'success' && (
           <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
             className="flex flex-col items-center py-16 gap-4">
-            <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
-              <CheckCircle className="w-8 h-8 text-green-600" />
+            <div className="w-16 h-16 rounded-full bg-ok-container flex items-center justify-center">
+              <CheckCircle className="w-8 h-8 text-ok" />
             </div>
-            <p className="text-lg font-bold text-on-surface">
+            <p className="text-lg font-bold text-ink">
               {existingSupply ? 'Facturas a\u00f1adidas' : 'Suministro creado'}
             </p>
-            <p className="text-sm text-on-surface-variant text-center">
+            <p className="text-sm text-ink-3 text-center">
               {extractedCups && <span className="font-mono text-xs">{extractedCups}</span>}
             </p>
             <div className="flex gap-3 mt-4">
               <button onClick={reset}
-                className="px-5 py-2.5 rounded-xl text-sm font-medium text-on-surface-variant hover:bg-surface-container-high transition border border-outline-variant/30">
+                className="px-5 py-2.5 rounded-xl text-sm font-medium text-ink-3 hover:bg-bg-2 transition border border-line-2-variant/30">
                 Agregar otro
               </button>
               {successSupplyId && (
                 <button onClick={() => router.push(`/supplies/${successSupplyId}`)}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white gradient-primary transition hover:opacity-90">
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-brand transition hover:opacity-90">
                   Ver suministro <ArrowRight className="w-4 h-4" />
                 </button>
               )}

@@ -1,24 +1,60 @@
+/* ─── Fonts ──────────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap');
+
+/* Fallback: legacy Inter/Manrope kept to avoid flash during font swap */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ─── CSS Variables ──────────────────────────────────────────────────── */
 @layer base {
+  :root {
+    /* Raw palette */
+    --color-bg:        #FAFAF7;
+    --color-bg-2:      #F3F2EC;
+    --color-ink:       #141413;
+    --color-ink-2:     #3B3B38;
+    --color-ink-3:     #6C6C66;
+    --color-ink-4:     #A6A59D;
+    --color-line:      #E6E4DB;
+    --color-line-2:    #D2D0C4;
+    --color-card:      #FFFFFF;
+
+    /* Brand */
+    --color-brand:     #1F3A2E;
+    --color-brand-2:   #2F5C47;
+
+    /* Volt */
+    --color-volt:      #C7F24A;
+    --color-volt-ink:  #1D2C0E;
+
+    /* Semantic */
+    --color-ok:              oklch(0.72 0.14 150);
+    --color-ok-container:    oklch(0.96 0.04 150);
+    --color-warn:            oklch(0.72 0.14 75);
+    --color-warn-container:  oklch(0.96 0.04 75);
+    --color-err:             oklch(0.65 0.17 25);
+    --color-err-container:   oklch(0.96 0.05 25);
+    --color-info:            oklch(0.65 0.12 240);
+    --color-info-container:  oklch(0.96 0.04 240);
+  }
+
   html {
-    font-family: 'Inter', sans-serif;
+    font-family: 'Geist', 'Inter', sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 
   body {
-    @apply bg-surface text-on-surface;
+    @apply bg-bg text-ink;
   }
 
-  /* Kinetic Precision: No scrollbar noise */
+  /* Minimal scrollbar */
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 5px;
+    height: 5px;
   }
 
   ::-webkit-scrollbar-track {
@@ -26,37 +62,66 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-outline-variant/40 rounded-full;
+    background: var(--color-line-2);
+    border-radius: 9999px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-outline/60;
+    background: var(--color-ink-4);
+  }
+
+  /* Smooth selection */
+  ::selection {
+    background: var(--color-volt);
+    color: var(--color-volt-ink);
   }
 }
 
+/* ─── Component Utilities ────────────────────────────────────────────── */
 @layer components {
-  /* Kinetic glass panels */
+
+  /* Editorial italic accent — Instrument Serif, used for single hero words */
+  .accent-italic {
+    font-family: 'Instrument Serif', Georgia, serif;
+    font-style: italic;
+    font-weight: 400;
+  }
+
+  /* Label mono — uppercase tracking for section eyebrows / table headers */
+  .label-mono {
+    font-family: 'Geist Mono', ui-monospace, monospace;
+    font-size: 0.6875rem;
+    line-height: 1rem;
+    letter-spacing: 0.08em;
+    font-weight: 500;
+    text-transform: uppercase;
+  }
+
+  /* ── Legacy utilities kept for backward compat ── */
+
+  /* Was: bg-white/60 backdrop-blur. Now: clean card surface */
   .glass-panel {
-    @apply bg-white/60 backdrop-blur-[20px];
+    @apply bg-card border border-line rounded-lg;
   }
 
-  /* Gradient CTA - Kinetic signature */
+  /* Was: gradient 001e40→003366. Now: flat ink */
   .gradient-primary {
-    background: linear-gradient(135deg, #001e40 0%, #003366 100%);
+    background: var(--color-ink);
   }
 
-  /* Status accent bar */
+  /* Was: border-l-2 border-secondary. Now: border-l-2 brand */
   .accent-bar-active {
-    @apply border-l-2 border-secondary;
+    border-left: 2px solid var(--color-brand);
   }
 
-  /* Ghost border (fallback for similar backgrounds) */
+  /* Ghost border — kept as-is */
   .ghost-border {
-    outline: 1px solid rgba(194, 199, 206, 0.15);
+    outline: 1px solid rgba(230, 228, 219, 0.4);
   }
 
-  /* Ambient glow for focus states */
+  /* Was: glow ring. Now: clean outline ring */
   .focus-glow {
-    box-shadow: 0 0 0 2px rgba(49, 225, 147, 0.4);
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
   }
 }

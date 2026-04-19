@@ -233,7 +233,7 @@ export function QuickContractModal({ open, onClose, onCreated, client }: Props) 
 
   // Delivery method icon
   const DeliveryIcon = deliveryMethod === 'sms' ? Smartphone : deliveryMethod === 'both' ? MessageSquare : Mail
-  const deliveryColor = deliveryMethod === 'email' ? 'text-blue-500' : 'text-green-500'
+  const deliveryColor = deliveryMethod === 'email' ? 'text-info' : 'text-ok'
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -241,20 +241,20 @@ export function QuickContractModal({ open, onClose, onCreated, client }: Props) 
       <motion.div
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="relative bg-surface rounded-3xl shadow-ambient-lg w-full max-w-2xl mx-4 overflow-hidden max-h-[90vh] overflow-y-auto"
+        className="relative bg-bg rounded-3xl shadow-ambient-lg w-full max-w-2xl mx-4 overflow-hidden max-h-[90vh] overflow-y-auto"
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-surface-container-low sticky top-0 bg-surface z-10">
+        <div className="flex items-center justify-between p-6 border-b border-surface-container-low sticky top-0 bg-bg z-10">
           <div>
-            <h2 className="font-display font-bold text-lg text-on-surface">
+            <h2 className="font-sans font-bold text-lg text-ink">
               Generar Contrato Voltis
             </h2>
-            <p className="text-sm text-on-surface-variant mt-0.5">
+            <p className="text-sm text-ink-3 mt-0.5">
               {client.name} — Contrato + SignWell e-firma
             </p>
           </div>
-          <button onClick={onClose} className="p-2 rounded-xl hover:bg-surface-container-low transition-all">
-            <X className="w-5 h-5 text-on-surface-variant" />
+          <button onClick={onClose} className="p-2 rounded-xl hover:bg-bg-2 transition-all">
+            <X className="w-5 h-5 text-ink-3" />
           </button>
         </div>
 
@@ -278,14 +278,14 @@ export function QuickContractModal({ open, onClose, onCreated, client }: Props) 
                   ))}
                 </Select>
               ) : (
-                <div className="p-4 bg-warning-container/30 rounded-xl text-sm text-warning font-medium">
+                <div className="p-4 bg-warn-container/30 rounded-xl text-sm text-warn font-medium">
                   Este cliente no tiene suministros. Crea uno primero.
                 </div>
               )}
 
               {/* Subscription model */}
               <div>
-                <label className="block text-sm font-medium text-on-surface mb-2">
+                <label className="block text-sm font-medium text-ink mb-2">
                   Modelo de suscripción
                 </label>
                 <div className="grid grid-cols-2 gap-3">
@@ -294,17 +294,17 @@ export function QuickContractModal({ open, onClose, onCreated, client }: Props) 
                     onClick={() => setModel('percentage')}
                     className={`p-4 rounded-2xl border-2 transition-all text-left ${
                       model === 'percentage'
-                        ? 'border-primary bg-primary/5'
-                        : 'border-surface-container-high bg-surface-container-lowest hover:border-outline-variant'
+                        ? 'border-brand bg-primary/5'
+                        : 'border-surface-container-high bg-card hover:border-line'
                     }`}
                   >
                     <div className="flex items-center gap-2 mb-2">
-                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${model === 'percentage' ? 'border-primary' : 'border-outline-variant'}`}>
-                        {model === 'percentage' && <div className="w-2.5 h-2.5 rounded-full bg-primary" />}
+                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${model === 'percentage' ? 'border-brand' : 'border-line'}`}>
+                        {model === 'percentage' && <div className="w-2.5 h-2.5 rounded-full bg-brand" />}
                       </div>
-                      <span className="font-display font-bold text-on-surface">25% del ahorro</span>
+                      <span className="font-sans font-bold text-ink">25% del ahorro</span>
                     </div>
-                    <p className="text-xs text-on-surface-variant">
+                    <p className="text-xs text-ink-3">
                       El cliente paga el 25% del ahorro generado
                     </p>
                   </button>
@@ -314,17 +314,17 @@ export function QuickContractModal({ open, onClose, onCreated, client }: Props) 
                     onClick={() => setModel('fixed')}
                     className={`p-4 rounded-2xl border-2 transition-all text-left ${
                       model === 'fixed'
-                        ? 'border-primary bg-primary/5'
-                        : 'border-surface-container-high bg-surface-container-lowest hover:border-outline-variant'
+                        ? 'border-brand bg-primary/5'
+                        : 'border-surface-container-high bg-card hover:border-line'
                     }`}
                   >
                     <div className="flex items-center gap-2 mb-2">
-                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${model === 'fixed' ? 'border-primary' : 'border-outline-variant'}`}>
-                        {model === 'fixed' && <div className="w-2.5 h-2.5 rounded-full bg-primary" />}
+                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${model === 'fixed' ? 'border-brand' : 'border-line'}`}>
+                        {model === 'fixed' && <div className="w-2.5 h-2.5 rounded-full bg-brand" />}
                       </div>
-                      <span className="font-display font-bold text-on-surface">Cuota fija</span>
+                      <span className="font-sans font-bold text-ink">Cuota fija</span>
                     </div>
-                    <p className="text-xs text-on-surface-variant">
+                    <p className="text-xs text-ink-3">
                       Cuota fija trimestral por plan
                     </p>
                   </button>
@@ -336,7 +336,7 @@ export function QuickContractModal({ open, onClose, onCreated, client }: Props) 
                 <div className="space-y-4">
                   {/* Contract variant */}
                   <div>
-                    <label className="block text-sm font-medium text-on-surface mb-2">
+                    <label className="block text-sm font-medium text-ink mb-2">
                       Modalidad de cobro
                     </label>
                     <div className="space-y-2">
@@ -346,15 +346,15 @@ export function QuickContractModal({ open, onClose, onCreated, client }: Props) 
                           onClick={() => setContractVariant(v)}
                           className={`w-full p-3 rounded-xl border-2 transition-all text-left ${
                             contractVariant === v
-                              ? 'border-primary bg-primary/5'
-                              : 'border-surface-container-high hover:border-outline-variant'
+                              ? 'border-brand bg-primary/5'
+                              : 'border-surface-container-high hover:border-line'
                           }`}
                         >
                           <div className="flex items-center gap-2">
-                            <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${contractVariant === v ? 'border-primary' : 'border-outline-variant'}`}>
-                              {contractVariant === v && <div className="w-2 h-2 rounded-full bg-primary" />}
+                            <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${contractVariant === v ? 'border-brand' : 'border-line'}`}>
+                              {contractVariant === v && <div className="w-2 h-2 rounded-full bg-brand" />}
                             </div>
-                            <span className="text-sm font-medium text-on-surface">
+                            <span className="text-sm font-medium text-ink">
                               {CONTRACT_VARIANT_LABELS[v]}
                             </span>
                           </div>
@@ -377,24 +377,24 @@ export function QuickContractModal({ open, onClose, onCreated, client }: Props) 
                       hint="De la propuesta de ahorro energético"
                     />
                     <div>
-                      <label className="block text-sm font-medium text-on-surface mb-1.5">
+                      <label className="block text-sm font-medium text-ink mb-1.5">
                         Honorarios anuales (€)
                       </label>
                       <div className={`flex items-center rounded-xl border px-3 h-10 text-sm ${
-                        annualFee ? 'border-primary bg-primary/5' : 'border-surface-container-high bg-surface-container-lowest'
+                        annualFee ? 'border-brand bg-primary/5' : 'border-surface-container-high bg-card'
                       }`}>
-                        <span className="text-on-surface-variant mr-2">25% =</span>
+                        <span className="text-ink-3 mr-2">25% =</span>
                         <input
                           type="number"
                           value={annualFee || calculatedFee || ''}
                           onChange={(e) => setAnnualFee(e.target.value)}
-                          className="flex-1 bg-transparent outline-none text-on-surface font-medium"
+                          className="flex-1 bg-transparent outline-none text-ink font-medium"
                           placeholder={calculatedFee ? String(calculatedFee) : '0'}
                         />
-                        <span className="text-on-surface-variant">€</span>
+                        <span className="text-ink-3">€</span>
                       </div>
                       {calculatedFee > 0 && !annualFee && (
-                        <p className="text-xs text-on-surface-variant mt-1">
+                        <p className="text-xs text-ink-3 mt-1">
                           Calculado automáticamente
                         </p>
                       )}
@@ -415,19 +415,19 @@ export function QuickContractModal({ open, onClose, onCreated, client }: Props) 
                   <div className="grid grid-cols-2 gap-3">
                     <button
                       onClick={() => setPaymentMode('quarterly')}
-                      className={`p-3 rounded-xl border-2 transition-all text-center ${paymentMode === 'quarterly' ? 'border-primary bg-primary/5' : 'border-surface-container-high'}`}
+                      className={`p-3 rounded-xl border-2 transition-all text-center ${paymentMode === 'quarterly' ? 'border-brand bg-primary/5' : 'border-surface-container-high'}`}
                     >
-                      <p className="text-sm font-semibold text-on-surface">Trimestral</p>
-                      <p className="text-lg font-display font-bold text-primary mt-1">{formatCurrency(quarterlyAmount)}</p>
-                      <p className="text-xs text-on-surface-variant">/trimestre</p>
+                      <p className="text-sm font-semibold text-ink">Trimestral</p>
+                      <p className="text-lg font-sans font-bold text-brand mt-1">{formatCurrency(quarterlyAmount)}</p>
+                      <p className="text-xs text-ink-3">/trimestre</p>
                     </button>
                     <button
                       onClick={() => setPaymentMode('annual')}
-                      className={`p-3 rounded-xl border-2 transition-all text-center ${paymentMode === 'annual' ? 'border-primary bg-primary/5' : 'border-surface-container-high'}`}
+                      className={`p-3 rounded-xl border-2 transition-all text-center ${paymentMode === 'annual' ? 'border-brand bg-primary/5' : 'border-surface-container-high'}`}
                     >
-                      <p className="text-sm font-semibold text-on-surface">Anual</p>
-                      <p className="text-lg font-display font-bold text-primary mt-1">{formatCurrency(annualFixed)}</p>
-                      <p className="text-xs text-on-surface-variant">/año (IVA inc.)</p>
+                      <p className="text-sm font-semibold text-ink">Anual</p>
+                      <p className="text-lg font-sans font-bold text-brand mt-1">{formatCurrency(annualFixed)}</p>
+                      <p className="text-xs text-ink-3">/año (IVA inc.)</p>
                     </button>
                   </div>
                 </div>
@@ -435,8 +435,8 @@ export function QuickContractModal({ open, onClose, onCreated, client }: Props) 
 
               {/* Representative fields for empresa */}
               {isEmpresa && (
-                <div className="p-4 bg-surface-container-low rounded-2xl space-y-3">
-                  <p className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider">
+                <div className="p-4 bg-bg-2 rounded-2xl space-y-3">
+                  <p className="text-xs font-semibold text-ink-3 uppercase tracking-wider">
                     Datos del representante legal
                   </p>
                   <div className="grid grid-cols-2 gap-4">
@@ -458,13 +458,13 @@ export function QuickContractModal({ open, onClose, onCreated, client }: Props) 
 
               {/* Signer + delivery */}
               <div className="space-y-3">
-                <p className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider">
+                <p className="text-xs font-semibold text-ink-3 uppercase tracking-wider">
                   Envío del contrato
                 </p>
 
                 {/* Delivery method */}
                 <div>
-                  <label className="block text-sm font-medium text-on-surface mb-2">
+                  <label className="block text-sm font-medium text-ink mb-2">
                     Método de envío
                   </label>
                   <div className="grid grid-cols-3 gap-2">
@@ -474,14 +474,14 @@ export function QuickContractModal({ open, onClose, onCreated, client }: Props) 
                         onClick={() => setDeliveryMethod(m)}
                         className={`p-2.5 rounded-xl border-2 transition-all flex flex-col items-center gap-1 text-center ${
                           deliveryMethod === m
-                            ? 'border-primary bg-primary/5'
-                            : 'border-surface-container-high hover:border-outline-variant'
+                            ? 'border-brand bg-primary/5'
+                            : 'border-surface-container-high hover:border-line'
                         }`}
                       >
-                        {m === 'sms' && <Smartphone className="w-4 h-4 text-green-500" />}
-                        {m === 'email' && <Mail className="w-4 h-4 text-blue-500" />}
-                        {m === 'both' && <MessageSquare className="w-4 h-4 text-purple-500" />}
-                        <span className="text-xs font-medium text-on-surface">{m === 'sms' ? 'SMS' : m === 'email' ? 'Email' : 'SMS + Email'}</span>
+                        {m === 'sms' && <Smartphone className="w-4 h-4 text-ok" />}
+                        {m === 'email' && <Mail className="w-4 h-4 text-info" />}
+                        {m === 'both' && <MessageSquare className="w-4 h-4 text-info" />}
+                        <span className="text-xs font-medium text-ink">{m === 'sms' ? 'SMS' : m === 'email' ? 'Email' : 'SMS + Email'}</span>
                       </button>
                     ))}
                   </div>
@@ -516,7 +516,7 @@ export function QuickContractModal({ open, onClose, onCreated, client }: Props) 
               </div>
 
               {error && (
-                <div className="p-3 bg-error-container/30 rounded-xl text-sm text-error font-medium">
+                <div className="p-3 bg-err-container/30 rounded-xl text-sm text-err font-medium">
                   {error}
                 </div>
               )}
@@ -533,31 +533,31 @@ export function QuickContractModal({ open, onClose, onCreated, client }: Props) 
           {/* ═══ STEP: REVIEW ═══ */}
           {step === 'review' && (
             <div className="space-y-5">
-              <Card className="bg-surface-container-low/50">
-                <h3 className="text-sm font-semibold text-on-surface mb-3">Resumen del contrato</h3>
+              <Card className="bg-bg-2/50">
+                <h3 className="text-sm font-semibold text-ink mb-3">Resumen del contrato</h3>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-on-surface-variant">Cliente</span>
-                    <span className="font-medium text-on-surface">{client.name}</span>
+                    <span className="text-ink-3">Cliente</span>
+                    <span className="font-medium text-ink">{client.name}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-on-surface-variant">CIF/NIF</span>
-                    <span className="font-medium text-on-surface">{client.cif || client.nif || '-'}</span>
+                    <span className="text-ink-3">CIF/NIF</span>
+                    <span className="font-medium text-ink">{client.cif || client.nif || '-'}</span>
                   </div>
                   {isEmpresa && (
                     <div className="flex justify-between">
-                      <span className="text-on-surface-variant">Representante</span>
-                      <span className="font-medium text-on-surface">{repName} — {repDni}</span>
+                      <span className="text-ink-3">Representante</span>
+                      <span className="font-medium text-ink">{repName} — {repDni}</span>
                     </div>
                   )}
                   <div className="flex justify-between">
-                    <span className="text-on-surface-variant">Suministro</span>
-                    <span className="font-mono font-medium text-on-surface">
+                    <span className="text-ink-3">Suministro</span>
+                    <span className="font-mono font-medium text-ink">
                       {selectedSupply?.cups || 'Sin CUPS'} ({selectedSupply?.tariff || '-'})
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-on-surface-variant">Modelo</span>
+                    <span className="text-ink-3">Modelo</span>
                     <Badge variant="info">
                       {model === 'percentage'
                         ? `25% del ahorro — ${contractVariant === 'b1_directo' ? 'Pago único' : '50%+4 trim.'}`
@@ -567,24 +567,24 @@ export function QuickContractModal({ open, onClose, onCreated, client }: Props) 
                   {model === 'percentage' && (
                     <>
                       <div className="flex justify-between">
-                        <span className="text-on-surface-variant">Ahorro estimado</span>
-                        <span className="font-medium text-on-surface">{formatCurrency(parsedSavings)}/año</span>
+                        <span className="text-ink-3">Ahorro estimado</span>
+                        <span className="font-medium text-ink">{formatCurrency(parsedSavings)}/año</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-on-surface-variant">Honorarios</span>
-                        <span className="font-medium text-on-surface">{formatCurrency(effectiveAnnualFee)}/año</span>
+                        <span className="text-ink-3">Honorarios</span>
+                        <span className="font-medium text-ink">{formatCurrency(effectiveAnnualFee)}/año</span>
                       </div>
                     </>
                   )}
                   <div className="flex justify-between">
-                    <span className="text-on-surface-variant">Envío</span>
-                    <span className="font-medium text-on-surface">
+                    <span className="text-ink-3">Envío</span>
+                    <span className="font-medium text-ink">
                       {deliveryMethod === 'sms' ? `SMS → ${signerPhone}` : deliveryMethod === 'email' ? `Email → ${signerEmail}` : `SMS + Email → ${signerPhone}`}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-on-surface-variant">Firmante</span>
-                    <span className="font-medium text-on-surface">{signerName}</span>
+                    <span className="text-ink-3">Firmante</span>
+                    <span className="font-medium text-ink">{signerName}</span>
                   </div>
                 </div>
               </Card>
@@ -593,10 +593,10 @@ export function QuickContractModal({ open, onClose, onCreated, client }: Props) 
                 <div className="flex items-start gap-3">
                   <DeliveryIcon className={`w-5 h-5 ${deliveryColor} flex-shrink-0 mt-0.5`} />
                   <div>
-                    <p className="text-sm font-semibold text-on-surface">
+                    <p className="text-sm font-semibold text-ink">
                       Se enviará por SignWell vía {DELIVERY_LABELS[deliveryMethod]}
                     </p>
-                    <p className="text-xs text-on-surface-variant mt-1">
+                    <p className="text-xs text-ink-3 mt-1">
                       El contrato (+ propuesta) se generará con los datos del cliente y se enviará para firma digital.
                       Al firmarlo, se creará automáticamente el mandato SEPA en GoCardless para el cobro.
                     </p>
@@ -605,7 +605,7 @@ export function QuickContractModal({ open, onClose, onCreated, client }: Props) 
               </Card>
 
               {error && (
-                <div className="p-3 bg-error-container/30 rounded-xl text-sm text-error font-medium">
+                <div className="p-3 bg-err-container/30 rounded-xl text-sm text-err font-medium">
                   {error}
                 </div>
               )}
@@ -625,12 +625,12 @@ export function QuickContractModal({ open, onClose, onCreated, client }: Props) 
           {/* ═══ STEP: SENDING ═══ */}
           {step === 'sending' && (
             <div className="flex flex-col items-center justify-center py-12 gap-4">
-              <div className="w-16 h-16 rounded-full gradient-primary flex items-center justify-center">
+              <div className="w-16 h-16 rounded-full bg-brand flex items-center justify-center">
                 <Loader2 className="w-8 h-8 text-white animate-spin" />
               </div>
               <div className="text-center">
-                <p className="font-display font-semibold text-on-surface">Generando contrato...</p>
-                <p className="text-sm text-on-surface-variant mt-1">
+                <p className="font-sans font-semibold text-ink">Generando contrato...</p>
+                <p className="text-sm text-ink-3 mt-1">
                   Rellenando plantilla y enviando por SignWell
                 </p>
               </div>
@@ -640,21 +640,21 @@ export function QuickContractModal({ open, onClose, onCreated, client }: Props) 
           {/* ═══ STEP: DONE ═══ */}
           {step === 'done' && result && (
             <div className="flex flex-col items-center justify-center py-8 gap-5">
-              <div className="w-16 h-16 rounded-full bg-success flex items-center justify-center">
+              <div className="w-16 h-16 rounded-full bg-ok flex items-center justify-center">
                 <CheckCircle2 className="w-8 h-8 text-white" />
               </div>
               <div className="text-center">
-                <p className="font-display font-bold text-lg text-on-surface">
+                <p className="font-sans font-bold text-lg text-ink">
                   Contrato enviado
                 </p>
-                <p className="text-sm text-on-surface-variant mt-2">
+                <p className="text-sm text-ink-3 mt-2">
                   {result.deliveryMethod === 'sms'
                     ? `SMS enviado a ${signerPhone} con el enlace de firma.`
                     : result.deliveryMethod === 'email'
                     ? `Email enviado a ${signerEmail} para firma.`
                     : `SMS y email enviados. Enlace de firma enviado a ${signerPhone}.`}
                 </p>
-                <p className="text-xs text-on-surface-variant mt-2">
+                <p className="text-xs text-ink-3 mt-2">
                   Al firmar, se creará el mandato SEPA y el cobro quedará automatizado.
                 </p>
               </div>

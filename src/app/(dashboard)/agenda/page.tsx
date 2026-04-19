@@ -82,13 +82,13 @@ const MONTHS = [
 ]
 
 const TYPE_COLORS: Record<string, string> = {
-  presentation: 'bg-primary/10 text-primary',
-  followup: 'bg-success-container text-success',
-  signing: 'bg-warning-container text-warning',
-  other: 'bg-surface-container-high text-on-surface-variant',
+  presentation: 'bg-primary/10 text-brand',
+  followup: 'bg-ok-container text-ok',
+  signing: 'bg-warn-container text-warn',
+  other: 'bg-bg-2 text-ink-3',
 }
 const TYPE_LABELS: Record<string, string> = {
-  presentation: 'Presentacion',
+  presentation: 'Presentación',
   followup: 'Seguimiento',
   signing: 'Firma',
   other: 'Otro',
@@ -279,9 +279,9 @@ export default function AgendaPage() {
 
   // ── Render task card ─────────────────────────────────────────
   const PRIORITY_BG: Record<string, string> = {
-    high: 'bg-red-50 border-red-300',
-    medium: 'bg-amber-50 border-amber-300',
-    low: 'bg-green-50 border-green-300',
+    high: 'bg-err-container/40 border-err/30',
+    medium: 'bg-warn-container/40 border-warn/30',
+    low: 'bg-ok-container/40 border-ok/30',
   }
 
   const renderTask = (task: TaskType) => {
@@ -290,7 +290,7 @@ export default function AgendaPage() {
     const isOverdue = daysLeft !== null && daysLeft < 0 && task.status !== 'completed'
     const isDueSoon = daysLeft !== null && daysLeft >= 0 && daysLeft <= 3 && task.status !== 'completed'
     const isExpanded = expandedTaskId === task.id
-    const prioBg = task.status === 'completed' ? 'bg-surface border-outline-variant/30' : PRIORITY_BG[task.priority]
+    const prioBg = task.status === 'completed' ? 'bg-bg border-line-2-variant/30' : PRIORITY_BG[task.priority]
 
     return (
       <div key={task.id}>
@@ -312,7 +312,7 @@ export default function AgendaPage() {
             {/* Status toggle */}
             <div className="flex flex-col items-center gap-1 pt-0.5">
               {task.status !== 'completed' && (
-                <GripVertical className="w-4 h-4 text-on-surface-variant/30 cursor-grab opacity-0 group-hover:opacity-100 transition-opacity" />
+                <GripVertical className="w-4 h-4 text-ink-3/30 cursor-grab opacity-0 group-hover:opacity-100 transition-opacity" />
               )}
               <button
                 onClick={(e) => {
@@ -324,11 +324,11 @@ export default function AgendaPage() {
                 className="transition-all hover:scale-110"
               >
                 {task.status === 'completed' ? (
-                  <CheckCircle2 className="w-5 h-5 text-success" />
+                  <CheckCircle2 className="w-5 h-5 text-ok" />
                 ) : task.status === 'in_progress' ? (
-                  <Clock className="w-5 h-5 text-primary hover:text-success" />
+                  <Clock className="w-5 h-5 text-brand hover:text-ok" />
                 ) : (
-                  <Circle className="w-5 h-5 text-on-surface-variant hover:text-success" />
+                  <Circle className="w-5 h-5 text-ink-3 hover:text-ok" />
                 )}
               </button>
             </div>
@@ -336,35 +336,35 @@ export default function AgendaPage() {
             {/* Content */}
             <div className="flex-1 min-w-0">
               <p className={cn(
-                'text-sm font-semibold text-on-surface',
-                task.status === 'completed' && 'line-through text-on-surface-variant'
+                'text-sm font-semibold text-ink',
+                task.status === 'completed' && 'line-through text-ink-3'
               )}>
                 {task.title}
               </p>
               {task.description && (
-                <p className="text-xs text-on-surface-variant mt-1 line-clamp-2">{task.description}</p>
+                <p className="text-xs text-ink-3 mt-1 line-clamp-2">{task.description}</p>
               )}
               <div className="flex flex-wrap items-center gap-2 mt-2">
                 <Badge variant={task.priority === 'high' ? 'error' : task.priority === 'medium' ? 'warning' : 'success'}>
                   {prio.label}
                 </Badge>
                 {task.client && (
-                  <span className="flex items-center gap-1 text-[10px] text-secondary font-medium">
+                  <span className="flex items-center gap-1 text-[10px] text-brand font-medium">
                     <Building2 className="w-3 h-3" />{task.client.name}
                   </span>
                 )}
                 {isOverdue && (
-                  <span className="flex items-center gap-1 text-[10px] text-error font-semibold">
+                  <span className="flex items-center gap-1 text-[10px] text-err font-semibold">
                     <AlertTriangle className="w-3 h-3" />Vencida ({Math.abs(daysLeft!)}d)
                   </span>
                 )}
                 {isDueSoon && (
-                  <span className="flex items-center gap-1 text-[10px] text-warning font-semibold">
+                  <span className="flex items-center gap-1 text-[10px] text-warn font-semibold">
                     <Clock className="w-3 h-3" />{daysLeft === 0 ? 'Hoy' : `${daysLeft}d`}
                   </span>
                 )}
                 {task.due_date && !isOverdue && !isDueSoon && task.status !== 'completed' && (
-                  <span className="text-[10px] text-on-surface-variant">
+                  <span className="text-[10px] text-ink-3">
                     {new Date(task.due_date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
                   </span>
                 )}
@@ -376,7 +376,7 @@ export default function AgendaPage() {
               {task.status !== 'completed' && (
                 <button
                   onClick={() => setReassigningId(reassigningId === task.id ? null : task.id)}
-                  className="p-1.5 rounded-lg hover:bg-primary/10 text-on-surface-variant hover:text-primary transition-all"
+                  className="p-1.5 rounded-lg hover:bg-primary/10 text-ink-3 hover:text-brand transition-all"
                   title="Reasignar"
                 >
                   <ArrowRightLeft className="w-4 h-4" />
@@ -385,7 +385,7 @@ export default function AgendaPage() {
               {task.status !== 'completed' && (
                 <button
                   onClick={() => updateTaskStatus(task.id, 'completed')}
-                  className="p-1.5 rounded-lg hover:bg-success/10 text-on-surface-variant hover:text-success transition-all"
+                  className="p-1.5 rounded-lg hover:bg-success/10 text-ink-3 hover:text-ok transition-all"
                   title="Completar"
                 >
                   <CheckCircle2 className="w-4 h-4" />
@@ -394,7 +394,7 @@ export default function AgendaPage() {
               {isAdmin && (
                 <button
                   onClick={() => deleteTask(task.id)}
-                  className="p-1.5 rounded-lg hover:bg-error/10 text-on-surface-variant hover:text-error transition-all"
+                  className="p-1.5 rounded-lg hover:bg-error/10 text-ink-3 hover:text-err transition-all"
                   title="Eliminar"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -406,13 +406,13 @@ export default function AgendaPage() {
           {/* Reassign dropdown */}
           {reassigningId === task.id && (
             <div className="mt-3 pt-3 border-t border-surface-container-low" onClick={(e) => e.stopPropagation()}>
-              <p className="text-[10px] text-on-surface-variant mb-2 font-semibold uppercase tracking-wider">Reasignar a:</p>
+              <p className="text-[10px] text-ink-3 mb-2 font-semibold uppercase tracking-wider">Reasignar a:</p>
               <div className="flex flex-wrap gap-1.5">
                 {users.filter((u) => u.id !== task.assigned_to).map((u) => (
                   <button
                     key={u.id}
                     onClick={() => reassignTask(task.id, u.id)}
-                    className="px-2.5 py-1 rounded-lg text-xs bg-surface-container-high text-on-surface-variant hover:bg-primary hover:text-white transition-all"
+                    className="px-2.5 py-1 rounded-lg text-xs bg-bg-2 text-ink-3 hover:bg-brand hover:text-white transition-all"
                   >
                     {getUserInitials(u.full_name)}
                   </button>
@@ -462,12 +462,12 @@ export default function AgendaPage() {
         {/* User selector (admin only) + View tabs */}
         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           {/* View toggle */}
-          <div className="flex bg-surface-container-high rounded-2xl p-1">
+          <div className="flex bg-bg-2 rounded-2xl p-1">
             <button
               onClick={() => setActiveTab('corcho')}
               className={cn(
                 'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all',
-                activeTab === 'corcho' ? 'bg-surface shadow-ambient-xs text-primary' : 'text-on-surface-variant hover:text-on-surface'
+                activeTab === 'corcho' ? 'bg-bg shadow-ambient-xs text-brand' : 'text-ink-3 hover:text-ink'
               )}
             >
               <ClipboardList className="w-4 h-4" />
@@ -477,7 +477,7 @@ export default function AgendaPage() {
               onClick={() => setActiveTab('calendario')}
               className={cn(
                 'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all',
-                activeTab === 'calendario' ? 'bg-surface shadow-ambient-xs text-primary' : 'text-on-surface-variant hover:text-on-surface'
+                activeTab === 'calendario' ? 'bg-bg shadow-ambient-xs text-brand' : 'text-ink-3 hover:text-ink'
               )}
             >
               <CalendarDays className="w-4 h-4" />
@@ -495,8 +495,8 @@ export default function AgendaPage() {
                   className={cn(
                     'px-3 py-1.5 rounded-xl text-xs font-semibold transition-all',
                     selectedUserId === u.id
-                      ? 'bg-primary text-white'
-                      : 'bg-surface-container-high text-on-surface-variant hover:bg-surface-container-low'
+                      ? 'bg-brand text-white'
+                      : 'bg-bg-2 text-ink-3 hover:bg-bg-2'
                   )}
                 >
                   {getUserInitials(u.full_name)}
@@ -511,33 +511,33 @@ export default function AgendaPage() {
           <div>
             {/* Stats bar */}
             <div className="flex gap-4 mb-5">
-              <div className="flex items-center gap-2 px-4 py-2 bg-surface rounded-2xl shadow-ambient-xs">
-                <Circle className="w-4 h-4 text-on-surface-variant" />
-                <span className="text-sm font-bold text-on-surface">{totalActive}</span>
-                <span className="text-xs text-on-surface-variant">pendientes</span>
+              <div className="flex items-center gap-2 px-4 py-2 bg-bg rounded-2xl shadow-ambient-xs">
+                <Circle className="w-4 h-4 text-ink-3" />
+                <span className="text-sm font-bold text-ink">{totalActive}</span>
+                <span className="text-xs text-ink-3">pendientes</span>
               </div>
               {totalHigh > 0 && (
                 <div className="flex items-center gap-2 px-4 py-2 bg-error/5 rounded-2xl">
-                  <AlertTriangle className="w-4 h-4 text-error" />
-                  <span className="text-sm font-bold text-error">{totalHigh}</span>
+                  <AlertTriangle className="w-4 h-4 text-err" />
+                  <span className="text-sm font-bold text-err">{totalHigh}</span>
                   <span className="text-xs text-error/70">urgentes</span>
                 </div>
               )}
               <div className="flex items-center gap-2 px-4 py-2 bg-success/5 rounded-2xl">
-                <CheckCircle2 className="w-4 h-4 text-success" />
-                <span className="text-sm font-bold text-success">{completedTasks.length}</span>
+                <CheckCircle2 className="w-4 h-4 text-ok" />
+                <span className="text-sm font-bold text-ok">{completedTasks.length}</span>
                 <span className="text-xs text-success/70">realizadas</span>
               </div>
             </div>
 
             {loadingTasks ? (
               <div className="flex items-center justify-center py-20">
-                <div className="animate-spin w-6 h-6 border-2 border-secondary border-t-transparent rounded-full" />
+                <div className="animate-spin w-6 h-6 border-2 border-brand border-t-transparent rounded-full" />
               </div>
             ) : activeTasks.length === 0 && completedTasks.length === 0 ? (
               <Card className="text-center py-12">
-                <ClipboardList className="w-12 h-12 text-on-surface-variant/30 mx-auto mb-3" />
-                <p className="text-on-surface-variant">Corcho vacio para {selectedUserName}</p>
+                <ClipboardList className="w-12 h-12 text-ink-3/30 mx-auto mb-3" />
+                <p className="text-ink-3">Corcho vacio para {selectedUserName}</p>
                 <Button className="mt-4" onClick={() => setShowTaskModal(true)}>
                   <Plus className="w-4 h-4" />Nueva Tarea
                 </Button>
@@ -547,15 +547,15 @@ export default function AgendaPage() {
                 {/* LEFT COLUMN: Tareas Pendientes */}
                 <div>
                   <div className="flex items-center gap-2 mb-4">
-                    <div className="w-2 h-2 rounded-full bg-primary" />
-                    <h3 className="text-sm font-bold text-on-surface uppercase tracking-wider">Tareas pendientes</h3>
-                    <span className="text-xs text-on-surface-variant ml-auto">{activeTasks.length}</span>
+                    <div className="w-2 h-2 rounded-full bg-brand" />
+                    <h3 className="text-sm font-bold text-ink uppercase tracking-wider">Tareas pendientes</h3>
+                    <span className="text-xs text-ink-3 ml-auto">{activeTasks.length}</span>
                   </div>
                   <div className="space-y-2">
                     {activeTasks.length === 0 ? (
-                      <div className="text-center py-10 bg-surface rounded-2xl">
+                      <div className="text-center py-10 bg-bg rounded-2xl">
                         <CheckCircle2 className="w-8 h-8 text-success/30 mx-auto mb-2" />
-                        <p className="text-xs text-on-surface-variant">Todo al dia</p>
+                        <p className="text-xs text-ink-3">Todo al dia</p>
                       </div>
                     ) : (
                       activeTasks.map((task) => {
@@ -574,7 +574,7 @@ export default function AgendaPage() {
                               onDrop={() => handleDrop(task.id, task.status)}
                               onClick={() => setExpandedTaskId(isExpanded ? null : task.id)}
                               className={cn(
-                                'group p-3.5 bg-surface rounded-2xl border-l-4 shadow-ambient-xs hover:shadow-ambient-sm transition-all cursor-pointer',
+                                'group p-3.5 bg-bg rounded-2xl border-l-4 shadow-ambient-xs hover:shadow-ambient-sm transition-all cursor-pointer',
                                 prio.border,
                                 draggedId === task.id && 'opacity-50',
                                 isExpanded && 'ring-1 ring-secondary/30'
@@ -587,41 +587,41 @@ export default function AgendaPage() {
                                     e.stopPropagation()
                                     updateTaskStatus(task.id, 'completed')
                                   }}
-                                  className="shrink-0 w-8 h-8 rounded-full border-2 border-success/40 hover:border-success hover:bg-success/10 flex items-center justify-center transition-all group/check"
+                                  className="shrink-0 w-8 h-8 rounded-full border-2 border-success/40 hover:border-ok hover:bg-success/10 flex items-center justify-center transition-all group/check"
                                   title="Marcar como realizada"
                                 >
-                                  <CheckCircle2 className="w-4.5 h-4.5 text-success/40 group-hover/check:text-success transition-colors" />
+                                  <CheckCircle2 className="w-4.5 h-4.5 text-success/40 group-hover/check:text-ok transition-colors" />
                                 </button>
 
                                 {/* Content */}
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-semibold text-on-surface truncate">{task.title}</p>
+                                  <p className="text-sm font-semibold text-ink truncate">{task.title}</p>
                                   <div className="flex flex-wrap items-center gap-1.5 mt-1">
                                     <Badge variant={task.priority === 'high' ? 'error' : task.priority === 'medium' ? 'warning' : 'success'}>
                                       {prio.label}
                                     </Badge>
                                     {task.status === 'in_progress' && (
-                                      <span className="text-[10px] px-1.5 py-0.5 bg-primary/10 text-primary rounded-full font-medium">En curso</span>
+                                      <span className="text-[10px] px-1.5 py-0.5 bg-primary/10 text-brand rounded-full font-medium">En curso</span>
                                     )}
                                     {task.client && (
-                                      <span className="text-[10px] text-secondary font-medium truncate max-w-[100px]">{task.client.name}</span>
+                                      <span className="text-[10px] text-brand font-medium truncate max-w-[100px]">{task.client.name}</span>
                                     )}
                                     {isOverdue && (
-                                      <span className="text-[10px] text-error font-semibold">Vencida ({Math.abs(daysLeft!)}d)</span>
+                                      <span className="text-[10px] text-err font-semibold">Vencida ({Math.abs(daysLeft!)}d)</span>
                                     )}
                                     {isDueSoon && (
-                                      <span className="text-[10px] text-warning font-semibold">{daysLeft === 0 ? 'Hoy' : `${daysLeft}d`}</span>
+                                      <span className="text-[10px] text-warn font-semibold">{daysLeft === 0 ? 'Hoy' : `${daysLeft}d`}</span>
                                     )}
                                   </div>
                                 </div>
 
                                 {/* Hover actions */}
                                 <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
-                                  <button onClick={() => setReassigningId(reassigningId === task.id ? null : task.id)} className="p-1.5 rounded-lg hover:bg-primary/10 text-on-surface-variant hover:text-primary transition-all" title="Reasignar">
+                                  <button onClick={() => setReassigningId(reassigningId === task.id ? null : task.id)} className="p-1.5 rounded-lg hover:bg-primary/10 text-ink-3 hover:text-brand transition-all" title="Reasignar">
                                     <ArrowRightLeft className="w-3.5 h-3.5" />
                                   </button>
                                   {isAdmin && (
-                                    <button onClick={() => deleteTask(task.id)} className="p-1.5 rounded-lg hover:bg-error/10 text-on-surface-variant hover:text-error transition-all" title="Eliminar">
+                                    <button onClick={() => deleteTask(task.id)} className="p-1.5 rounded-lg hover:bg-error/10 text-ink-3 hover:text-err transition-all" title="Eliminar">
                                       <Trash2 className="w-3.5 h-3.5" />
                                     </button>
                                   )}
@@ -631,10 +631,10 @@ export default function AgendaPage() {
                               {/* Reassign dropdown */}
                               {reassigningId === task.id && (
                                 <div className="mt-3 pt-3 border-t border-surface-container-low" onClick={(e) => e.stopPropagation()}>
-                                  <p className="text-[10px] text-on-surface-variant mb-2 font-semibold uppercase tracking-wider">Reasignar a:</p>
+                                  <p className="text-[10px] text-ink-3 mb-2 font-semibold uppercase tracking-wider">Reasignar a:</p>
                                   <div className="flex flex-wrap gap-1.5">
                                     {users.filter((u) => u.id !== task.assigned_to).map((u) => (
-                                      <button key={u.id} onClick={() => reassignTask(task.id, u.id)} className="px-2.5 py-1 rounded-lg text-xs bg-surface-container-high text-on-surface-variant hover:bg-primary hover:text-white transition-all">{getUserInitials(u.full_name)}</button>
+                                      <button key={u.id} onClick={() => reassignTask(task.id, u.id)} className="px-2.5 py-1 rounded-lg text-xs bg-bg-2 text-ink-3 hover:bg-brand hover:text-white transition-all">{getUserInitials(u.full_name)}</button>
                                     ))}
                                   </div>
                                 </div>
@@ -659,22 +659,22 @@ export default function AgendaPage() {
                 {/* RIGHT COLUMN: Tareas Realizadas */}
                 <div>
                   <div className="flex items-center gap-2 mb-4">
-                    <div className="w-2 h-2 rounded-full bg-success" />
-                    <h3 className="text-sm font-bold text-on-surface uppercase tracking-wider">Realizadas</h3>
-                    <span className="text-xs text-on-surface-variant ml-auto">{completedTasks.length}</span>
+                    <div className="w-2 h-2 rounded-full bg-ok" />
+                    <h3 className="text-sm font-bold text-ink uppercase tracking-wider">Realizadas</h3>
+                    <span className="text-xs text-ink-3 ml-auto">{completedTasks.length}</span>
                   </div>
                   <div className="space-y-1.5">
                     {completedTasks.length === 0 ? (
-                      <div className="text-center py-10 bg-surface rounded-2xl">
-                        <Circle className="w-8 h-8 text-on-surface-variant/20 mx-auto mb-2" />
-                        <p className="text-xs text-on-surface-variant">Aun no hay tareas realizadas</p>
+                      <div className="text-center py-10 bg-bg rounded-2xl">
+                        <Circle className="w-8 h-8 text-ink-3/20 mx-auto mb-2" />
+                        <p className="text-xs text-ink-3">Aun no hay tareas realizadas</p>
                       </div>
                     ) : (
                       <>
                         {(showCompleted ? completedTasks : completedTasks.slice(0, 10)).map((task) => (
                           <div
                             key={task.id}
-                            className="group flex items-center gap-3 p-3 bg-surface rounded-xl hover:bg-surface-container-low transition-all"
+                            className="group flex items-center gap-3 p-3 bg-bg rounded-xl hover:bg-bg-2 transition-all"
                           >
                             {/* Undo button */}
                             <button
@@ -682,14 +682,14 @@ export default function AgendaPage() {
                               className="shrink-0 transition-all"
                               title="Deshacer"
                             >
-                              <CheckCircle2 className="w-5 h-5 text-success group-hover:text-success/50" />
+                              <CheckCircle2 className="w-5 h-5 text-ok group-hover:text-success/50" />
                             </button>
                             {/* Task info */}
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm text-on-surface-variant line-through truncate">{task.title}</p>
+                              <p className="text-sm text-ink-3 line-through truncate">{task.title}</p>
                               <div className="flex items-center gap-2 mt-0.5">
                                 {task.completed_at && (
-                                  <span className="text-[10px] text-on-surface-variant/60">
+                                  <span className="text-[10px] text-ink-3/60">
                                     {new Date(task.completed_at).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' })}
                                     {' '}
                                     {new Date(task.completed_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
@@ -702,7 +702,7 @@ export default function AgendaPage() {
                             </div>
                             {/* Delete */}
                             {isAdmin && (
-                              <button onClick={() => deleteTask(task.id)} className="p-1 rounded-lg hover:bg-error/10 text-on-surface-variant/30 hover:text-error transition-all opacity-0 group-hover:opacity-100">
+                              <button onClick={() => deleteTask(task.id)} className="p-1 rounded-lg hover:bg-error/10 text-ink-3/30 hover:text-err transition-all opacity-0 group-hover:opacity-100">
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             )}
@@ -712,7 +712,7 @@ export default function AgendaPage() {
                         {completedTasks.length > 10 && (
                           <button
                             onClick={() => setShowCompleted(!showCompleted)}
-                            className="w-full text-center py-2.5 text-xs font-semibold text-primary hover:text-primary/80 transition-colors rounded-xl hover:bg-primary/5"
+                            className="w-full text-center py-2.5 text-xs font-semibold text-brand hover:text-primary/80 transition-colors rounded-xl hover:bg-primary/5"
                           >
                             {showCompleted ? 'Mostrar menos' : `Historial (${completedTasks.length} tareas)`}
                           </button>
@@ -732,25 +732,25 @@ export default function AgendaPage() {
             <div className="lg:col-span-3">
               <Card>
                 <div className="flex items-center justify-between mb-6">
-                  <h2 className="font-display font-bold text-xl text-on-surface">
+                  <h2 className="font-sans font-bold text-xl text-ink">
                     {MONTHS[month]} {year}
                   </h2>
                   <div className="flex gap-2">
-                    <button onClick={() => setCurrentDate(new Date(year, month - 1, 1))} className="p-2 rounded-xl hover:bg-surface-container-low transition-all">
-                      <ChevronLeft className="w-5 h-5 text-on-surface-variant" />
+                    <button onClick={() => setCurrentDate(new Date(year, month - 1, 1))} className="p-2 rounded-xl hover:bg-bg-2 transition-all">
+                      <ChevronLeft className="w-5 h-5 text-ink-3" />
                     </button>
-                    <button onClick={() => setCurrentDate(new Date())} className="px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/5 rounded-xl transition-all">
+                    <button onClick={() => setCurrentDate(new Date())} className="px-3 py-1.5 text-xs font-semibold text-brand hover:bg-primary/5 rounded-xl transition-all">
                       Hoy
                     </button>
-                    <button onClick={() => setCurrentDate(new Date(year, month + 1, 1))} className="p-2 rounded-xl hover:bg-surface-container-low transition-all">
-                      <ChevronRight className="w-5 h-5 text-on-surface-variant" />
+                    <button onClick={() => setCurrentDate(new Date(year, month + 1, 1))} className="p-2 rounded-xl hover:bg-bg-2 transition-all">
+                      <ChevronRight className="w-5 h-5 text-ink-3" />
                     </button>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-7 gap-1 mb-2">
                   {DAYS.map((d) => (
-                    <div key={d} className="text-center text-xs font-semibold text-on-surface-variant py-2">{d}</div>
+                    <div key={d} className="text-center text-xs font-semibold text-ink-3 py-2">{d}</div>
                   ))}
                 </div>
 
@@ -768,17 +768,17 @@ export default function AgendaPage() {
                           'min-h-[80px] rounded-xl p-2 transition-all cursor-pointer',
                           isToday(day) ? 'bg-primary/5 ring-1 ring-primary/30'
                           : isSelected ? 'bg-secondary/5 ring-1 ring-secondary/30'
-                          : 'hover:bg-surface-container-low'
+                          : 'hover:bg-bg-2'
                         )}
                       >
-                        <span className={cn('text-sm font-medium', isToday(day) ? 'text-primary font-bold' : 'text-on-surface')}>{day}</span>
+                        <span className={cn('text-sm font-medium', isToday(day) ? 'text-brand font-bold' : 'text-ink')}>{day}</span>
                         <div className="mt-1 space-y-0.5">
                           {dayAppts.slice(0, 2).map((a: any) => (
                             <div key={a.id} className={`text-[10px] px-1.5 py-0.5 rounded font-medium truncate ${TYPE_COLORS[a.type] || TYPE_COLORS.other}`}>
                               {a.client?.name || TYPE_LABELS[a.type] || 'Cita'}
                             </div>
                           ))}
-                          {dayAppts.length > 2 && <span className="text-[10px] text-on-surface-variant">+{dayAppts.length - 2} mas</span>}
+                          {dayAppts.length > 2 && <span className="text-[10px] text-ink-3">+{dayAppts.length - 2} mas</span>}
                         </div>
                       </div>
                     )
@@ -791,21 +791,21 @@ export default function AgendaPage() {
             <div className="space-y-4">
               {selectedDay && (
                 <Card>
-                  <h3 className="text-sm font-semibold text-on-surface mb-3">{selectedDay} {MONTHS[month]}</h3>
+                  <h3 className="text-sm font-semibold text-ink mb-3">{selectedDay} {MONTHS[month]}</h3>
                   {getAppointmentsForDay(selectedDay).length === 0 ? (
-                    <p className="text-xs text-on-surface-variant">Sin citas este dia</p>
+                    <p className="text-xs text-ink-3">Sin citas este dia</p>
                   ) : (
                     <div className="space-y-2">
                       {getAppointmentsForDay(selectedDay).map((a: any) => (
-                        <div key={a.id} className="p-2.5 bg-surface-container-low rounded-xl">
+                        <div key={a.id} className="p-2.5 bg-bg-2 rounded-xl">
                           <div className="flex items-center gap-2 mb-1">
                             <Badge variant={a.type === 'signing' ? 'warning' : 'info'}>{TYPE_LABELS[a.type] || a.type}</Badge>
                             <Badge variant={a.status === 'completed' ? 'success' : 'default'}>
                               {a.status === 'scheduled' ? 'Pendiente' : a.status === 'completed' ? 'Realizada' : a.status}
                             </Badge>
                           </div>
-                          <p className="text-sm font-medium text-on-surface">{a.client?.name}</p>
-                          <div className="flex items-center gap-1 mt-1 text-xs text-on-surface-variant">
+                          <p className="text-sm font-medium text-ink">{a.client?.name}</p>
+                          <div className="flex items-center gap-1 mt-1 text-xs text-ink-3">
                             <Clock className="w-3 h-3" />
                             {new Date(a.scheduled_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
                             {a.location && (
@@ -823,19 +823,19 @@ export default function AgendaPage() {
               )}
 
               <Card>
-                <h3 className="text-sm font-semibold text-on-surface mb-3">Proximas citas</h3>
+                <h3 className="text-sm font-semibold text-ink mb-3">Proximas citas</h3>
                 {upcoming.length === 0 ? (
-                  <p className="text-xs text-on-surface-variant">Sin citas proximas</p>
+                  <p className="text-xs text-ink-3">Sin citas proximas</p>
                 ) : (
                   <div className="space-y-2">
                     {upcoming.map((a: any) => (
-                      <div key={a.id} className="flex items-center gap-2 p-2 rounded-lg hover:bg-surface-container-low transition-all">
+                      <div key={a.id} className="flex items-center gap-2 p-2 rounded-lg hover:bg-bg-2 transition-all">
                         <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                          a.type === 'signing' ? 'bg-warning' : a.type === 'presentation' ? 'bg-primary' : 'bg-success'
+                          a.type === 'signing' ? 'bg-warn' : a.type === 'presentation' ? 'bg-brand' : 'bg-ok'
                         }`} />
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium text-on-surface truncate">{a.client?.name}</p>
-                          <p className="text-[10px] text-on-surface-variant">
+                          <p className="text-xs font-medium text-ink truncate">{a.client?.name}</p>
+                          <p className="text-[10px] text-ink-3">
                             {new Date(a.scheduled_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
                             {' '}{new Date(a.scheduled_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
                           </p>
@@ -962,36 +962,36 @@ function TaskNotesPanel({ taskId, userId }: { taskId: string; userId: string }) 
   }
 
   return (
-    <div className="ml-4 mt-1 p-4 bg-surface-container-low rounded-2xl border border-surface-container-high space-y-3">
-      <div className="flex items-center gap-2 text-xs font-semibold text-on-surface-variant uppercase tracking-wider">
+    <div className="ml-4 mt-1 p-4 bg-bg-2 rounded-2xl border border-surface-container-high space-y-3">
+      <div className="flex items-center gap-2 text-xs font-semibold text-ink-3 uppercase tracking-wider">
         <StickyNote className="w-3.5 h-3.5" />
         Notas y audio
       </div>
 
       {loading ? (
-        <div className="animate-pulse h-8 bg-surface-container-high rounded-xl" />
+        <div className="animate-pulse h-8 bg-bg-2 rounded-xl" />
       ) : notes.length === 0 ? (
-        <p className="text-xs text-on-surface-variant/60 italic">Sin notas aun</p>
+        <p className="text-xs text-ink-3/60 italic">Sin notas aun</p>
       ) : (
         <div className="space-y-2 max-h-48 overflow-y-auto">
           {notes.map((note) => (
-            <div key={note.id} className="p-2.5 bg-surface rounded-xl">
+            <div key={note.id} className="p-2.5 bg-bg rounded-xl">
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-[10px] font-semibold text-secondary">
+                <span className="text-[10px] font-semibold text-brand">
                   {getUserInitials(note.author?.full_name) || 'USU'}
                 </span>
-                <span className="text-[10px] text-on-surface-variant">
+                <span className="text-[10px] text-ink-3">
                   {new Date(note.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                 </span>
               </div>
-              {note.content && <p className="text-xs text-on-surface">{note.content}</p>}
+              {note.content && <p className="text-xs text-ink">{note.content}</p>}
               {note.audio_url && (
                 <button
                   onClick={() => playAudio(note.audio_url!, note.id)}
                   className="flex items-center gap-2 mt-1 px-3 py-1.5 bg-primary/10 rounded-lg hover:bg-primary/20 transition-all"
                 >
-                  {playingId === note.id ? <Pause className="w-3.5 h-3.5 text-primary" /> : <Play className="w-3.5 h-3.5 text-primary" />}
-                  <span className="text-xs font-medium text-primary">
+                  {playingId === note.id ? <Pause className="w-3.5 h-3.5 text-brand" /> : <Play className="w-3.5 h-3.5 text-brand" />}
+                  <span className="text-xs font-medium text-brand">
                     {note.audio_duration_seconds ? formatDuration(note.audio_duration_seconds) : 'Audio'}
                   </span>
                 </button>
@@ -1009,15 +1009,15 @@ function TaskNotesPanel({ taskId, userId }: { taskId: string; userId: string }) 
             onChange={(e) => setNewNote(e.target.value)}
             placeholder="Escribe una nota..."
             rows={1}
-            className="w-full px-3 py-2 bg-surface-container-high rounded-xl text-xs text-on-surface placeholder:text-on-surface-variant/50 outline-none resize-none focus:bg-surface-container-lowest transition-all"
+            className="w-full px-3 py-2 bg-bg-2 rounded-xl text-xs text-ink placeholder:text-ink-3/50 outline-none resize-none focus:bg-card transition-all"
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitNote() } }}
           />
           {audioBlob && (
             <div className="flex items-center gap-2 mt-1 px-2 py-1 bg-primary/10 rounded-lg">
-              <Mic className="w-3 h-3 text-primary" />
-              <span className="text-[10px] text-primary font-medium">Audio grabado</span>
+              <Mic className="w-3 h-3 text-brand" />
+              <span className="text-[10px] text-brand font-medium">Audio grabado</span>
               <button onClick={() => setAudioBlob(null)} className="ml-auto">
-                <X className="w-3 h-3 text-on-surface-variant" />
+                <X className="w-3 h-3 text-ink-3" />
               </button>
             </div>
           )}
@@ -1026,7 +1026,7 @@ function TaskNotesPanel({ taskId, userId }: { taskId: string; userId: string }) 
           onClick={recording ? stopRecording : startRecording}
           className={cn(
             'p-2 rounded-xl transition-all',
-            recording ? 'bg-error text-white animate-pulse' : 'bg-surface-container-high text-on-surface-variant hover:text-primary hover:bg-primary/10'
+            recording ? 'bg-err text-white animate-pulse' : 'bg-bg-2 text-ink-3 hover:text-brand hover:bg-primary/10'
           )}
           title={recording ? 'Parar grabacion' : 'Grabar audio'}
         >
@@ -1035,7 +1035,7 @@ function TaskNotesPanel({ taskId, userId }: { taskId: string; userId: string }) 
         <button
           onClick={submitNote}
           disabled={!newNote.trim() && !audioBlob}
-          className="p-2 rounded-xl bg-primary text-white disabled:opacity-30 hover:bg-primary/90 transition-all"
+          className="p-2 rounded-xl bg-brand text-white disabled:opacity-30 hover:bg-primary/90 transition-all"
         >
           <Send className="w-4 h-4" />
         </button>

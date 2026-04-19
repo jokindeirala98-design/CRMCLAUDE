@@ -79,8 +79,8 @@ export default function ContractsPage() {
       header: 'Cliente',
       render: (item: any) => (
         <div>
-          <p className="text-sm font-medium text-on-surface">{item.client?.name || '-'}</p>
-          <p className="text-xs text-on-surface-variant">{item.client?.cif_nif}</p>
+          <p className="text-sm font-medium text-ink">{item.client?.name || '-'}</p>
+          <p className="text-xs text-ink-3">{item.client?.cif_nif}</p>
         </div>
       ),
     },
@@ -100,7 +100,7 @@ export default function ContractsPage() {
       key: 'generated_at',
       header: 'Fecha',
       render: (item: any) => (
-        <span className="text-sm text-on-surface-variant">
+        <span className="text-sm text-ink-3">
           {item.generated_at ? formatDate(item.generated_at) : '-'}
         </span>
       ),
@@ -117,17 +117,17 @@ export default function ContractsPage() {
         <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
           {confirmDeleteId === item.id ? (
             <div className="flex items-center gap-2 bg-surface/50 rounded px-2 py-1">
-              <span className="text-xs text-on-surface">¿Eliminar?</span>
+              <span className="text-xs text-ink">¿Eliminar?</span>
               <button
                 onClick={() => setConfirmDeleteId(null)}
-                className="text-xs px-2 py-0.5 text-on-surface hover:bg-surface rounded transition"
+                className="text-xs px-2 py-0.5 text-ink hover:bg-bg rounded transition"
               >
                 Cancelar
               </button>
               <button
                 onClick={() => handleDeleteContract(item.id)}
                 disabled={deletingId === item.id}
-                className="text-xs px-2 py-0.5 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded transition disabled:opacity-50"
+                className="text-xs px-2 py-0.5 bg-err-container/400/20 text-err hover:bg-err-container/400/30 rounded transition disabled:opacity-50"
               >
                 {deletingId === item.id ? '...' : 'Eliminar'}
               </button>
@@ -135,7 +135,7 @@ export default function ContractsPage() {
           ) : (
             <button
               onClick={() => setConfirmDeleteId(item.id)}
-              className="text-on-surface-variant/50 hover:text-red-500 transition-colors duration-200 p-1"
+              className="text-ink-3/50 hover:text-err transition-colors duration-200 p-1"
               title="Eliminar contrato"
             >
               <Trash2 className="w-4 h-4" />

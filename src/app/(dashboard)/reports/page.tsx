@@ -41,8 +41,8 @@ const PIPELINE_LABELS: Record<string, string> = {
   prescoring_completado: 'Prescoring OK',
   estudio_en_curso: 'Estudio',
   estudio_completado: 'Estudio OK',
-  presentacion_pendiente: 'Presentacion',
-  presentacion_realizada: 'Presentacion OK',
+  presentacion_pendiente: 'Presentación',
+  presentacion_realizada: 'Presentación OK',
   pendiente_firma: 'Pte. firma',
   firmado: 'Firmado',
   suscrito: 'Suscrito',
@@ -199,7 +199,7 @@ export default function ReportsPage() {
       <div>
         <Header title="Informes" subtitle="Cargando datos..." />
         <div className="flex items-center justify-center py-20">
-          <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full" />
+          <div className="animate-spin w-8 h-8 border-2 border-brand border-t-transparent rounded-full" />
         </div>
       </div>
     )
@@ -231,42 +231,42 @@ export default function ReportsPage() {
 
         {/* ═══ FACTURACION ═══ */}
         <Card>
-          <h3 className="font-display font-semibold text-base text-on-surface mb-4">Facturacion</h3>
+          <h3 className="font-sans font-semibold text-base text-ink mb-4">Facturacion</h3>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="text-center p-4 bg-surface-container-low rounded-xl">
-              <p className="text-xs text-on-surface-variant font-medium">Total Facturado</p>
-              <p className="font-display font-bold text-xl text-on-surface mt-1">{formatCurrency(data.totalBilled)}</p>
+            <div className="text-center p-4 bg-bg-2 rounded-xl">
+              <p className="text-xs text-ink-3 font-medium">Total Facturado</p>
+              <p className="font-sans font-bold text-xl text-ink mt-1">{formatCurrency(data.totalBilled)}</p>
             </div>
-            <div className="text-center p-4 bg-success-container/30 rounded-xl">
-              <p className="text-xs text-success font-medium">Cobrado</p>
-              <p className="font-display font-bold text-xl text-success mt-1">{formatCurrency(data.totalPaid)}</p>
+            <div className="text-center p-4 bg-ok-container/30 rounded-xl">
+              <p className="text-xs text-ok font-medium">Cobrado</p>
+              <p className="font-sans font-bold text-xl text-ok mt-1">{formatCurrency(data.totalPaid)}</p>
             </div>
-            <div className="text-center p-4 bg-warning-container/30 rounded-xl">
-              <p className="text-xs text-warning font-medium">Pendiente</p>
-              <p className="font-display font-bold text-xl text-warning mt-1">{formatCurrency(data.totalPending)}</p>
+            <div className="text-center p-4 bg-warn-container/30 rounded-xl">
+              <p className="text-xs text-warn font-medium">Pendiente</p>
+              <p className="font-sans font-bold text-xl text-warn mt-1">{formatCurrency(data.totalPending)}</p>
             </div>
-            <div className="text-center p-4 bg-error-container/30 rounded-xl">
-              <p className="text-xs text-error font-medium">Vencido</p>
-              <p className="font-display font-bold text-xl text-error mt-1">{formatCurrency(data.totalOverdue)}</p>
+            <div className="text-center p-4 bg-err-container/30 rounded-xl">
+              <p className="text-xs text-err font-medium">Vencido</p>
+              <p className="font-sans font-bold text-xl text-err mt-1">{formatCurrency(data.totalOverdue)}</p>
             </div>
           </div>
         </Card>
 
         {/* ═══ PIPELINE DETALLADO ═══ */}
         <Card>
-          <h3 className="font-display font-semibold text-base text-on-surface mb-4">Pipeline Detallado</h3>
+          <h3 className="font-sans font-semibold text-base text-ink mb-4">Pipeline Detallado</h3>
           <div className="space-y-2">
             {Object.entries(PIPELINE_LABELS).map(([key, label]) => {
               const count = data.pipelineCounts[key] || 0
               const pct = data.totalSupplies > 0 ? (count / data.totalSupplies) * 100 : 0
               return (
                 <div key={key} className="flex items-center gap-3">
-                  <span className="text-xs text-on-surface-variant w-28 text-right flex-shrink-0">{label}</span>
-                  <div className="flex-1 bg-surface-container-high rounded-full h-6 overflow-hidden">
+                  <span className="text-xs text-ink-3 w-28 text-right flex-shrink-0">{label}</span>
+                  <div className="flex-1 bg-bg-2 rounded-full h-6 overflow-hidden">
                     <div
                       className={`h-full rounded-full transition-all flex items-center px-2 ${
                         key === 'rechazado' ? 'bg-error/70' :
-                        ['firmado', 'suscrito', 'seguimiento_activo'].includes(key) ? 'bg-success' :
+                        ['firmado', 'suscrito', 'seguimiento_activo'].includes(key) ? 'bg-ok' :
                         'bg-primary/70'
                       }`}
                       style={{ width: `${Math.max(pct, count > 0 ? 5 : 0)}%` }}
@@ -274,7 +274,7 @@ export default function ReportsPage() {
                       {pct > 8 && <span className="text-white text-[10px] font-bold">{count}</span>}
                     </div>
                   </div>
-                  <span className="text-sm font-semibold text-on-surface w-8 text-right">{count}</span>
+                  <span className="text-sm font-semibold text-ink w-8 text-right">{count}</span>
                 </div>
               )
             })}
@@ -285,19 +285,19 @@ export default function ReportsPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Clientes */}
           <Card>
-            <h3 className="font-display font-semibold text-base text-on-surface mb-4">Clientes por tipo</h3>
+            <h3 className="font-sans font-semibold text-base text-ink mb-4">Clientes por tipo</h3>
             <div className="space-y-3">
               {Object.entries(data.clientsByType).map(([type, count]) => (
                 <div key={type} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <div className={`w-3 h-3 rounded-full ${
-                      type === 'empresa' ? 'bg-primary' : type === 'ayuntamiento' ? 'bg-secondary' : 'bg-on-surface-variant'
+                      type === 'empresa' ? 'bg-brand' : type === 'ayuntamiento' ? 'bg-brand' : 'bg-ink-3'
                     }`} />
-                    <span className="text-sm capitalize text-on-surface">{type}</span>
+                    <span className="text-sm capitalize text-ink">{type}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="font-display font-bold text-on-surface">{count}</span>
-                    <span className="text-xs text-on-surface-variant">
+                    <span className="font-sans font-bold text-ink">{count}</span>
+                    <span className="text-xs text-ink-3">
                       ({data.totalClients > 0 ? Math.round((count / data.totalClients) * 100) : 0}%)
                     </span>
                   </div>
@@ -306,7 +306,7 @@ export default function ReportsPage() {
             </div>
 
             <div className="mt-4 pt-4 border-t border-surface-container-low">
-              <h4 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-3">Por origen</h4>
+              <h4 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-3">Por origen</h4>
               <div className="flex flex-wrap gap-2">
                 {Object.entries(data.clientsByOrigin).map(([origin, count]) => (
                   <Badge key={origin} variant="default">
@@ -319,36 +319,36 @@ export default function ReportsPage() {
 
           {/* Suscripciones */}
           <Card>
-            <h3 className="font-display font-semibold text-base text-on-surface mb-4">Suscripciones</h3>
+            <h3 className="font-sans font-semibold text-base text-ink mb-4">Suscripciones</h3>
             <div className="grid grid-cols-2 gap-4 mb-4">
-              <div className="text-center p-3 bg-surface-container-low rounded-xl">
-                <p className="text-xs text-on-surface-variant">Activas</p>
-                <p className="font-display font-bold text-2xl text-success">{data.activeSubscriptions}</p>
+              <div className="text-center p-3 bg-bg-2 rounded-xl">
+                <p className="text-xs text-ink-3">Activas</p>
+                <p className="font-sans font-bold text-2xl text-ok">{data.activeSubscriptions}</p>
               </div>
-              <div className="text-center p-3 bg-surface-container-low rounded-xl">
-                <p className="text-xs text-on-surface-variant">MRR</p>
-                <p className="font-display font-bold text-2xl text-primary">{formatCurrency(data.mrrEstimated)}</p>
+              <div className="text-center p-3 bg-bg-2 rounded-xl">
+                <p className="text-xs text-ink-3">MRR</p>
+                <p className="font-sans font-bold text-2xl text-brand">{formatCurrency(data.mrrEstimated)}</p>
               </div>
             </div>
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
-                <span className="text-on-surface-variant">Modelo fijo</span>
-                <span className="font-semibold text-on-surface">{data.subscriptionsByModel.fixed}</span>
+                <span className="text-ink-3">Modelo fijo</span>
+                <span className="font-semibold text-ink">{data.subscriptionsByModel.fixed}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-on-surface-variant">Modelo % ahorro</span>
-                <span className="font-semibold text-on-surface">{data.subscriptionsByModel.percentage}</span>
+                <span className="text-ink-3">Modelo % ahorro</span>
+                <span className="font-semibold text-ink">{data.subscriptionsByModel.percentage}</span>
               </div>
             </div>
 
             <div className="mt-4 pt-4 border-t border-surface-container-low">
-              <h4 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-3">Suministros por tipo</h4>
+              <h4 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-3">Suministros por tipo</h4>
               <div className="flex gap-4">
                 {Object.entries(data.suppliesByType).map(([type, count]) => (
                   <div key={type} className="flex items-center gap-1.5">
-                    <Zap className="w-3.5 h-3.5 text-primary" />
-                    <span className="text-sm text-on-surface uppercase">{type}</span>
-                    <span className="font-bold text-on-surface">{count}</span>
+                    <Zap className="w-3.5 h-3.5 text-brand" />
+                    <span className="text-sm text-ink uppercase">{type}</span>
+                    <span className="font-bold text-ink">{count}</span>
                   </div>
                 ))}
               </div>
@@ -359,16 +359,16 @@ export default function ReportsPage() {
         {/* ═══ RENDIMIENTO COMERCIALES ═══ */}
         {data.commercialStats.length > 0 && (
           <Card>
-            <h3 className="font-display font-semibold text-base text-on-surface mb-4">Rendimiento por Comercial</h3>
+            <h3 className="font-sans font-semibold text-base text-ink mb-4">Rendimiento por Comercial</h3>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="bg-surface-container-low">
-                    <th className="text-left text-xs font-semibold text-on-surface-variant uppercase tracking-wider px-4 py-2.5 rounded-l-xl">Comercial</th>
-                    <th className="text-center text-xs font-semibold text-on-surface-variant uppercase tracking-wider px-4 py-2.5">Clientes</th>
-                    <th className="text-center text-xs font-semibold text-on-surface-variant uppercase tracking-wider px-4 py-2.5">Suministros</th>
-                    <th className="text-center text-xs font-semibold text-on-surface-variant uppercase tracking-wider px-4 py-2.5">Firmados</th>
-                    <th className="text-center text-xs font-semibold text-on-surface-variant uppercase tracking-wider px-4 py-2.5 rounded-r-xl">Conversion</th>
+                  <tr className="bg-bg-2">
+                    <th className="text-left text-xs font-semibold text-ink-3 uppercase tracking-wider px-4 py-2.5 rounded-l-xl">Comercial</th>
+                    <th className="text-center text-xs font-semibold text-ink-3 uppercase tracking-wider px-4 py-2.5">Clientes</th>
+                    <th className="text-center text-xs font-semibold text-ink-3 uppercase tracking-wider px-4 py-2.5">Suministros</th>
+                    <th className="text-center text-xs font-semibold text-ink-3 uppercase tracking-wider px-4 py-2.5">Firmados</th>
+                    <th className="text-center text-xs font-semibold text-ink-3 uppercase tracking-wider px-4 py-2.5 rounded-r-xl">Conversion</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -376,15 +376,15 @@ export default function ReportsPage() {
                     <tr key={i} className="border-b border-surface-container-low last:border-0">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-full gradient-primary flex items-center justify-center">
+                          <div className="w-7 h-7 rounded-full bg-brand flex items-center justify-center">
                             <span className="text-white text-xs font-bold">{c.name.charAt(0)}</span>
                           </div>
-                          <span className="text-sm font-medium text-on-surface">{c.name}</span>
+                          <span className="text-sm font-medium text-ink">{c.name}</span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-center font-display font-semibold text-on-surface">{c.clients}</td>
-                      <td className="px-4 py-3 text-center font-display font-semibold text-on-surface">{c.supplies}</td>
-                      <td className="px-4 py-3 text-center font-display font-semibold text-success">{c.signed}</td>
+                      <td className="px-4 py-3 text-center font-sans font-semibold text-ink">{c.clients}</td>
+                      <td className="px-4 py-3 text-center font-sans font-semibold text-ink">{c.supplies}</td>
+                      <td className="px-4 py-3 text-center font-sans font-semibold text-ok">{c.signed}</td>
                       <td className="px-4 py-3 text-center">
                         <Badge variant={c.supplies > 0 && (c.signed / c.supplies) >= 0.3 ? 'success' : 'default'}>
                           {c.supplies > 0 ? Math.round((c.signed / c.supplies) * 100) : 0}%

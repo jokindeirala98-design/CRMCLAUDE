@@ -84,12 +84,12 @@ export function NewObjectiveModal({ open, onClose, onCreated }: Props) {
       <motion.div
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="relative bg-surface rounded-3xl shadow-ambient-lg w-full max-w-lg mx-4 overflow-hidden"
+        className="relative bg-bg rounded-3xl shadow-ambient-lg w-full max-w-lg mx-4 overflow-hidden"
       >
         <div className="flex items-center justify-between p-6 border-b border-surface-container-low">
-          <h2 className="font-display font-bold text-lg text-on-surface">Nuevo Objetivo</h2>
-          <button onClick={onClose} className="p-2 rounded-xl hover:bg-surface-container-low transition-all">
-            <X className="w-5 h-5 text-on-surface-variant" />
+          <h2 className="font-sans font-bold text-lg text-ink">Nuevo Objetivo</h2>
+          <button onClick={onClose} className="p-2 rounded-xl hover:bg-bg-2 transition-all">
+            <X className="w-5 h-5 text-ink-3" />
           </button>
         </div>
 
@@ -110,7 +110,7 @@ export function NewObjectiveModal({ open, onClose, onCreated }: Props) {
               options={[
                 { value: 'contracts', label: 'Contratos' },
                 { value: 'supplies', label: 'Suministros' },
-                { value: 'revenue', label: 'Facturacion (€)' },
+                { value: 'revenue', label: 'Facturación (€)' },
               ]}
             />
             <Input

@@ -184,8 +184,8 @@ function SupplyCard({ row, index }: { row: ConsumptionSnapshot; index: number })
       <div className="flex items-start justify-between mb-2">
         <span className={`inline-flex items-center text-[10px] font-bold px-2.5 py-1 rounded-lg border ${
           isGas
-            ? 'bg-orange-50 text-orange-700 border-orange-200'
-            : 'bg-indigo-50 text-indigo-700 border-indigo-200'
+            ? 'bg-warn-container/40 text-warn border-warn/30'
+            : 'bg-info-container/40 text-info border-info/30'
         }`} style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
           {row.tariff || '—'}
         </span>

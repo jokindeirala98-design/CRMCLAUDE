@@ -22,7 +22,7 @@ export default function DashboardLayout({
   return (
     <AuthProvider>
       <ToastProvider>
-        <div className="flex min-h-screen bg-surface overflow-x-hidden">
+        <div className="flex min-h-screen bg-bg overflow-x-hidden">
           {/* Desktop Sidebar */}
           <Sidebar />
 
@@ -30,10 +30,10 @@ export default function DashboardLayout({
             <AnimatePresence mode="wait">
               <motion.div
                 key={pathname}
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.1, ease: 'easeOut' }}
                 className="h-full"
               >
                 {children}

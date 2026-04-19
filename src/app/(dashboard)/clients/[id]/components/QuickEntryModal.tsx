@@ -46,7 +46,7 @@ export default function QuickEntryModal({ open, onClose, clientId, supplies, onC
     setSaving(true)
     const supabase = createClient()
 
-    const total = consumos.reduce((s, v) => s + (v || 0), 0)
+    const total = consumos.reduce<number>((s, v) => s + (v || 0), 0)
 
     const data: Record<string, any> = {
       client_id: clientId,
@@ -80,11 +80,11 @@ export default function QuickEntryModal({ open, onClose, clientId, supplies, onC
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full mx-4 max-h-[85vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-outline-variant/15">
-          <h2 className="font-display font-semibold text-on-surface flex items-center gap-2">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-line-2-variant/15">
+          <h2 className="font-sans font-semibold text-ink flex items-center gap-2">
             <Plus className="w-4 h-4" /> Entrada rapida de consumo
           </h2>
-          <button onClick={onClose} className="p-1 hover:bg-surface-container-high rounded">
+          <button onClick={onClose} className="p-1 hover:bg-bg-2 rounded">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -95,7 +95,7 @@ export default function QuickEntryModal({ open, onClose, clientId, supplies, onC
             <button
               onClick={() => setMode('existing')}
               className={`flex-1 px-3 py-2 text-xs font-medium rounded-lg border transition-all ${
-                mode === 'existing' ? 'border-primary bg-primary/5 text-primary' : 'border-outline-variant/20 text-on-surface-variant'
+                mode === 'existing' ? 'border-brand bg-primary/5 text-brand' : 'border-line-2-variant/20 text-ink-3'
               }`}
             >
               Suministro existente
@@ -103,7 +103,7 @@ export default function QuickEntryModal({ open, onClose, clientId, supplies, onC
             <button
               onClick={() => setMode('new')}
               className={`flex-1 px-3 py-2 text-xs font-medium rounded-lg border transition-all ${
-                mode === 'new' ? 'border-primary bg-primary/5 text-primary' : 'border-outline-variant/20 text-on-surface-variant'
+                mode === 'new' ? 'border-brand bg-primary/5 text-brand' : 'border-line-2-variant/20 text-ink-3'
               }`}
             >
               Nuevo suministro
@@ -112,11 +112,11 @@ export default function QuickEntryModal({ open, onClose, clientId, supplies, onC
 
           {mode === 'existing' && supplies.length > 0 && (
             <div>
-              <label className="text-xs font-semibold text-on-surface-variant block mb-1">Seleccionar suministro</label>
+              <label className="text-xs font-semibold text-ink-3 block mb-1">Seleccionar suministro</label>
               <select
                 value={selectedSupplyId}
                 onChange={e => handleSelectSupply(e.target.value)}
-                className="w-full text-sm px-3 py-2 bg-surface-container-low rounded-lg border border-outline-variant/20"
+                className="w-full text-sm px-3 py-2 bg-bg-2 rounded-lg border border-line-2-variant/20"
               >
                 <option value="">Selecciona...</option>
                 {supplies.map(s => (
@@ -131,21 +131,21 @@ export default function QuickEntryModal({ open, onClose, clientId, supplies, onC
           {/* Basic fields */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-semibold text-on-surface-variant block mb-1">CUPS</label>
+              <label className="text-xs font-semibold text-ink-3 block mb-1">CUPS</label>
               <input
                 type="text"
                 value={cups}
                 onChange={e => setCups(e.target.value)}
                 placeholder="ES0021..."
-                className="w-full text-sm px-3 py-2 bg-surface-container-low rounded-lg border border-outline-variant/20 outline-none focus:border-primary font-mono"
+                className="w-full text-sm px-3 py-2 bg-bg-2 rounded-lg border border-line-2-variant/20 outline-none focus:border-brand font-mono"
               />
             </div>
             <div>
-              <label className="text-xs font-semibold text-on-surface-variant block mb-1">Tarifa</label>
+              <label className="text-xs font-semibold text-ink-3 block mb-1">Tarifa</label>
               <select
                 value={tariff}
                 onChange={e => setTariff(e.target.value)}
-                className="w-full text-sm px-3 py-2 bg-surface-container-low rounded-lg border border-outline-variant/20"
+                className="w-full text-sm px-3 py-2 bg-bg-2 rounded-lg border border-line-2-variant/20"
               >
                 <option value="">Selecciona</option>
                 <option value="2.0TD">2.0TD</option>
@@ -161,23 +161,23 @@ export default function QuickEntryModal({ open, onClose, clientId, supplies, onC
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-semibold text-on-surface-variant block mb-1">Tipo</label>
+              <label className="text-xs font-semibold text-ink-3 block mb-1">Tipo</label>
               <select
                 value={supplyType}
                 onChange={e => setSupplyType(e.target.value as 'luz' | 'gas')}
-                className="w-full text-sm px-3 py-2 bg-surface-container-low rounded-lg border border-outline-variant/20"
+                className="w-full text-sm px-3 py-2 bg-bg-2 rounded-lg border border-line-2-variant/20"
               >
                 <option value="luz">Electricidad</option>
                 <option value="gas">Gas</option>
               </select>
             </div>
             <div>
-              <label className="text-xs font-semibold text-on-surface-variant block mb-1">Comercializadora</label>
+              <label className="text-xs font-semibold text-ink-3 block mb-1">Comercializadora</label>
               <input
                 type="text"
                 value={comercializadora}
                 onChange={e => setComercializadora(e.target.value)}
-                className="w-full text-sm px-3 py-2 bg-surface-container-low rounded-lg border border-outline-variant/20 outline-none focus:border-primary"
+                className="w-full text-sm px-3 py-2 bg-bg-2 rounded-lg border border-line-2-variant/20 outline-none focus:border-brand"
               />
             </div>
           </div>
@@ -185,11 +185,11 @@ export default function QuickEntryModal({ open, onClose, clientId, supplies, onC
           {/* Potencias */}
           {powerPeriods > 0 && (
             <div>
-              <label className="text-xs font-semibold text-on-surface-variant block mb-2">Potencias contratadas (kW)</label>
+              <label className="text-xs font-semibold text-ink-3 block mb-2">Potencias contratadas (kW)</label>
               <div className="grid grid-cols-6 gap-2">
                 {Array.from({ length: 6 }, (_, i) => (
                   <div key={`pot-${i}`} className={i >= powerPeriods ? 'opacity-30 pointer-events-none' : ''}>
-                    <label className="text-[10px] text-on-surface-variant block mb-0.5">P{i + 1}</label>
+                    <label className="text-[10px] text-ink-3 block mb-0.5">P{i + 1}</label>
                     <input
                       type="number"
                       step="0.01"
@@ -199,7 +199,7 @@ export default function QuickEntryModal({ open, onClose, clientId, supplies, onC
                         v[i] = e.target.value ? Number(e.target.value) : null
                         setPotencias(v)
                       }}
-                      className="w-full text-xs px-2 py-1.5 bg-surface-container-low rounded border border-outline-variant/20 outline-none focus:border-primary tabular-nums"
+                      className="w-full text-xs px-2 py-1.5 bg-bg-2 rounded border border-line-2-variant/20 outline-none focus:border-brand tabular-nums"
                       disabled={i >= powerPeriods}
                     />
                   </div>
@@ -210,11 +210,11 @@ export default function QuickEntryModal({ open, onClose, clientId, supplies, onC
 
           {/* Consumos */}
           <div>
-            <label className="text-xs font-semibold text-on-surface-variant block mb-2">Consumos (kWh)</label>
+            <label className="text-xs font-semibold text-ink-3 block mb-2">Consumos (kWh)</label>
             <div className="grid grid-cols-6 gap-2">
               {Array.from({ length: 6 }, (_, i) => (
                 <div key={`cons-${i}`} className={i >= consumPeriods ? 'opacity-30 pointer-events-none' : ''}>
-                  <label className="text-[10px] text-on-surface-variant block mb-0.5">P{i + 1}</label>
+                  <label className="text-[10px] text-ink-3 block mb-0.5">P{i + 1}</label>
                   <input
                     type="number"
                     step="1"
@@ -224,7 +224,7 @@ export default function QuickEntryModal({ open, onClose, clientId, supplies, onC
                       v[i] = e.target.value ? Number(e.target.value) : null
                       setConsumos(v)
                     }}
-                    className="w-full text-xs px-2 py-1.5 bg-surface-container-low rounded border border-outline-variant/20 outline-none focus:border-primary tabular-nums"
+                    className="w-full text-xs px-2 py-1.5 bg-bg-2 rounded border border-line-2-variant/20 outline-none focus:border-brand tabular-nums"
                     disabled={i >= consumPeriods}
                   />
                 </div>
@@ -233,7 +233,7 @@ export default function QuickEntryModal({ open, onClose, clientId, supplies, onC
           </div>
         </div>
 
-        <div className="px-6 py-4 border-t border-outline-variant/15 flex justify-end gap-2">
+        <div className="px-6 py-4 border-t border-line-2-variant/15 flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose}>Cancelar</Button>
           <Button onClick={handleSave} loading={saving} disabled={!cups}>
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}

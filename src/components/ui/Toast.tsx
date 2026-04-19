@@ -33,10 +33,10 @@ const ICONS = {
 }
 
 const COLORS = {
-  success: 'bg-success-container text-success border-success/20',
-  error: 'bg-error-container text-error border-error/20',
-  warning: 'bg-warning-container text-warning border-warning/20',
-  info: 'bg-primary/10 text-primary border-primary/20',
+  success: 'bg-ok-container text-ok border-success/20',
+  error: 'bg-err-container text-err border-error/20',
+  warning: 'bg-warn-container text-warn border-warning/20',
+  info: 'bg-primary/10 text-brand border-primary/20',
 }
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {

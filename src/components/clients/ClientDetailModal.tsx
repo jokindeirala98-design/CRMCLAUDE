@@ -282,16 +282,16 @@ export function ClientDetailModal({ clientId, isOpen, onClose, contextSupplyId, 
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-3xl bg-surface shadow-2xl"
+        className="relative w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-3xl bg-bg shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 px-6 py-4 bg-surface/95 backdrop-blur-lg border-b border-outline-variant/20">
+        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 px-6 py-4 bg-surface/95 backdrop-blur-lg border-b border-line-2-variant/20">
           <div className="min-w-0 flex-1">
-            <h2 className="font-display font-bold text-xl text-on-surface truncate">
+            <h2 className="font-sans font-bold text-xl text-ink truncate">
               {client?.name || (loading ? 'Cargando…' : 'Cliente')}
             </h2>
-            <p className="text-xs text-on-surface-variant capitalize truncate">
+            <p className="text-xs text-ink-3 capitalize truncate">
               {isEmpresa ? 'Empresa' : 'Particular'}
               {supplies.length > 0 && ` · ${supplies.length} suministro${supplies.length === 1 ? '' : 's'}`}
             </p>
@@ -300,7 +300,7 @@ export function ClientDetailModal({ clientId, isOpen, onClose, contextSupplyId, 
             {!editing ? (
               <button
                 onClick={() => { setDraft(client || {}); setEditing(true) }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 text-xs font-medium transition"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary/10 text-brand hover:bg-primary/20 text-xs font-medium transition"
               >
                 <Pencil className="w-3.5 h-3.5" /> Editar
               </button>
@@ -308,14 +308,14 @@ export function ClientDetailModal({ clientId, isOpen, onClose, contextSupplyId, 
               <>
                 <button
                   onClick={() => { setEditing(false); setDraft(client || {}) }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-on-surface-variant hover:bg-surface-container-high text-xs font-medium transition"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-ink-3 hover:bg-bg-2 text-xs font-medium transition"
                 >
                   Cancelar
                 </button>
                 <button
                   onClick={handleSave}
                   disabled={saving}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-success text-white hover:bg-success/90 text-xs font-medium transition disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-ok text-white hover:bg-success/90 text-xs font-medium transition disabled:opacity-50"
                 >
                   {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                   Guardar
@@ -324,7 +324,7 @@ export function ClientDetailModal({ clientId, isOpen, onClose, contextSupplyId, 
             )}
             <button
               onClick={onClose}
-              className="p-1.5 rounded-xl hover:bg-surface-container-high text-on-surface-variant transition"
+              className="p-1.5 rounded-xl hover:bg-bg-2 text-ink-3 transition"
             >
               <X className="w-5 h-5" />
             </button>
@@ -334,7 +334,7 @@ export function ClientDetailModal({ clientId, isOpen, onClose, contextSupplyId, 
         {/* Body */}
         {loading ? (
           <div className="flex items-center justify-center py-20">
-            <Loader2 className="w-6 h-6 animate-spin text-primary" />
+            <Loader2 className="w-6 h-6 animate-spin text-brand" />
           </div>
         ) : (
           <div className="p-6 space-y-6">
@@ -349,20 +349,20 @@ export function ClientDetailModal({ clientId, isOpen, onClose, contextSupplyId, 
                     className={`rounded-2xl border p-3 transition ${
                       missing
                         ? 'border-error/40 bg-error/5'
-                        : 'border-outline-variant/20 bg-surface-container-low'
+                        : 'border-line-2-variant/20 bg-bg-2'
                     }`}
                   >
                     <div className="flex items-center gap-2 mb-1.5">
-                      <Icon className={`w-3.5 h-3.5 ${missing ? 'text-error' : 'text-on-surface-variant'}`} />
+                      <Icon className={`w-3.5 h-3.5 ${missing ? 'text-err' : 'text-ink-3'}`} />
                       <p className={`text-[10px] uppercase tracking-wider font-semibold ${
-                        missing ? 'text-error' : 'text-on-surface-variant'
+                        missing ? 'text-err' : 'text-ink-3'
                       }`}>
                         {label}{required && ' *'}
                       </p>
                       {!editing && value && (
                         <button
                           onClick={() => handleCopy(label, value)}
-                          className="ml-auto p-1 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-primary transition"
+                          className="ml-auto p-1 rounded hover:bg-bg-2 text-ink-3 hover:text-brand transition"
                           title="Copiar"
                         >
                           <Copy className="w-3 h-3" />
@@ -374,11 +374,11 @@ export function ClientDetailModal({ clientId, isOpen, onClose, contextSupplyId, 
                         type="text"
                         value={(draft[key] as string) || ''}
                         onChange={e => setDraft(prev => ({ ...prev, [key]: e.target.value }))}
-                        className="w-full px-2 py-1.5 text-sm bg-surface rounded-lg outline-none focus:ring-2 focus:ring-primary/30"
+                        className="w-full px-2 py-1.5 text-sm bg-bg rounded-lg outline-none focus:ring-2 focus:ring-primary/30"
                       />
                     ) : (
                       <p className={`text-sm font-medium break-all ${
-                        missing ? 'text-error font-semibold' : 'text-on-surface'
+                        missing ? 'text-err font-semibold' : 'text-ink'
                       }`}>
                         {value || (required ? 'Falta' : '—')}
                       </p>
@@ -390,8 +390,8 @@ export function ClientDetailModal({ clientId, isOpen, onClose, contextSupplyId, 
 
             {/* Supply context fields (read-only, contextual) */}
             {ctxSupply && (
-              <div className="rounded-2xl border border-outline-variant/20 bg-surface-container-low p-4">
-                <h3 className="text-[10px] font-semibold text-on-surface-variant uppercase tracking-wider mb-3">
+              <div className="rounded-2xl border border-line-2-variant/20 bg-bg-2 p-4">
+                <h3 className="text-[10px] font-semibold text-ink-3 uppercase tracking-wider mb-3">
                   Datos del suministro {supplies.length > 1 ? 'actual' : ''}
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
@@ -408,42 +408,42 @@ export function ClientDetailModal({ clientId, isOpen, onClose, contextSupplyId, 
             )}
 
             {/* All CUPS under client */}
-            <div className="rounded-2xl border border-outline-variant/20 bg-surface-container-low p-4">
-              <h3 className="text-[10px] font-semibold text-on-surface-variant uppercase tracking-wider mb-3 flex items-center gap-2">
+            <div className="rounded-2xl border border-line-2-variant/20 bg-bg-2 p-4">
+              <h3 className="text-[10px] font-semibold text-ink-3 uppercase tracking-wider mb-3 flex items-center gap-2">
                 <Zap className="w-3.5 h-3.5" />
                 CUPS del cliente ({supplies.length})
               </h3>
               {supplies.length === 0 ? (
-                <p className="text-xs text-on-surface-variant">Sin CUPS registrados.</p>
+                <p className="text-xs text-ink-3">Sin CUPS registrados.</p>
               ) : (
                 <div className="space-y-1.5">
                   {supplies.map(s => (
                     <div
                       key={s.id}
-                      className="flex items-center gap-2 px-3 py-2 bg-surface rounded-xl text-xs"
+                      className="flex items-center gap-2 px-3 py-2 bg-bg rounded-xl text-xs"
                     >
-                      <span className="font-medium text-on-surface flex-shrink-0">
+                      <span className="font-medium text-ink flex-shrink-0">
                         {s.name || ''}
                       </span>
-                      <span className="font-mono text-on-surface-variant truncate flex-1">
+                      <span className="font-mono text-ink-3 truncate flex-1">
                         {s.cups || '—'}
                       </span>
                       {s.type && (
-                        <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] uppercase">
+                        <span className="px-2 py-0.5 rounded-full bg-primary/10 text-brand text-[10px] uppercase">
                           {s.type}
                         </span>
                       )}
                       <button
                         onClick={() => handleCopy('CUPS', s.cups)}
                         disabled={!s.cups}
-                        className="p-1 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-primary transition disabled:opacity-30"
+                        className="p-1 rounded hover:bg-bg-2 text-ink-3 hover:text-brand transition disabled:opacity-30"
                         title="Copiar CUPS"
                       >
                         <Copy className="w-3 h-3" />
                       </button>
                       <button
                         onClick={() => setChangingOwnerSupplyId(s.id)}
-                        className="p-1 rounded hover:bg-primary/10 text-on-surface-variant hover:text-primary transition"
+                        className="p-1 rounded hover:bg-primary/10 text-ink-3 hover:text-brand transition"
                         title="Cambiar titular / ficha"
                       >
                         <UserIcon className="w-3 h-3" />
@@ -455,12 +455,12 @@ export function ClientDetailModal({ clientId, isOpen, onClose, contextSupplyId, 
             </div>
 
             {/* Document upload box */}
-            <div className="rounded-2xl border-2 border-dashed border-outline-variant/40 p-5">
-              <h3 className="text-[10px] font-semibold text-on-surface-variant uppercase tracking-wider mb-3 flex items-center gap-2">
+            <div className="rounded-2xl border-2 border-dashed border-line-2-variant/40 p-5">
+              <h3 className="text-[10px] font-semibold text-ink-3 uppercase tracking-wider mb-3 flex items-center gap-2">
                 <FileText className="w-3.5 h-3.5" />
                 Documentos identidad (auto-extracción)
               </h3>
-              <p className="text-xs text-on-surface-variant mb-3">
+              <p className="text-xs text-ink-3 mb-3">
                 Adjunta DNI (frente y dorso), tarjeta de CIF o certificado de titularidad bancaria.
                 Los datos se extraen y rellenan automáticamente.
               </p>
@@ -475,7 +475,7 @@ export function ClientDetailModal({ clientId, isOpen, onClose, contextSupplyId, 
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={analyzing}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 text-xs font-medium transition disabled:opacity-50"
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary/10 text-brand hover:bg-primary/20 text-xs font-medium transition disabled:opacity-50"
               >
                 {analyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                 {analyzing ? 'Analizando…' : 'Adjuntar documento'}
@@ -489,8 +489,8 @@ export function ClientDetailModal({ clientId, isOpen, onClose, contextSupplyId, 
               </div>
 
               {uploadMsg && (
-                <div className="mt-3 flex items-start gap-2 px-3 py-2 rounded-xl bg-surface-container-high text-xs text-on-surface">
-                  <AlertCircle className="w-3.5 h-3.5 text-primary flex-shrink-0 mt-0.5" />
+                <div className="mt-3 flex items-start gap-2 px-3 py-2 rounded-xl bg-bg-2 text-xs text-ink">
+                  <AlertCircle className="w-3.5 h-3.5 text-brand flex-shrink-0 mt-0.5" />
                   <span>{uploadMsg}</span>
                 </div>
               )}
@@ -500,7 +500,7 @@ export function ClientDetailModal({ clientId, isOpen, onClose, contextSupplyId, 
 
         {/* Copy toast */}
         {copyToast && (
-          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[110] px-4 py-2 rounded-xl bg-on-surface text-surface text-xs font-medium shadow-lg">
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[110] px-4 py-2 rounded-xl bg-ink text-surface text-xs font-medium shadow-lg">
             <Check className="w-3.5 h-3.5 inline mr-1.5" />
             {copyToast}
           </div>
@@ -533,19 +533,19 @@ function FieldStatic({
   return (
     <div className={className}>
       <div className="flex items-center gap-2 mb-0.5">
-        <p className="text-[10px] uppercase tracking-wider font-semibold text-on-surface-variant">
+        <p className="text-[10px] uppercase tracking-wider font-semibold text-ink-3">
           {label}
         </p>
         {value && (
           <button
             onClick={() => onCopy(label, value)}
-            className="p-0.5 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-primary transition"
+            className="p-0.5 rounded hover:bg-bg-2 text-ink-3 hover:text-brand transition"
           >
             <Copy className="w-2.5 h-2.5" />
           </button>
         )}
       </div>
-      <p className={`text-sm font-medium ${value ? 'text-on-surface' : 'text-on-surface-variant/60'}`}>
+      <p className={`text-sm font-medium ${value ? 'text-ink' : 'text-ink-3/60'}`}>
         {value || '—'}
       </p>
     </div>
@@ -556,7 +556,7 @@ function DocStatus({ label, url }: { label: string; url: string | null | undefin
   return (
     <div
       className={`flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg ${
-        url ? 'bg-success/10 text-success' : 'bg-surface-container-high text-on-surface-variant'
+        url ? 'bg-success/10 text-ok' : 'bg-bg-2 text-ink-3'
       }`}
     >
       {url ? <Check className="w-3 h-3" /> : <X className="w-3 h-3 opacity-50" />}

@@ -263,11 +263,11 @@ export function GlobalSearch() {
               initial={{ opacity: 0, scale: 0.95, y: -20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: -20 }}
-              className="relative bg-surface rounded-2xl shadow-ambient-lg w-full max-w-lg overflow-hidden"
+              className="relative bg-bg rounded-2xl shadow-ambient-lg w-full max-w-lg overflow-hidden"
             >
               {/* Input */}
               <div className="flex items-center gap-3 px-4 py-3 border-b border-surface-container-low">
-                <Search className="w-5 h-5 text-on-surface-variant flex-shrink-0" />
+                <Search className="w-5 h-5 text-ink-3 flex-shrink-0" />
                 <input
                   ref={inputRef}
                   type="text"
@@ -275,11 +275,11 @@ export function GlobalSearch() {
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={handleKeyNav}
                   placeholder="Buscar clientes, CUPS, emails..."
-                  className="flex-1 bg-transparent text-on-surface text-sm outline-none placeholder:text-on-surface-variant/50"
+                  className="flex-1 bg-transparent text-ink text-sm outline-none placeholder:text-ink-3/50"
                 />
                 {query && (
-                  <button onClick={() => setQuery('')} className="p-1 rounded-lg hover:bg-surface-container-low">
-                    <X className="w-4 h-4 text-on-surface-variant" />
+                  <button onClick={() => setQuery('')} className="p-1 rounded-lg hover:bg-bg-2">
+                    <X className="w-4 h-4 text-ink-3" />
                   </button>
                 )}
               </div>
@@ -288,13 +288,13 @@ export function GlobalSearch() {
               <div className="max-h-80 overflow-y-auto">
                 {loading && (
                   <div className="flex items-center justify-center py-8">
-                    <div className="animate-spin w-5 h-5 border-2 border-primary border-t-transparent rounded-full" />
+                    <div className="animate-spin w-5 h-5 border-2 border-brand border-t-transparent rounded-full" />
                   </div>
                 )}
 
                 {!loading && query.length >= 2 && results.length === 0 && (
                   <div className="py-8 text-center">
-                    <p className="text-sm text-on-surface-variant">Sin resultados para &quot;{query}&quot;</p>
+                    <p className="text-sm text-ink-3">Sin resultados para &quot;{query}&quot;</p>
                   </div>
                 )}
 
@@ -310,19 +310,19 @@ export function GlobalSearch() {
                           className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-all ${
                             index === selectedIndex
                               ? 'bg-primary/5'
-                              : 'hover:bg-surface-container-low'
+                              : 'hover:bg-bg-2'
                           }`}
                         >
                           <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                            index === selectedIndex ? 'bg-primary/10' : 'bg-surface-container-high'
+                            index === selectedIndex ? 'bg-primary/10' : 'bg-bg-2'
                           }`}>
-                            <Icon className={`w-4 h-4 ${index === selectedIndex ? 'text-primary' : 'text-on-surface-variant'}`} />
+                            <Icon className={`w-4 h-4 ${index === selectedIndex ? 'text-brand' : 'text-ink-3'}`} />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-on-surface truncate">{result.title}</p>
-                            <p className="text-xs text-on-surface-variant truncate">{result.subtitle}</p>
+                            <p className="text-sm font-medium text-ink truncate">{result.title}</p>
+                            <p className="text-xs text-ink-3 truncate">{result.subtitle}</p>
                           </div>
-                          <span className="text-[10px] font-medium text-on-surface-variant bg-surface-container-high px-1.5 py-0.5 rounded flex-shrink-0">
+                          <span className="text-[10px] font-medium text-ink-3 bg-bg-2 px-1.5 py-0.5 rounded flex-shrink-0">
                             {TYPE_LABELS[result.type]}
                           </span>
                         </button>
@@ -333,17 +333,17 @@ export function GlobalSearch() {
 
                 {!loading && query.length < 2 && (
                   <div className="py-8 text-center">
-                    <p className="text-xs text-on-surface-variant">Escribe al menos 2 caracteres para buscar</p>
+                    <p className="text-xs text-ink-3">Escribe al menos 2 caracteres para buscar</p>
                   </div>
                 )}
               </div>
 
               {/* Footer hint */}
-              <div className="flex items-center justify-between px-4 py-2 border-t border-surface-container-low text-[10px] text-on-surface-variant">
+              <div className="flex items-center justify-between px-4 py-2 border-t border-surface-container-low text-[10px] text-ink-3">
                 <div className="flex items-center gap-3">
-                  <span><kbd className="px-1 py-0.5 bg-surface-container-high rounded font-mono">↑↓</kbd> navegar</span>
-                  <span><kbd className="px-1 py-0.5 bg-surface-container-high rounded font-mono">↵</kbd> abrir</span>
-                  <span><kbd className="px-1 py-0.5 bg-surface-container-high rounded font-mono">esc</kbd> cerrar</span>
+                  <span><kbd className="px-1 py-0.5 bg-bg-2 rounded font-mono">↑↓</kbd> navegar</span>
+                  <span><kbd className="px-1 py-0.5 bg-bg-2 rounded font-mono">↵</kbd> abrir</span>
+                  <span><kbd className="px-1 py-0.5 bg-bg-2 rounded font-mono">esc</kbd> cerrar</span>
                 </div>
               </div>
             </motion.div>

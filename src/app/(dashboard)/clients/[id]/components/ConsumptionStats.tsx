@@ -19,41 +19,41 @@ export default function ConsumptionStats({ rows }: Props) {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
       <Card className="!p-3">
-        <div className="text-xs text-on-surface-variant mb-1 flex items-center gap-1">
+        <div className="text-xs text-ink-3 mb-1 flex items-center gap-1">
           <Zap className="w-3 h-3" />Suministros
         </div>
-        <div className="text-xl font-display font-bold text-on-surface">{rows.length}</div>
-        <div className="text-[10px] text-on-surface-variant mt-0.5">
+        <div className="text-xl font-sans font-bold text-ink">{rows.length}</div>
+        <div className="text-[10px] text-ink-3 mt-0.5">
           {classified.electricity.length} elec. · {classified.gas.length} gas
         </div>
       </Card>
 
       <Card className="!p-3">
-        <div className="text-xs text-on-surface-variant mb-1">Consumo total</div>
-        <div className="text-xl font-display font-bold text-on-surface">{formatKWh(total)}</div>
-        <div className="text-[10px] text-on-surface-variant mt-0.5">Anual estimado</div>
+        <div className="text-xs text-ink-3 mb-1">Consumo total</div>
+        <div className="text-xl font-sans font-bold text-ink">{formatKWh(total)}</div>
+        <div className="text-[10px] text-ink-3 mt-0.5">Anual estimado</div>
       </Card>
 
       <Card className="!p-3">
-        <div className="text-xs text-on-surface-variant mb-1">Tarifas</div>
+        <div className="text-xs text-ink-3 mb-1">Tarifas</div>
         <div className="flex flex-wrap gap-1 mt-1">
           {classified.td20.length > 0 && (
-            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700">
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-info-container/40 text-info">
               2.0TD: {classified.td20.length}
             </span>
           )}
           {classified.td30.length > 0 && (
-            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700">
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-warn-container/40 text-warn">
               3.0TD: {classified.td30.length}
             </span>
           )}
           {classified.td61.length > 0 && (
-            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-50 text-red-700">
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-err-container/40 text-err">
               6.1TD: {classified.td61.length}
             </span>
           )}
           {classified.gas.length > 0 && (
-            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-50 text-purple-700">
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-info-container/40 text-info">
               Gas: {classified.gas.length}
             </span>
           )}
@@ -61,24 +61,24 @@ export default function ConsumptionStats({ rows }: Props) {
       </Card>
 
       <Card className="!p-3">
-        <div className="text-xs text-on-surface-variant mb-1 flex items-center gap-1">
-          <CheckCircle2 className="w-3 h-3 text-success" />OK
+        <div className="text-xs text-ink-3 mb-1 flex items-center gap-1">
+          <CheckCircle2 className="w-3 h-3 text-ok" />OK
         </div>
-        <div className="text-xl font-display font-bold text-success">{okCount}</div>
+        <div className="text-xl font-sans font-bold text-ok">{okCount}</div>
       </Card>
 
       <Card className="!p-3">
-        <div className="text-xs text-on-surface-variant mb-1 flex items-center gap-1">
-          <AlertTriangle className="w-3 h-3 text-warning" />Revisar
+        <div className="text-xs text-ink-3 mb-1 flex items-center gap-1">
+          <AlertTriangle className="w-3 h-3 text-warn" />Revisar
         </div>
-        <div className="text-xl font-display font-bold text-warning">{reviewCount}</div>
+        <div className="text-xl font-sans font-bold text-warn">{reviewCount}</div>
       </Card>
 
       <Card className="!p-3">
-        <div className="text-xs text-on-surface-variant mb-1 flex items-center gap-1">
-          <AlertCircle className="w-3 h-3 text-error" />Incompleto
+        <div className="text-xs text-ink-3 mb-1 flex items-center gap-1">
+          <AlertCircle className="w-3 h-3 text-err" />Incompleto
         </div>
-        <div className="text-xl font-display font-bold text-error">{incompleteCount}</div>
+        <div className="text-xl font-sans font-bold text-err">{incompleteCount}</div>
       </Card>
     </div>
   )

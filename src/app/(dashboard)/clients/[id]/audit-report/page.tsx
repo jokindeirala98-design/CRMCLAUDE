@@ -55,8 +55,12 @@ export default function AuditReportPage() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
+  const [syncError, setSyncError] = useState<string | null>(null)
+  const [syncingSupplyId, setSyncingSupplyId] = useState<string | null>(null)
+
   const handleSync = async () => {
     setSyncing(true)
+    setSyncError(null)
     try {
       const res = await fetch('/api/sync-consumption', {
         method: 'POST',
@@ -65,8 +69,29 @@ export default function AuditReportPage() {
       })
       const data = await res.json()
       if (data.success) await fetchData()
-    } catch (err) { console.error('Sync error:', err) }
+      else setSyncError(data.error || 'Error al cargar datos')
+    } catch (err: any) { setSyncError(err?.message || 'Error de conexión') }
     setSyncing(false)
+  }
+
+  const handleSyncSupplySips = async (snapshotId: string, supplyId: string) => {
+    setIsSyncingSupply(true)
+    setSyncingSupplyId(snapshotId)
+    try {
+      const res = await fetch('/api/sync-supply-sips', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ supply_id: supplyId, snapshot_id: snapshotId }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setRows(prev => prev.map(r => r.id === snapshotId ? { ...r, ...data.updated } : r))
+      } else {
+        console.warn('[audit-report] SIPS per-supply error:', data.error)
+      }
+    } catch (err) { console.error('[audit-report] SIPS per-supply exception:', err) }
+    setIsSyncingSupply(false)
+    setSyncingSupplyId(null)
   }
 
   const generateReport = async () => {
@@ -132,7 +157,7 @@ export default function AuditReportPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen">
-        <Loader2 className="w-6 h-6 animate-spin text-primary" />
+        <Loader2 className="w-6 h-6 animate-spin text-brand" />
       </div>
     )
   }
@@ -168,17 +193,20 @@ export default function AuditReportPage() {
         }
       />
       <div className="px-6 lg:px-8 pb-8">
-        <TechnicalAuditTable 
+        <TechnicalAuditTable
           rows={rows}
           clientName={client?.name}
           syncing={syncing}
           onSync={handleSync}
           onUpdateName={handleUpdateName}
+          onSyncSupplySips={handleSyncSupplySips}
           isSyncingSupply={isSyncingSupply}
+          syncingSupplyId={syncingSupplyId}
           onViewReport={() => setView('report')}
           hasReport={!!report}
           onGenerateReport={generateReport}
           generating={generating}
+          syncError={syncError}
         />
       </div>
     </div>

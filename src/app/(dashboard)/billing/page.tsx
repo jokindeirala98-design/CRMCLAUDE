@@ -59,7 +59,7 @@ export default function BillingPage() {
       key: 'invoice_number',
       header: 'N. Factura',
       render: (item: any) => (
-        <span className="font-mono text-sm font-medium text-on-surface">{item.invoice_number}</span>
+        <span className="font-mono text-sm font-medium text-ink">{item.invoice_number}</span>
       ),
     },
     {
@@ -67,8 +67,8 @@ export default function BillingPage() {
       header: 'Cliente',
       render: (item: any) => (
         <div>
-          <p className="text-sm font-medium text-on-surface">{item.client?.name || '-'}</p>
-          <p className="text-xs text-on-surface-variant">{item.client?.cif_nif}</p>
+          <p className="text-sm font-medium text-ink">{item.client?.name || '-'}</p>
+          <p className="text-xs text-ink-3">{item.client?.cif_nif}</p>
         </div>
       ),
     },
@@ -76,28 +76,28 @@ export default function BillingPage() {
       key: 'concept',
       header: 'Concepto',
       render: (item: any) => (
-        <span className="text-sm text-on-surface-variant">{item.concept}</span>
+        <span className="text-sm text-ink-3">{item.concept}</span>
       ),
     },
     {
       key: 'base_amount',
       header: 'Base',
       render: (item: any) => (
-        <span className="text-sm text-on-surface">{formatCurrency(item.base_amount)}</span>
+        <span className="text-sm text-ink">{formatCurrency(item.base_amount)}</span>
       ),
     },
     {
       key: 'total_amount',
       header: 'Total',
       render: (item: any) => (
-        <span className="font-display font-semibold text-on-surface">{formatCurrency(item.total_amount)}</span>
+        <span className="font-sans font-semibold text-ink">{formatCurrency(item.total_amount)}</span>
       ),
     },
     {
       key: 'due_date',
       header: 'Vencimiento',
       render: (item: any) => (
-        <span className="text-sm text-on-surface-variant">{formatDate(item.due_date)}</span>
+        <span className="text-sm text-ink-3">{formatDate(item.due_date)}</span>
       ),
     },
     {
@@ -113,7 +113,7 @@ export default function BillingPage() {
           {item.status === 'sent' && (
             <button
               onClick={(e) => { e.stopPropagation(); handleMarkPaid(item.id) }}
-              className="p-1.5 rounded-lg text-success hover:bg-success-container/30 transition-all"
+              className="p-1.5 rounded-lg text-ok hover:bg-ok-container/30 transition-all"
               title="Marcar como pagada"
             >
               <CheckCircle className="w-4 h-4" />
@@ -127,8 +127,8 @@ export default function BillingPage() {
   return (
     <div>
       <Header
-        title="Facturacion"
-        subtitle="Gestion de facturas propias de Voltis Energia"
+        title="Facturación"
+        subtitle="Gestión de facturas propias de Voltis Energía"
         actions={
           <Button onClick={() => setShowModal(true)}>
             <Plus className="w-4 h-4" />
@@ -160,8 +160,8 @@ export default function BillingPage() {
               onClick={() => setFilter(f.key)}
               className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
                 filter === f.key
-                  ? 'gradient-primary text-white'
-                  : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container-high'
+                  ? 'bg-brand text-white'
+                  : 'bg-bg-2 text-ink-3 hover:bg-bg-2'
               }`}
             >
               {f.label}

@@ -9,65 +9,118 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Kinetic Precision Framework - Voltis Energia
+        // ─── Editorial + Instrumento — Voltis v2 ───────────────────────
+
+        // Raw neutrals (warm)
+        bg: '#FAFAF7',
+        'bg-2': '#F3F2EC',
+        ink: '#141413',
+        'ink-2': '#3B3B38',
+        'ink-3': '#6C6C66',
+        'ink-4': '#A6A59D',
+        line: '#E6E4DB',
+        'line-2': '#D2D0C4',
+        card: '#FFFFFF',
+
+        // Brand
+        brand: '#1F3A2E',
+        'brand-2': '#2F5C47',
+
+        // Volt accent
+        volt: '#C7F24A',
+        'volt-ink': '#1D2C0E',
+
+        // Semantic states (oklch-derived hex approximations)
+        ok: 'oklch(0.72 0.14 150)',
+        'ok-container': 'oklch(0.96 0.04 150)',
+        warn: 'oklch(0.72 0.14 75)',
+        'warn-container': 'oklch(0.96 0.04 75)',
+        err: 'oklch(0.65 0.17 25)',
+        'err-container': 'oklch(0.96 0.05 25)',
+        info: 'oklch(0.65 0.12 240)',
+        'info-container': 'oklch(0.96 0.04 240)',
+        neutral: 'oklch(0.55 0.01 100)',
+        'neutral-container': 'oklch(0.96 0.01 100)',
+
+        // ─── Legacy "Kinetic Precision" — kept for backward compat ──────
         primary: {
-          DEFAULT: '#001e40',
-          container: '#003366',
-          light: '#0a4a8a',
+          DEFAULT: '#1F3A2E',
+          container: '#2F5C47',
+          light: '#3D7A5F',
         },
         secondary: {
-          DEFAULT: '#006d43',
-          container: '#00a368',
-          light: '#00D084',
-          fixed_dim: '#31e193',
+          DEFAULT: '#1F3A2E',
+          container: '#2F5C47',
+          light: '#3D7A5F',
+          fixed_dim: '#C7F24A',
         },
         surface: {
-          DEFAULT: '#f8f9fb',
-          dim: '#e8eaed',
+          DEFAULT: '#FAFAF7',
+          dim: '#F3F2EC',
           container: {
-            lowest: '#ffffff',
-            low: '#f2f4f6',
-            DEFAULT: '#eceef0',
-            high: '#e2e4e7',
-            highest: '#d8dade',
+            lowest: '#FFFFFF',
+            low: '#F7F6F0',
+            DEFAULT: '#F3F2EC',
+            high: '#ECEAE0',
+            highest: '#E6E4DB',
           },
         },
         on: {
-          surface: '#191c1e',
-          'surface-variant': '#42474e',
-          primary: '#ffffff',
-          secondary: '#ffffff',
+          surface: '#141413',
+          'surface-variant': '#6C6C66',
+          primary: '#FFFFFF',
+          secondary: '#FFFFFF',
         },
         outline: {
-          DEFAULT: '#72787e',
-          variant: '#c2c7ce',
+          DEFAULT: '#A6A59D',
+          variant: '#E6E4DB',
         },
         error: {
-          DEFAULT: '#ba1a1a',
-          container: '#ffdad6',
+          DEFAULT: 'oklch(0.65 0.17 25)',
+          container: 'oklch(0.96 0.05 25)',
         },
         warning: {
-          DEFAULT: '#e8a317',
-          container: '#fff3d6',
+          DEFAULT: 'oklch(0.72 0.14 75)',
+          container: 'oklch(0.96 0.04 75)',
         },
         success: {
-          DEFAULT: '#006d43',
-          container: '#d4f5e4',
+          DEFAULT: 'oklch(0.72 0.14 150)',
+          container: 'oklch(0.96 0.04 150)',
         },
       },
+
       fontFamily: {
-        display: ['Manrope', 'sans-serif'],
-        body: ['Inter', 'sans-serif'],
+        // New system
+        sans: ['Geist', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ['Geist Mono', 'ui-monospace', 'monospace'],
+        serif: ['Instrument Serif', 'Georgia', 'serif'],
+        // Legacy names — kept for backward compat
+        display: ['Geist', 'ui-sans-serif', 'sans-serif'],
+        body: ['Geist', 'ui-sans-serif', 'sans-serif'],
       },
+
       borderRadius: {
-        'xl': '0.75rem',
-        '2xl': '1rem',
+        sm: '0.25rem',
+        DEFAULT: '0.375rem',
+        md: '0.5rem',
+        lg: '0.75rem',
+        xl: '1rem',
+        '2xl': '1.25rem',
         '3xl': '1.5rem',
       },
+
       boxShadow: {
-        'ambient': '0 20px 40px rgba(0, 30, 64, 0.06)',
-        'ambient-sm': '0 8px 20px rgba(0, 30, 64, 0.04)',
-        'ambient-lg': '0 30px 60px rgba(0, 30, 64, 0.08)',
+        // New — minimal, used only for modals/dropdowns
+        'ambient': '0 4px 24px 0 rgba(20,20,19,0.08)',
+        'ambient-sm': '0 1px 4px 0 rgba(20,20,19,0.06)',
+        'ambient-lg': '0 8px 40px 0 rgba(20,20,19,0.12)',
+        // Legacy names kept
+        'glass': '0 4px 24px 0 rgba(20,20,19,0.08)',
+      },
+
+      fontSize: {
+        // Label mono utility
+        'label-mono': ['0.6875rem', { lineHeight: '1rem', letterSpacing: '0.08em', fontWeight: '500' }],
       },
     },
   },

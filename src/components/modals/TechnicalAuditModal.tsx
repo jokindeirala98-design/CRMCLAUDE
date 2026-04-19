@@ -24,6 +24,8 @@ export function TechnicalAuditModal({ open, onClose, clientId, clientName }: Pro
   const [syncing, setSyncing] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [isSyncingSupply, setIsSyncingSupply] = useState(false)
+  const [syncingSupplyId, setSyncingSupplyId] = useState<string | null>(null)
+  const [syncError, setSyncError] = useState<string | null>(null)
   const autoSyncDone = useRef(false)
 
   const fetchData = useCallback(async () => {
@@ -56,25 +58,53 @@ export function TechnicalAuditModal({ open, onClose, clientId, clientName }: Pro
 
   const handleSync = useCallback(async () => {
     setSyncing(true)
+    setSyncError(null)
     try {
-      console.log('[TechnicalAuditModal] Syncing for client:', clientId)
       const res = await fetch('/api/sync-consumption', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ client_id: clientId }),
       })
       const data = await res.json()
-      console.log('[TechnicalAuditModal] Sync response:', data)
       if (data.success) {
         await fetchData()
-      } else if (data.error) {
-        console.error('[TechnicalAuditModal] Sync error:', data.error)
+      } else {
+        const msg = data.error || 'Error al cargar los datos'
+        setSyncError(msg)
+        console.error('[TechnicalAuditModal] Sync error:', msg)
       }
-    } catch (err) {
+    } catch (err: any) {
+      const msg = err?.message || 'Error de conexión al sincronizar'
+      setSyncError(msg)
       console.error('[TechnicalAuditModal] Sync exception:', err)
     }
     setSyncing(false)
   }, [clientId, fetchData])
+
+  const handleSyncSupplySips = useCallback(async (snapshotId: string, supplyId: string) => {
+    setIsSyncingSupply(true)
+    setSyncingSupplyId(snapshotId)
+    try {
+      const res = await fetch('/api/sync-supply-sips', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ supply_id: supplyId, snapshot_id: snapshotId }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        // Optimistic update: merge returned fields into the row
+        setRows(prev => prev.map(r =>
+          r.id === snapshotId ? { ...r, ...data.updated } : r
+        ))
+      } else {
+        console.warn('[TechnicalAuditModal] SIPS per-supply error:', data.error)
+      }
+    } catch (err) {
+      console.error('[TechnicalAuditModal] SIPS per-supply exception:', err)
+    }
+    setIsSyncingSupply(false)
+    setSyncingSupplyId(null)
+  }, [])
 
   // Auto-sync: si el modal está abierto y no hay datos, sincronizar automáticamente (solo una vez)
   useEffect(() => {
@@ -140,10 +170,10 @@ export function TechnicalAuditModal({ open, onClose, clientId, clientName }: Pro
         <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-white z-10">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center">
-              <BarChart3 className="w-6 h-6 text-primary" />
+              <BarChart3 className="w-6 h-6 text-brand" />
             </div>
             <div>
-              <h2 className="font-display font-bold text-xl text-slate-900 leading-tight">
+              <h2 className="font-sans font-bold text-xl text-slate-900 leading-tight">
                 Estudios de Suministro
               </h2>
               <p className="text-sm text-slate-500 font-medium mt-0.5">
@@ -172,21 +202,24 @@ export function TechnicalAuditModal({ open, onClose, clientId, clientName }: Pro
         <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
           {loading ? (
             <div className="flex flex-col items-center justify-center py-24 gap-4">
-              <div className="w-12 h-12 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+              <div className="w-12 h-12 rounded-full border-2 border-brand border-t-transparent animate-spin" />
               <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">Cargando base técnica...</p>
             </div>
           ) : (
-            <TechnicalAuditTable 
+            <TechnicalAuditTable
               rows={rows}
               clientName={clientName}
               syncing={syncing}
               onSync={handleSync}
               onUpdateName={handleUpdateName}
+              onSyncSupplySips={handleSyncSupplySips}
               isSyncingSupply={isSyncingSupply}
+              syncingSupplyId={syncingSupplyId}
               onViewReport={handleViewFullReport}
               hasReport={!!report}
               onGenerateReport={handleGenerateReport}
               generating={generating}
+              syncError={syncError}
             />
           )}
         </div>

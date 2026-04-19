@@ -130,7 +130,7 @@ export default function EditClientPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen">
-        <div className="animate-spin w-8 h-8 border-2 border-secondary border-t-transparent rounded-full" />
+        <div className="animate-spin w-8 h-8 border-2 border-brand border-t-transparent rounded-full" />
       </div>
     )
   }
@@ -150,7 +150,7 @@ export default function EditClientPage() {
 
       <form onSubmit={handleSubmit} className="px-6 lg:px-8 pb-8 space-y-6 max-w-4xl">
         <Card>
-          <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-4">
+          <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-4">
             Informacion basica
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -169,7 +169,7 @@ export default function EditClientPage() {
                 value={form.alias}
                 onChange={(e) => setForm((p) => ({ ...p, alias: e.target.value }))}
               />
-              <p className="mt-1 text-[11px] text-on-surface-variant/60">
+              <p className="mt-1 text-[11px] text-ink-3/60">
                 Nombre alternativo para buscar y mostrar en el CRM. El nombre oficial sigue siendo el de arriba.
               </p>
             </div>
@@ -201,16 +201,16 @@ export default function EditClientPage() {
 
         {/* Documents: CIF, NIF, IBAN */}
         <Card>
-          <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-4">
+          <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-4">
             Documentacion
           </h3>
           <div className="space-y-6">
             <div>
-              <p className="text-sm font-semibold text-on-surface mb-3">CIF</p>
+              <p className="text-sm font-semibold text-ink mb-3">CIF</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input
                   id="cif"
-                  label="Numero CIF"
+                  label="Número CIF"
                   placeholder="Ej: B12345678"
                   value={form.cif}
                   onChange={(e) => setForm((p) => ({ ...p, cif: e.target.value.toUpperCase() }))}
@@ -227,14 +227,14 @@ export default function EditClientPage() {
               </div>
             </div>
 
-            <div className="border-t border-outline-variant/20" />
+            <div className="border-t border-line-2-variant/20" />
 
             <div>
-              <p className="text-sm font-semibold text-on-surface mb-3">NIF</p>
+              <p className="text-sm font-semibold text-ink mb-3">NIF</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input
                   id="nif"
-                  label="Numero NIF"
+                  label="Número NIF"
                   placeholder="Ej: 12345678A"
                   value={form.nif}
                   onChange={(e) => setForm((p) => ({ ...p, nif: e.target.value.toUpperCase() }))}
@@ -251,14 +251,14 @@ export default function EditClientPage() {
               </div>
             </div>
 
-            <div className="border-t border-outline-variant/20" />
+            <div className="border-t border-line-2-variant/20" />
 
             <div>
-              <p className="text-sm font-semibold text-on-surface mb-3">Certificado de titularidad bancaria (IBAN)</p>
+              <p className="text-sm font-semibold text-ink mb-3">Certificado de titularidad bancaria (IBAN)</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input
                   id="iban"
-                  label="Numero IBAN"
+                  label="Número IBAN"
                   placeholder="Ej: ES91 2100 0418 4502 0005 1332"
                   value={form.iban}
                   onChange={(e) => setForm((p) => ({ ...p, iban: e.target.value.toUpperCase() }))}
@@ -278,13 +278,13 @@ export default function EditClientPage() {
         </Card>
 
         <Card>
-          <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-4">
+          <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-4">
             Datos de contacto
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Input id="email" label="Email" type="email" value={form.email}
               onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))} />
-            <Input id="phone" label="Telefono" type="tel" value={form.phone}
+            <Input id="phone" label="Teléfono" type="tel" value={form.phone}
               onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))} />
             <div className="md:col-span-2">
               <Input id="fiscal_address" label="Direccion fiscal" value={form.fiscal_address}
@@ -294,7 +294,7 @@ export default function EditClientPage() {
         </Card>
 
         <Card>
-          <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-4">
+          <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-4">
             Asignacion
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -305,21 +305,21 @@ export default function EditClientPage() {
               <label className="flex items-center gap-3 cursor-pointer py-2.5">
                 <input type="checkbox" checked={form.marketing_consent}
                   onChange={(e) => setForm((p) => ({ ...p, marketing_consent: e.target.checked }))}
-                  className="w-5 h-5 rounded border-outline-variant accent-secondary" />
-                <span className="text-sm text-on-surface">Consentimiento marketing</span>
+                  className="w-5 h-5 rounded border-line accent-secondary" />
+                <span className="text-sm text-ink">Consentimiento marketing</span>
               </label>
             </div>
           </div>
         </Card>
 
         <Card>
-          <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-4">
+          <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-4">
             Notas
           </h3>
           <textarea value={form.notes}
             onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))}
             placeholder="Notas adicionales..." rows={3}
-            className="w-full px-4 py-2.5 bg-surface-container-high rounded-xl text-sm text-on-surface placeholder:text-on-surface-variant/50 outline-none transition-all duration-200 focus:focus-glow focus:bg-surface-container-lowest resize-none" />
+            className="w-full px-4 py-2.5 bg-bg-2 rounded-xl text-sm text-ink placeholder:text-ink-3/50 outline-none transition-all duration-200 focus:focus-glow focus:bg-card resize-none" />
         </Card>
 
         <div className="flex gap-3 justify-end pt-2">

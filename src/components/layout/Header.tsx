@@ -10,11 +10,9 @@ interface HeaderProps {
   hideMobile?: boolean
   /**
    * When provided, the title is rendered as an inline-editable field.
-   * Click on the title to start editing; press Enter or Save icon to persist.
-   * The callback receives the new value (may be empty string to clear).
+   * Click on the title to start editing; press Enter or the Save icon to persist.
    */
   onTitleSave?: (newValue: string) => Promise<void> | void
-  /** Optional placeholder shown in the input when editing and the field is empty. */
   titleEditPlaceholder?: string
   /** Render subtitle in monospace (useful for CUPS, account numbers). */
   subtitleMono?: boolean
@@ -54,8 +52,8 @@ export function Header({
   }
 
   return (
-    <header className={`sticky top-0 z-30 bg-surface/80 backdrop-blur-xl ${hideMobile ? 'hidden lg:block' : ''}`}>
-      <div className="flex items-center justify-between px-4 lg:px-8 py-3 lg:py-4">
+    <header className={`sticky top-0 z-30 bg-bg/80 backdrop-blur-xl border-b border-line/60 ${hideMobile ? 'hidden lg:block' : ''}`}>
+      <div className="flex items-center justify-between px-4 lg:px-6 py-3">
         <div className="min-w-0 flex-1">
           {editing ? (
             <div className="flex items-center gap-2">
@@ -70,12 +68,12 @@ export function Header({
                 }}
                 placeholder={titleEditPlaceholder}
                 disabled={saving}
-                className="font-display font-bold text-lg lg:text-2xl text-on-surface bg-transparent outline-none border-b-2 border-primary/40 focus:border-primary px-1 min-w-0 flex-1 max-w-2xl"
+                className="font-sans font-semibold text-lg lg:text-xl text-ink bg-transparent outline-none border-b border-ink/30 focus:border-ink px-0.5 min-w-0 flex-1 max-w-2xl"
               />
               <button
                 onClick={persist}
                 disabled={saving}
-                className="p-1.5 rounded-lg text-success hover:bg-success/10 transition"
+                className="p-1.5 rounded-md text-ok hover:bg-ok-container transition"
                 title="Guardar"
               >
                 <Check className="w-4 h-4" />
@@ -83,7 +81,7 @@ export function Header({
               <button
                 onClick={() => setEditing(false)}
                 disabled={saving}
-                className="p-1.5 rounded-lg text-error hover:bg-error/10 transition"
+                className="p-1.5 rounded-md text-err hover:bg-err-container transition"
                 title="Cancelar"
               >
                 <XIcon className="w-4 h-4" />
@@ -95,30 +93,27 @@ export function Header({
               className="group flex items-center gap-2 max-w-full text-left"
               title="Clic para renombrar"
             >
-              <h1 className="font-display font-bold text-lg lg:text-2xl text-on-surface truncate">
+              <h1 className="font-sans font-semibold text-lg lg:text-xl text-ink truncate">
                 {title}
               </h1>
-              <Pencil className="w-3.5 h-3.5 text-on-surface-variant/40 group-hover:text-primary flex-shrink-0 transition" />
+              <Pencil className="w-3 h-3 text-ink-4 group-hover:text-brand flex-shrink-0 transition" />
             </button>
           ) : (
-            <h1 className="font-display font-bold text-lg lg:text-2xl text-on-surface truncate">
+            <h1 className="font-sans font-semibold text-lg lg:text-xl text-ink truncate">
               {title}
             </h1>
           )}
           {subtitle && (
-            <p className={`text-xs lg:text-sm text-on-surface-variant mt-0.5 truncate ${subtitleMono ? 'font-mono' : ''}`}>
+            <p className={`text-xs text-ink-3 mt-0.5 truncate ${subtitleMono ? 'font-mono' : ''}`}>
               {subtitle}
             </p>
           )}
         </div>
 
-        <div className="flex items-center gap-2 lg:gap-3 ml-3">
-          {/* Notifications - hidden on mobile (shown in bottom nav) */}
-          <button className="hidden lg:flex relative w-10 h-10 items-center justify-center rounded-xl hover:bg-surface-container-high transition-all">
-            <Bell className="w-5 h-5 text-on-surface-variant" />
+        <div className="flex items-center gap-2 ml-3">
+          <button className="hidden lg:flex relative w-9 h-9 items-center justify-center rounded-lg hover:bg-line transition-all">
+            <Bell className="w-4.5 h-4.5 text-ink-3" />
           </button>
-
-          {/* Actions slot */}
           {actions}
         </div>
       </div>

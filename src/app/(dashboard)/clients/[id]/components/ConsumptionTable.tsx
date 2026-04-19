@@ -114,8 +114,8 @@ export default function ConsumptionTable({ rows, onRowUpdated, onRowDeleted }: P
     const conf = row.confidence_json as Record<string, string> | null
     if (!conf) return ''
     const level = conf[field]
-    if (level === 'baja') return 'bg-red-50'
-    if (level === 'media') return 'bg-amber-50'
+    if (level === 'baja') return 'bg-err-container/40'
+    if (level === 'media') return 'bg-warn-container/40'
     return ''
   }
 
@@ -124,7 +124,7 @@ export default function ConsumptionTable({ rows, onRowUpdated, onRowDeleted }: P
       type={type}
       value={(editValues as any)[field] ?? ''}
       onChange={e => setEditValues(prev => ({ ...prev, [field]: type === 'number' ? (e.target.value ? Number(e.target.value) : null) : e.target.value }))}
-      className={`${className} px-1.5 py-0.5 text-xs bg-surface-container-high rounded border border-outline-variant/30 outline-none focus:border-primary`}
+      className={`${className} px-1.5 py-0.5 text-xs bg-bg-2 rounded border border-line-2-variant/30 outline-none focus:border-brand`}
       step={type === 'number' ? '0.01' : undefined}
     />
   )
@@ -134,19 +134,19 @@ export default function ConsumptionTable({ rows, onRowUpdated, onRowDeleted }: P
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant" />
+          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-3" />
           <input
             type="text"
             placeholder="Buscar CUPS, direccion, comercializadora..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="w-full pl-8 pr-3 py-1.5 text-xs bg-surface-container-low rounded-lg border border-outline-variant/20 outline-none focus:border-primary"
+            className="w-full pl-8 pr-3 py-1.5 text-xs bg-bg-2 rounded-lg border border-line-2-variant/20 outline-none focus:border-brand"
           />
         </div>
         <select
           value={filterTariff}
           onChange={e => setFilterTariff(e.target.value)}
-          className="text-xs px-2.5 py-1.5 bg-surface-container-low rounded-lg border border-outline-variant/20 outline-none"
+          className="text-xs px-2.5 py-1.5 bg-bg-2 rounded-lg border border-line-2-variant/20 outline-none"
         >
           <option value="all">Todas las tarifas</option>
           {tariffs.map(t => <option key={t} value={t}>{t}</option>)}
@@ -154,23 +154,23 @@ export default function ConsumptionTable({ rows, onRowUpdated, onRowDeleted }: P
         <select
           value={filterType}
           onChange={e => setFilterType(e.target.value)}
-          className="text-xs px-2.5 py-1.5 bg-surface-container-low rounded-lg border border-outline-variant/20 outline-none"
+          className="text-xs px-2.5 py-1.5 bg-bg-2 rounded-lg border border-line-2-variant/20 outline-none"
         >
           <option value="all">Luz y Gas</option>
           <option value="luz">Solo Electricidad</option>
           <option value="gas">Solo Gas</option>
         </select>
-        <span className="text-xs text-on-surface-variant ml-auto">
+        <span className="text-xs text-ink-3 ml-auto">
           {filtered.length} de {rows.length} suministros
         </span>
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto rounded-lg border border-outline-variant/15">
+      <div className="overflow-x-auto rounded-lg border border-line-2-variant/15">
         <table className="w-full text-xs">
           <thead>
-            <tr className="bg-surface-container-low text-on-surface-variant">
-              <th className="sticky left-0 bg-surface-container-low z-10 px-3 py-2 text-left font-semibold cursor-pointer" onClick={() => toggleSort('cups')}>
+            <tr className="bg-bg-2 text-ink-3">
+              <th className="sticky left-0 bg-bg-2 z-10 px-3 py-2 text-left font-semibold cursor-pointer" onClick={() => toggleSort('cups')}>
                 <span className="flex items-center gap-1">CUPS <SortIcon field="cups" /></span>
               </th>
               <th className="px-3 py-2 text-left font-semibold cursor-pointer" onClick={() => toggleSort('tariff')}>
@@ -200,7 +200,7 @@ export default function ConsumptionTable({ rows, onRowUpdated, onRowDeleted }: P
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={13} className="text-center py-8 text-on-surface-variant">
+                <td colSpan={13} className="text-center py-8 text-ink-3">
                   No hay suministros que mostrar
                 </td>
               </tr>
@@ -211,11 +211,11 @@ export default function ConsumptionTable({ rows, onRowUpdated, onRowDeleted }: P
                 const total = rowTotal(row)
 
                 return (
-                  <tr key={row.id} className={`border-t border-outline-variant/10 hover:bg-surface-container-low/30 ${isEditing ? 'bg-primary/5' : ''} ${isDeleting ? 'bg-red-50' : ''}`}>
+                  <tr key={row.id} className={`border-t border-line-2-variant/10 hover:bg-bg-2/30 ${isEditing ? 'bg-primary/5' : ''} ${isDeleting ? 'bg-err-container/40' : ''}`}>
                     {/* CUPS */}
                     <td className={`sticky left-0 bg-white z-10 px-3 py-2 font-mono ${cellClass(row, 'cups')}`}>
                       {isEditing ? <EditInput field="cups" className="w-40" /> : (
-                        <span className="text-on-surface font-medium">{row.cups || '-'}</span>
+                        <span className="text-ink font-medium">{row.cups || '-'}</span>
                       )}
                     </td>
 
@@ -225,7 +225,7 @@ export default function ConsumptionTable({ rows, onRowUpdated, onRowDeleted }: P
                         <select
                           value={editValues.tariff || ''}
                           onChange={e => setEditValues(prev => ({ ...prev, tariff: e.target.value }))}
-                          className="text-xs px-1.5 py-0.5 bg-surface-container-high rounded border border-outline-variant/30"
+                          className="text-xs px-1.5 py-0.5 bg-bg-2 rounded border border-line-2-variant/30"
                         >
                           <option value="">-</option>
                           <option value="2.0TD">2.0TD</option>
@@ -238,10 +238,10 @@ export default function ConsumptionTable({ rows, onRowUpdated, onRowDeleted }: P
                         </select>
                       ) : (
                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                          row.tariff?.includes('2.0') ? 'bg-blue-50 text-blue-700' :
-                          row.tariff?.includes('3.0') ? 'bg-amber-50 text-amber-700' :
-                          row.tariff?.includes('6.1') ? 'bg-red-50 text-red-700' :
-                          row.tariff?.startsWith('RL') ? 'bg-purple-50 text-purple-700' :
+                          row.tariff?.includes('2.0') ? 'bg-info-container/40 text-info' :
+                          row.tariff?.includes('3.0') ? 'bg-warn-container/40 text-warn' :
+                          row.tariff?.includes('6.1') ? 'bg-err-container/40 text-err' :
+                          row.tariff?.startsWith('RL') ? 'bg-info-container/40 text-info' :
                           'bg-slate-50 text-slate-600'
                         }`}>
                           {row.tariff || '-'}
@@ -255,7 +255,7 @@ export default function ConsumptionTable({ rows, onRowUpdated, onRowDeleted }: P
                         <select
                           value={editValues.supply_type || ''}
                           onChange={e => setEditValues(prev => ({ ...prev, supply_type: e.target.value as 'luz' | 'gas' }))}
-                          className="text-xs px-1.5 py-0.5 bg-surface-container-high rounded border border-outline-variant/30"
+                          className="text-xs px-1.5 py-0.5 bg-bg-2 rounded border border-line-2-variant/30"
                         >
                           <option value="luz">Electricidad</option>
                           <option value="gas">Gas</option>
@@ -276,7 +276,7 @@ export default function ConsumptionTable({ rows, onRowUpdated, onRowDeleted }: P
                         {isEditing ? (
                           <EditInput field={field} type="number" className="w-16" />
                         ) : (
-                          <span className={row[field] != null ? 'text-on-surface' : 'text-on-surface-variant/30'}>
+                          <span className={row[field] != null ? 'text-ink' : 'text-ink-3/30'}>
                             {row[field] != null ? formatNumber(row[field]) : '-'}
                           </span>
                         )}
@@ -284,16 +284,16 @@ export default function ConsumptionTable({ rows, onRowUpdated, onRowDeleted }: P
                     ))}
 
                     {/* Total */}
-                    <td className="px-3 py-2 text-right font-semibold tabular-nums text-on-surface">
+                    <td className="px-3 py-2 text-right font-semibold tabular-nums text-ink">
                       {formatNumber(total)}
                     </td>
 
                     {/* Validation status */}
                     <td className="px-2 py-2 text-center">
                       <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                        row.validation_status === 'OK' ? 'bg-emerald-50 text-emerald-700' :
-                        row.validation_status === 'Revisar' ? 'bg-amber-50 text-amber-700' :
-                        'bg-red-50 text-red-700'
+                        row.validation_status === 'OK' ? 'bg-ok-container/40 text-ok' :
+                        row.validation_status === 'Revisar' ? 'bg-warn-container/40 text-warn' :
+                        'bg-err-container/40 text-err'
                       }`}>
                         {row.validation_status}
                       </span>
@@ -303,24 +303,24 @@ export default function ConsumptionTable({ rows, onRowUpdated, onRowDeleted }: P
                     <td className="px-2 py-2 text-center">
                       {isEditing ? (
                         <div className="flex items-center justify-center gap-1">
-                          <button onClick={saveEdit} className="p-1 text-success hover:bg-success/10 rounded">
+                          <button onClick={saveEdit} className="p-1 text-ok hover:bg-success/10 rounded">
                             <Check className="w-3.5 h-3.5" />
                           </button>
-                          <button onClick={() => { setEditingId(null); setEditValues({}) }} className="p-1 text-error hover:bg-error/10 rounded">
+                          <button onClick={() => { setEditingId(null); setEditValues({}) }} className="p-1 text-err hover:bg-error/10 rounded">
                             <X className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       ) : isDeleting ? (
                         <div className="flex items-center justify-center gap-1">
-                          <button onClick={() => deleteRow(row.id)} className="px-1.5 py-0.5 text-[10px] bg-red-600 text-white rounded font-medium">Si</button>
+                          <button onClick={() => deleteRow(row.id)} className="px-1.5 py-0.5 text-[10px] bg-err text-white rounded font-medium">Si</button>
                           <button onClick={() => setDeletingId(null)} className="px-1.5 py-0.5 text-[10px] bg-slate-200 text-slate-600 rounded">No</button>
                         </div>
                       ) : (
                         <div className="flex items-center justify-center gap-0.5 opacity-0 group-hover:opacity-100 hover:opacity-100" style={{ opacity: 1 }}>
-                          <button onClick={() => startEdit(row)} className="p-1 text-on-surface-variant hover:text-primary hover:bg-primary/10 rounded" title="Editar">
+                          <button onClick={() => startEdit(row)} className="p-1 text-ink-3 hover:text-brand hover:bg-primary/10 rounded" title="Editar">
                             <Pencil className="w-3 h-3" />
                           </button>
-                          <button onClick={() => setDeletingId(row.id)} className="p-1 text-on-surface-variant hover:text-error hover:bg-error/10 rounded" title="Eliminar">
+                          <button onClick={() => setDeletingId(row.id)} className="p-1 text-ink-3 hover:text-err hover:bg-error/10 rounded" title="Eliminar">
                             <Trash2 className="w-3 h-3" />
                           </button>
                         </div>
