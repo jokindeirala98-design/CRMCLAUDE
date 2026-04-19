@@ -52,7 +52,7 @@ export function NewAppointmentModal({ open, onClose, onCreated, preselectedDate 
 
     const scheduledAt = new Date(`${form.scheduled_at}T${form.scheduled_time}:00`).toISOString()
     const supabase = createClient()
-    const { error } = await supabase.from('appointments').insert({
+    const { data: apt, error } = await supabase.from('appointments').insert({
       client_id: form.client_id,
       type: form.type,
       scheduled_at: scheduledAt,
@@ -60,9 +60,16 @@ export function NewAppointmentModal({ open, onClose, onCreated, preselectedDate 
       commercial_id: user?.id,
       status: 'scheduled',
       notes: form.notes || null,
-    })
+    }).select('id').single()
 
     if (!error) {
+      if (apt?.id) {
+        fetch('/api/google/sync-appointment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ appointmentId: apt.id }),
+        }).catch(() => {})
+      }
       onCreated()
       onClose()
     }

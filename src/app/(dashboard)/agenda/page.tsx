@@ -215,8 +215,13 @@ export default function AgendaPage() {
     if (newStatus === 'completed') updates.completed_at = new Date().toISOString()
     if (newStatus !== 'completed') updates.completed_at = null
     supabase.from('tasks').update(updates).eq('id', taskId).then(() => {
-      // Background refetch to keep in sync
       fetchTasks()
+      // Sync tasks briefing to Google Calendar
+      fetch('/api/google/sync-tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: selectedUserId || user?.id }),
+      }).catch(() => {})
     })
   }
 

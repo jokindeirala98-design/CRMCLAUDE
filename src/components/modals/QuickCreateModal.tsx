@@ -79,16 +79,26 @@ export function QuickCreateModal({ open, onClose, onCreated, date }: Props) {
     setLoading(true)
     const supabase = createClient()
     const scheduledAt = new Date(`${date}T${citaForm.time}:00`).toISOString()
-    const { error } = await supabase.from('appointments').insert({
+    const { data: apt, error } = await supabase.from('appointments').insert({
       client_id: citaForm.client_id,
       type: citaForm.type,
       scheduled_at: scheduledAt,
       location: citaForm.location || null,
       commercial_id: user?.id,
       status: 'scheduled',
-    })
+    }).select('id').single()
     setLoading(false)
-    if (!error) { onCreated(); onClose() }
+    if (!error) {
+      // Sync to Google Calendar (fire-and-forget)
+      if (apt?.id) {
+        fetch('/api/google/sync-appointment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ appointmentId: apt.id }),
+        }).catch(() => {})
+      }
+      onCreated(); onClose()
+    }
   }
 
   const handleCreateTarea = async (e: React.FormEvent) => {
@@ -117,7 +127,15 @@ export function QuickCreateModal({ open, onClose, onCreated, date }: Props) {
       sort_order: nextOrder,
     })
     setLoading(false)
-    if (!error) { onCreated(); onClose() }
+    if (!error) {
+      // Sync tasks briefing to Google Calendar (fire-and-forget)
+      fetch('/api/google/sync-tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user?.id }),
+      }).catch(() => {})
+      onCreated(); onClose()
+    }
   }
 
   if (!open) return null
