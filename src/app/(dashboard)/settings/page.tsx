@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { Save, UserPlus, Shield, Users, Key, ExternalLink, CheckCircle, AlertCircle, Trash2, RotateCw, Lock, Edit2, MessageCircle, Link2, Unlink, Copy, Check } from 'lucide-react'
+import { Save, UserPlus, Shield, Users, Key, ExternalLink, CheckCircle, AlertCircle, Trash2, RotateCw, Lock, Edit2, MessageCircle, Link2, Unlink, Copy, Check, CalendarDays } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
@@ -42,6 +42,10 @@ export default function SettingsPage() {
   // ── Telegram bot state ──
   const [telegramLink, setTelegramLink] = useState<any>(null)
   const [telegramLoading, setTelegramLoading] = useState(false)
+
+  // ── Google Calendar state ──
+  const [gcalConnected, setGcalConnected] = useState(false)
+  const [gcalLoading, setGcalLoading] = useState(false)
   const [linkCode, setLinkCode] = useState<string | null>(null)
   const [codeCopied, setCodeCopied] = useState(false)
 
@@ -100,6 +104,20 @@ export default function SettingsPage() {
     setTelegramLoading(false)
   }
 
+  const disconnectGcal = async () => {
+    setGcalLoading(true)
+    try {
+      const res = await fetch('/api/google/disconnect', { method: 'POST' })
+      if (res.ok) {
+        setGcalConnected(false)
+        toast('success', 'Google Calendar desvinculado')
+      }
+    } catch {
+      toast('error', 'Error al desvincular')
+    }
+    setGcalLoading(false)
+  }
+
   const copyCode = () => {
     if (!linkCode) return
     navigator.clipboard.writeText(`/start ${linkCode}`)
@@ -115,6 +133,28 @@ export default function SettingsPage() {
         phone: user.phone || '',
       })
       fetchTelegramLink()
+
+      // Check Google Calendar connection
+      const supabase = createClient()
+      supabase
+        .from('users_profile')
+        .select('google_refresh_token')
+        .eq('id', user.id)
+        .single()
+        .then(({ data }) => setGcalConnected(!!data?.google_refresh_token))
+
+      // Show success/error toast if redirected back from Google OAuth
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search)
+        if (params.get('gcal') === 'connected') {
+          setGcalConnected(true)
+          toast('success', '¡Google Calendar conectado correctamente!')
+          window.history.replaceState({}, '', window.location.pathname)
+        } else if (params.get('gcal') === 'error') {
+          toast('error', 'Error conectando Google Calendar. Inténtalo de nuevo.')
+          window.history.replaceState({}, '', window.location.pathname)
+        }
+      }
     }
 
     const fetchTeam = async () => {
@@ -502,6 +542,62 @@ export default function SettingsPage() {
                   </p>
                 </div>
               )}
+            </div>
+          )}
+        </Card>
+
+        {/* Google Calendar */}
+        <Card>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
+              <CalendarDays className="w-5 h-5 text-brand" />
+            </div>
+            <div>
+              <h3 className="font-sans font-semibold text-base text-ink">Google Calendar</h3>
+              <p className="text-xs text-ink-3">Sincroniza citas y tareas automáticamente con tu calendario</p>
+            </div>
+          </div>
+
+          {gcalConnected ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 p-3 bg-ok-container/40 rounded-xl">
+                <CheckCircle className="w-5 h-5 text-ok" />
+                <div>
+                  <p className="text-sm font-medium text-ok">Conectado</p>
+                  <p className="text-xs text-ok/80">Las citas y tareas se sincronizan automáticamente</p>
+                </div>
+              </div>
+              <div className="p-3 bg-bg-2 rounded-xl space-y-1.5 text-xs text-ink-3">
+                <p>✅ <b>Citas</b> → eventos individuales en Google Calendar con hora y ubicación</p>
+                <p>📋 <b>Tareas pendientes</b> → evento diario a las 8:00am con tu lista del día</p>
+              </div>
+              <button
+                onClick={disconnectGcal}
+                disabled={gcalLoading}
+                className="flex items-center gap-2 px-4 py-2 text-sm text-err hover:bg-err-container/40 rounded-lg transition-colors"
+              >
+                <Unlink className="w-4 h-4" />
+                Desvincular Google Calendar
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm text-ink-3">
+                Conecta tu cuenta de Google para que las citas y tareas del CRM aparezcan automáticamente en tu Google Calendar del móvil.
+              </p>
+              <div className="p-3 bg-bg-2 rounded-xl space-y-1.5 text-xs text-ink-3">
+                <p>📅 <b>Citas</b> → cada presentación, firma o seguimiento aparece como evento</p>
+                <p>📋 <b>Tareas</b> → evento diario a las 8:00am con todas tus tareas pendientes</p>
+                <p>🔄 <b>Automático</b> → se actualiza solo, incluso desde el bot de Telegram</p>
+              </div>
+              <a
+                href="/api/google/auth"
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-brand text-white rounded-xl text-sm font-semibold hover:bg-brand/90 transition-all"
+              >
+                <CalendarDays className="w-4 h-4" />
+                Conectar Google Calendar
+                <ExternalLink className="w-3 h-3 opacity-70" />
+              </a>
             </div>
           )}
         </Card>
