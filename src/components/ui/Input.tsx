@@ -14,7 +14,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
     return (
       <div className="space-y-1.5">
         {label && (
-          <label htmlFor={id} className="block text-sm font-medium text-on-surface">
+          <label htmlFor={id} className="block text-sm font-medium text-ink">
             {label}
           </label>
         )}
@@ -22,17 +22,17 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           id={id}
           ref={ref}
           className={cn(
-            'w-full px-4 py-2.5 bg-surface-container-high rounded-xl text-sm text-on-surface',
-            'placeholder:text-on-surface-variant/50 font-body',
-            'outline-none transition-all duration-200',
-            'focus:focus-glow focus:bg-surface-container-lowest',
-            error && 'ring-2 ring-error/40',
+            'w-full px-3.5 py-2.5 bg-bg-2 border border-line rounded-lg text-sm text-ink',
+            'placeholder:text-ink-4 font-sans',
+            'outline-none transition-all duration-150',
+            'focus:border-ink focus:bg-card focus:ring-0',
+            error && 'border-err focus:border-err',
             className
           )}
           {...props}
         />
-        {error && <p className="text-xs text-error font-medium">{error}</p>}
-        {hint && !error && <p className="text-xs text-on-surface-variant">{hint}</p>}
+        {error && <p className="text-xs text-err font-medium">{error}</p>}
+        {hint && !error && <p className="text-xs text-ink-3">{hint}</p>}
       </div>
     )
   }
@@ -52,7 +52,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
     return (
       <div className="space-y-1.5">
         {label && (
-          <label htmlFor={id} className="block text-sm font-medium text-on-surface">
+          <label htmlFor={id} className="block text-sm font-medium text-ink">
             {label}
           </label>
         )}
@@ -60,10 +60,10 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
           id={id}
           ref={ref}
           className={cn(
-            'w-full px-4 py-2.5 bg-surface-container-high rounded-xl text-sm text-on-surface',
-            'outline-none transition-all duration-200 font-body appearance-none',
-            'focus:focus-glow focus:bg-surface-container-lowest',
-            error && 'ring-2 ring-error/40',
+            'w-full px-3.5 py-2.5 bg-bg-2 border border-line rounded-lg text-sm text-ink',
+            'outline-none transition-all duration-150 font-sans appearance-none',
+            'focus:border-ink focus:bg-card',
+            error && 'border-err focus:border-err',
             className
           )}
           {...props}
@@ -76,7 +76,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
               ))
             : children}
         </select>
-        {error && <p className="text-xs text-error font-medium">{error}</p>}
+        {error && <p className="text-xs text-err font-medium">{error}</p>}
       </div>
     )
   }

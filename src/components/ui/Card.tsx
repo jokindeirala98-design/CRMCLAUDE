@@ -13,9 +13,9 @@ export function Card({ children, className, accent, onClick, ...rest }: CardProp
       {...rest}
       onClick={onClick}
       className={cn(
-        'bg-surface-container-lowest rounded-2xl p-5 shadow-ambient-sm transition-all duration-200',
-        accent && 'border-l-2 border-secondary',
-        onClick && 'cursor-pointer hover:shadow-ambient',
+        'bg-card rounded-xl border border-line p-5 transition-all duration-150',
+        accent && 'border-l-2 border-l-brand',
+        onClick && 'cursor-pointer hover:border-line-2 hover:shadow-ambient-sm',
         className
       )}
     >
@@ -37,12 +37,16 @@ export function StatCard({
   icon?: React.ElementType
   color?: 'default' | 'success' | 'warning' | 'error'
 }) {
-  const colorClasses = {
-    default: 'bg-surface-container-low text-primary',
-    success: 'bg-success-container text-success',
-    warning: 'bg-warning-container text-warning',
-    error: 'bg-error-container text-error',
+  const iconBg = {
+    default: 'bg-bg-2 text-ink-2',
+    success: 'bg-ok-container text-ok',
+    warning: 'bg-warn-container text-warn',
+    error:   'bg-err-container text-err',
   }
+
+  const changeBg = change?.startsWith('+')
+    ? 'bg-ok-container text-ok'
+    : 'bg-err-container text-err'
 
   return (
     <Card>
@@ -50,18 +54,18 @@ export function StatCard({
         <div>
           {change && (
             <span className={cn(
-              'inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-full mb-2',
-              change.startsWith('+') ? 'bg-success-container text-success' : 'bg-error-container text-error'
+              'inline-flex items-center text-xs font-semibold px-1.5 py-0.5 rounded mb-2',
+              changeBg
             )}>
               {change}
             </span>
           )}
-          <p className="text-sm text-on-surface-variant font-medium">{label}</p>
-          <p className="font-display font-bold text-2xl text-on-surface mt-1">{value}</p>
+          <p className="text-sm text-ink-3 font-medium">{label}</p>
+          <p className="font-sans font-bold text-2xl text-ink mt-1 tabular-nums">{value}</p>
         </div>
         {Icon && (
-          <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center', colorClasses[color])}>
-            <Icon className="w-5 h-5" />
+          <div className={cn('w-9 h-9 rounded-lg flex items-center justify-center shrink-0', iconBg[color])}>
+            <Icon className="w-4.5 h-4.5" />
           </div>
         )}
       </div>
