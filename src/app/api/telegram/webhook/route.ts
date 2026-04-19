@@ -518,10 +518,13 @@ async function handleDocumentFile(msg: TelegramMessage) {
     // (pre-migration) or if this is a non-album photo.
     if (mediaGroupId) {
       // Tag this page with its album id (silent fail if column not yet migrated)
-      supabase.from('telegram_inbox')
-        .update({ media_group_id: mediaGroupId })
-        .eq('id', insertedRow.id)
-        .catch(() => {})
+      // Note: Supabase query builder is PromiseLike (has .then) but NOT a full Promise
+      // (no .catch) — must use try/await or Promise.resolve().catch()
+      try {
+        await supabase.from('telegram_inbox')
+          .update({ media_group_id: mediaGroupId })
+          .eq('id', insertedRow.id)
+      } catch { /* ignore — column may not exist yet */ }
 
       // Run migration the first time an album photo is encountered
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
