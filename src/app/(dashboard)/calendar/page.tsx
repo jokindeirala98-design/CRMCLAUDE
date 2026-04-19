@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { NewAppointmentModal } from '@/components/modals/NewAppointmentModal'
+import { QuickCreateModal } from '@/components/modals/QuickCreateModal'
 import { createClient } from '@/lib/supabase/client'
 
 const DAYS = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom']
@@ -33,6 +34,7 @@ export default function CalendarPage() {
   const [currentDate, setCurrentDate] = useState(new Date())
   const [appointments, setAppointments] = useState<any[]>([])
   const [showModal, setShowModal] = useState(false)
+  const [showQuickModal, setShowQuickModal] = useState(false)
   const [selectedDay, setSelectedDay] = useState<any>(null)
   const [modalDate, setModalDate] = useState<string>('')
 
@@ -83,7 +85,7 @@ export default function CalendarPage() {
   const handleDayDoubleClick = (day: number) => {
     const dateStr = new Date(year, month, day).toISOString().split('T')[0]
     setModalDate(dateStr)
-    setShowModal(true)
+    setShowQuickModal(true)
   }
 
   // Upcoming appointments (next 7 days)
@@ -275,6 +277,16 @@ export default function CalendarPage() {
         }}
         onCreated={fetchAppointments}
         preselectedDate={modalDate}
+      />
+
+      <QuickCreateModal
+        open={showQuickModal}
+        onClose={() => {
+          setShowQuickModal(false)
+          setModalDate('')
+        }}
+        onCreated={fetchAppointments}
+        date={modalDate}
       />
     </div>
   )
