@@ -717,12 +717,13 @@ function ReExtractBanner({ invoices, onDone }: { invoices: InvoiceRow[]; onDone:
 
 // ─── FileTable View ──────────────────────────────────────────────────────────
 
-function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete }: {
+function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, authoritativeType }: {
   invoices: InvoiceRow[]
   onRescan?: (inv: InvoiceRow) => void
   onDelete?: (inv: InvoiceRow) => void
   busyRescan?: string | null
   busyDelete?: string | null
+  authoritativeType?: string
 }) {
   type RowDef = {
     key: string
@@ -735,7 +736,7 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete }: {
     indent?: boolean
   }
 
-  const isGas = isGasSupply(invoices, propSupplyType)
+  const isGas = isGasSupply(invoices, authoritativeType)
 
   // ── Common header rows (both luz & gas) ──
   const headerRows: RowDef[] = [
@@ -2287,6 +2288,7 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
           onDelete={handleDelete}
           busyRescan={busyRescan}
           busyDelete={busyDelete}
+          authoritativeType={propSupplyType}
         />
       ) : (
         <div className="flex flex-col items-center justify-center py-16 text-white/30 gap-3">
