@@ -584,6 +584,18 @@ A8. AUDAX / HOLALUZ / FACTOR ENERGÍA / ESCANDINAVA:
      en su precio comercial. En ese caso todo va a energia_comercializacion.
    - Verifica que la suma cuadre con el total.
 
+A9. SWAP ENERGÍA / SWAP ENERGIA:
+   - Comercializadora libre española. Facturas en español con diseño en dos páginas.
+   - CUPS y datos del contrato suelen aparecer en la SEGUNDA PÁGINA bajo el título
+     "DATOS DEL CONTRATO" o similar — busca en TODA la imagen, no solo en la cabecera.
+   - Tarifa 3.0TD habitual: 6 periodos de potencia (P1–P6) y 6 periodos de energía.
+   - Potencia: todos los periodos suelen tener la misma potencia contratada (ej. 69 kW).
+   - Energía: desglosada por periodo (P1/P2/P3/P4/P5/P6) en kWh y €/kWh.
+   - El precio de la energía suele mostrarse como "Término de energía Px = Y kWh × Z €/kWh".
+   - Si la factura tiene 2 páginas enviadas como imágenes separadas y estás viendo solo
+     una, extrae lo que puedas — el CUPS puede estar en la página no visible.
+   - Totales: "Total base imponible", "IVA 21%", "Total factura" o "Total a pagar".
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 B. PVPC VS. MERCADO LIBRE — CÓMO DISTINGUIRLOS Y EXTRAER
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

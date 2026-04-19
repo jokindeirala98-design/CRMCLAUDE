@@ -1837,9 +1837,9 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
 
                 <div className="grid grid-cols-2 gap-3 mb-4">
                   {/* Total Factura */}
-                  <div className="col-span-2 rounded-xl p-4 bg-info-container border border-info/20">
-                    <p className="text-info text-xs tracking-wider mb-1">TOTAL FACTURA</p>
-                    <p className="text-white text-2xl font-black">{fmt(bill.totalFactura)} €</p>
+                  <div className="col-span-2 rounded-xl p-4 bg-info-container border border-info/30">
+                    <p className="text-info text-xs font-semibold tracking-wider mb-1">TOTAL FACTURA</p>
+                    <p className="text-ink text-2xl font-black">{fmt(bill.totalFactura)} €</p>
                   </div>
 
                   {/* Energy by Period */}
@@ -1851,9 +1851,9 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
                         if (!spend || spend.eur === 0) return null
                         return (
                           <div key={p} className="text-center">
-                            <p className="text-white/30 text-[10px]">{p}</p>
+                            <p className="text-white/40 text-[10px] font-medium">{p}</p>
                             <p className={`text-sm font-bold ${spend.isEstimated ? 'text-yellow-400' : 'text-white'}`}>{fmt(spend.eur)} €</p>
-                            <p className="text-white/20 text-[10px]">{fmt(bill.kwhByPeriod[p], 0)} kWh</p>
+                            <p className="text-white/30 text-[10px]">{fmt(bill.kwhByPeriod[p], 0)} kWh</p>
                           </div>
                         )
                       })}
@@ -1862,21 +1862,21 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
 
                   {/* Power */}
                   <div className="rounded-xl p-4 bg-neutral-container border border-neutral/20">
-                    <p className="text-info text-xs tracking-wider mb-1">POTENCIA</p>
-                    <p className="text-white text-lg font-bold">{fmt(bill.potencia)} €</p>
+                    <p className="text-ink-3 text-xs font-semibold tracking-wider mb-1">POTENCIA</p>
+                    <p className="text-ink text-lg font-bold">{fmt(bill.potencia)} €</p>
                   </div>
 
                   {/* Taxes */}
-                  <div className="rounded-xl p-4 bg-ok-container border border-ok/20">
-                    <p className="text-ok text-xs tracking-wider mb-1">IMPUESTOS</p>
-                    <p className="text-white text-lg font-bold">{fmt(bill.impuestos)} €</p>
+                  <div className="rounded-xl p-4 bg-ok-container border border-ok/30">
+                    <p className="text-ok text-xs font-semibold tracking-wider mb-1">IMPUESTOS</p>
+                    <p className="text-ink text-lg font-bold">{fmt(bill.impuestos)} €</p>
                   </div>
 
                   {/* Others */}
                   {bill.otrosTotal > 0 && (
-                    <div className="col-span-2 rounded-xl p-4 bg-warn-container border border-warn/20">
-                      <p className="text-warn text-xs tracking-wider mb-1">OTROS CONCEPTOS</p>
-                      <p className="text-white text-lg font-bold">{fmt(bill.otrosTotal)} €</p>
+                    <div className="col-span-2 rounded-xl p-4 bg-warn-container border border-warn/30">
+                      <p className="text-warn text-xs font-semibold tracking-wider mb-1">OTROS CONCEPTOS</p>
+                      <p className="text-ink text-lg font-bold">{fmt(bill.otrosTotal)} €</p>
                     </div>
                   )}
                 </div>

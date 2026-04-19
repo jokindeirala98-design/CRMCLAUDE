@@ -488,17 +488,7 @@ async function handleDocumentFile(msg: TelegramMessage) {
 
     const now = Date.now()
 
-    // ── Process each file individually (even when part of a media group/album) ──
-    // Each photo is analyzed by Gemini independently.  Multi-page invoice merging
-    // is handled intelligently inside processTelegramInboxItem:
-    //   • If the page has a CUPS → found in step 5 (exact supply match).
-    //   • If the page has no CUPS but same client → section 8b reuses/patches
-    //     an existing supply (no-CUPS match OR recent-supply recency match).
-    // This correctly handles N photos from M different invoices in one album.
-    if (mediaGroupId) {
-      console.log(`[Telegram] Media group ${mediaGroupId}: processing page individually (recency-merge strategy)`)
-    }
-
+    // ── Acknowledgement debounce ──────────────────────────────────────────────
     const convo = await getConvo(chatId) || { step: 'idle', data: {}, expiresAt: 0 }
     const DEBOUNCE_MS = 5000
     const lastNotifAt = convo.data?.last_notif_at || 0
@@ -511,6 +501,95 @@ async function handleDocumentFile(msg: TelegramMessage) {
       await setConvo(chatId, convo.step, { ...(convo.data || {}), pending_file_count: fileCount })
     }
 
+    // ── Multi-page album support ──────────────────────────────────────────────
+    // Telegram albums (multiple photos sent together) arrive as separate webhook
+    // calls each with the same media_group_id.  For a 2-page invoice (e.g. CUPS
+    // on page 2, consumption data on page 1) we MUST send both pages to Gemini
+    // together; otherwise extraction is incomplete.
+    //
+    // Strategy:
+    //   1. Tag the inbox item with its media_group_id.
+    //   2. Wait 4 s for sibling pages to land in telegram_inbox.
+    //   3. Atomically claim all unclaimed pages for this group.
+    //   4. Whoever wins the claim downloads all pages and processes them together.
+    //   5. The loser (0 rows claimed) exits — it's already handled.
+    //
+    // Falls back gracefully to single-page if the DB columns don't exist yet
+    // (pre-migration) or if this is a non-album photo.
+    if (mediaGroupId) {
+      // Tag this page with its album id (silent fail if column not yet migrated)
+      supabase.from('telegram_inbox')
+        .update({ media_group_id: mediaGroupId })
+        .eq('id', insertedRow.id)
+        .catch(() => {})
+
+      // Run migration the first time an album photo is encountered
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
+      fetch(`${appUrl}/api/migrate-telegram-album`, { method: 'POST' }).catch(() => {})
+
+      // Wait for sibling pages to be uploaded to Supabase storage + telegram_inbox
+      await new Promise(r => setTimeout(r, 4200))
+
+      try {
+        // Atomic claim: flip album_processed=true on ALL unclaimed rows for this group
+        const { data: claimedPages, error: claimError } = await supabase
+          .from('telegram_inbox')
+          .update({ album_processed: true })
+          .eq('media_group_id', mediaGroupId)
+          .eq('user_id', user.userId)
+          .eq('album_processed', false)
+          .select('id, file_url, file_type, created_at')
+
+        if (claimError) {
+          // Columns not yet available (migration pending) — process as single page
+          console.log(`[Telegram] Album claim failed (migration pending?): ${claimError.message}`)
+        } else if (!claimedPages || claimedPages.length === 0) {
+          // Another handler already claimed + is processing all pages — nothing to do
+          console.log(`[Telegram] Album ${mediaGroupId}: already claimed by sibling handler, skipping`)
+          return
+        } else if (claimedPages.length > 1) {
+          // We claimed multiple pages — download all and analyze together
+          console.log(`[Telegram] Album ${mediaGroupId}: claimed ${claimedPages.length} pages, merging`)
+
+          const sorted = [...claimedPages].sort((a, b) =>
+            new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+          )
+
+          const pageDataArr = await Promise.all(sorted.map(async (page) => {
+            if (page.id === insertedRow.id) {
+              // Current page — base64 already in memory
+              return { base64Data: base64, mimeType, inboxId: page.id }
+            }
+            // Download sibling page from Supabase storage
+            try {
+              const resp = await fetch(page.file_url)
+              if (!resp.ok) return null
+              const buf = await resp.arrayBuffer()
+              const b64 = Buffer.from(buf).toString('base64')
+              const mime = page.file_type === 'pdf' ? 'application/pdf' : 'image/jpeg'
+              return { base64Data: b64, mimeType: mime, inboxId: page.id }
+            } catch {
+              return null
+            }
+          }))
+
+          const validPages = pageDataArr.filter(Boolean) as Array<{ base64Data: string; mimeType: string; inboxId: string }>
+
+          if (validPages.length > 1) {
+            const [mainPage, ...restPages] = validPages
+            const extraPagesForGemini = restPages.map(p => ({ base64Data: p.base64Data, mimeType: p.mimeType }))
+            await processAndNotify(chatId, mainPage.inboxId, mainPage.base64Data, mainPage.mimeType, isTelegramPhoto, user, extraPagesForGemini, now)
+            return
+          }
+          // Fallthrough: only 1 valid page after downloads — process single
+        }
+        // else: claimed exactly 1 page (this one) — process normally below
+      } catch (albumErr: any) {
+        console.warn(`[Telegram] Album processing error, falling back to single page: ${albumErr.message}`)
+      }
+    }
+
+    // Single-page processing (non-album or album fallback)
     await processAndNotify(chatId, insertedRow.id, base64, mimeType, isTelegramPhoto, user, [], now)
 
   } catch (err: any) {

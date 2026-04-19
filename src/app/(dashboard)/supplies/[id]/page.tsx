@@ -521,15 +521,32 @@ export default function SupplyDetailPage() {
     const supabase = createClient()
     const newProgress: Record<string, 'uploading' | 'analyzing' | 'done' | 'error'> = {}
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i]
+    // ── Multi-page image grouping ────────────────────────────────────────────
+    // When a user selects multiple IMAGE files (e.g. 2 photos of a 2-page invoice),
+    // send them ALL to Gemini together so the CUPS on page 2 is found when the
+    // consumption data is on page 1.
+    // PDFs already support multiple pages natively, so each PDF = 1 invoice.
+    const fileArray = Array.from(files)
+    const isPdf = (f: File) => f.name.toLowerCase().endsWith('.pdf')
+    const imageFiles = fileArray.filter(f => !isPdf(f))
+    const pdfFiles = fileArray.filter(isPdf)
+
+    // Group: all images together as one multi-page invoice, each PDF separate
+    type InvoiceGroup = { files: File[]; isMultiPage: boolean }
+    const groups: InvoiceGroup[] = []
+    if (imageFiles.length > 0) groups.push({ files: imageFiles, isMultiPage: imageFiles.length > 1 })
+    for (const pdf of pdfFiles) groups.push({ files: [pdf], isMultiPage: false })
+
+    for (const group of groups) {
+      // Use the first file's id/path for the main invoice record
+      const file = group.files[0]
       const fileId = `${Date.now()}_${Math.random().toString(36).slice(2)}`
       const ext = file.name.split('.').pop()
       newProgress[fileId] = 'uploading'
       setUploadProgress({ ...newProgress })
 
       try {
-        // 1. Upload to Supabase Storage
+        // 1. Upload primary file to Supabase Storage
         const filePath = `invoices/${Date.now()}/${fileId}.${ext}`
         const { data: storageData, error: uploadError } = await supabase.storage
           .from('documents')
@@ -539,25 +556,40 @@ export default function SupplyDetailPage() {
         const { data: urlData } = supabase.storage.from('documents').getPublicUrl(storageData.path)
         const publicUrl = urlData.publicUrl
 
-        // 2. Analyze with Gemini
+        // 2. Analyze with Gemini (all pages in one request for multi-page groups)
         newProgress[fileId] = 'analyzing'
         setUploadProgress({ ...newProgress })
 
-        const fileType = file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image'
-        const base64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader()
-          reader.onload = () => {
-            const result = reader.result as string
-            resolve(result.split(',')[1])
-          }
-          reader.onerror = () => reject(new Error('Error leyendo archivo'))
-          reader.readAsDataURL(file)
-        })
+        const fileType = isPdf(file) ? 'pdf' : 'image'
+
+        const readBase64 = (f: File): Promise<string> =>
+          new Promise<string>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve((reader.result as string).split(',')[1])
+            reader.onerror = () => reject(new Error('Error leyendo archivo'))
+            reader.readAsDataURL(f)
+          })
+
+        const base64 = await readBase64(file)
+
+        // Build extra_pages for additional images in this group
+        const extraPages = group.isMultiPage
+          ? await Promise.all(group.files.slice(1).map(async (f) => ({
+              file_base64: await readBase64(f),
+              file_type: 'image',
+              file_name: f.name,
+            })))
+          : undefined
 
         const analyzeRes = await fetch('/api/analyze-invoice', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ file_base64: base64, file_type: fileType, file_name: file.name }),
+          body: JSON.stringify({
+            file_base64: base64,
+            file_type: fileType,
+            file_name: file.name,
+            ...(extraPages && extraPages.length > 0 ? { extra_pages: extraPages } : {}),
+          }),
         })
         const extractedData = await analyzeRes.json()
 
