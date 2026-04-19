@@ -29,6 +29,7 @@ interface PipelineBlock {
   label: string
   count: number
   color: string
+  textColor: string
 }
 
 interface TaskWithUser extends Omit<Task, 'assigned_user'> {
@@ -48,15 +49,15 @@ interface SubscriptionWithPlan extends Omit<Subscription, 'plan_tier'> {
 }
 
 // ---- Supply Status Config ----
-const SUPPLY_STATUS_CONFIG: Record<string, { label: string; color: string }> = {
-  primer_contacto: { label: 'Primer Contacto', color: 'bg-blue-100 text-blue-700' },
-  facturas_recibidas: { label: 'Facturas Recibidas', color: 'bg-cyan-100 text-cyan-700' },
-  prescoring_pendiente: { label: 'Prescoring Pendiente', color: 'bg-orange-100 text-orange-700' },
-  estudio_en_curso: { label: 'Estudio en Curso', color: 'bg-purple-100 text-purple-700' },
-  presentacion: { label: 'Presentación', color: 'bg-indigo-100 text-indigo-700' },
-  pte_firma: { label: 'Pte. Firma', color: 'bg-amber-100 text-amber-700' },
-  firmado: { label: 'Firmado', color: 'bg-emerald-100 text-emerald-700' },
-  suscrito: { label: 'Suscrito', color: 'bg-green-100 text-green-700' },
+const SUPPLY_STATUS_CONFIG: Record<string, { label: string; bg: string; text: string }> = {
+  primer_contacto:      { label: 'Primer contacto',     bg: 'bg-info-container',    text: 'text-info' },
+  facturas_recibidas:   { label: 'Facturas recibidas',   bg: 'bg-info-container',    text: 'text-info' },
+  prescoring_pendiente: { label: 'Prescoring pendiente', bg: 'bg-warn-container',    text: 'text-warn' },
+  estudio_en_curso:     { label: 'Estudio en curso',     bg: 'bg-warn-container',    text: 'text-warn' },
+  presentacion:         { label: 'Presentación',         bg: 'bg-neutral-container', text: 'text-neutral' },
+  pte_firma:            { label: 'Pte. firma',           bg: 'bg-warn-container',    text: 'text-warn' },
+  firmado:              { label: 'Firmado',              bg: 'bg-ok-container',      text: 'text-ok' },
+  suscrito:             { label: 'Suscrito',             bg: 'bg-ok-container',      text: 'text-ok' },
 }
 
 const PIPELINE_STATUSES = [
@@ -88,32 +89,6 @@ function getRelativeTime(date: string | Date): string {
   if (seconds < 86400) return `Hace ${Math.floor(seconds / 3600)}h`
   if (seconds < 604800) return `Hace ${Math.floor(seconds / 86400)}d`
   return formatDate(d)
-}
-
-function getPriorityColor(priority: string): string {
-  switch (priority) {
-    case 'high':
-      return 'bg-red-100 text-red-700'
-    case 'medium':
-      return 'bg-amber-100 text-amber-700'
-    case 'low':
-      return 'bg-green-100 text-green-700'
-    default:
-      return 'bg-gray-100 text-gray-700'
-  }
-}
-
-function getPriorityLabel(priority: string): string {
-  switch (priority) {
-    case 'high':
-      return 'Alta'
-    case 'medium':
-      return 'Media'
-    case 'low':
-      return 'Baja'
-    default:
-      return priority
-  }
 }
 
 // ---- Main Component ----
@@ -259,9 +234,7 @@ export default function PanelPage() {
   // Mark task as completed — optimistic: remove from UI instantly, DB in background
   const completeTask = (taskId: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    // Instant UI removal
     setTasks(prev => prev.filter(t => t.id !== taskId))
-    // Fire-and-forget DB update + refetch to backfill next tasks
     const supabase = createClient()
     supabase
       .from('tasks')
@@ -270,7 +243,6 @@ export default function PanelPage() {
       .then(() => fetchTasks())
   }
 
-  // Handle task click — if associated to client, navigate to client; otherwise open task in agenda
   const handleTaskClick = (task: TaskWithUser) => {
     if (task.related_entity_type === 'client' && task.related_entity_id) {
       router.push(`/clients/${task.related_entity_id}`)
@@ -284,7 +256,6 @@ export default function PanelPage() {
     const supabase = createClient()
 
     try {
-      // Fetch notifications
       const { data: notifsData } = await supabase
         .from('notifications')
         .select('*')
@@ -293,7 +264,6 @@ export default function PanelPage() {
         .order('created_at', { ascending: false })
         .limit(5)
 
-      // Fetch completed studies for the report cards
       const { data: studiesData } = await supabase
         .from('studies')
         .select(
@@ -321,21 +291,14 @@ export default function PanelPage() {
     }
   }, [user?.id])
 
-  // ── Dismiss notification (mark as read) ──
   const [dismissingIds, setDismissingIds] = useState<Set<string>>(new Set())
 
   const dismissNotification = (notifId: string, e: React.MouseEvent) => {
     e.stopPropagation()
     const notif = notifications.find(n => n.id === notifId)
-
-    // Instant UI removal
     setNotifications(prev => prev.filter(n => n.id !== notifId))
-
-    // Fire-and-forget DB updates
     const supabase = createClient()
     supabase.from('notifications').update({ read: true }).eq('id', notifId)
-
-    // If it's an estudio_completado notification, auto-transition supply to presentado
     if (notif?.type === 'estudio_completado' && (notif as any).metadata?.supply_id) {
       const supplyId = (notif as any).metadata.supply_id
       supabase
@@ -345,17 +308,12 @@ export default function PanelPage() {
     }
   }
 
-  // ── Dismiss completed study (mark as presented) — optimistic ──
   const dismissStudy = (study: any, e: React.MouseEvent) => {
     e.stopPropagation()
-
-    // Instant UI removal — both study cards and any matching notifications
     setCompletedStudies(prev => prev.filter(s => s.id !== study.id))
     setNotifications(prev => prev.filter(n =>
       !(n.type === 'estudio_completado' && (n as any).metadata?.supply_id === study.supply_id)
     ))
-
-    // Fire-and-forget DB updates
     const supabase = createClient()
     if (study.supply_id) {
       supabase
@@ -376,12 +334,12 @@ export default function PanelPage() {
     fetchNotifications()
   }, [fetchMetrics, fetchTasks, fetchNotifications])
 
-  // Metric cards configuration
+  // Metric cards config — colors map to semantic tokens
   const metricCards: MetricCard[] = [
     {
       label: 'Clientes',
       value: String(clientsCount),
-      subStat: `${clientTypes.empresa} empresas, ${clientTypes.particular} particulares`,
+      subStat: `${clientTypes.empresa} empresas · ${clientTypes.particular} particulares`,
       icon: Users,
       color: 'blue',
       href: '/clients',
@@ -389,13 +347,13 @@ export default function PanelPage() {
     {
       label: 'Suministros',
       value: String(suppliesCount),
-      subStat: `${supplySigned} firmados, ${supplyPending} pendientes`,
+      subStat: `${supplySigned} firmados · ${supplyPending} pendientes`,
       icon: Zap,
       color: 'violet',
       href: '/supplies',
     },
     {
-      label: 'Suscripciones Activas',
+      label: 'Suscripciones activas',
       value: String(activeSubscriptions),
       subStat: `MRR: ${formatCurrency(mrr)}`,
       icon: CreditCard,
@@ -405,71 +363,78 @@ export default function PanelPage() {
     {
       label: 'Facturación',
       value: formatCurrency(totalBilling),
-      subStat: `${pendingBilling > 0 ? formatCurrency(pendingBilling) : '0€'} pendientes`,
+      subStat: `${pendingBilling > 0 ? formatCurrency(pendingBilling) : '0 €'} pendientes`,
       icon: Euro,
       color: 'amber',
       href: '/billing',
     },
   ]
 
-  // Pipeline blocks
+  // Pipeline blocks — use semantic bg/text
   const pipelineBlocks: PipelineBlock[] = PIPELINE_STATUSES.map((status) => ({
     status,
     label: SUPPLY_STATUS_CONFIG[status]?.label || status,
     count: suppliesByStatus[status] || 0,
-    color: SUPPLY_STATUS_CONFIG[status]?.color || 'bg-gray-100 text-gray-700',
+    color: SUPPLY_STATUS_CONFIG[status]?.bg || 'bg-bg-2',
+    textColor: SUPPLY_STATUS_CONFIG[status]?.text || 'text-ink-3',
   })).filter((block) => block.count > 0)
 
   const totalInPipeline = pipelineBlocks.reduce((sum, block) => sum + block.count, 0)
 
-  // Color mapping for metric cards
-  const colorMap: Record<string, string> = {
-    blue: 'border-blue-200/30 hover:border-blue-300/50 bg-blue-50/40 hover:bg-blue-50/60 text-blue-600',
-    violet: 'border-violet-200/30 hover:border-violet-300/50 bg-violet-50/40 hover:bg-violet-50/60 text-violet-600',
-    green: 'border-green-200/30 hover:border-green-300/50 bg-green-50/40 hover:bg-green-50/60 text-green-600',
-    amber: 'border-amber-200/30 hover:border-amber-300/50 bg-amber-50/40 hover:bg-amber-50/60 text-amber-600',
+  // Metric card accent — semantic
+  const metricColorMap: Record<string, string> = {
+    blue:   'border-info/20   hover:border-info/40   bg-info-container/40   text-info',
+    violet: 'border-line-2    hover:border-ink-4/40  bg-bg-2                text-ink-2',
+    green:  'border-ok/20     hover:border-ok/40     bg-ok-container/40     text-ok',
+    amber:  'border-warn/20   hover:border-warn/40   bg-warn-container/40   text-warn',
+  }
+
+  // Task priority styles — semantic
+  const priorityStyles = (priority: string) => {
+    if (priority === 'high')   return { card: 'bg-err-container/50  border-err/30  hover:bg-err-container',  text: 'text-err',  check: 'border-err  hover:bg-err' }
+    if (priority === 'medium') return { card: 'bg-warn-container/50 border-warn/30 hover:bg-warn-container', text: 'text-warn', check: 'border-warn hover:bg-warn' }
+    return                            { card: 'bg-ok-container/50   border-ok/30   hover:bg-ok-container',   text: 'text-ok',   check: 'border-ok   hover:bg-ok' }
   }
 
   return (
-    <div className="min-h-screen bg-surface">
+    <div className="min-h-screen bg-bg">
       <Header title="Panel" subtitle="Vista general" />
 
-      <main className="px-4 lg:px-8 py-6 lg:py-8 max-w-7xl mx-auto">
+      <main className="px-4 lg:px-6 py-6 max-w-7xl mx-auto">
         <AnimatePresence mode="wait">
-          {/* SECTION 1: Main Metric Cards */}
+
+          {/* SECTION 1: Metric Cards */}
           <motion.div
             key="metrics"
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            transition={{ duration: 0.3 }}
-            className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8"
+            transition={{ duration: 0.2 }}
+            className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6"
           >
             {metricCards.map((card, idx) => {
               const Icon = card.icon
-              const colorClass = colorMap[card.color]
               return (
                 <motion.button
                   key={card.label}
-                  initial={{ opacity: 0, y: 20 }}
+                  initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.3, delay: idx * 0.1 }}
+                  transition={{ duration: 0.2, delay: idx * 0.06 }}
                   onClick={() => router.push(card.href)}
-                  className={`text-left p-6 rounded-2xl border transition-all duration-300 hover:scale-[1.02] active:scale-95 group cursor-pointer ${colorClass}`}
+                  className={`text-left p-5 rounded-xl border transition-all duration-200 hover:scale-[1.01] active:scale-95 group cursor-pointer ${metricColorMap[card.color]}`}
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-on-surface-variant mb-2 group-hover:text-on-surface transition-colors">
+                      <p className="text-xs font-medium text-ink-3 mb-2 group-hover:text-ink transition-colors">
                         {card.label}
                       </p>
-                      <h3 className="text-3xl font-bold text-on-surface mb-1 break-words">
-                        {loading ? '...' : card.value}
+                      <h3 className="text-3xl font-bold text-ink mb-1 tabular-nums">
+                        {loading ? '—' : card.value}
                       </h3>
-                      <p className="text-xs text-on-surface-variant line-clamp-2">
+                      <p className="text-xs text-ink-3 line-clamp-1">
                         {card.subStat}
                       </p>
                     </div>
-                    <Icon className="w-8 h-8 opacity-60 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                    <Icon className="w-7 h-7 opacity-50 group-hover:opacity-80 transition-opacity flex-shrink-0 mt-0.5" />
                   </div>
                 </motion.button>
               )
@@ -480,14 +445,13 @@ export default function PanelPage() {
           {pipelineBlocks.length > 0 && (
             <motion.div
               key="pipeline"
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              transition={{ duration: 0.3, delay: 0.4 }}
-              className="bg-white border border-outline-variant/20 rounded-2xl p-6 mb-8 shadow-ambient-sm"
+              transition={{ duration: 0.2, delay: 0.15 }}
+              className="bg-card border border-line rounded-xl p-5 mb-6"
             >
-              <h2 className="text-lg font-semibold text-on-surface mb-4">Pipeline de Suministros</h2>
-              <div className="flex gap-1 h-12 rounded-lg overflow-hidden bg-surface-container-low">
+              <h2 className="text-sm font-semibold text-ink mb-3">Pipeline de suministros</h2>
+              <div className="flex gap-0.5 h-9 rounded-lg overflow-hidden bg-bg-2">
                 {pipelineBlocks.map((block) => {
                   const percentage = (block.count / totalInPipeline) * 100
                   return (
@@ -495,47 +459,44 @@ export default function PanelPage() {
                       key={block.status}
                       initial={{ width: 0 }}
                       animate={{ width: `${percentage}%` }}
-                      transition={{ duration: 0.5, delay: 0.1 }}
-                      onClick={() => {
-                        router.push(`/supplies?status=${block.status}`)
-                      }}
-                      className={`${block.color} relative group flex items-center justify-center text-xs font-bold transition-all hover:opacity-90 cursor-pointer`}
+                      transition={{ duration: 0.4, delay: 0.05 }}
+                      onClick={() => router.push(`/supplies?status=${block.status}`)}
+                      className={`${block.color} relative group flex items-center justify-center text-xs font-bold transition-all hover:brightness-95 cursor-pointer`}
                       title={`${block.label}: ${block.count}`}
                     >
-                      <span className="text-white drop-shadow-md opacity-90 group-hover:opacity-100">
+                      <span className={`${block.textColor} font-mono text-[10px] font-semibold opacity-80 group-hover:opacity-100`}>
                         {block.count}
                       </span>
                     </motion.button>
                   )
                 })}
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
                 {pipelineBlocks.map((block) => (
                   <div key={block.status} className="text-xs">
-                    <p className="font-medium text-on-surface truncate">{block.label}</p>
-                    <p className="text-on-surface-variant">{block.count} suministros</p>
+                    <p className="font-medium text-ink truncate">{block.label}</p>
+                    <p className="text-ink-3">{block.count} suministros</p>
                   </div>
                 ))}
               </div>
             </motion.div>
           )}
 
-          {/* SECTION 3: Two Columns - Tasks & Notifications */}
+          {/* SECTION 3: Tasks & Activity */}
           <motion.div
             key="tasks-notifs"
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            transition={{ duration: 0.3, delay: 0.5 }}
-            className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8"
+            transition={{ duration: 0.2, delay: 0.2 }}
+            className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6"
           >
-            {/* Left Column: Tareas Prioritarias */}
-            <div className="bg-white border border-outline-variant/20 rounded-2xl p-6 shadow-ambient-sm">
+            {/* Tareas prioritarias */}
+            <div className="bg-card border border-line rounded-xl p-5">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-on-surface">Tareas Prioritarias</h2>
+                <h2 className="text-sm font-semibold text-ink">Tareas prioritarias</h2>
                 <button
                   onClick={() => router.push('/agenda')}
-                  className="text-xs text-primary hover:text-primary/80 font-semibold flex items-center gap-1 transition-colors"
+                  className="text-xs text-brand hover:text-brand-2 font-medium flex items-center gap-1 transition-colors"
                 >
                   Ver todas
                   <ChevronRight className="w-3 h-3" />
@@ -543,70 +504,43 @@ export default function PanelPage() {
               </div>
 
               {loadingTasks ? (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {[1, 2, 3].map((i) => (
-                    <div
-                      key={i}
-                      className="h-12 bg-surface-container-low rounded-lg animate-pulse"
-                    />
+                    <div key={i} className="h-11 bg-bg-2 rounded-lg animate-pulse" />
                   ))}
                 </div>
               ) : tasks.length === 0 ? (
                 <div className="py-8 text-center">
-                  <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-on-surface-variant/40" />
-                  <p className="text-sm text-on-surface-variant">No hay tareas pendientes</p>
+                  <CheckCircle2 className="w-7 h-7 mx-auto mb-2 text-ink-4" />
+                  <p className="text-sm font-medium text-ink-3">Aún no hay tareas pendientes</p>
+                  <p className="text-xs text-ink-4 mt-0.5">Estás al día.</p>
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {tasks.map((task) => {
-                    const priorityStyles = task.priority === 'high'
-                      ? 'bg-red-50 border-red-300 hover:bg-red-100'
-                      : task.priority === 'medium'
-                      ? 'bg-amber-50 border-amber-300 hover:bg-amber-100'
-                      : 'bg-green-50 border-green-300 hover:bg-green-100'
-                    const priorityText = task.priority === 'high'
-                      ? 'text-red-800'
-                      : task.priority === 'medium'
-                      ? 'text-amber-800'
-                      : 'text-green-800'
-                    const prioritySubtext = task.priority === 'high'
-                      ? 'text-red-600'
-                      : task.priority === 'medium'
-                      ? 'text-amber-600'
-                      : 'text-green-600'
-                    const checkColor = task.priority === 'high'
-                      ? 'border-red-400 hover:bg-red-400'
-                      : task.priority === 'medium'
-                      ? 'border-amber-400 hover:bg-amber-400'
-                      : 'border-green-400 hover:bg-green-400'
-
+                    const ps = priorityStyles(task.priority)
                     return (
                       <motion.div
                         key={task.id}
-                        initial={{ opacity: 0, x: -10 }}
+                        initial={{ opacity: 0, x: -8 }}
                         animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: 20, height: 0 }}
-                        className={`p-3 rounded-xl border cursor-pointer transition-all ${priorityStyles}`}
+                        exit={{ opacity: 0, x: 16, height: 0 }}
+                        className={`p-3 rounded-lg border cursor-pointer transition-all ${ps.card}`}
                         onClick={() => handleTaskClick(task)}
                       >
-                        <div className="flex items-start gap-3">
-                          {/* Mark as done button */}
+                        <div className="flex items-start gap-2.5">
                           <button
                             onClick={(e) => completeTask(task.id, e)}
-                            className={`mt-0.5 flex-shrink-0 w-5 h-5 rounded-full border-2 ${checkColor} flex items-center justify-center transition-all group/check`}
+                            className={`mt-0.5 flex-shrink-0 w-4.5 h-4.5 rounded-full border-2 ${ps.check} flex items-center justify-center transition-all group/check`}
                             title="Marcar como hecha"
                           >
-                            {dismissingIds.has(task.id) ? (
-                              <Loader2 className={`w-3 h-3 ${prioritySubtext} animate-spin`} />
-                            ) : (
-                              <Check className="w-3 h-3 text-transparent group-hover/check:text-white transition-colors" />
-                            )}
+                            <Check className="w-2.5 h-2.5 text-transparent group-hover/check:text-white transition-colors" />
                           </button>
                           <div className="flex-1 min-w-0">
-                            <p className={`text-sm font-semibold ${priorityText} line-clamp-1`}>
+                            <p className={`text-sm font-medium ${ps.text} line-clamp-1`}>
                               {task.title}
                             </p>
-                            <div className={`flex items-center gap-3 text-xs ${prioritySubtext} mt-0.5`}>
+                            <div className={`flex items-center gap-2 text-xs ${ps.text} opacity-70 mt-0.5`}>
                               {task.due_date && (
                                 <span className="flex items-center gap-1">
                                   <Clock className="w-3 h-3" />
@@ -618,7 +552,7 @@ export default function PanelPage() {
                               )}
                             </div>
                           </div>
-                          <ChevronRight className={`w-4 h-4 ${prioritySubtext} flex-shrink-0 mt-0.5`} />
+                          <ChevronRight className={`w-3.5 h-3.5 ${ps.text} opacity-50 flex-shrink-0 mt-0.5`} />
                         </div>
                       </motion.div>
                     )
@@ -627,13 +561,13 @@ export default function PanelPage() {
               )}
             </div>
 
-            {/* Right Column: Actividad Reciente */}
-            <div className="bg-white border border-outline-variant/20 rounded-2xl p-6 shadow-ambient-sm">
+            {/* Actividad reciente */}
+            <div className="bg-card border border-line rounded-xl p-5">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-on-surface">Actividad Reciente</h2>
+                <h2 className="text-sm font-semibold text-ink">Actividad reciente</h2>
                 <button
                   onClick={() => router.push('/notifications')}
-                  className="text-xs text-primary hover:text-primary/80 font-semibold flex items-center gap-1 transition-colors"
+                  className="text-xs text-brand hover:text-brand-2 font-medium flex items-center gap-1 transition-colors"
                 >
                   Ver todas
                   <ChevronRight className="w-3 h-3" />
@@ -642,47 +576,32 @@ export default function PanelPage() {
 
               {notifications.length === 0 && completedStudies.length === 0 ? (
                 <div className="py-8 text-center">
-                  <Activity className="w-8 h-8 mx-auto mb-2 text-on-surface-variant/40" />
-                  <p className="text-sm text-on-surface-variant">Sin actividad reciente</p>
+                  <Activity className="w-7 h-7 mx-auto mb-2 text-ink-4" />
+                  <p className="text-sm font-medium text-ink-3">Sin actividad reciente</p>
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-1.5">
                   {notifications.map((notif) => (
                     <motion.div
                       key={notif.id}
-                      initial={{ opacity: 0, x: -10 }}
+                      initial={{ opacity: 0, x: -8 }}
                       animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: 20, height: 0 }}
-                      className="p-3 bg-surface-container-low rounded-lg hover:bg-surface-container-high transition-colors cursor-pointer border border-transparent hover:border-outline-variant/20"
-                      onClick={() => {
-                        if (notif.link) {
-                          router.push(notif.link)
-                        }
-                      }}
+                      exit={{ opacity: 0, x: 16, height: 0 }}
+                      className="p-3 bg-bg-2 rounded-lg hover:bg-line/60 transition-colors cursor-pointer border border-transparent hover:border-line-2"
+                      onClick={() => { if (notif.link) router.push(notif.link) }}
                     >
-                      <div className="flex items-start gap-3">
-                        {/* Mark as done button */}
+                      <div className="flex items-start gap-2.5">
                         <button
                           onClick={(e) => dismissNotification(notif.id, e)}
-                          className="mt-0.5 flex-shrink-0 w-5 h-5 rounded-full border-2 border-amber-400 hover:bg-amber-400 hover:border-amber-400 flex items-center justify-center transition-all group/check"
+                          className="mt-0.5 flex-shrink-0 w-4.5 h-4.5 rounded-full border-2 border-warn hover:bg-warn flex items-center justify-center transition-all group/check"
                           title="Marcar como hecho"
                         >
-                          {dismissingIds.has(notif.id) ? (
-                            <Loader2 className="w-3 h-3 text-amber-400 animate-spin" />
-                          ) : (
-                            <Check className="w-3 h-3 text-transparent group-hover/check:text-white transition-colors" />
-                          )}
+                          <Check className="w-2.5 h-2.5 text-transparent group-hover/check:text-white transition-colors" />
                         </button>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-on-surface line-clamp-1">
-                            {notif.title}
-                          </p>
-                          <p className="text-xs text-on-surface-variant line-clamp-1">
-                            {notif.message}
-                          </p>
-                          <p className="text-xs text-on-surface-variant/60 mt-1">
-                            {getRelativeTime(notif.created_at)}
-                          </p>
+                          <p className="text-sm font-medium text-ink line-clamp-1">{notif.title}</p>
+                          <p className="text-xs text-ink-3 line-clamp-1">{notif.message}</p>
+                          <p className="text-[10px] text-ink-4 mt-0.5">{getRelativeTime(notif.created_at)}</p>
                         </div>
                       </div>
                     </motion.div>
@@ -691,39 +610,26 @@ export default function PanelPage() {
                   {completedStudies.map((study: any) => (
                     <motion.div
                       key={study.id}
-                      initial={{ opacity: 0, x: -10 }}
+                      initial={{ opacity: 0, x: -8 }}
                       animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: 20, height: 0 }}
-                      className="p-3 bg-green-50 rounded-lg hover:bg-green-100 transition-colors cursor-pointer border border-green-200/50 hover:border-green-300/50"
-                      onClick={() => {
-                        if (study.supply_id) {
-                          router.push(`/supplies/${study.supply_id}`)
-                        }
-                      }}
+                      exit={{ opacity: 0, x: 16, height: 0 }}
+                      className="p-3 bg-ok-container/50 rounded-lg hover:bg-ok-container transition-colors cursor-pointer border border-ok/20 hover:border-ok/40"
+                      onClick={() => { if (study.supply_id) router.push(`/supplies/${study.supply_id}`) }}
                     >
-                      <div className="flex items-start gap-3">
-                        {/* Mark as done button */}
+                      <div className="flex items-start gap-2.5">
                         <button
                           onClick={(e) => dismissStudy(study, e)}
-                          className="mt-0.5 flex-shrink-0 w-5 h-5 rounded-full border-2 border-green-500 hover:bg-green-500 hover:border-green-500 flex items-center justify-center transition-all group/check"
+                          className="mt-0.5 flex-shrink-0 w-4.5 h-4.5 rounded-full border-2 border-ok hover:bg-ok flex items-center justify-center transition-all group/check"
                           title="Marcar como presentado"
                         >
-                          {dismissingIds.has(study.id) ? (
-                            <Loader2 className="w-3 h-3 text-green-500 animate-spin" />
-                          ) : (
-                            <Check className="w-3 h-3 text-transparent group-hover/check:text-white transition-colors" />
-                          )}
+                          <Check className="w-2.5 h-2.5 text-transparent group-hover/check:text-white transition-colors" />
                         </button>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-green-900">
-                            Informes listos para {study.supply?.client?.name || 'cliente'}
+                          <p className="text-sm font-medium text-ink">
+                            Informes listos — {study.supply?.client?.name || 'cliente'}
                           </p>
-                          <p className="text-xs text-green-700 line-clamp-1">
-                            {study.supply?.cups || 'N/A'}
-                          </p>
-                          <p className="text-xs text-green-600/60 mt-1">
-                            {getRelativeTime(study.created_at)}
-                          </p>
+                          <p className="text-xs font-mono text-ink-3 line-clamp-1">{study.supply?.cups || 'N/A'}</p>
+                          <p className="text-[10px] text-ink-4 mt-0.5">{getRelativeTime(study.created_at)}</p>
                         </div>
                       </div>
                     </motion.div>
@@ -733,61 +639,52 @@ export default function PanelPage() {
             </div>
           </motion.div>
 
-          {/* SECTION 4: Report Notifications - Completed Studies */}
+          {/* SECTION 4: Report Notifications */}
           {completedStudies.length > 0 && (
             <motion.div
               key="reports"
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              transition={{ duration: 0.3, delay: 0.6 }}
-              className="space-y-3"
+              transition={{ duration: 0.2, delay: 0.25 }}
+              className="space-y-2"
             >
-              <h2 className="text-lg font-semibold text-on-surface mb-4">Reportes Disponibles</h2>
+              <h2 className="text-sm font-semibold text-ink mb-3">Informes disponibles</h2>
               {completedStudies.map((study: any) => (
                 <motion.div
                   key={study.id}
-                  initial={{ opacity: 0, y: 10 }}
+                  initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200/50 rounded-2xl p-6 shadow-ambient-sm hover:shadow-md transition-all cursor-pointer group"
-                  onClick={() => {
-                    if (study.supply_id) {
-                      router.push(`/supplies/${study.supply_id}`)
-                    }
-                  }}
+                  className="bg-ok-container border border-ok/20 rounded-xl p-5 hover:border-ok/40 transition-all cursor-pointer group"
+                  onClick={() => { if (study.supply_id) router.push(`/supplies/${study.supply_id}`) }}
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex items-start gap-3 flex-1 min-w-0">
-                      {/* Mark as done button */}
                       <button
                         onClick={(e) => dismissStudy(study, e)}
-                        className="mt-1 flex-shrink-0 w-6 h-6 rounded-full border-2 border-green-500 hover:bg-green-500 hover:border-green-500 flex items-center justify-center transition-all group/check"
+                        className="mt-0.5 flex-shrink-0 w-5 h-5 rounded-full border-2 border-ok hover:bg-ok flex items-center justify-center transition-all group/check"
                         title="Marcar como presentado"
                       >
-                        {dismissingIds.has(study.id) ? (
-                          <Loader2 className="w-3.5 h-3.5 text-green-500 animate-spin" />
-                        ) : (
-                          <Check className="w-3.5 h-3.5 text-transparent group-hover/check:text-white transition-colors" />
-                        )}
+                        <Check className="w-3 h-3 text-transparent group-hover/check:text-white transition-colors" />
                       </button>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-2">
-                          <FileBarChart2 className="w-5 h-5 text-green-600 flex-shrink-0" />
-                          <h3 className="font-semibold text-on-surface group-hover:text-primary transition-colors">
-                            Informes listos para {study.supply?.client?.name || 'cliente'}
+                        <div className="flex items-center gap-2 mb-1">
+                          <FileBarChart2 className="w-4 h-4 text-ok flex-shrink-0" />
+                          <h3 className="text-sm font-semibold text-ink">
+                            Informes listos — {study.supply?.client?.name || 'cliente'}
                           </h3>
                         </div>
-                        <p className="text-xs font-mono text-on-surface-variant">
+                        <p className="text-xs font-mono text-ink-3">
                           {study.supply?.cups || 'CUPS desconocido'}
                         </p>
                       </div>
                     </div>
-                    <ChevronRight className="w-6 h-6 text-on-surface-variant group-hover:text-primary group-hover:translate-x-1 transition-all flex-shrink-0" />
+                    <ChevronRight className="w-4 h-4 text-ink-3 group-hover:text-ink group-hover:translate-x-0.5 transition-all flex-shrink-0 mt-0.5" />
                   </div>
                 </motion.div>
               ))}
             </motion.div>
           )}
+
         </AnimatePresence>
       </main>
     </div>
