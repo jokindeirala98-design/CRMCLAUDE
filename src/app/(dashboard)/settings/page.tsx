@@ -160,72 +160,67 @@ export default function SettingsPage() {
     }
 
     setInvitationLoading(true)
-    const supabase = createClient()
 
     try {
-      const { error } = await supabase
-        .from('notifications')
-        .insert({
-          type: 'invitation',
-          user_id: user!.id,
-          title: `Invitación para ${inviteForm.full_name}`,
-          message: `Invitación enviada a ${inviteForm.email}`,
-          metadata: {
-            email: inviteForm.email,
-            full_name: inviteForm.full_name,
-            role: inviteForm.role,
-            permissions: inviteForm.permissions,
-          },
-        })
+      const res = await fetch('/api/invite-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: inviteForm.email,
+          full_name: inviteForm.full_name,
+          role: inviteForm.role,
+          permissions: inviteForm.permissions,
+        }),
+      })
 
-      if (error) throw error
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || 'Error al enviar invitación')
 
       toast('success', `Invitación enviada a ${inviteForm.email}`)
       setInviteForm({
         email: '',
         full_name: '',
         role: 'commercial',
-        permissions: {
-          prescorings: false,
-          billing: false,
-          reports: false,
-        },
+        permissions: { prescorings: false, billing: false, reports: false },
       })
 
-      // Refetch invitations
+      // Refetch team list to show the pre-created profile row
+      const supabase = createClient()
       const { data } = await supabase
-        .from('notifications')
+        .from('users_profile')
         .select('*')
-        .eq('type', 'invitation')
-        .order('created_at', { ascending: false })
-      setPendingInvitations(data || [])
-    } catch (error) {
-      toast('error', 'Error al enviar invitación')
+        .order('full_name')
+      setTeamMembers(data || [])
+    } catch (err: any) {
+      toast('error', err.message || 'Error al enviar invitación')
     } finally {
       setInvitationLoading(false)
     }
   }
 
-  const handleCancelInvitation = async (invitationId: string) => {
-    const supabase = createClient()
-
+  const handleResendInvitation = async (_invitationId: string, metadata: any) => {
+    // Re-send by hitting the invite API again (Supabase will resend the email)
     try {
-      const { error } = await supabase
-        .from('notifications')
-        .delete()
-        .eq('id', invitationId)
-
-      if (error) throw error
-
-      toast('success', 'Invitación cancelada')
-      setPendingInvitations((prev) => prev.filter((i) => i.id !== invitationId))
-    } catch (error) {
-      toast('error', 'Error al cancelar invitación')
+      const res = await fetch('/api/invite-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: metadata.email,
+          full_name: metadata.full_name,
+          role: metadata.role || 'commercial',
+          permissions: metadata.permissions || {},
+        }),
+      })
+      // 409 = already active account, that's fine for a resend
+      if (res.ok || res.status === 409) {
+        toast('success', `Invitación reenviada a ${metadata.email}`)
+      } else {
+        const result = await res.json()
+        toast('error', result.error || 'Error al reenviar')
+      }
+    } catch {
+      toast('error', 'Error al reenviar invitación')
     }
-  }
-
-  const handleResendInvitation = async (invitationId: string, metadata: any) => {
-    toast('success', `Invitación reenviada a ${metadata.email}`)
   }
 
   const startEditingPermissions = (userId: string, currentRole: string, currentPermissions: Record<string, boolean>) => {
@@ -307,9 +302,9 @@ export default function SettingsPage() {
       key: 'active',
       header: 'Estado',
       render: (item: any) => (
-        <Badge variant={item.active ? 'success' : 'error'}>
-          {item.active ? 'Activo' : 'Inactivo'}
-        </Badge>
+        item.active
+          ? <Badge variant="success">Activo</Badge>
+          : <Badge variant="warn">Invitado</Badge>
       ),
     },
     {
@@ -319,32 +314,36 @@ export default function SettingsPage() {
         if (editingUserId === item.id) {
           return (
             <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="primary"
-                onClick={() => handleSavePermissions(item.id)}
-              >
+              <Button size="sm" variant="primary" onClick={() => handleSavePermissions(item.id)}>
                 Guardar
               </Button>
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => setEditingUserId(null)}
-              >
+              <Button size="sm" variant="secondary" onClick={() => setEditingUserId(null)}>
                 Cancelar
               </Button>
             </div>
           )
         }
         return (
-          <Button
-            size="sm"
-            variant="tertiary"
-            onClick={() => startEditingPermissions(item.id, item.role, item.permissions || {})}
-          >
-            <Edit2 className="w-4 h-4" />
-            Editar permisos
-          </Button>
+          <div className="flex items-center gap-2">
+            {!item.active && (
+              <Button
+                size="sm"
+                variant="ghost"
+                title="Reenviar invitación"
+                onClick={() => handleResendInvitation(item.id, { email: item.email, full_name: item.full_name, role: item.role, permissions: item.permissions })}
+              >
+                <RotateCw className="w-4 h-4" />
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="tertiary"
+              onClick={() => startEditingPermissions(item.id, item.role, item.permissions || {})}
+            >
+              <Edit2 className="w-4 h-4" />
+              Editar permisos
+            </Button>
+          </div>
         )
       },
     },
@@ -589,23 +588,7 @@ export default function SettingsPage() {
           </Card>
         )}
 
-        {/* Pending Invitations (admin only) */}
-        {isAdmin() && pendingInvitations.length > 0 && (
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-sans font-semibold text-lg text-ink">Invitaciones pendientes</h2>
-            </div>
-            <Card>
-              <DataTable
-                columns={invitationColumns}
-                data={pendingInvitations}
-                keyExtractor={(item) => item.id}
-                loading={false}
-                emptyMessage="No hay invitaciones pendientes"
-              />
-            </Card>
-          </div>
-        )}
+        {/* Pending invitations are shown inline in the team table as "Invitado" status */}
 
         {/* Integrations (admin only) */}
         {isAdmin() && (
