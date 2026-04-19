@@ -19,11 +19,11 @@ import { motion, AnimatePresence } from 'framer-motion'
 import type { Notification, NotificationType } from '@/types/database'
 
 const typeConfig: Record<NotificationType, { icon: React.ElementType; color: string; bg: string }> = {
-  estudio_completado: { icon: FileSpreadsheet, color: 'text-green-600', bg: 'bg-green-50' },
-  prescoring_aprobado: { icon: CheckCircle2, color: 'text-green-600', bg: 'bg-green-50' },
-  prescoring_rechazado: { icon: XCircle, color: 'text-red-500', bg: 'bg-red-50' },
-  contrato_firmado: { icon: FileText, color: 'text-blue-600', bg: 'bg-blue-50' },
-  general: { icon: Bell, color: 'text-primary', bg: 'bg-primary/10' },
+  estudio_completado: { icon: FileSpreadsheet, color: 'text-ok', bg: 'bg-ok-container/40' },
+  prescoring_aprobado: { icon: CheckCircle2, color: 'text-ok', bg: 'bg-ok-container/40' },
+  prescoring_rechazado: { icon: XCircle, color: 'text-err', bg: 'bg-err-container/40' },
+  contrato_firmado: { icon: FileText, color: 'text-info', bg: 'bg-info-container/40' },
+  general: { icon: Bell, color: 'text-brand', bg: 'bg-primary/10' },
 }
 
 function timeAgo(dateStr: string): string {
@@ -81,7 +81,7 @@ export default function NotificationsPage() {
   const unreadCount = notifications.filter(n => !n.read).length
 
   return (
-    <div className="min-h-screen bg-surface">
+    <div className="min-h-screen bg-bg">
       <Header
         title="Notificaciones"
         subtitle={unreadCount > 0 ? `${unreadCount} sin leer` : 'Todo al dia'}
@@ -89,7 +89,7 @@ export default function NotificationsPage() {
           unreadCount > 0 ? (
             <button
               onClick={markAllRead}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-secondary bg-secondary/10 rounded-lg hover:bg-secondary/20 transition-all"
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-brand bg-secondary/10 rounded-lg hover:bg-secondary/20 transition-all"
             >
               <CheckCheck className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Marcar todo leido</span>
@@ -101,14 +101,14 @@ export default function NotificationsPage() {
       <div className="px-4 lg:px-6 pb-8">
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20">
-            <Loader2 className="w-6 h-6 text-primary animate-spin" />
+            <Loader2 className="w-6 h-6 text-brand animate-spin" />
           </div>
         ) : notifications.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-14 h-14 rounded-2xl bg-surface-container-low flex items-center justify-center mb-4">
-              <Bell className="w-7 h-7 text-on-surface-variant" />
+            <div className="w-14 h-14 rounded-2xl bg-bg-2 flex items-center justify-center mb-4">
+              <Bell className="w-7 h-7 text-ink-3" />
             </div>
-            <p className="text-sm text-on-surface-variant">Sin notificaciones</p>
+            <p className="text-sm text-ink-3">Sin notificaciones</p>
           </div>
         ) : (
           <div className="space-y-2">
@@ -125,8 +125,8 @@ export default function NotificationsPage() {
                     onClick={() => markAsRead(notif)}
                     className={`w-full flex items-start gap-3 p-4 rounded-xl text-left transition-all active:scale-[0.99] ${
                       notif.read
-                        ? 'bg-white hover:bg-surface-container-low/50'
-                        : 'bg-white border-l-4 border-secondary shadow-ambient-sm hover:bg-surface-container-low/30'
+                        ? 'bg-white hover:bg-bg-2/50'
+                        : 'bg-white border-l-4 border-brand shadow-ambient-sm hover:bg-bg-2/30'
                     }`}
                   >
                     <div className={`w-9 h-9 rounded-xl ${config.bg} flex items-center justify-center flex-shrink-0 mt-0.5`}>
@@ -134,19 +134,19 @@ export default function NotificationsPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2">
-                        <p className={`text-sm ${notif.read ? 'text-on-surface' : 'text-on-surface font-semibold'}`}>
+                        <p className={`text-sm ${notif.read ? 'text-ink' : 'text-ink font-semibold'}`}>
                           {notif.title}
                         </p>
-                        <span className="text-[10px] text-on-surface-variant whitespace-nowrap flex-shrink-0 mt-0.5">
+                        <span className="text-[10px] text-ink-3 whitespace-nowrap flex-shrink-0 mt-0.5">
                           {timeAgo(notif.created_at)}
                         </span>
                       </div>
-                      <p className="text-xs text-on-surface-variant mt-0.5 line-clamp-2">
+                      <p className="text-xs text-ink-3 mt-0.5 line-clamp-2">
                         {notif.message}
                       </p>
                     </div>
                     {!notif.read && (
-                      <div className="w-2 h-2 rounded-full bg-secondary flex-shrink-0 mt-2" />
+                      <div className="w-2 h-2 rounded-full bg-brand flex-shrink-0 mt-2" />
                     )}
                   </motion.button>
                 )

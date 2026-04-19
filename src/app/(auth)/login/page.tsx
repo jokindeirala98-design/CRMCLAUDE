@@ -37,19 +37,19 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex">
       {/* Left: Branding */}
-      <div className="hidden lg:flex lg:w-1/2 gradient-primary flex-col justify-between p-12">
+      <div className="hidden lg:flex lg:w-1/2 bg-brand flex-col justify-between p-12">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center">
             <Zap className="w-6 h-6 text-white" />
           </div>
-          <span className="font-display font-bold text-xl text-white">Voltis Energia</span>
+          <span className="font-sans font-bold text-xl text-white">Voltis Energia</span>
         </div>
 
         <div>
-          <h2 className="font-display font-bold text-4xl text-white leading-tight">
+          <h2 className="font-sans font-bold text-4xl text-white leading-tight">
             Gestion Energetica
             <br />
-            <span className="text-secondary-fixed_dim">Inteligente</span>
+            <span className="text-brand-fixed_dim">Inteligente</span>
           </h2>
           <p className="text-white/60 mt-4 text-lg max-w-md">
             Plataforma integral para la gestion de clientes, suministros y ahorro energetico.
@@ -62,20 +62,20 @@ export default function LoginPage() {
       </div>
 
       {/* Right: Login form */}
-      <div className="flex-1 flex items-center justify-center p-8 bg-surface">
+      <div className="flex-1 flex items-center justify-center p-8 bg-bg">
         <div className="w-full max-w-sm">
           {/* Mobile logo */}
           <div className="lg:hidden flex items-center gap-3 mb-10">
-            <div className="w-10 h-10 rounded-xl gradient-primary flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl bg-brand flex items-center justify-center">
               <Zap className="w-6 h-6 text-white" />
             </div>
-            <span className="font-display font-bold text-xl text-primary">Voltis Energia</span>
+            <span className="font-sans font-bold text-xl text-brand">Voltis Energia</span>
           </div>
 
-          <h1 className="font-display font-bold text-2xl text-on-surface">
+          <h1 className="font-sans font-bold text-2xl text-ink">
             Iniciar sesion
           </h1>
-          <p className="text-sm text-on-surface-variant mt-1 mb-8">
+          <p className="text-sm text-ink-3 mt-1 mb-8">
             Accede a tu panel de gestion
           </p>
 
@@ -100,8 +100,8 @@ export default function LoginPage() {
             />
 
             {error && (
-              <div className="bg-error-container rounded-xl px-4 py-2.5">
-                <p className="text-sm text-error font-medium">{error}</p>
+              <div className="bg-err-container rounded-xl px-4 py-2.5">
+                <p className="text-sm text-err font-medium">{error}</p>
               </div>
             )}
 

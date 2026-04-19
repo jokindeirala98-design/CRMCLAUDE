@@ -151,7 +151,7 @@ export default function NewClientPage() {
       <form onSubmit={handleSubmit} className="px-6 lg:px-8 pb-8 space-y-6 max-w-4xl">
         {/* Basic info */}
         <Card>
-          <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-4">
+          <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-4">
             Informacion basica
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -191,13 +191,13 @@ export default function NewClientPage() {
 
         {/* Documents: CIF, NIF, IBAN - each with text + file */}
         <Card>
-          <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-4">
+          <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-4">
             Documentacion
           </h3>
           <div className="space-y-6">
             {/* CIF */}
             <div>
-              <p className="text-sm font-semibold text-on-surface mb-3">CIF</p>
+              <p className="text-sm font-semibold text-ink mb-3">CIF</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input
                   id="cif"
@@ -219,11 +219,11 @@ export default function NewClientPage() {
             </div>
 
             {/* Divider */}
-            <div className="border-t border-outline-variant/20" />
+            <div className="border-t border-line-2-variant/20" />
 
             {/* NIF */}
             <div>
-              <p className="text-sm font-semibold text-on-surface mb-3">NIF</p>
+              <p className="text-sm font-semibold text-ink mb-3">NIF</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input
                   id="nif"
@@ -245,11 +245,11 @@ export default function NewClientPage() {
             </div>
 
             {/* Divider */}
-            <div className="border-t border-outline-variant/20" />
+            <div className="border-t border-line-2-variant/20" />
 
             {/* IBAN / Bank Certificate */}
             <div>
-              <p className="text-sm font-semibold text-on-surface mb-3">Certificado de titularidad bancaria (IBAN)</p>
+              <p className="text-sm font-semibold text-ink mb-3">Certificado de titularidad bancaria (IBAN)</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input
                   id="iban"
@@ -274,7 +274,7 @@ export default function NewClientPage() {
 
         {/* Contact info */}
         <Card>
-          <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-4">
+          <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-4">
             Datos de contacto
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -309,7 +309,7 @@ export default function NewClientPage() {
 
         {/* Assignment */}
         <Card>
-          <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-4">
+          <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-4">
             Asignacion
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -327,9 +327,9 @@ export default function NewClientPage() {
                   type="checkbox"
                   checked={form.marketing_consent}
                   onChange={(e) => updateField('marketing_consent', e.target.checked)}
-                  className="w-5 h-5 rounded border-outline-variant accent-secondary"
+                  className="w-5 h-5 rounded border-line accent-secondary"
                 />
-                <span className="text-sm text-on-surface">Consentimiento marketing</span>
+                <span className="text-sm text-ink">Consentimiento marketing</span>
               </label>
             </div>
           </div>
@@ -337,7 +337,7 @@ export default function NewClientPage() {
 
         {/* Notes */}
         <Card>
-          <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-4">
+          <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-4">
             Notas
           </h3>
           <textarea
@@ -345,7 +345,7 @@ export default function NewClientPage() {
             onChange={(e) => updateField('notes', e.target.value)}
             placeholder="Notas adicionales sobre el cliente..."
             rows={3}
-            className="w-full px-4 py-2.5 bg-surface-container-high rounded-xl text-sm text-on-surface placeholder:text-on-surface-variant/50 outline-none transition-all duration-200 focus:focus-glow focus:bg-surface-container-lowest resize-none"
+            className="w-full px-4 py-2.5 bg-bg-2 rounded-xl text-sm text-ink placeholder:text-ink-3/50 outline-none transition-all duration-200 focus:focus-glow focus:bg-card resize-none"
           />
         </Card>
 

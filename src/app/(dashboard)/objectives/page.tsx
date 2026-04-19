@@ -53,29 +53,29 @@ export default function ObjectivesPage() {
         {totalObjectives > 0 && (
           <div className="grid grid-cols-3 gap-4">
             <Card className="text-center">
-              <p className="text-xs text-on-surface-variant font-medium">Total</p>
-              <p className="font-display font-bold text-2xl text-on-surface">{totalObjectives}</p>
+              <p className="text-xs text-ink-3 font-medium">Total</p>
+              <p className="font-sans font-bold text-2xl text-ink">{totalObjectives}</p>
             </Card>
             <Card className="text-center">
-              <p className="text-xs text-on-surface-variant font-medium">En progreso</p>
-              <p className="font-display font-bold text-2xl text-primary">{inProgress}</p>
+              <p className="text-xs text-ink-3 font-medium">En progreso</p>
+              <p className="font-sans font-bold text-2xl text-brand">{inProgress}</p>
             </Card>
             <Card className="text-center">
-              <p className="text-xs text-success font-medium">Completados</p>
-              <p className="font-display font-bold text-2xl text-success">{completed}</p>
+              <p className="text-xs text-ok font-medium">Completados</p>
+              <p className="font-sans font-bold text-2xl text-ok">{completed}</p>
             </Card>
           </div>
         )}
 
         {loading ? (
           <div className="flex items-center justify-center py-20">
-            <div className="animate-spin w-6 h-6 border-2 border-secondary border-t-transparent rounded-full" />
+            <div className="animate-spin w-6 h-6 border-2 border-brand border-t-transparent rounded-full" />
           </div>
         ) : objectives.length === 0 ? (
           <Card className="text-center py-12">
-            <Target className="w-12 h-12 text-on-surface-variant/30 mx-auto mb-3" />
-            <p className="text-on-surface-variant">No hay objetivos definidos</p>
-            <p className="text-sm text-on-surface-variant/60 mt-1">
+            <Target className="w-12 h-12 text-ink-3/30 mx-auto mb-3" />
+            <p className="text-ink-3">No hay objetivos definidos</p>
+            <p className="text-sm text-ink-3/60 mt-1">
               Crea objetivos para que el equipo vea cuanto falta para llegar a la meta.
             </p>
             <Button className="mt-4" onClick={() => setShowModal(true)}>
@@ -101,14 +101,14 @@ export default function ObjectivesPage() {
                 <Card key={obj.id} className={isCompleted ? 'ring-1 ring-success/20' : ''}>
                   <div className="flex items-start justify-between mb-3">
                     <div>
-                      <h3 className="font-display font-semibold text-on-surface">{obj.title}</h3>
-                      <p className="text-xs text-on-surface-variant mt-0.5">
+                      <h3 className="font-sans font-semibold text-ink">{obj.title}</h3>
+                      <p className="text-xs text-ink-3 mt-0.5">
                         {formatDate(obj.period_start)} - {formatDate(obj.period_end)}
                         {daysLeft > 0 && daysLeft <= 14 && !isCompleted && (
-                          <span className="text-warning ml-2 font-medium">({daysLeft} dias restantes)</span>
+                          <span className="text-warn ml-2 font-medium">({daysLeft} dias restantes)</span>
                         )}
                         {daysLeft <= 0 && !isCompleted && (
-                          <span className="text-error ml-2 font-medium">(Vencido)</span>
+                          <span className="text-err ml-2 font-medium">(Vencido)</span>
                         )}
                       </p>
                     </div>
@@ -121,7 +121,7 @@ export default function ObjectivesPage() {
                   </div>
 
                   {/* Progress bar */}
-                  <div className="w-full bg-surface-container-high rounded-full h-3 mb-2 overflow-hidden">
+                  <div className="w-full bg-bg-2 rounded-full h-3 mb-2 overflow-hidden">
                     <div
                       className="h-3 rounded-full transition-all duration-700 ease-out"
                       style={{
@@ -137,22 +137,22 @@ export default function ObjectivesPage() {
 
                   <div className="flex items-baseline justify-between">
                     <div className="flex items-center gap-2">
-                      <span className="font-display font-bold text-xl text-on-surface">
+                      <span className="font-sans font-bold text-xl text-ink">
                         {obj.current_count}
                       </span>
-                      <span className="text-sm text-on-surface-variant">
+                      <span className="text-sm text-ink-3">
                         / {obj.target_count}
                       </span>
-                      <span className="text-xs text-on-surface-variant capitalize">
+                      <span className="text-xs text-ink-3 capitalize">
                         {obj.target_type}
                       </span>
                     </div>
                     {remaining > 0 ? (
-                      <span className="text-xs text-on-surface-variant">
-                        Faltan <strong className="text-primary">{remaining}</strong>
+                      <span className="text-xs text-ink-3">
+                        Faltan <strong className="text-brand">{remaining}</strong>
                       </span>
                     ) : (
-                      <div className="flex items-center gap-1 text-success">
+                      <div className="flex items-center gap-1 text-ok">
                         <TrendingUp className="w-3.5 h-3.5" />
                         <span className="text-xs font-semibold">Objetivo cumplido</span>
                       </div>

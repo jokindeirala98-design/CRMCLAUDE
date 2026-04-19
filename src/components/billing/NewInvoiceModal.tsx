@@ -105,14 +105,14 @@ export function NewInvoiceModal({ onClose, onCreated }: Props) {
       <motion.div
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="relative bg-surface-container-lowest rounded-2xl shadow-ambient-lg w-full max-w-lg max-h-[90vh] overflow-y-auto"
+        className="relative bg-card rounded-2xl shadow-ambient-lg w-full max-w-lg max-h-[90vh] overflow-y-auto"
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-surface-container-low">
-          <h2 className="font-display font-semibold text-lg text-on-surface">
+          <h2 className="font-sans font-semibold text-lg text-ink">
             Nueva Factura
           </h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-surface-container-high transition-all">
-            <X className="w-5 h-5 text-on-surface-variant" />
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-bg-2 transition-all">
+            <X className="w-5 h-5 text-ink-3" />
           </button>
         </div>
 
@@ -188,18 +188,18 @@ export function NewInvoiceModal({ onClose, onCreated }: Props) {
 
           {/* Preview */}
           {preview && (
-            <div className="bg-surface-container-low rounded-xl p-4 space-y-1">
+            <div className="bg-bg-2 rounded-xl p-4 space-y-1">
               <div className="flex justify-between text-sm">
-                <span className="text-on-surface-variant">Base imponible</span>
-                <span className="text-on-surface">{formatCurrency(preview.base)}</span>
+                <span className="text-ink-3">Base imponible</span>
+                <span className="text-ink">{formatCurrency(preview.base)}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-on-surface-variant">IVA ({form.vat_rate}%)</span>
-                <span className="text-on-surface">{formatCurrency(preview.vat)}</span>
+                <span className="text-ink-3">IVA ({form.vat_rate}%)</span>
+                <span className="text-ink">{formatCurrency(preview.vat)}</span>
               </div>
               <div className="flex justify-between text-sm font-semibold pt-2 border-t border-surface-container-high">
-                <span className="text-on-surface">Total</span>
-                <span className="font-display text-lg text-secondary">{formatCurrency(preview.total)}</span>
+                <span className="text-ink">Total</span>
+                <span className="font-sans text-lg text-brand">{formatCurrency(preview.total)}</span>
               </div>
             </div>
           )}

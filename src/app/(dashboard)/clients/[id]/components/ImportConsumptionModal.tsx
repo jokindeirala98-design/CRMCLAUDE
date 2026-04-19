@@ -43,12 +43,40 @@ export default function ImportConsumptionModal({ open, onClose, clientId, existi
   const parseExcel = async (file: File) => {
     setError(null)
     try {
-      // Dynamic import xlsx
-      const XLSX = await import('xlsx')
+      // Dynamic import exceljs (xlsx is not installed)
+      const ExcelJS = (await import('exceljs')).default
       const buffer = await file.arrayBuffer()
-      const wb = XLSX.read(buffer, { type: 'array' })
-      const ws = wb.Sheets[wb.SheetNames[0]]
-      const jsonData = XLSX.utils.sheet_to_json(ws, { defval: null }) as Record<string, any>[]
+      const wb = new ExcelJS.Workbook()
+      await wb.xlsx.load(buffer)
+      const ws = wb.worksheets[0]
+
+      if (!ws || ws.rowCount < 2) {
+        setError('El archivo Excel esta vacio o no tiene datos')
+        return
+      }
+
+      // Build header map from first row
+      const headerRow = ws.getRow(1)
+      const headers: string[] = []
+      headerRow.eachCell((cell, col) => {
+        headers[col] = String(cell.value ?? '').trim()
+      })
+
+      // Convert to array of objects keyed by header name
+      const jsonData: Record<string, any>[] = []
+      ws.eachRow((row, rowNumber) => {
+        if (rowNumber === 1) return
+        const obj: Record<string, any> = {}
+        row.eachCell((cell, col) => {
+          const key = headers[col]
+          if (key) {
+            const v = cell.value
+            // ExcelJS can return { text, hyperlink } for rich text — unwrap it
+            obj[key] = v && typeof v === 'object' && 'text' in v ? (v as any).text : v
+          }
+        })
+        if (Object.keys(obj).length > 0) jsonData.push(obj)
+      })
 
       if (jsonData.length === 0) {
         setError('El archivo Excel esta vacio')
@@ -167,12 +195,12 @@ export default function ImportConsumptionModal({ open, onClose, clientId, existi
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div className="bg-white rounded-2xl shadow-xl max-w-3xl w-full mx-4 max-h-[85vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-outline-variant/15">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-line-2-variant/15">
           <div className="flex items-center gap-3">
-            <FileSpreadsheet className="w-5 h-5 text-primary" />
-            <h2 className="font-display font-semibold text-on-surface">Importar consumos desde Excel</h2>
+            <FileSpreadsheet className="w-5 h-5 text-brand" />
+            <h2 className="font-sans font-semibold text-ink">Importar consumos desde Excel</h2>
           </div>
-          <button onClick={() => { onClose(); setStep('upload'); setParsedRows([]); setError(null) }} className="p-1 hover:bg-surface-container-high rounded">
+          <button onClick={() => { onClose(); setStep('upload'); setParsedRows([]); setError(null) }} className="p-1 hover:bg-bg-2 rounded">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -182,14 +210,14 @@ export default function ImportConsumptionModal({ open, onClose, clientId, existi
           {step === 'upload' && (
             <div className="space-y-4">
               <div
-                className="border-2 border-dashed border-outline-variant/30 rounded-xl p-8 text-center cursor-pointer hover:border-primary/40 hover:bg-primary/5 transition-all"
+                className="border-2 border-dashed border-line-2-variant/30 rounded-xl p-8 text-center cursor-pointer hover:border-primary/40 hover:bg-primary/5 transition-all"
                 onClick={() => fileRef.current?.click()}
                 onDragOver={e => e.preventDefault()}
                 onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) parseExcel(f) }}
               >
-                <Upload className="w-8 h-8 text-on-surface-variant/40 mx-auto mb-3" />
-                <p className="text-sm font-medium text-on-surface">Arrastra un archivo Excel o haz clic para seleccionar</p>
-                <p className="text-xs text-on-surface-variant mt-1">Formatos: .xlsx, .xls, .csv</p>
+                <Upload className="w-8 h-8 text-ink-3/40 mx-auto mb-3" />
+                <p className="text-sm font-medium text-ink">Arrastra un archivo Excel o haz clic para seleccionar</p>
+                <p className="text-xs text-ink-3 mt-1">Formatos: .xlsx, .xls, .csv</p>
               </div>
               <input
                 ref={fileRef}
@@ -200,19 +228,19 @@ export default function ImportConsumptionModal({ open, onClose, clientId, existi
               />
 
               {error && (
-                <div className="flex items-center gap-2 px-4 py-3 bg-red-50 rounded-lg text-sm text-red-700">
+                <div className="flex items-center gap-2 px-4 py-3 bg-err-container/40 rounded-lg text-sm text-err">
                   <AlertTriangle className="w-4 h-4 flex-shrink-0" />
                   {error}
                 </div>
               )}
 
-              <div className="bg-surface-container-low rounded-lg px-4 py-3">
-                <p className="text-xs font-semibold text-on-surface-variant mb-2">Columnas esperadas:</p>
-                <p className="text-xs text-on-surface-variant">
+              <div className="bg-bg-2 rounded-lg px-4 py-3">
+                <p className="text-xs font-semibold text-ink-3 mb-2">Columnas esperadas:</p>
+                <p className="text-xs text-ink-3">
                   CUPS (obligatorio), Tarifa, Tipo, Comercializadora, Direccion,
                   Potencia P1-P6, Consumo P1-P6, Consumo Total
                 </p>
-                <p className="text-[10px] text-on-surface-variant mt-1">
+                <p className="text-[10px] text-ink-3 mt-1">
                   Los nombres de columna son flexibles (ej: "cups", "CUPS", "punto_suministro" todos funcionan)
                 </p>
               </div>
@@ -222,20 +250,20 @@ export default function ImportConsumptionModal({ open, onClose, clientId, existi
           {step === 'preview' && (
             <div className="space-y-4">
               <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 rounded-lg">
-                  <Check className="w-3.5 h-3.5 text-emerald-600" />
-                  <span className="text-xs font-medium text-emerald-700">{parsedRows.length} suministros detectados</span>
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-ok-container/40 rounded-lg">
+                  <Check className="w-3.5 h-3.5 text-ok" />
+                  <span className="text-xs font-medium text-ok">{parsedRows.length} suministros detectados</span>
                 </div>
                 {matchedCount > 0 && (
-                  <span className="text-xs text-on-surface-variant">
+                  <span className="text-xs text-ink-3">
                     {matchedCount} existentes (se actualizaran) · {newCount} nuevos
                   </span>
                 )}
               </div>
 
-              <div className="overflow-x-auto max-h-60 rounded-lg border border-outline-variant/15">
+              <div className="overflow-x-auto max-h-60 rounded-lg border border-line-2-variant/15">
                 <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-surface-container-low">
+                  <thead className="sticky top-0 bg-bg-2">
                     <tr>
                       <th className="px-2 py-1.5 text-left font-semibold">CUPS</th>
                       <th className="px-2 py-1.5 text-left font-semibold">Tarifa</th>
@@ -252,7 +280,7 @@ export default function ImportConsumptionModal({ open, onClose, clientId, existi
                       const total = (row.consumo_p1 || 0) + (row.consumo_p2 || 0) + (row.consumo_p3 || 0) +
                         (row.consumo_p4 || 0) + (row.consumo_p5 || 0) + (row.consumo_p6 || 0)
                       return (
-                        <tr key={i} className="border-t border-outline-variant/10">
+                        <tr key={i} className="border-t border-line-2-variant/10">
                           <td className="px-2 py-1.5 font-mono">{row.cups.slice(0, 20)}</td>
                           <td className="px-2 py-1.5">{row.tariff || '-'}</td>
                           <td className="px-2 py-1.5 capitalize">{row.supply_type || '-'}</td>
@@ -264,7 +292,7 @@ export default function ImportConsumptionModal({ open, onClose, clientId, existi
                           </td>
                           <td className="px-2 py-1.5 text-center">
                             <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                              row.matchedExisting ? 'bg-blue-50 text-blue-700' : 'bg-emerald-50 text-emerald-700'
+                              row.matchedExisting ? 'bg-info-container/40 text-info' : 'bg-ok-container/40 text-ok'
                             }`}>
                               {row.matchedExisting ? 'Actualizar' : 'Nuevo'}
                             </span>
@@ -280,19 +308,19 @@ export default function ImportConsumptionModal({ open, onClose, clientId, existi
 
           {step === 'importing' && (
             <div className="py-8 text-center">
-              <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto mb-3" />
-              <p className="text-sm font-medium text-on-surface">Importando suministros...</p>
-              <div className="w-64 mx-auto mt-4 bg-surface-container-low rounded-full h-2 overflow-hidden">
-                <div className="h-full bg-primary transition-all rounded-full" style={{ width: `${progress}%` }} />
+              <Loader2 className="w-8 h-8 animate-spin text-brand mx-auto mb-3" />
+              <p className="text-sm font-medium text-ink">Importando suministros...</p>
+              <div className="w-64 mx-auto mt-4 bg-bg-2 rounded-full h-2 overflow-hidden">
+                <div className="h-full bg-brand transition-all rounded-full" style={{ width: `${progress}%` }} />
               </div>
-              <p className="text-xs text-on-surface-variant mt-2">{progress}%</p>
+              <p className="text-xs text-ink-3 mt-2">{progress}%</p>
             </div>
           )}
         </div>
 
         {/* Footer */}
         {step === 'preview' && (
-          <div className="px-6 py-4 border-t border-outline-variant/15 flex justify-end gap-2">
+          <div className="px-6 py-4 border-t border-line-2-variant/15 flex justify-end gap-2">
             <Button variant="secondary" onClick={() => { setStep('upload'); setParsedRows([]) }}>Volver</Button>
             <Button onClick={handleImport}>
               Importar {parsedRows.length} suministros

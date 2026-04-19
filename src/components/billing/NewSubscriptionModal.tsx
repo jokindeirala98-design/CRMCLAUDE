@@ -100,14 +100,14 @@ export function NewSubscriptionModal({ onClose, onCreated }: Props) {
       <motion.div
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="relative bg-surface-container-lowest rounded-2xl shadow-ambient-lg w-full max-w-lg max-h-[90vh] overflow-y-auto"
+        className="relative bg-card rounded-2xl shadow-ambient-lg w-full max-w-lg max-h-[90vh] overflow-y-auto"
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-surface-container-low">
-          <h2 className="font-display font-semibold text-lg text-on-surface">
+          <h2 className="font-sans font-semibold text-lg text-ink">
             Nueva Suscripcion
           </h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-surface-container-high transition-all">
-            <X className="w-5 h-5 text-on-surface-variant" />
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-bg-2 transition-all">
+            <X className="w-5 h-5 text-ink-3" />
           </button>
         </div>
 
@@ -122,7 +122,7 @@ export function NewSubscriptionModal({ onClose, onCreated }: Props) {
           />
 
           <div>
-            <label className="block text-sm font-medium text-on-surface mb-2">
+            <label className="block text-sm font-medium text-ink mb-2">
               Modelo de suscripcion
             </label>
             <div className="grid grid-cols-2 gap-3">
@@ -132,11 +132,11 @@ export function NewSubscriptionModal({ onClose, onCreated }: Props) {
                 className={`p-4 rounded-xl text-left transition-all ${
                   form.model === 'fixed'
                     ? 'bg-primary/5 ring-2 ring-secondary/40'
-                    : 'bg-surface-container-low hover:bg-surface-container-high'
+                    : 'bg-bg-2 hover:bg-bg-2'
                 }`}
               >
-                <p className="text-sm font-semibold text-on-surface">Suscripcion fija</p>
-                <p className="text-xs text-on-surface-variant mt-0.5">Cuota trimestral fija</p>
+                <p className="text-sm font-semibold text-ink">Suscripcion fija</p>
+                <p className="text-xs text-ink-3 mt-0.5">Cuota trimestral fija</p>
               </button>
               <button
                 type="button"
@@ -144,11 +144,11 @@ export function NewSubscriptionModal({ onClose, onCreated }: Props) {
                 className={`p-4 rounded-xl text-left transition-all ${
                   form.model === 'percentage'
                     ? 'bg-primary/5 ring-2 ring-secondary/40'
-                    : 'bg-surface-container-low hover:bg-surface-container-high'
+                    : 'bg-bg-2 hover:bg-bg-2'
                 }`}
               >
-                <p className="text-sm font-semibold text-on-surface">% del ahorro</p>
-                <p className="text-xs text-on-surface-variant mt-0.5">Porcentaje sobre ahorro generado</p>
+                <p className="text-sm font-semibold text-ink">% del ahorro</p>
+                <p className="text-xs text-ink-3 mt-0.5">Porcentaje sobre ahorro generado</p>
               </button>
             </div>
           </div>
@@ -174,7 +174,7 @@ export function NewSubscriptionModal({ onClose, onCreated }: Props) {
           )}
 
           <div>
-            <label className="block text-sm font-medium text-on-surface mb-2">
+            <label className="block text-sm font-medium text-ink mb-2">
               Modo de pago
             </label>
             <div className="grid grid-cols-2 gap-3">
@@ -184,11 +184,11 @@ export function NewSubscriptionModal({ onClose, onCreated }: Props) {
                 className={`p-4 rounded-xl text-left transition-all ${
                   form.payment_mode === 'quarterly'
                     ? 'bg-primary/5 ring-2 ring-secondary/40'
-                    : 'bg-surface-container-low hover:bg-surface-container-high'
+                    : 'bg-bg-2 hover:bg-bg-2'
                 }`}
               >
-                <p className="text-sm font-semibold text-on-surface">Trimestral</p>
-                <p className="text-xs text-on-surface-variant mt-0.5">Pago cada 3 meses</p>
+                <p className="text-sm font-semibold text-ink">Trimestral</p>
+                <p className="text-xs text-ink-3 mt-0.5">Pago cada 3 meses</p>
               </button>
               <button
                 type="button"
@@ -196,26 +196,26 @@ export function NewSubscriptionModal({ onClose, onCreated }: Props) {
                 className={`p-4 rounded-xl text-left transition-all ${
                   form.payment_mode === 'immediate'
                     ? 'bg-primary/5 ring-2 ring-secondary/40'
-                    : 'bg-surface-container-low hover:bg-surface-container-high'
+                    : 'bg-bg-2 hover:bg-bg-2'
                 }`}
               >
-                <p className="text-sm font-semibold text-on-surface">Pago unico anual</p>
-                <p className="text-xs text-on-surface-variant mt-0.5">Trimestral x4 + IVA</p>
+                <p className="text-sm font-semibold text-ink">Pago unico anual</p>
+                <p className="text-xs text-ink-3 mt-0.5">Trimestral x4 + IVA</p>
               </button>
             </div>
           </div>
 
           {/* Preview */}
           {previewAmount && (
-            <div className="bg-surface-container-low rounded-xl p-4">
-              <p className="text-xs text-on-surface-variant font-medium mb-2">
+            <div className="bg-bg-2 rounded-xl p-4">
+              <p className="text-xs text-ink-3 font-medium mb-2">
                 {form.payment_mode === 'quarterly' ? 'Cobro trimestral' : 'Cobro anual unico'}
               </p>
               <div className="flex items-baseline gap-2">
-                <span className="font-display font-bold text-2xl text-secondary">
+                <span className="font-sans font-bold text-2xl text-brand">
                   {formatCurrency(previewAmount.total)}
                 </span>
-                <span className="text-xs text-on-surface-variant">
+                <span className="text-xs text-ink-3">
                   (base {formatCurrency(previewAmount.base)} + IVA {formatCurrency(previewAmount.vat)})
                 </span>
               </div>

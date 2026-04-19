@@ -80,20 +80,20 @@ export function UploadProgress() {
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.8 }}
           onClick={() => setMinimized(false)}
-          className="pointer-events-auto flex items-center gap-2 px-3 py-2 bg-surface rounded-full shadow-ambient-lg border border-outline-variant/30 hover:bg-surface-container-low transition-colors"
+          className="pointer-events-auto flex items-center gap-2 px-3 py-2 bg-bg rounded-full shadow-ambient-lg border border-line-2-variant/30 hover:bg-bg-2 transition-colors"
         >
           <div className="relative w-6 h-6">
             <svg className="w-6 h-6 -rotate-90" viewBox="0 0 36 36">
               <circle cx="18" cy="18" r="15" fill="none" stroke="currentColor" strokeWidth="3" className="text-outline-variant/20" />
-              <circle cx="18" cy="18" r="15" fill="none" strokeWidth="3" className="text-secondary" stroke="currentColor"
+              <circle cx="18" cy="18" r="15" fill="none" strokeWidth="3" className="text-brand" stroke="currentColor"
                 strokeDasharray={`${globalPct * 0.94} 100`} strokeLinecap="round" style={{ transition: 'stroke-dasharray 0.5s ease' }}
               />
             </svg>
           </div>
-          <span className="text-xs font-medium text-on-surface">
+          <span className="text-xs font-medium text-ink">
             {activeJobs.length > 0 ? `${globalPct}%` : 'Listo'}
           </span>
-          <span className="text-[10px] text-on-surface-variant">
+          <span className="text-[10px] text-ink-3">
             {jobs.length} proyecto{jobs.length !== 1 ? 's' : ''}
           </span>
         </motion.button>
@@ -104,7 +104,7 @@ export function UploadProgress() {
           {jobs.length > 1 && (
             <button
               onClick={() => setMinimized(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1 bg-surface rounded-full shadow-md border border-outline-variant/30 text-[10px] text-on-surface-variant hover:bg-surface-container-low transition-colors"
+              className="flex items-center gap-1.5 px-2.5 py-1 bg-bg rounded-full shadow-md border border-line-2-variant/30 text-[10px] text-ink-3 hover:bg-bg-2 transition-colors"
             >
               <Minimize2 className="w-3 h-3" />
               Minimizar todo
@@ -206,7 +206,7 @@ function JobCard({
   
   if (isWaiting) {
     statusLabel = 'En cola...'
-    statusIcon = <Loader2 className="w-4 h-4 text-on-surface-variant/40" />
+    statusIcon = <Loader2 className="w-4 h-4 text-ink-3/40" />
   } else if (job.status === 'uploading') {
     statusLabel = uploading > 0 ? `Subiendo ${uploading} de ${total}...` : 'Iniciando subida...'
   } else if (job.status === 'analyzing') {
@@ -217,14 +217,14 @@ function JobCard({
     statusLabel = 'Finalizando proyecto...'
   } else if (isDone) {
     statusLabel = `${done} archivo${done !== 1 ? 's' : ''} procesado${done !== 1 ? 's' : ''}`
-    statusIcon = <CheckCircle2 className="w-4 h-4 text-success" />
+    statusIcon = <CheckCircle2 className="w-4 h-4 text-ok" />
   } else if (isError) {
     statusLabel = job.errorMessage || 'Error'
-    statusIcon = <AlertCircle className="w-4 h-4 text-error" />
+    statusIcon = <AlertCircle className="w-4 h-4 text-err" />
   }
 
-  const ringColor = isDone ? 'border-success/30' : isError ? 'border-error/30' : isWorking && !isWaiting ? 'border-secondary/30' : 'border-outline-variant/20'
-  const barColor = isDone ? 'bg-success' : isError ? 'bg-error' : isWaiting ? 'bg-outline-variant/30' : 'bg-secondary'
+  const ringColor = isDone ? 'border-success/30' : isError ? 'border-error/30' : isWorking && !isWaiting ? 'border-brand/30' : 'border-line-2-variant/20'
+  const barColor = isDone ? 'bg-ok' : isError ? 'bg-err' : isWaiting ? 'bg-outline-variant/30' : 'bg-brand'
 
   const isAutoDetectFail = isError && !job.clientId && job.errorMessage?.includes('detectar')
 
@@ -235,25 +235,25 @@ function JobCard({
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, x: 80, scale: 0.9 }}
       transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-      className={`bg-surface rounded-2xl shadow-ambient-lg border ${ringColor} overflow-hidden transition-colors`}
+      className={`bg-bg rounded-2xl shadow-ambient-lg border ${ringColor} overflow-hidden transition-colors`}
       style={{ width: expanded ? 340 : 260 }}
     >
       {/* Header */}
       <button
         onClick={onToggle}
-        className="w-full flex items-center gap-2.5 px-3.5 py-2.5 hover:bg-surface-container-low/50 transition-colors text-left"
+        className="w-full flex items-center gap-2.5 px-3.5 py-2.5 hover:bg-bg-2/50 transition-colors text-left"
       >
         <div className="relative flex-shrink-0">
           {isWorking ? (
             <svg className="w-8 h-8 -rotate-90" viewBox="0 0 36 36">
               <circle cx="18" cy="18" r="15" fill="none" stroke="currentColor" strokeWidth="3" className="text-outline-variant/20" />
               {!isWaiting && (
-                <circle cx="18" cy="18" r="15" fill="none" strokeWidth="3" className="text-secondary" stroke="currentColor"
+                <circle cx="18" cy="18" r="15" fill="none" strokeWidth="3" className="text-brand" stroke="currentColor"
                   strokeDasharray={`${pct * 0.94} 100`} strokeLinecap="round" style={{ transition: 'stroke-dasharray 0.5s ease' }}
                 />
               )}
               <text x="18" y="19" textAnchor="middle" dominantBaseline="middle"
-                className={`fill-on-surface text-[9px] font-bold ${isWaiting ? 'opacity-40' : ''}`}
+                className={`fill-ink text-[9px] font-bold ${isWaiting ? 'opacity-40' : ''}`}
                 style={{ transform: 'rotate(90deg)', transformOrigin: '18px 18px' }}
               >
                 {pct}
@@ -267,17 +267,17 @@ function JobCard({
         </div>
 
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold text-on-surface truncate">{job.clientName || 'Sin nombre'}</p>
-          <p className="text-[11px] text-on-surface-variant truncate">{statusLabel}</p>
+          <p className="text-xs font-semibold text-ink truncate">{job.clientName || 'Sin nombre'}</p>
+          <p className="text-[11px] text-ink-3 truncate">{statusLabel}</p>
         </div>
 
         <div className="flex items-center gap-1 flex-shrink-0">
           {expanded
-            ? <ChevronDown className="w-3.5 h-3.5 text-on-surface-variant" />
-            : <ChevronUp className="w-3.5 h-3.5 text-on-surface-variant" />}
+            ? <ChevronDown className="w-3.5 h-3.5 text-ink-3" />
+            : <ChevronUp className="w-3.5 h-3.5 text-ink-3" />}
           <button
             onClick={(e) => { e.stopPropagation(); onRemove() }}
-            className="p-1 rounded-lg text-on-surface-variant hover:text-error hover:bg-error-container/30 transition-all"
+            className="p-1 rounded-lg text-ink-3 hover:text-err hover:bg-err-container/30 transition-all"
           >
             <X className="w-3 h-3" />
           </button>
@@ -286,17 +286,17 @@ function JobCard({
 
       {/* Progress bar */}
       {isWorking && (
-        <div className="h-1 bg-surface-container-low">
+        <div className="h-1 bg-bg-2">
           <div className={`h-full ${barColor} transition-all duration-500 ease-out`} style={{ width: `${pct}%` }} />
         </div>
       )}
 
       {/* Manual Selection Fallback */}
       {isAutoDetectFail && !isSelecting && (
-        <div className="px-3.5 py-2.5 bg-error-container/10 border-t border-error/5">
+        <div className="px-3.5 py-2.5 bg-err-container/10 border-t border-error/5">
           <button
             onClick={(e) => { e.stopPropagation(); setIsSelecting(true) }}
-            className="w-full py-2 bg-error text-white rounded-xl text-[10px] font-bold uppercase tracking-wider hover:bg-error/90 transition-colors shadow-sm"
+            className="w-full py-2 bg-err text-white rounded-xl text-[10px] font-bold uppercase tracking-wider hover:bg-error/90 transition-colors shadow-sm"
           >
             Seleccionar Cliente Manualmente
           </button>
@@ -304,7 +304,7 @@ function JobCard({
       )}
 
       {isSelecting && (
-        <div className="p-3 bg-surface border-t border-outline-variant/20 pointer-events-auto">
+        <div className="p-3 bg-bg border-t border-line-2-variant/20 pointer-events-auto">
           <SearchableClientSelector
             clients={clients}
             value=""
@@ -314,7 +314,7 @@ function JobCard({
           />
           <button 
             onClick={() => setIsSelecting(false)}
-            className="w-full mt-2 py-1 text-[10px] text-on-surface-variant hover:text-on-surface"
+            className="w-full mt-2 py-1 text-[10px] text-ink-3 hover:text-ink"
           >
             Cancelar
           </button>
@@ -331,33 +331,33 @@ function JobCard({
             transition={{ duration: 0.2 }}
             className="overflow-hidden"
           >
-            <div className="px-3.5 py-2 max-h-48 overflow-y-auto space-y-1 border-t border-outline-variant/15">
+            <div className="px-3.5 py-2 max-h-48 overflow-y-auto space-y-1 border-t border-line-2-variant/15">
               {job.files.map((f) => (
                 <div key={f.id} className="flex items-center gap-2 py-0.5 text-[11px]">
-                  <FileText className="w-3 h-3 text-on-surface-variant flex-shrink-0" />
-                  <span className="flex-1 truncate text-on-surface">{f.file.name}</span>
+                  <FileText className="w-3 h-3 text-ink-3 flex-shrink-0" />
+                  <span className="flex-1 truncate text-ink">{f.file.name}</span>
                   
-                  {f.status === 'pending' && <span className="text-on-surface-variant opacity-50">Cola</span>}
-                  {f.status === 'uploading' && <span className="text-secondary animate-pulse">Subiendo...</span>}
-                  {f.status === 'classifying' && <span className="text-secondary">Escaneando...</span>}
-                  {f.status === 'analyzing' && <Loader2 className="w-3 h-3 animate-spin text-secondary flex-shrink-0" />}
+                  {f.status === 'pending' && <span className="text-ink-3 opacity-50">Cola</span>}
+                  {f.status === 'uploading' && <span className="text-brand animate-pulse">Subiendo...</span>}
+                  {f.status === 'classifying' && <span className="text-brand">Escaneando...</span>}
+                  {f.status === 'analyzing' && <Loader2 className="w-3 h-3 animate-spin text-brand flex-shrink-0" />}
                   
                   {f.status === 'done' && !f.error && (
                     <div className="flex items-center gap-1">
                        {f.extractedData?.documentType !== 'factura' && (
-                         <span className="px-1 py-0.5 bg-secondary/10 text-secondary rounded text-[8px] font-bold uppercase">
+                         <span className="px-1 py-0.5 bg-secondary/10 text-brand rounded text-[8px] font-bold uppercase">
                            {f.extractedData?.documentType || 'Doc'}
                          </span>
                        )}
-                       <Check className="w-3 h-3 text-success flex-shrink-0" />
+                       <Check className="w-3 h-3 text-ok flex-shrink-0" />
                     </div>
                   )}
                   {f.status === 'done' && f.error && (
                     <div className="flex items-center gap-1">
-                      <AlertCircle className="w-3 h-3 text-warning flex-shrink-0" />
+                      <AlertCircle className="w-3 h-3 text-warn flex-shrink-0" />
                       <button
                         onClick={(e) => { e.stopPropagation(); retryFile(job.id, f.id) }}
-                        className="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[9px] font-bold uppercase tracking-wider hover:bg-primary/20 transition-colors"
+                        className="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-primary/10 text-brand text-[9px] font-bold uppercase tracking-wider hover:bg-primary/20 transition-colors"
                         title="Reescanear este archivo"
                       >
                         <RefreshCw className="w-2.5 h-2.5" />
@@ -368,14 +368,14 @@ function JobCard({
                   {f.status === 'error' && (
                     <div className="flex items-center gap-1">
                       <div className="group relative">
-                        <AlertCircle className="w-3 h-3 text-error flex-shrink-0 cursor-help" />
+                        <AlertCircle className="w-3 h-3 text-err flex-shrink-0 cursor-help" />
                         <div className="absolute bottom-full right-0 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-all pointer-events-none z-50 shadow-xl border border-white/10 leading-tight">
                           {f.error || 'Error desconocido'}
                         </div>
                       </div>
                       <button
                         onClick={(e) => { e.stopPropagation(); retryFile(job.id, f.id) }}
-                        className="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[9px] font-bold uppercase tracking-wider hover:bg-primary/20 transition-colors"
+                        className="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-primary/10 text-brand text-[9px] font-bold uppercase tracking-wider hover:bg-primary/20 transition-colors"
                         title="Reescanear este archivo"
                       >
                         <RefreshCw className="w-2.5 h-2.5" />
@@ -387,9 +387,9 @@ function JobCard({
               ))}
 
               {(job.status === 'creating' || isDone) && (
-                <div className="pt-1 mt-1 border-t border-outline-variant/10 text-[11px] text-on-surface-variant">
+                <div className="pt-1 mt-1 border-t border-line-2-variant/10 text-[11px] text-ink-3">
                   {isDone ? (
-                    <span className="text-success font-medium">
+                    <span className="text-ok font-medium">
                       Completado{errors > 0 ? ` · ${errors} con error` : ''}
                     </span>
                   ) : (

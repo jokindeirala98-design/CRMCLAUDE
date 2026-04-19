@@ -268,17 +268,17 @@ export default function SettingsPage() {
       header: 'Nombre',
       render: (item: any) => (
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center">
+          <div className="w-8 h-8 rounded-full bg-brand flex items-center justify-center">
             <span className="text-white text-xs font-bold">{getUserInitials(item.full_name || item.email)?.charAt(0)}</span>
           </div>
-          <span className="text-sm font-medium text-on-surface">{getUserInitials(item.full_name || item.email)}</span>
+          <span className="text-sm font-medium text-ink">{getUserInitials(item.full_name || item.email)}</span>
         </div>
       ),
     },
     {
       key: 'email',
       header: 'Email',
-      render: (item: any) => <span className="text-sm text-on-surface-variant">{item.email}</span>,
+      render: (item: any) => <span className="text-sm text-ink-3">{item.email}</span>,
     },
     {
       key: 'role',
@@ -355,13 +355,13 @@ export default function SettingsPage() {
       key: 'metadata.full_name',
       header: 'Nombre',
       render: (item: any) => (
-        <span className="text-sm font-medium text-on-surface">{item.metadata?.full_name}</span>
+        <span className="text-sm font-medium text-ink">{item.metadata?.full_name}</span>
       ),
     },
     {
       key: 'metadata.email',
       header: 'Email',
-      render: (item: any) => <span className="text-sm text-on-surface-variant">{item.metadata?.email}</span>,
+      render: (item: any) => <span className="text-sm text-ink-3">{item.metadata?.email}</span>,
     },
     {
       key: 'metadata.role',
@@ -376,7 +376,7 @@ export default function SettingsPage() {
       key: 'created_at',
       header: 'Enviada',
       render: (item: any) => (
-        <span className="text-xs text-on-surface-variant">
+        <span className="text-xs text-ink-3">
           {new Date(item.created_at).toLocaleDateString()}
         </span>
       ),
@@ -412,7 +412,7 @@ export default function SettingsPage() {
       <div className="px-6 lg:px-8 pb-8 space-y-6">
         {/* Profile */}
         <Card>
-          <h3 className="font-display font-semibold text-base text-on-surface mb-4">Mi perfil</h3>
+          <h3 className="font-sans font-semibold text-base text-ink mb-4">Mi perfil</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Input
               label="Nombre completo"
@@ -442,22 +442,22 @@ export default function SettingsPage() {
         {/* Telegram Bot */}
         <Card>
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center">
-              <MessageCircle className="w-5 h-5 text-blue-500" />
+            <div className="w-9 h-9 rounded-xl bg-info-container/40 flex items-center justify-center">
+              <MessageCircle className="w-5 h-5 text-info" />
             </div>
             <div>
-              <h3 className="font-display font-semibold text-base text-on-surface">Telegram Bot</h3>
-              <p className="text-xs text-on-surface-variant">Recibe notificaciones y envía facturas desde Telegram</p>
+              <h3 className="font-sans font-semibold text-base text-ink">Telegram Bot</h3>
+              <p className="text-xs text-ink-3">Recibe notificaciones y envía facturas desde Telegram</p>
             </div>
           </div>
 
           {telegramLink ? (
             <div className="space-y-3">
-              <div className="flex items-center gap-2 p-3 bg-green-50 rounded-xl">
-                <CheckCircle className="w-5 h-5 text-green-500" />
+              <div className="flex items-center gap-2 p-3 bg-ok-container/40 rounded-xl">
+                <CheckCircle className="w-5 h-5 text-ok" />
                 <div>
-                  <p className="text-sm font-medium text-green-700">Vinculado</p>
-                  <p className="text-xs text-green-600">
+                  <p className="text-sm font-medium text-ok">Vinculado</p>
+                  <p className="text-xs text-ok">
                     Chat ID: {telegramLink.telegram_chat_id} · Desde {new Date(telegramLink.linked_at).toLocaleDateString('es-ES')}
                   </p>
                 </div>
@@ -465,7 +465,7 @@ export default function SettingsPage() {
               <button
                 onClick={unlinkTelegram}
                 disabled={telegramLoading}
-                className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                className="flex items-center gap-2 px-4 py-2 text-sm text-err hover:bg-err-container/40 rounded-lg transition-colors"
               >
                 <Unlink className="w-4 h-4" />
                 Desvincular Telegram
@@ -473,7 +473,7 @@ export default function SettingsPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              <p className="text-sm text-on-surface-variant">
+              <p className="text-sm text-ink-3">
                 Vincula tu cuenta de Telegram para recibir notificaciones push y enviar facturas directamente al CRM.
               </p>
               <div className="flex flex-col sm:flex-row gap-3">
@@ -483,21 +483,21 @@ export default function SettingsPage() {
                 </Button>
               </div>
               {linkCode && (
-                <div className="p-4 bg-blue-50 rounded-xl space-y-2">
-                  <p className="text-sm font-medium text-blue-700">Tu codigo de vinculacion:</p>
+                <div className="p-4 bg-info-container/40 rounded-xl space-y-2">
+                  <p className="text-sm font-medium text-info">Tu codigo de vinculacion:</p>
                   <div className="flex items-center gap-2">
-                    <code className="flex-1 px-3 py-2 bg-white rounded-lg text-lg font-mono font-bold text-blue-800 text-center">
+                    <code className="flex-1 px-3 py-2 bg-white rounded-lg text-lg font-mono font-bold text-info text-center">
                       {linkCode}
                     </code>
                     <button
                       onClick={copyCode}
-                      className="p-2 bg-white rounded-lg hover:bg-blue-100 transition-colors"
+                      className="p-2 bg-white rounded-lg hover:bg-info-container transition-colors"
                       title="Copiar comando"
                     >
-                      {codeCopied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4 text-blue-500" />}
+                      {codeCopied ? <Check className="w-4 h-4 text-ok" /> : <Copy className="w-4 h-4 text-info" />}
                     </button>
                   </div>
-                  <p className="text-xs text-blue-600">
+                  <p className="text-xs text-info">
                     Abre <b>@VoltisBot</b> en Telegram y envía:<br />
                     <code>/start {linkCode}</code>
                   </p>
@@ -510,11 +510,11 @@ export default function SettingsPage() {
         {/* Invite User Form (admin only) */}
         {isAdmin() && (
           <Card>
-            <h3 className="font-display font-semibold text-base text-on-surface mb-4 flex items-center gap-2">
-              <UserPlus className="w-5 h-5 text-primary" />
+            <h3 className="font-sans font-semibold text-base text-ink mb-4 flex items-center gap-2">
+              <UserPlus className="w-5 h-5 text-brand" />
               Invitar usuario
             </h3>
-            <p className="text-sm text-on-surface-variant mb-4">
+            <p className="text-sm text-ink-3 mb-4">
               Envía una invitación a un nuevo miembro del equipo. Establece su rol y permisos.
             </p>
 
@@ -546,8 +546,8 @@ export default function SettingsPage() {
               />
 
               {inviteForm.role === 'commercial' && (
-                <div className="p-4 bg-surface-container-low rounded-xl space-y-3">
-                  <p className="text-sm font-medium text-on-surface">Permisos</p>
+                <div className="p-4 bg-bg-2 rounded-xl space-y-3">
+                  <p className="text-sm font-medium text-ink">Permisos</p>
                   <div className="space-y-2">
                     {['prescorings', 'billing', 'reports'].map((permission) => (
                       <label key={permission} className="flex items-center gap-3 cursor-pointer">
@@ -565,7 +565,7 @@ export default function SettingsPage() {
                           }
                           className="w-4 h-4 rounded accent-primary cursor-pointer"
                         />
-                        <span className="text-sm text-on-surface capitalize">
+                        <span className="text-sm text-ink capitalize">
                           {permission === 'prescorings' && 'Prescorings'}
                           {permission === 'billing' && 'Facturación'}
                           {permission === 'reports' && 'Reportes'}
@@ -593,7 +593,7 @@ export default function SettingsPage() {
         {isAdmin() && pendingInvitations.length > 0 && (
           <div>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="font-display font-semibold text-lg text-on-surface">Invitaciones pendientes</h2>
+              <h2 className="font-sans font-semibold text-lg text-ink">Invitaciones pendientes</h2>
             </div>
             <Card>
               <DataTable
@@ -610,85 +610,85 @@ export default function SettingsPage() {
         {/* Integrations (admin only) */}
         {isAdmin() && (
           <Card>
-            <h3 className="font-display font-semibold text-base text-on-surface mb-4 flex items-center gap-2">
-              <Key className="w-5 h-5 text-primary" />
+            <h3 className="font-sans font-semibold text-base text-ink mb-4 flex items-center gap-2">
+              <Key className="w-5 h-5 text-brand" />
               Integraciones API
             </h3>
-            <p className="text-sm text-on-surface-variant mb-4">
+            <p className="text-sm text-ink-3 mb-4">
               Configura las claves API para activar DocuSign (firma digital) y GoCardless (domiciliacion SEPA).
               Estas claves se configuran como variables de entorno en Vercel.
             </p>
 
             <div className="space-y-4">
               {/* DocuSign */}
-              <div className="p-4 bg-surface-container-low rounded-xl space-y-3">
+              <div className="p-4 bg-bg-2 rounded-xl space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="font-semibold text-sm text-on-surface">DocuSign</span>
+                    <span className="font-semibold text-sm text-ink">DocuSign</span>
                     <Badge variant="info">Firma digital</Badge>
                   </div>
                   <a
                     href="https://developers.docusign.com/"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-xs text-secondary flex items-center gap-1 hover:underline"
+                    className="text-xs text-brand flex items-center gap-1 hover:underline"
                   >
                     Documentacion <ExternalLink className="w-3 h-3" />
                   </a>
                 </div>
-                <div className="text-xs text-on-surface-variant space-y-1">
-                  <p><code className="bg-surface-container-high px-1.5 py-0.5 rounded">DOCUSIGN_ACCESS_TOKEN</code> — OAuth access token</p>
-                  <p><code className="bg-surface-container-high px-1.5 py-0.5 rounded">DOCUSIGN_ACCOUNT_ID</code> — Account ID</p>
-                  <p><code className="bg-surface-container-high px-1.5 py-0.5 rounded">DOCUSIGN_BASE_URL</code> — API base URL (demo o produccion)</p>
-                  <p><code className="bg-surface-container-high px-1.5 py-0.5 rounded">DOCUSIGN_TEMPLATE_ID</code> — Template ID (opcional, genera HTML si no existe)</p>
+                <div className="text-xs text-ink-3 space-y-1">
+                  <p><code className="bg-bg-2 px-1.5 py-0.5 rounded">DOCUSIGN_ACCESS_TOKEN</code> — OAuth access token</p>
+                  <p><code className="bg-bg-2 px-1.5 py-0.5 rounded">DOCUSIGN_ACCOUNT_ID</code> — Account ID</p>
+                  <p><code className="bg-bg-2 px-1.5 py-0.5 rounded">DOCUSIGN_BASE_URL</code> — API base URL (demo o produccion)</p>
+                  <p><code className="bg-bg-2 px-1.5 py-0.5 rounded">DOCUSIGN_TEMPLATE_ID</code> — Template ID (opcional, genera HTML si no existe)</p>
                 </div>
                 <div className="flex items-center gap-2 pt-1">
                   <div className="flex items-center gap-1.5 text-xs">
-                    <AlertCircle className="w-3.5 h-3.5 text-warning" />
-                    <span className="text-on-surface-variant">
-                      Webhook URL: <code className="bg-surface-container-high px-1.5 py-0.5 rounded">/api/docusign/webhook</code>
+                    <AlertCircle className="w-3.5 h-3.5 text-warn" />
+                    <span className="text-ink-3">
+                      Webhook URL: <code className="bg-bg-2 px-1.5 py-0.5 rounded">/api/docusign/webhook</code>
                     </span>
                   </div>
                 </div>
               </div>
 
               {/* GoCardless */}
-              <div className="p-4 bg-surface-container-low rounded-xl space-y-3">
+              <div className="p-4 bg-bg-2 rounded-xl space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="font-semibold text-sm text-on-surface">GoCardless</span>
+                    <span className="font-semibold text-sm text-ink">GoCardless</span>
                     <Badge variant="success">Domiciliacion SEPA</Badge>
                   </div>
                   <a
                     href="https://developer.gocardless.com/"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-xs text-secondary flex items-center gap-1 hover:underline"
+                    className="text-xs text-brand flex items-center gap-1 hover:underline"
                   >
                     Documentacion <ExternalLink className="w-3 h-3" />
                   </a>
                 </div>
-                <div className="text-xs text-on-surface-variant space-y-1">
-                  <p><code className="bg-surface-container-high px-1.5 py-0.5 rounded">GOCARDLESS_ACCESS_TOKEN</code> — API access token</p>
-                  <p><code className="bg-surface-container-high px-1.5 py-0.5 rounded">GOCARDLESS_ENVIRONMENT</code> — &apos;sandbox&apos; o &apos;live&apos;</p>
-                  <p><code className="bg-surface-container-high px-1.5 py-0.5 rounded">GOCARDLESS_WEBHOOK_SECRET</code> — Para verificar webhooks</p>
+                <div className="text-xs text-ink-3 space-y-1">
+                  <p><code className="bg-bg-2 px-1.5 py-0.5 rounded">GOCARDLESS_ACCESS_TOKEN</code> — API access token</p>
+                  <p><code className="bg-bg-2 px-1.5 py-0.5 rounded">GOCARDLESS_ENVIRONMENT</code> — &apos;sandbox&apos; o &apos;live&apos;</p>
+                  <p><code className="bg-bg-2 px-1.5 py-0.5 rounded">GOCARDLESS_WEBHOOK_SECRET</code> — Para verificar webhooks</p>
                 </div>
                 <div className="flex items-center gap-2 pt-1">
                   <div className="flex items-center gap-1.5 text-xs">
-                    <AlertCircle className="w-3.5 h-3.5 text-warning" />
-                    <span className="text-on-surface-variant">
-                      Webhook URL: <code className="bg-surface-container-high px-1.5 py-0.5 rounded">/api/gocardless/webhook</code>
+                    <AlertCircle className="w-3.5 h-3.5 text-warn" />
+                    <span className="text-ink-3">
+                      Webhook URL: <code className="bg-bg-2 px-1.5 py-0.5 rounded">/api/gocardless/webhook</code>
                     </span>
                   </div>
                 </div>
               </div>
 
               {/* General */}
-              <div className="p-4 bg-surface-container-low rounded-xl space-y-3">
-                <span className="font-semibold text-sm text-on-surface">General</span>
-                <div className="text-xs text-on-surface-variant space-y-1">
-                  <p><code className="bg-surface-container-high px-1.5 py-0.5 rounded">NEXT_PUBLIC_APP_URL</code> — URL de la app (para webhooks)</p>
-                  <p><code className="bg-surface-container-high px-1.5 py-0.5 rounded">SUPABASE_SERVICE_ROLE_KEY</code> — Service role key (para webhooks server-side)</p>
+              <div className="p-4 bg-bg-2 rounded-xl space-y-3">
+                <span className="font-semibold text-sm text-ink">General</span>
+                <div className="text-xs text-ink-3 space-y-1">
+                  <p><code className="bg-bg-2 px-1.5 py-0.5 rounded">NEXT_PUBLIC_APP_URL</code> — URL de la app (para webhooks)</p>
+                  <p><code className="bg-bg-2 px-1.5 py-0.5 rounded">SUPABASE_SERVICE_ROLE_KEY</code> — Service role key (para webhooks server-side)</p>
                 </div>
               </div>
             </div>
@@ -699,21 +699,21 @@ export default function SettingsPage() {
         {isAdmin() && (
           <div>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="font-display font-semibold text-lg text-on-surface">Miembros del equipo</h2>
+              <h2 className="font-sans font-semibold text-lg text-ink">Miembros del equipo</h2>
             </div>
             <Card>
               <div className="space-y-4">
                 {teamMembers.map((member) => (
                   <div key={member.id}>
                     {editingUserId === member.id ? (
-                      <div className="p-4 bg-surface-container-low rounded-xl space-y-4">
+                      <div className="p-4 bg-bg-2 rounded-xl space-y-4">
                         <div className="space-y-2 pb-4 border-b border-surface-container-highest">
                           <div className="flex items-center justify-between">
                             <div>
-                              <p className="text-sm font-medium text-on-surface">{member.full_name}</p>
-                              <p className="text-xs text-on-surface-variant">{member.email}</p>
+                              <p className="text-sm font-medium text-ink">{member.full_name}</p>
+                              <p className="text-xs text-ink-3">{member.email}</p>
                             </div>
-                            <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center">
+                            <div className="w-8 h-8 rounded-full bg-brand flex items-center justify-center">
                               <span className="text-white text-xs font-bold">
                                 {getUserInitials(member.full_name || member.email)?.charAt(0)}
                               </span>
@@ -722,7 +722,7 @@ export default function SettingsPage() {
                         </div>
 
                         <div>
-                          <label className="text-sm font-medium text-on-surface block mb-2">Rol</label>
+                          <label className="text-sm font-medium text-ink block mb-2">Rol</label>
                           <Select
                             value={editingRole}
                             onChange={(e) => setEditingRole(e.target.value)}
@@ -734,8 +734,8 @@ export default function SettingsPage() {
                         </div>
 
                         {editingRole === 'commercial' && (
-                          <div className="space-y-3 p-3 bg-surface-container-high rounded-lg">
-                            <p className="text-sm font-medium text-on-surface">Permisos</p>
+                          <div className="space-y-3 p-3 bg-bg-2 rounded-lg">
+                            <p className="text-sm font-medium text-ink">Permisos</p>
                             <div className="space-y-2">
                               {['prescorings', 'billing', 'reports'].map((permission) => (
                                 <label key={permission} className="flex items-center gap-3 cursor-pointer">
@@ -750,7 +750,7 @@ export default function SettingsPage() {
                                     }
                                     className="w-4 h-4 rounded accent-primary cursor-pointer"
                                   />
-                                  <span className="text-sm text-on-surface capitalize">
+                                  <span className="text-sm text-ink capitalize">
                                     {permission === 'prescorings' && 'Prescorings'}
                                     {permission === 'billing' && 'Facturación'}
                                     {permission === 'reports' && 'Reportes'}
@@ -780,16 +780,16 @@ export default function SettingsPage() {
                         </div>
                       </div>
                     ) : (
-                      <div className="p-4 hover:bg-surface-container-low transition-colors rounded-lg flex items-center justify-between">
+                      <div className="p-4 hover:bg-bg-2 transition-colors rounded-lg flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full gradient-primary flex items-center justify-center flex-shrink-0">
+                          <div className="w-10 h-10 rounded-full bg-brand flex items-center justify-center flex-shrink-0">
                             <span className="text-white text-sm font-bold">
                               {getUserInitials(member.full_name || member.email)?.charAt(0)}
                             </span>
                           </div>
                           <div>
-                            <p className="text-sm font-medium text-on-surface">{member.full_name}</p>
-                            <p className="text-xs text-on-surface-variant">{member.email}</p>
+                            <p className="text-sm font-medium text-ink">{member.full_name}</p>
+                            <p className="text-xs text-ink-3">{member.email}</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
@@ -815,7 +815,7 @@ export default function SettingsPage() {
                 ))}
 
                 {teamMembers.length === 0 && (
-                  <p className="text-sm text-on-surface-variant py-8 text-center">
+                  <p className="text-sm text-ink-3 py-8 text-center">
                     No hay miembros del equipo
                   </p>
                 )}

@@ -262,7 +262,7 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
     e.preventDefault()
     e.stopPropagation()
     if (dragZoneRef.current) {
-      dragZoneRef.current.classList.add('border-secondary/60', 'bg-secondary/5')
+      dragZoneRef.current.classList.add('border-brand/60', 'bg-secondary/5')
     }
   }
 
@@ -270,7 +270,7 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
     e.preventDefault()
     e.stopPropagation()
     if (dragZoneRef.current) {
-      dragZoneRef.current.classList.remove('border-secondary/60', 'bg-secondary/5')
+      dragZoneRef.current.classList.remove('border-brand/60', 'bg-secondary/5')
     }
   }
 
@@ -278,7 +278,7 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
     e.preventDefault()
     e.stopPropagation()
     if (dragZoneRef.current) {
-      dragZoneRef.current.classList.remove('border-secondary/60', 'bg-secondary/5')
+      dragZoneRef.current.classList.remove('border-brand/60', 'bg-secondary/5')
     }
 
     const files = Array.from(e.dataTransfer.files)
@@ -737,26 +737,26 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
             onClick={(e) => e.stopPropagation()}
-            className="bg-surface rounded-2xl shadow-ambient-lg w-full max-w-2xl overflow-hidden max-h-[90vh] overflow-y-auto"
+            className="bg-bg rounded-2xl shadow-ambient-lg w-full max-w-2xl overflow-hidden max-h-[90vh] overflow-y-auto"
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-outline-variant/30 sticky top-0 bg-surface z-10">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-line-2-variant/30 sticky top-0 bg-bg z-10">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-secondary/10 flex items-center justify-center">
-                  <Zap className="w-5 h-5 text-secondary" />
+                  <Zap className="w-5 h-5 text-brand" />
                 </div>
                 <div>
-                  <h2 className="font-display font-semibold text-on-surface">
+                  <h2 className="font-sans font-semibold text-ink">
                     {step === 1 ? 'Subir Facturas' : 'Revisar y Crear Suministro'}
                   </h2>
-                  <p className="text-xs text-on-surface-variant">
+                  <p className="text-xs text-ink-3">
                     {step === 1 ? 'Paso 1 de 2' : 'Paso 2 de 2'}
                   </p>
                 </div>
               </div>
               <button
                 onClick={onClose}
-                className="p-2 rounded-xl text-on-surface-variant hover:bg-surface-container-low transition-all"
+                className="p-2 rounded-xl text-ink-3 hover:bg-bg-2 transition-all"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -773,12 +773,12 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
                     onDrop={handleDrop}
-                    className="border-2 border-dashed border-outline-variant/40 rounded-2xl p-8 text-center transition-all cursor-pointer hover:border-secondary/40 hover:bg-secondary/5"
+                    className="border-2 border-dashed border-line-2-variant/40 rounded-2xl p-8 text-center transition-all cursor-pointer hover:border-brand/40 hover:bg-secondary/5"
                     onClick={() => fileInputRef.current?.click()}
                   >
-                    <Upload className="w-8 h-8 text-secondary mx-auto mb-3" />
-                    <p className="text-sm font-medium text-on-surface">Arrastra facturas aquí</p>
-                    <p className="text-xs text-on-surface-variant mt-1">
+                    <Upload className="w-8 h-8 text-brand mx-auto mb-3" />
+                    <p className="text-sm font-medium text-ink">Arrastra facturas aquí</p>
+                    <p className="text-xs text-ink-3 mt-1">
                       PDF, imágenes (JPG, PNG) o ZIP
                     </p>
                   </div>
@@ -795,31 +795,31 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
                   {/* Uploaded Files List */}
                   {uploadedFiles.length > 0 && (
                     <div className="space-y-3">
-                      <h3 className="text-sm font-medium text-on-surface">Archivos subidos</h3>
+                      <h3 className="text-sm font-medium text-ink">Archivos subidos</h3>
                       {uploadedFiles.map((file) => (
                         <motion.div
                           key={file.id}
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
-                          className="p-4 bg-surface-container-low rounded-xl border border-outline-variant/20"
+                          className="p-4 bg-bg-2 rounded-xl border border-line-2-variant/20"
                         >
                           <div className="flex items-start justify-between gap-3 mb-2">
                             <div className="flex-1">
-                              <p className="text-sm font-medium text-on-surface truncate">{file.file.name}</p>
-                              <p className="text-xs text-on-surface-variant">
+                              <p className="text-sm font-medium text-ink truncate">{file.file.name}</p>
+                              <p className="text-xs text-ink-3">
                                 {(file.file.size / 1024 / 1024).toFixed(2)} MB
                               </p>
                             </div>
                             <button
                               onClick={() => removeFile(file.id)}
-                              className="p-2 rounded-lg text-on-surface-variant hover:text-error hover:bg-error-container/30 transition-all"
+                              className="p-2 rounded-lg text-ink-3 hover:text-err hover:bg-err-container/30 transition-all"
                             >
                               <X className="w-4 h-4" />
                             </button>
                           </div>
 
                           {file.analyzing && (
-                            <div className="flex items-center gap-2 text-xs text-on-surface-variant">
+                            <div className="flex items-center gap-2 text-xs text-ink-3">
                               <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24">
                                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
@@ -829,7 +829,7 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
                           )}
 
                           {file.error && (
-                            <div className="flex items-center gap-2 text-xs text-error">
+                            <div className="flex items-center gap-2 text-xs text-err">
                               <AlertCircle className="w-3 h-3 flex-shrink-0" />
                               {file.error}
                             </div>
@@ -837,39 +837,39 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
 
                           {file.extractedData && !file.error && file.extractedData.mode === 'gemini' && (
                             <div className="space-y-2">
-                              <div className="flex items-center gap-2 text-xs text-success mb-2">
+                              <div className="flex items-center gap-2 text-xs text-ok mb-2">
                                 <Check className="w-3 h-3 flex-shrink-0" />
                                 Datos extraídos con IA
                               </div>
                               <div className="grid grid-cols-2 gap-2 text-xs">
                                 {file.extractedData.holder_name && (
                                   <div>
-                                    <span className="text-on-surface-variant">Titular:</span>
-                                    <p className="text-on-surface font-medium">{file.extractedData.holder_name}</p>
+                                    <span className="text-ink-3">Titular:</span>
+                                    <p className="text-ink font-medium">{file.extractedData.holder_name}</p>
                                   </div>
                                 )}
                                 {file.extractedData.cups && (
                                   <div>
-                                    <span className="text-on-surface-variant">CUPS:</span>
-                                    <p className="text-on-surface font-medium">{file.extractedData.cups}</p>
+                                    <span className="text-ink-3">CUPS:</span>
+                                    <p className="text-ink font-medium">{file.extractedData.cups}</p>
                                   </div>
                                 )}
                                 {file.extractedData.type && (
                                   <div>
-                                    <span className="text-on-surface-variant">Tipo:</span>
-                                    <p className="text-on-surface font-medium capitalize">{file.extractedData.type}</p>
+                                    <span className="text-ink-3">Tipo:</span>
+                                    <p className="text-ink font-medium capitalize">{file.extractedData.type}</p>
                                   </div>
                                 )}
                                 {file.extractedData.comercializadora && (
                                   <div>
-                                    <span className="text-on-surface-variant">Comercializadora:</span>
-                                    <p className="text-on-surface font-medium">{file.extractedData.comercializadora}</p>
+                                    <span className="text-ink-3">Comercializadora:</span>
+                                    <p className="text-ink font-medium">{file.extractedData.comercializadora}</p>
                                   </div>
                                 )}
                                 {file.extractedData.total_amount && (
                                   <div>
-                                    <span className="text-on-surface-variant">Importe:</span>
-                                    <p className="text-on-surface font-medium">{file.extractedData.total_amount} EUR</p>
+                                    <span className="text-ink-3">Importe:</span>
+                                    <p className="text-ink font-medium">{file.extractedData.total_amount} EUR</p>
                                   </div>
                                 )}
                               </div>
@@ -877,8 +877,8 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
                           )}
 
                           {file.extractedData && !file.error && file.extractedData.mode === 'manual' && (
-                            <div className="flex items-center gap-2 text-xs text-on-surface-variant">
-                              <AlertCircle className="w-3 h-3 flex-shrink-0 text-warning" />
+                            <div className="flex items-center gap-2 text-xs text-ink-3">
+                              <AlertCircle className="w-3 h-3 flex-shrink-0 text-warn" />
                               {file.extractedData.error
                                 ? `No se pudo analizar: ${file.extractedData.error}`
                                 : 'Analisis IA no disponible — rellena los datos manualmente'}
@@ -890,8 +890,8 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
                   )}
 
                   {error && (
-                    <div className="bg-error-container rounded-xl px-4 py-2.5">
-                      <p className="text-sm text-error font-medium">{error}</p>
+                    <div className="bg-err-container rounded-xl px-4 py-2.5">
+                      <p className="text-sm text-err font-medium">{error}</p>
                     </div>
                   )}
 
@@ -957,7 +957,7 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
 
                   {/* CUPS duplicate detection feedback */}
                   {cupsChecking && (
-                    <div className="flex items-center gap-2 text-xs text-on-surface-variant mt-1">
+                    <div className="flex items-center gap-2 text-xs text-ink-3 mt-1">
                       <Loader2 className="w-3 h-3 animate-spin" />
                       <span>Verificando CUPS...</span>
                     </div>
@@ -966,16 +966,16 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
                   {!cupsChecking && cupsCheckDone && cupsDuplicates.length > 0 && (
                     <div className={`mt-2 rounded-lg border p-3 ${
                       uploadedFiles.some((f) => f.url)
-                        ? 'border-secondary/40 bg-secondary/5'
+                        ? 'border-brand/40 bg-secondary/5'
                         : 'border-error/40 bg-error/5'
                     }`}>
                       <div className="flex items-start gap-2">
                         <AlertTriangle className={`w-4 h-4 mt-0.5 flex-shrink-0 ${
-                          uploadedFiles.some((f) => f.url) ? 'text-secondary' : 'text-error'
+                          uploadedFiles.some((f) => f.url) ? 'text-brand' : 'text-err'
                         }`} />
                         <div className="flex-1 min-w-0">
                           <p className={`text-sm font-medium ${
-                            uploadedFiles.some((f) => f.url) ? 'text-secondary' : 'text-error'
+                            uploadedFiles.some((f) => f.url) ? 'text-brand' : 'text-err'
                           }`}>
                             {uploadedFiles.some((f) => f.url)
                               ? 'Las facturas se agregarán al suministro existente'
@@ -983,15 +983,15 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
                           </p>
                           <ul className="mt-1 space-y-1">
                             {cupsDuplicates.map((dup) => (
-                              <li key={dup.id} className="text-xs text-on-surface-variant flex items-center gap-1">
-                                <span className="font-medium text-on-surface">{dup.client_name}</span>
+                              <li key={dup.id} className="text-xs text-ink-3 flex items-center gap-1">
+                                <span className="font-medium text-ink">{dup.client_name}</span>
                                 <span>·</span>
                                 <span className="capitalize">{dup.status.replace(/_/g, ' ')}</span>
                                 <a
                                   href={`/clients/${dup.client_id}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="ml-1 text-secondary hover:underline flex items-center gap-0.5"
+                                  className="ml-1 text-brand hover:underline flex items-center gap-0.5"
                                 >
                                   Ver cliente
                                   <ExternalLink className="w-3 h-3" />
@@ -999,7 +999,7 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
                               </li>
                             ))}
                           </ul>
-                          <p className="text-xs text-on-surface-variant mt-1.5">
+                          <p className="text-xs text-ink-3 mt-1.5">
                             {uploadedFiles.some((f) => f.url)
                               ? 'No se creará un suministro nuevo. Las facturas se vincularán al CUPS existente.'
                               : 'Accede al suministro existente para modificarlo, o sube facturas para agregarlas a él.'}
@@ -1010,7 +1010,7 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
                   )}
 
                   {!cupsChecking && cupsCheckDone && cupsDuplicates.length === 0 && form.cups.length >= 20 && (
-                    <div className="flex items-center gap-1.5 text-xs text-success mt-1">
+                    <div className="flex items-center gap-1.5 text-xs text-ok mt-1">
                       <Check className="w-3 h-3" />
                       <span>CUPS no duplicado</span>
                     </div>
@@ -1051,28 +1051,28 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
 
                   {/* SIPS Data Section */}
                   {(sipsLoading || sipsData || sipsError) && (
-                    <div className="border border-outline-variant/30 rounded-xl overflow-hidden">
-                      <div className="flex items-center gap-2 px-4 py-2.5 bg-surface-container-low border-b border-outline-variant/20">
-                        <BarChart3 className="w-4 h-4 text-secondary" />
-                        <span className="text-sm font-medium text-on-surface">Datos SIPS</span>
-                        {sipsLoading && <Loader2 className="w-3.5 h-3.5 text-on-surface-variant animate-spin ml-auto" />}
-                        {sipsData && <span className="text-xs text-success ml-auto">Datos obtenidos</span>}
+                    <div className="border border-line-2-variant/30 rounded-xl overflow-hidden">
+                      <div className="flex items-center gap-2 px-4 py-2.5 bg-bg-2 border-b border-line-2-variant/20">
+                        <BarChart3 className="w-4 h-4 text-brand" />
+                        <span className="text-sm font-medium text-ink">Datos SIPS</span>
+                        {sipsLoading && <Loader2 className="w-3.5 h-3.5 text-ink-3 animate-spin ml-auto" />}
+                        {sipsData && <span className="text-xs text-ok ml-auto">Datos obtenidos</span>}
                       </div>
 
                       {sipsLoading && (
-                        <div className="px-4 py-3 text-xs text-on-surface-variant">
+                        <div className="px-4 py-3 text-xs text-ink-3">
                           Consultando consumos en SIPS...
                         </div>
                       )}
 
                       {sipsError && (
-                        <div className="px-4 py-3 text-xs text-on-surface-variant">
-                          <span className="text-warning">{sipsError}</span>
+                        <div className="px-4 py-3 text-xs text-ink-3">
+                          <span className="text-warn">{sipsError}</span>
                           {form.cups && form.cups.length >= 20 && (
                             <button
                               type="button"
                               onClick={() => fetchSipsData(form.cups)}
-                              className="ml-2 text-secondary underline hover:no-underline"
+                              className="ml-2 text-brand underline hover:no-underline"
                             >
                               Reintentar
                             </button>
@@ -1086,26 +1086,26 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
                           <div className="flex flex-wrap gap-4 text-xs">
                             {sipsData.tariff && (
                               <div>
-                                <span className="text-on-surface-variant">Tarifa SIPS:</span>
-                                <span className="ml-1 font-medium text-on-surface">{sipsData.tariff}</span>
+                                <span className="text-ink-3">Tarifa SIPS:</span>
+                                <span className="ml-1 font-medium text-ink">{sipsData.tariff}</span>
                               </div>
                             )}
                             {sipsData.totalConsumption && (
                               <div>
-                                <span className="text-on-surface-variant">Consumo total:</span>
-                                <span className="ml-1 font-medium text-on-surface">{sipsData.totalConsumption}</span>
+                                <span className="text-ink-3">Consumo total:</span>
+                                <span className="ml-1 font-medium text-ink">{sipsData.totalConsumption}</span>
                               </div>
                             )}
                             {sipsData.distribuidora && (
                               <div>
-                                <span className="text-on-surface-variant">Distribuidora:</span>
-                                <span className="ml-1 font-medium text-on-surface">{sipsData.distribuidora}</span>
+                                <span className="text-ink-3">Distribuidora:</span>
+                                <span className="ml-1 font-medium text-ink">{sipsData.distribuidora}</span>
                               </div>
                             )}
                           </div>
 
                           {/* Tab switcher */}
-                          <div className="flex gap-0 border-b border-outline-variant/20">
+                          <div className="flex gap-0 border-b border-line-2-variant/20">
                             {(['consumos', 'maximetros'] as const).map((tab) => {
                               const hasMaximetros = sipsData.maximetroHistory && sipsData.maximetroHistory.length > 0
                               if (tab === 'maximetros' && !hasMaximetros) return null
@@ -1118,8 +1118,8 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
                                   onClick={() => setSipsTab(tab)}
                                   className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
                                     active
-                                      ? 'border-primary text-primary'
-                                      : 'border-transparent text-on-surface-variant hover:text-on-surface'
+                                      ? 'border-brand text-brand'
+                                      : 'border-transparent text-ink-3 hover:text-ink'
                                   }`}
                                 >
                                   {labels[tab]}
@@ -1134,9 +1134,9 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
                               {sipsData.consumoPeriodos && (
                                 <div className="grid grid-cols-6 gap-1.5">
                                   {(['P1', 'P2', 'P3', 'P4', 'P5', 'P6'] as const).map((label) => (
-                                    <div key={label} className="bg-surface-container-low rounded-lg p-1.5 text-center">
-                                      <p className="text-[10px] text-on-surface-variant">{label}</p>
-                                      <p className="text-xs font-bold text-on-surface">{sipsData.consumoPeriodos?.[label]?.toLocaleString() || '-'}</p>
+                                    <div key={label} className="bg-bg-2 rounded-lg p-1.5 text-center">
+                                      <p className="text-[10px] text-ink-3">{label}</p>
+                                      <p className="text-xs font-bold text-ink">{sipsData.consumoPeriodos?.[label]?.toLocaleString() || '-'}</p>
                                     </div>
                                   ))}
                                 </div>
@@ -1145,12 +1145,12 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
                                 <div className="overflow-x-auto -mx-1">
                                   <table className="w-full text-xs">
                                     <thead>
-                                      <tr className="border-b border-outline-variant/20">
-                                        <th className="text-left py-1.5 px-1 text-on-surface-variant font-medium">Mes</th>
+                                      <tr className="border-b border-line-2-variant/20">
+                                        <th className="text-left py-1.5 px-1 text-ink-3 font-medium">Mes</th>
                                         {(['P1','P2','P3','P4','P5','P6'] as const).map(p => (
-                                          <th key={p} className="text-right py-1.5 px-1 text-on-surface-variant font-medium">{p}</th>
+                                          <th key={p} className="text-right py-1.5 px-1 text-ink-3 font-medium">{p}</th>
                                         ))}
-                                        <th className="text-right py-1.5 px-1 text-on-surface font-semibold">Total</th>
+                                        <th className="text-right py-1.5 px-1 text-ink font-semibold">Total</th>
                                       </tr>
                                     </thead>
                                     <tbody>
@@ -1160,12 +1160,12 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
                                           catch { return h.fecha?.slice(0, 7) || '' }
                                         })()
                                         return (
-                                          <tr key={i} className="border-b border-outline-variant/10 last:border-0">
-                                            <td className="py-1 px-1 text-on-surface">{month}</td>
+                                          <tr key={i} className="border-b border-line-2-variant/10 last:border-0">
+                                            <td className="py-1 px-1 text-ink">{month}</td>
                                             {(['P1','P2','P3','P4','P5','P6'] as const).map(p => (
-                                              <td key={p} className="py-1 px-1 text-right text-on-surface-variant">{h[p]?.toLocaleString() || '-'}</td>
+                                              <td key={p} className="py-1 px-1 text-right text-ink-3">{h[p]?.toLocaleString() || '-'}</td>
                                             ))}
-                                            <td className="py-1 px-1 text-right font-medium text-on-surface">{h.total?.toLocaleString() || '-'}</td>
+                                            <td className="py-1 px-1 text-right font-medium text-ink">{h.total?.toLocaleString() || '-'}</td>
                                           </tr>
                                         )
                                       })}
@@ -1187,11 +1187,11 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
                                     const maxVal = Math.max(...(sipsData.maximetroHistory?.map(h => h[p] ?? 0) || [0]))
                                     const ratio = contratada > 0 && maxVal > 0 ? maxVal / contratada : null
                                     const color = ratio === null
-                                      ? 'bg-surface-container-low text-on-surface'
-                                      : ratio >= 1.15 ? 'bg-red-100 text-red-700'
-                                      : ratio >= 1.00 ? 'bg-orange-100 text-orange-700'
+                                      ? 'bg-bg-2 text-ink'
+                                      : ratio >= 1.15 ? 'bg-err-container text-err'
+                                      : ratio >= 1.00 ? 'bg-warn-container text-warn'
                                       : ratio >= 0.90 ? 'bg-yellow-100 text-yellow-700'
-                                      : 'bg-green-100 text-green-700'
+                                      : 'bg-ok-container text-ok'
                                     return (
                                       <div key={p} className={`rounded-lg p-1.5 text-center ${color}`}>
                                         <p className="text-[10px] font-medium opacity-70">{p}</p>
@@ -1205,10 +1205,10 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
                               <div className="overflow-x-auto -mx-1">
                                 <table className="w-full text-xs">
                                   <thead>
-                                    <tr className="border-b border-outline-variant/20">
-                                      <th className="text-left py-1.5 px-1 text-on-surface-variant font-medium">Mes</th>
+                                    <tr className="border-b border-line-2-variant/20">
+                                      <th className="text-left py-1.5 px-1 text-ink-3 font-medium">Mes</th>
                                       {(['P1','P2','P3','P4','P5','P6'] as const).map(p => (
-                                        <th key={p} className="text-right py-1.5 px-1 text-on-surface-variant font-medium">{p}</th>
+                                        <th key={p} className="text-right py-1.5 px-1 text-ink-3 font-medium">{p}</th>
                                       ))}
                                     </tr>
                                   </thead>
@@ -1219,19 +1219,19 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
                                         catch { return h.fecha?.slice(0, 7) || '' }
                                       })()
                                       return (
-                                        <tr key={i} className="border-b border-outline-variant/10 last:border-0">
-                                          <td className="py-1 px-1 text-on-surface">{month}</td>
+                                        <tr key={i} className="border-b border-line-2-variant/10 last:border-0">
+                                          <td className="py-1 px-1 text-ink">{month}</td>
                                           {(['P1','P2','P3','P4','P5','P6'] as const).map(p => {
                                             const val = h[p] ?? 0
                                             const contratada = sipsData.potenciaContratada?.[p] ?? 0
                                             const ratio = contratada > 0 && val > 0 ? val / contratada : null
                                             const cellColor = ratio === null ? ''
-                                              : ratio >= 1.15 ? 'text-red-600 font-semibold'
-                                              : ratio >= 1.00 ? 'text-orange-600 font-semibold'
+                                              : ratio >= 1.15 ? 'text-err font-semibold'
+                                              : ratio >= 1.00 ? 'text-warn font-semibold'
                                               : ratio >= 0.90 ? 'text-yellow-700'
-                                              : 'text-green-700'
+                                              : 'text-ok'
                                             return (
-                                              <td key={p} className={`py-1 px-1 text-right ${cellColor || 'text-on-surface-variant'}`}>
+                                              <td key={p} className={`py-1 px-1 text-right ${cellColor || 'text-ink-3'}`}>
                                                 {val > 0 ? val.toFixed(1) : '-'}
                                               </td>
                                             )
@@ -1254,7 +1254,7 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
                     <button
                       type="button"
                       onClick={() => fetchSipsData(form.cups)}
-                      className="flex items-center gap-2 text-sm text-secondary hover:text-secondary/80 transition-colors"
+                      className="flex items-center gap-2 text-sm text-brand hover:text-secondary/80 transition-colors"
                     >
                       <BarChart3 className="w-4 h-4" />
                       Consultar datos SIPS
@@ -1262,8 +1262,8 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
                   )}
 
                   {error && (
-                    <div className="bg-error-container rounded-xl px-4 py-2.5">
-                      <p className="text-sm text-error font-medium">{error}</p>
+                    <div className="bg-err-container rounded-xl px-4 py-2.5">
+                      <p className="text-sm text-err font-medium">{error}</p>
                     </div>
                   )}
 

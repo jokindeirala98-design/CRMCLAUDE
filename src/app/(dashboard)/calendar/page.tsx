@@ -16,10 +16,10 @@ const MONTHS = [
 ]
 
 const TYPE_COLORS: Record<string, string> = {
-  presentation: 'bg-primary/10 text-primary',
-  followup: 'bg-success-container text-success',
-  signing: 'bg-warning-container text-warning',
-  other: 'bg-surface-container-high text-on-surface-variant',
+  presentation: 'bg-primary/10 text-brand',
+  followup: 'bg-ok-container text-ok',
+  signing: 'bg-warn-container text-warn',
+  other: 'bg-bg-2 text-ink-3',
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -117,30 +117,30 @@ export default function CalendarPage() {
             <Card>
               <div className="flex items-center justify-between mb-4">
                 <div>
-                  <h2 className="font-display font-bold text-xl text-on-surface">
+                  <h2 className="font-sans font-bold text-xl text-ink">
                     {MONTHS[month]} {year}
                   </h2>
-                  <p className="text-xs text-on-surface-variant mt-1">Doble click para crear cita</p>
+                  <p className="text-xs text-ink-3 mt-1">Doble click para crear cita</p>
                 </div>
                 <div className="flex gap-2">
-                  <button onClick={prevMonth} className="p-2 rounded-xl hover:bg-surface-container-low transition-all">
-                    <ChevronLeft className="w-5 h-5 text-on-surface-variant" />
+                  <button onClick={prevMonth} className="p-2 rounded-xl hover:bg-bg-2 transition-all">
+                    <ChevronLeft className="w-5 h-5 text-ink-3" />
                   </button>
                   <button
                     onClick={() => setCurrentDate(new Date())}
-                    className="px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/5 rounded-xl transition-all"
+                    className="px-3 py-1.5 text-xs font-semibold text-brand hover:bg-primary/5 rounded-xl transition-all"
                   >
                     Hoy
                   </button>
-                  <button onClick={nextMonth} className="p-2 rounded-xl hover:bg-surface-container-low transition-all">
-                    <ChevronRight className="w-5 h-5 text-on-surface-variant" />
+                  <button onClick={nextMonth} className="p-2 rounded-xl hover:bg-bg-2 transition-all">
+                    <ChevronRight className="w-5 h-5 text-ink-3" />
                   </button>
                 </div>
               </div>
 
               <div className="grid grid-cols-7 gap-1 mb-2">
                 {DAYS.map((d) => (
-                  <div key={d} className="text-center text-xs font-semibold text-on-surface-variant py-2">
+                  <div key={d} className="text-center text-xs font-semibold text-ink-3 py-2">
                     {d}
                   </div>
                 ))}
@@ -167,11 +167,11 @@ export default function CalendarPage() {
                           ? 'bg-primary/5 ring-1 ring-primary/30'
                           : isSelected
                           ? 'bg-secondary/5 ring-1 ring-secondary/30'
-                          : 'hover:bg-surface-container-low'
+                          : 'hover:bg-bg-2'
                       }`}
                     >
                       <span className={`text-sm font-medium ${
-                        isToday(day) ? 'text-primary font-bold' : 'text-on-surface'
+                        isToday(day) ? 'text-brand font-bold' : 'text-ink'
                       }`}>
                         {day}
                       </span>
@@ -185,7 +185,7 @@ export default function CalendarPage() {
                           </div>
                         ))}
                         {dayAppointments.length > 2 && (
-                          <span className="text-[10px] text-on-surface-variant">
+                          <span className="text-[10px] text-ink-3">
                             +{dayAppointments.length - 2} mas
                           </span>
                         )}
@@ -202,15 +202,15 @@ export default function CalendarPage() {
             {/* Selected day detail */}
             {selectedDay && (
               <Card>
-                <h3 className="text-sm font-semibold text-on-surface mb-3">
+                <h3 className="text-sm font-semibold text-ink mb-3">
                   {selectedDay} {MONTHS[month]}
                 </h3>
                 {getAppointmentsForDay(selectedDay).length === 0 ? (
-                  <p className="text-xs text-on-surface-variant">Sin citas este dia</p>
+                  <p className="text-xs text-ink-3">Sin citas este dia</p>
                 ) : (
                   <div className="space-y-2">
                     {getAppointmentsForDay(selectedDay).map((a) => (
-                      <div key={a.id} className="p-2.5 bg-surface-container-low rounded-xl">
+                      <div key={a.id} className="p-2.5 bg-bg-2 rounded-xl">
                         <div className="flex items-center gap-2 mb-1">
                           <Badge variant={a.type === 'signing' ? 'warning' : 'info'}>
                             {TYPE_LABELS[a.type] || a.type}
@@ -219,8 +219,8 @@ export default function CalendarPage() {
                             {a.status === 'scheduled' ? 'Pendiente' : a.status === 'completed' ? 'Realizada' : a.status}
                           </Badge>
                         </div>
-                        <p className="text-sm font-medium text-on-surface">{a.client?.name}</p>
-                        <div className="flex items-center gap-1 mt-1 text-xs text-on-surface-variant">
+                        <p className="text-sm font-medium text-ink">{a.client?.name}</p>
+                        <div className="flex items-center gap-1 mt-1 text-xs text-ink-3">
                           <Clock className="w-3 h-3" />
                           {new Date(a.scheduled_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
                           {a.location && (
@@ -240,19 +240,19 @@ export default function CalendarPage() {
 
             {/* Upcoming */}
             <Card>
-              <h3 className="text-sm font-semibold text-on-surface mb-3">Proximas citas</h3>
+              <h3 className="text-sm font-semibold text-ink mb-3">Proximas citas</h3>
               {upcoming.length === 0 ? (
-                <p className="text-xs text-on-surface-variant">Sin citas proximas</p>
+                <p className="text-xs text-ink-3">Sin citas proximas</p>
               ) : (
                 <div className="space-y-2">
                   {upcoming.map((a) => (
-                    <div key={a.id} className="flex items-center gap-2 p-2 rounded-lg hover:bg-surface-container-low transition-all">
+                    <div key={a.id} className="flex items-center gap-2 p-2 rounded-lg hover:bg-bg-2 transition-all">
                       <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                        a.type === 'signing' ? 'bg-warning' : a.type === 'presentation' ? 'bg-primary' : 'bg-success'
+                        a.type === 'signing' ? 'bg-warn' : a.type === 'presentation' ? 'bg-brand' : 'bg-ok'
                       }`} />
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-on-surface truncate">{a.client?.name}</p>
-                        <p className="text-[10px] text-on-surface-variant">
+                        <p className="text-xs font-medium text-ink truncate">{a.client?.name}</p>
+                        <p className="text-[10px] text-ink-3">
                           {new Date(a.scheduled_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
                           {' '}
                           {new Date(a.scheduled_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}

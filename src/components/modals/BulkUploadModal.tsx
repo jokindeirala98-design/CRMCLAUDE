@@ -77,17 +77,17 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    dragZoneRef.current?.classList.add('border-secondary/60', 'bg-secondary/5')
+    dragZoneRef.current?.classList.add('border-brand/60', 'bg-secondary/5')
   }
   const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    dragZoneRef.current?.classList.remove('border-secondary/60', 'bg-secondary/5')
+    dragZoneRef.current?.classList.remove('border-brand/60', 'bg-secondary/5')
   }
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    dragZoneRef.current?.classList.remove('border-secondary/60', 'bg-secondary/5')
+    dragZoneRef.current?.classList.remove('border-brand/60', 'bg-secondary/5')
     addFiles(Array.from(e.dataTransfer.files))
   }
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -228,24 +228,24 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
             onClick={(e) => e.stopPropagation()}
-            className="bg-surface rounded-2xl shadow-ambient-lg w-full max-w-lg overflow-hidden max-h-[90vh] flex flex-col"
+            className="bg-bg rounded-2xl shadow-ambient-lg w-full max-w-lg overflow-hidden max-h-[90vh] flex flex-col"
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-outline-variant/30 flex-shrink-0">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-line-2-variant/30 flex-shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-secondary/10 flex items-center justify-center">
-                  <Upload className="w-5 h-5 text-secondary" />
+                  <Upload className="w-5 h-5 text-brand" />
                 </div>
                 <div>
-                  <h2 className="font-display font-semibold text-on-surface">
+                  <h2 className="font-sans font-semibold text-ink">
                     Importar Facturas
                   </h2>
-                  <p className="text-xs text-on-surface-variant">
+                  <p className="text-xs text-ink-3">
                     Se procesarán en segundo plano
                   </p>
                 </div>
               </div>
-              <button onClick={onClose} className="p-2 rounded-xl text-on-surface-variant hover:bg-surface-container-low transition-all">
+              <button onClick={onClose} className="p-2 rounded-xl text-ink-3 hover:bg-bg-2 transition-all">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -270,7 +270,7 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
                 {/* Divider */}
                 <div className="flex items-center gap-3">
                   <div className="flex-1 h-px bg-outline-variant/30" />
-                  <span className="text-[10px] font-semibold tracking-wider text-on-surface-variant/60 uppercase">
+                  <span className="text-[10px] font-semibold tracking-wider text-ink-3/60 uppercase">
                     Crear desde CUPS
                   </span>
                   <div className="flex-1 h-px bg-outline-variant/30" />
@@ -278,7 +278,7 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
 
                 {/* CUPS input */}
                 <div>
-                  <label className="block text-xs font-medium text-on-surface-variant mb-1.5">
+                  <label className="block text-xs font-medium text-ink-3 mb-1.5">
                     CUPS del suministro
                   </label>
                   <div className="relative">
@@ -289,19 +289,19 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
                       placeholder="ES0021000000000000AB"
                       maxLength={22}
                       disabled={cupsLoading || !!cupsSuccessId}
-                      className={`w-full h-10 px-3 pr-9 rounded-xl border text-sm font-mono bg-surface-container-low outline-none transition-all
+                      className={`w-full h-10 px-3 pr-9 rounded-xl border text-sm font-mono bg-bg-2 outline-none transition-all
                         ${cupsSuccessId
-                          ? 'border-success/50 text-success'
+                          ? 'border-success/50 text-ok'
                           : cupsInput.length > 0 && !cupsValid
-                            ? 'border-error/40 text-on-surface'
+                            ? 'border-error/40 text-ink'
                             : cupsValid
-                              ? 'border-success/50 text-on-surface'
-                              : 'border-outline-variant/40 text-on-surface'}
-                        focus:border-secondary/60 disabled:opacity-60`}
+                              ? 'border-success/50 text-ink'
+                              : 'border-line-2-variant/40 text-ink'}
+                        focus:border-brand/60 disabled:opacity-60`}
                     />
                     {/* Validation icon */}
                     {cupsSuccessId ? (
-                      <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-success" />
+                      <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ok" />
                     ) : cupsValid ? (
                       <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-success/60" />
                     ) : null}
@@ -309,17 +309,17 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
 
                   {/* CUPS success message */}
                   {cupsSuccessMsg && (
-                    <p className="mt-1.5 text-xs text-success font-medium">{cupsSuccessMsg}</p>
+                    <p className="mt-1.5 text-xs text-ok font-medium">{cupsSuccessMsg}</p>
                   )}
 
                   {/* CUPS error */}
                   {cupsErr && (
-                    <p className="mt-1.5 text-xs text-error">{cupsErr}</p>
+                    <p className="mt-1.5 text-xs text-err">{cupsErr}</p>
                   )}
 
                   {/* Hint when CUPS valid but no client selected */}
                   {cupsValid && !cupsSuccessId && !clientId && !cupsErr && (
-                    <p className="mt-1.5 text-xs text-amber-600">
+                    <p className="mt-1.5 text-xs text-warn">
                       ⚠ Selecciona un cliente arriba para continuar
                     </p>
                   )}
@@ -332,8 +332,8 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
                     disabled={cupsLoading || !clientId}
                     className={`w-full flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-medium transition-all
                       ${clientId
-                        ? 'bg-secondary text-on-secondary hover:opacity-90 active:scale-[0.98]'
-                        : 'bg-surface-container text-on-surface-variant/50 cursor-not-allowed'}
+                        ? 'bg-brand text-on-secondary hover:opacity-90 active:scale-[0.98]'
+                        : 'bg-bg-2 text-ink-3/50 cursor-not-allowed'}
                       disabled:opacity-60`}
                   >
                     {cupsLoading ? (
@@ -358,7 +358,7 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
                 {/* Divider */}
                 <div className="flex items-center gap-3">
                   <div className="flex-1 h-px bg-outline-variant/30" />
-                  <span className="text-[10px] font-semibold tracking-wider text-on-surface-variant/60 uppercase">
+                  <span className="text-[10px] font-semibold tracking-wider text-ink-3/60 uppercase">
                     O importar facturas
                   </span>
                   <div className="flex-1 h-px bg-outline-variant/30" />
@@ -370,14 +370,14 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
                   onDragOver={handleDragOver}
                   onDragLeave={handleDragLeave}
                   onDrop={handleDrop}
-                  className="border-2 border-dashed border-outline-variant/40 rounded-2xl p-8 text-center transition-all cursor-pointer hover:border-secondary/40 hover:bg-secondary/5"
+                  className="border-2 border-dashed border-line-2-variant/40 rounded-2xl p-8 text-center transition-all cursor-pointer hover:border-brand/40 hover:bg-secondary/5"
                   onClick={() => fileInputRef.current?.click()}
                 >
-                  <Upload className="w-8 h-8 text-secondary mx-auto mb-3" />
-                  <p className="text-sm font-medium text-on-surface">
+                  <Upload className="w-8 h-8 text-brand mx-auto mb-3" />
+                  <p className="text-sm font-medium text-ink">
                     Arrastra todas las facturas aquí
                   </p>
-                  <p className="text-xs text-on-surface-variant mt-1">
+                  <p className="text-xs text-ink-3 mt-1">
                     PDF o imágenes · Se agruparán por CUPS automáticamente
                   </p>
                 </div>
@@ -394,18 +394,18 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
                 {/* File list */}
                 {localFiles.length > 0 && (
                   <div className="space-y-1.5">
-                    <p className="text-xs font-medium text-on-surface-variant">
+                    <p className="text-xs font-medium text-ink-3">
                       {localFiles.length} archivo{localFiles.length !== 1 ? 's' : ''} seleccionado{localFiles.length !== 1 ? 's' : ''}
                     </p>
                     <div className="max-h-40 overflow-y-auto space-y-1 pr-1">
                       {localFiles.map((lf) => (
-                        <div key={lf.id} className="flex items-center gap-2 py-1.5 px-3 bg-surface-container-low rounded-lg text-xs">
-                          <FileText className="w-3.5 h-3.5 text-on-surface-variant flex-shrink-0" />
-                          <span className="flex-1 truncate text-on-surface">{lf.file.name}</span>
-                          <span className="text-on-surface-variant">{(lf.file.size / 1024 / 1024).toFixed(1)} MB</span>
+                        <div key={lf.id} className="flex items-center gap-2 py-1.5 px-3 bg-bg-2 rounded-lg text-xs">
+                          <FileText className="w-3.5 h-3.5 text-ink-3 flex-shrink-0" />
+                          <span className="flex-1 truncate text-ink">{lf.file.name}</span>
+                          <span className="text-ink-3">{(lf.file.size / 1024 / 1024).toFixed(1)} MB</span>
                           <button
                             onClick={() => removeFile(lf.id)}
-                            className="p-0.5 text-on-surface-variant hover:text-error flex-shrink-0"
+                            className="p-0.5 text-ink-3 hover:text-err flex-shrink-0"
                           >
                             <X className="w-3 h-3" />
                           </button>
@@ -417,9 +417,9 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
 
                 {/* Info box */}
                 {localFiles.length > 0 && (
-                  <div className="bg-secondary/5 border border-secondary/20 rounded-xl px-4 py-3 text-xs text-on-surface-variant">
+                  <div className="bg-secondary/5 border border-brand/20 rounded-xl px-4 py-3 text-xs text-ink-3">
                     <p>
-                      Al pulsar <b className="text-on-surface">Procesar</b>, el modal se cerrará y las facturas se
+                      Al pulsar <b className="text-ink">Procesar</b>, el modal se cerrará y las facturas se
                       analizarán en segundo plano. Podrás seguir usando la app normalmente.
                       Verás el progreso en la esquina inferior derecha.
                     </p>
@@ -427,16 +427,16 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
                 )}
 
                 {error && (
-                  <div className="bg-error-container rounded-xl px-4 py-2.5 flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 text-error flex-shrink-0" />
-                    <p className="text-sm text-error font-medium">{error}</p>
+                  <div className="bg-err-container rounded-xl px-4 py-2.5 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-err flex-shrink-0" />
+                    <p className="text-sm text-err font-medium">{error}</p>
                   </div>
                 )}
               </div>
             </div>
 
             {/* Footer */}
-            <div className="flex gap-3 justify-end px-6 py-4 border-t border-outline-variant/30 flex-shrink-0">
+            <div className="flex gap-3 justify-end px-6 py-4 border-t border-line-2-variant/30 flex-shrink-0">
               <Button variant="secondary" type="button" onClick={onClose}>
                 Cancelar
               </Button>

@@ -122,7 +122,7 @@ export default function SuppliesPage() {
       key: 'cups',
       header: 'CUPS',
       render: (item: any) => (
-        <span className="font-mono text-xs text-on-surface">{item.cups || 'Sin CUPS'}</span>
+        <span className="font-mono text-xs text-ink">{item.cups || 'Sin CUPS'}</span>
       ),
     },
     {
@@ -130,8 +130,8 @@ export default function SuppliesPage() {
       header: 'Cliente',
       render: (item: any) => (
         <div>
-          <p className="text-sm font-medium text-on-surface">{item.client?.name || '-'}</p>
-          <p className="text-xs text-on-surface-variant">{item.client?.cif_nif}</p>
+          <p className="text-sm font-medium text-ink">{item.client?.name || '-'}</p>
+          <p className="text-xs text-ink-3">{item.client?.cif_nif}</p>
         </div>
       ),
     },
@@ -144,7 +144,7 @@ export default function SuppliesPage() {
       key: 'type',
       header: 'Tipo',
       render: (item: any) => (
-        <span className="text-sm capitalize text-on-surface-variant">{item.type}</span>
+        <span className="text-sm capitalize text-ink-3">{item.type}</span>
       ),
     },
     {
@@ -152,16 +152,16 @@ export default function SuppliesPage() {
       header: 'Consumo anual',
       render: (item: any) => {
         const consumption = consumptionMap[item.id]
-        if (!consumption) return <span className="text-sm text-on-surface-variant">—</span>
+        if (!consumption) return <span className="text-sm text-ink-3">—</span>
         // Determine source: if supply has no invoices but has SIPS data, show SIPS tag
         const fromSips = !!(item.consumption_data?.totalKwh && !item.invoices?.length)
         return (
           <div className="flex flex-col gap-0.5">
-            <span className="text-sm text-on-surface font-medium">
+            <span className="text-sm text-ink font-medium">
               {consumption.toLocaleString('es-ES', { maximumFractionDigits: 0 })} kWh
             </span>
             {fromSips && (
-              <span className="text-[10px] text-on-surface-variant/60 font-medium">SIPS</span>
+              <span className="text-[10px] text-ink-3/60 font-medium">SIPS</span>
             )}
           </div>
         )
@@ -197,8 +197,8 @@ export default function SuppliesPage() {
                 onClick={() => setFilter(f.key)}
                 className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
                   filter === f.key
-                    ? 'gradient-primary text-white'
-                    : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container-high'
+                    ? 'bg-brand text-white'
+                    : 'bg-bg-2 text-ink-3 hover:bg-bg-2'
                 }`}
               >
                 {f.label}
@@ -212,8 +212,8 @@ export default function SuppliesPage() {
               onClick={() => setSortBy('recent')}
               className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
                 sortBy === 'recent'
-                  ? 'bg-primary text-white'
-                  : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container-high'
+                  ? 'bg-brand text-white'
+                  : 'bg-bg-2 text-ink-3 hover:bg-bg-2'
               }`}
             >
               Más recientes
@@ -222,8 +222,8 @@ export default function SuppliesPage() {
               onClick={() => setSortBy('consumption_desc')}
               className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
                 sortBy === 'consumption_desc'
-                  ? 'bg-primary text-white'
-                  : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container-high'
+                  ? 'bg-brand text-white'
+                  : 'bg-bg-2 text-ink-3 hover:bg-bg-2'
               }`}
             >
               Consumo anual ↓
@@ -232,8 +232,8 @@ export default function SuppliesPage() {
               onClick={() => setSortBy('consumption_asc')}
               className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
                 sortBy === 'consumption_asc'
-                  ? 'bg-primary text-white'
-                  : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container-high'
+                  ? 'bg-brand text-white'
+                  : 'bg-bg-2 text-ink-3 hover:bg-bg-2'
               }`}
             >
               Consumo anual ↑

@@ -132,28 +132,28 @@ export default function CommissionsPage() {
       key: 'client',
       header: 'Cliente',
       render: (item: CommissionWithRelations) => (
-        <span className="text-sm text-on-surface">{item.client?.name || '-'}</span>
+        <span className="text-sm text-ink">{item.client?.name || '-'}</span>
       ),
     },
     {
       key: 'supply',
       header: 'Suministro',
       render: (item: CommissionWithRelations) => (
-        <span className="text-sm font-mono text-on-surface-variant">{item.supply?.cups || '-'}</span>
+        <span className="text-sm font-mono text-ink-3">{item.supply?.cups || '-'}</span>
       ),
     },
     {
       key: 'concept',
       header: 'Concepto',
       render: (item: CommissionWithRelations) => (
-        <span className="text-sm text-on-surface">{item.concept || '-'}</span>
+        <span className="text-sm text-ink">{item.concept || '-'}</span>
       ),
     },
     {
       key: 'amount',
       header: 'Importe',
       render: (item: CommissionWithRelations) => (
-        <span className="text-sm font-semibold text-on-surface">{formatCurrency(item.amount)}</span>
+        <span className="text-sm font-semibold text-ink">{formatCurrency(item.amount)}</span>
       ),
     },
     {
@@ -171,7 +171,7 @@ export default function CommissionsPage() {
                     item.status === 'pending' ? 'approved' : item.status === 'approved' ? 'paid' : 'pending'
                   updateCommissionStatus(item.id, nextStatus)
                 }}
-                className="text-xs px-2 py-1 rounded-lg bg-surface-container-low text-primary hover:bg-primary hover:text-white transition-all"
+                className="text-xs px-2 py-1 rounded-lg bg-bg-2 text-brand hover:bg-brand hover:text-white transition-all"
               >
                 {item.status === 'paid' ? 'Reset' : 'Avanzar'}
               </button>
@@ -195,20 +195,20 @@ export default function CommissionsPage() {
           <div className="flex items-center gap-4">
             <button
               onClick={handlePreviousMonth}
-              className="p-2 rounded-xl hover:bg-surface-container-low transition-all"
+              className="p-2 rounded-xl hover:bg-bg-2 transition-all"
               title="Mes anterior"
             >
-              <ChevronLeft className="w-5 h-5 text-on-surface-variant" />
+              <ChevronLeft className="w-5 h-5 text-ink-3" />
             </button>
-            <span className="text-sm font-semibold text-on-surface min-w-[120px] text-center">
+            <span className="text-sm font-semibold text-ink min-w-[120px] text-center">
               {monthDisplay} {yearDisplay}
             </span>
             <button
               onClick={handleNextMonth}
-              className="p-2 rounded-xl hover:bg-surface-container-low transition-all"
+              className="p-2 rounded-xl hover:bg-bg-2 transition-all"
               title="Mes siguiente"
             >
-              <ChevronRight className="w-5 h-5 text-on-surface-variant" />
+              <ChevronRight className="w-5 h-5 text-ink-3" />
             </button>
           </div>
 
@@ -231,16 +231,16 @@ export default function CommissionsPage() {
         {/* Stats Cards */}
         <div className="grid grid-cols-3 gap-4">
           <Card>
-            <p className="text-xs text-on-surface-variant font-medium">Ganado</p>
-            <p className="font-display font-bold text-2xl text-primary mt-1">{formatCurrency(totalEarned)}</p>
+            <p className="text-xs text-ink-3 font-medium">Ganado</p>
+            <p className="font-sans font-bold text-2xl text-brand mt-1">{formatCurrency(totalEarned)}</p>
           </Card>
           <Card>
-            <p className="text-xs text-on-surface-variant font-medium">Pendiente</p>
-            <p className="font-display font-bold text-2xl text-warning mt-1">{formatCurrency(pending)}</p>
+            <p className="text-xs text-ink-3 font-medium">Pendiente</p>
+            <p className="font-sans font-bold text-2xl text-warn mt-1">{formatCurrency(pending)}</p>
           </Card>
           <Card>
-            <p className="text-xs text-on-surface-variant font-medium">Pagadas</p>
-            <p className="font-display font-bold text-2xl text-success mt-1">{formatCurrency(paid)}</p>
+            <p className="text-xs text-ink-3 font-medium">Pagadas</p>
+            <p className="font-sans font-bold text-2xl text-ok mt-1">{formatCurrency(paid)}</p>
           </Card>
         </div>
 

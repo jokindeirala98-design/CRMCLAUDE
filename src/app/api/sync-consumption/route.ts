@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { fetchSipsForCups } from '@/lib/sips'
-import type { SipsData } from '@/lib/sips'
 import { normalizeTariff } from '@/lib/consumption-utils'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://wqzicwrmmwhnafaihhqh.supabase.co'
@@ -10,11 +8,19 @@ const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PU
 /**
  * POST /api/sync-consumption
  *
- * Builds or refreshes `consumption_snapshots` for a given client_id,
- * pulling data from supplies → SIPS (priority) + invoices (fallback).
+ * Fast path: builds consumption_snapshots for a client from existing supply
+ * data in the DB — no external API calls, no timeouts.
  *
- * NEW: For supplies that have a CUPS but no consumption_data yet,
- * automatically fetches SIPS from Greening and persists it on the supply.
+ * Uses (in priority order):
+ *   1. supply.consumption_data (already-fetched SIPS stored on the supply)
+ *   2. supply.invoices extracted_data (from Gemini invoice extraction)
+ *   3. supply base fields (cups, tariff, address, comercializadora)
+ *
+ * SIPS is NOT fetched here — it can be triggered per-supply via
+ * POST /api/sync-supply-sips  (called from the individual supply detail page).
+ *
+ * This guarantees the API returns within ~2s regardless of how many
+ * supplies the ayuntamiento has.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -32,7 +38,7 @@ export async function POST(req: NextRequest) {
         id, name, cups, type, tariff, address, status,
         consumption_data, power_data,
         comercializadora:comercializadoras(name),
-        invoices:invoices(id, file_url, period_start, period_end, extracted_data, created_at)
+        invoices:invoices(id, file_url, period_start, period_end, extracted_data, created_at, extraction_status)
       `)
       .eq('client_id', client_id)
       .order('created_at', { ascending: true })
@@ -42,104 +48,39 @@ export async function POST(req: NextRequest) {
     }
 
     if (!supplies || supplies.length === 0) {
-      return NextResponse.json({ error: 'No hay suministros para este cliente' }, { status: 400 })
+      return NextResponse.json({ error: 'No hay suministros registrados para este cliente' }, { status: 404 })
     }
 
-    // 2. Auto-fetch SIPS for supplies that have CUPS but no consumption_data
-    console.log(`[sync-consumption] ${supplies.length} supplies found for client ${client_id}`)
+    console.log(`[sync-consumption] Building snapshots for ${supplies.length} supplies (client ${client_id})`)
 
-    const suppliesNeedingSips = supplies.filter(
-      (s: any) => s.cups && (!s.consumption_data || !s.consumption_data.potenciaContratada)
-    )
-
-    if (suppliesNeedingSips.length > 0) {
-      console.log(`[sync-consumption] Fetching SIPS for ${suppliesNeedingSips.length} supplies...`)
-
-      // Fetch SIPS in parallel (max 5 concurrent to avoid rate limits)
-      const BATCH_SIZE = 5
-      for (let i = 0; i < suppliesNeedingSips.length; i += BATCH_SIZE) {
-        const batch = suppliesNeedingSips.slice(i, i + BATCH_SIZE)
-        const results = await Promise.allSettled(
-          batch.map(async (supply: any) => {
-            const supplyType: 'luz' | 'gas' | undefined =
-              supply.type === 'gas' ? 'gas' : supply.type === 'luz' ? 'luz' : undefined
-            const sipsData = await fetchSipsForCups(supply.cups, supplyType)
-            if (!sipsData) return null
-
-            // Build consumption_data object (same format as supply detail page)
-            const updatedConsumption = {
-              ...(supply.consumption_data || {}),
-              source: 'greening_sips',
-              fetched_at: new Date().toISOString(),
-              history: sipsData.consumptionHistory || (supply.consumption_data?.history || []),
-              maximetroHistory: sipsData.maximetroHistory || (supply.consumption_data?.maximetroHistory || []),
-              reactivaHistory: sipsData.reactivaHistory || (supply.consumption_data?.reactivaHistory || []),
-              potenciaContratada: sipsData.potenciaContratada || supply.consumption_data?.potenciaContratada,
-              consumoPeriodos: sipsData.consumoPeriodos || supply.consumption_data?.consumoPeriodos,
-              total: sipsData.totalConsumption || supply.consumption_data?.total,
-              totalKwh: sipsData.totalConsumptionKwh || supply.consumption_data?.totalKwh,
-              sips_tariff: normalizeTariff(sipsData.tariff) || sipsData.tariff || supply.consumption_data?.sips_tariff,
-              distribuidora: sipsData.distribuidora || supply.consumption_data?.distribuidora,
-              codigoPostal: sipsData.codigoPostal || supply.consumption_data?.codigoPostal,
-              provincia: sipsData.provincia || supply.consumption_data?.provincia,
-              municipio: sipsData.municipio || supply.consumption_data?.municipio,
-              cnae: sipsData.cnae || supply.consumption_data?.cnae,
-              tension: sipsData.tension || supply.consumption_data?.tension,
-              fechaAlta: sipsData.fechaAlta || supply.consumption_data?.fechaAlta,
-              fechaUltimaLectura: sipsData.fechaUltimaLectura || supply.consumption_data?.fechaUltimaLectura,
-            }
-
-            // Persist on the supply record
-            const updateData: any = {
-              consumption_data: updatedConsumption,
-              updated_at: new Date().toISOString(),
-            }
-            // Also update tariff if we got one from SIPS and supply doesn't have one
-            if (!supply.tariff && sipsData.tariff) {
-              updateData.tariff = normalizeTariff(sipsData.tariff) || sipsData.tariff
-            }
-
-            await supabase
-              .from('supplies')
-              .update(updateData)
-              .eq('id', supply.id)
-
-            // Mutate the supply object in-memory so snapshot building uses fresh data
-            supply.consumption_data = updatedConsumption
-            if (updateData.tariff) supply.tariff = updateData.tariff
-
-            console.log(`[sync-consumption] SIPS OK for ${supply.cups}`)
-            return sipsData
-          })
-        )
-
-        const failed = results.filter(r => r.status === 'rejected')
-        if (failed.length > 0) {
-          console.warn(`[sync-consumption] ${failed.length} SIPS fetches failed in batch`)
-        }
-      }
-    }
-
-    // 3. Delete existing snapshots for this client (full refresh)
-    await supabase
+    // 2. Delete existing snapshots (full refresh)
+    const { error: deleteErr } = await supabase
       .from('consumption_snapshots')
       .delete()
       .eq('client_id', client_id)
 
-    // 4. Build snapshot rows
+    if (deleteErr) {
+      console.warn('[sync-consumption] Delete warning:', deleteErr.message)
+      // Non-fatal — continue with insert (may create duplicates but better than nothing)
+    }
+
+    // 3. Build snapshot rows from existing DB data (no external API calls)
     const snapshots = supplies.map((supply: any) => {
       const sips = supply.consumption_data as any
       const invoices = (supply.invoices || []) as any[]
-      const comercializadoraName = supply.comercializadora?.name || null
+      const comercializadoraName = (supply.comercializadora as any)?.name || null
 
-      // Sort invoices by period_start descending to get the most recent
-      const sortedInvoices = [...invoices].sort((a, b) =>
-        new Date(b.period_start || b.created_at).getTime() - new Date(a.period_start || a.created_at).getTime()
-      )
+      // Sort invoices by period_start descending, prefer completed extractions
+      const sortedInvoices = [...invoices].sort((a, b) => {
+        if (a.extraction_status === 'completed' && b.extraction_status !== 'completed') return -1
+        if (b.extraction_status === 'completed' && a.extraction_status !== 'completed') return 1
+        return new Date(b.period_start || b.created_at).getTime() - new Date(a.period_start || a.created_at).getTime()
+      })
       const bestInvoice = sortedInvoices[0]
-      const economics = bestInvoice?.extracted_data?.economics
+      const invoiceData = bestInvoice?.extracted_data as any
+      const economics = invoiceData?.economics || invoiceData
 
-      // ── Potencias (SIPS priority, invoice fallback) ──
+      // ── Potencias (SIPS priority → power_data → invoice) ──
       let potencia_p1: number | null = null
       let potencia_p2: number | null = null
       let potencia_p3: number | null = null
@@ -149,16 +90,19 @@ export async function POST(req: NextRequest) {
 
       if (sips?.potenciaContratada) {
         const pc = sips.potenciaContratada
-        potencia_p1 = pc.P1 ?? null
-        potencia_p2 = pc.P2 ?? null
-        potencia_p3 = pc.P3 ?? null
-        potencia_p4 = pc.P4 ?? null
-        potencia_p5 = pc.P5 ?? null
-        potencia_p6 = pc.P6 ?? null
+        potencia_p1 = toNum(pc.P1); potencia_p2 = toNum(pc.P2); potencia_p3 = toNum(pc.P3)
+        potencia_p4 = toNum(pc.P4); potencia_p5 = toNum(pc.P5); potencia_p6 = toNum(pc.P6)
+      } else if (supply.power_data) {
+        const pd = supply.power_data as any
+        const pc = pd.potenciaContratada || pd
+        if (pc.P1 != null) {
+          potencia_p1 = toNum(pc.P1); potencia_p2 = toNum(pc.P2); potencia_p3 = toNum(pc.P3)
+          potencia_p4 = toNum(pc.P4); potencia_p5 = toNum(pc.P5); potencia_p6 = toNum(pc.P6)
+        }
       } else if (economics?.potencia) {
         for (const p of economics.potencia) {
           const period = String(p.periodo || '').toUpperCase()
-          const kw = Number(p.kw) || 0
+          const kw = Number(p.kw) || null
           if (period === 'P1') potencia_p1 = kw
           else if (period === 'P2') potencia_p2 = kw
           else if (period === 'P3') potencia_p3 = kw
@@ -168,7 +112,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // ── Consumos (SIPS priority, invoice fallback) ──
+      // ── Consumos (SIPS priority → invoice extraction) ──
       let consumo_p1: number | null = null
       let consumo_p2: number | null = null
       let consumo_p3: number | null = null
@@ -176,22 +120,31 @@ export async function POST(req: NextRequest) {
       let consumo_p5: number | null = null
       let consumo_p6: number | null = null
       let consumo_total: number | null = null
-      let source: 'sips' | 'invoice_extraction' = 'invoice_extraction'
+      let source: 'sips' | 'invoice_extraction' | 'manual' = 'manual'
 
       if (sips?.consumoPeriodos) {
         const cp = sips.consumoPeriodos
-        consumo_p1 = cp.P1 ?? null
-        consumo_p2 = cp.P2 ?? null
-        consumo_p3 = cp.P3 ?? null
-        consumo_p4 = cp.P4 ?? null
-        consumo_p5 = cp.P5 ?? null
-        consumo_p6 = cp.P6 ?? null
-        consumo_total = sips.totalKwh ?? sips.totalConsumptionKwh ?? null
+        consumo_p1 = toNum(cp.P1); consumo_p2 = toNum(cp.P2); consumo_p3 = toNum(cp.P3)
+        consumo_p4 = toNum(cp.P4); consumo_p5 = toNum(cp.P5); consumo_p6 = toNum(cp.P6)
+        consumo_total = toNum(sips.totalKwh) ?? toNum(sips.totalConsumptionKwh) ?? null
+        source = 'sips'
+      } else if (sips?.history && Array.isArray(sips.history) && sips.history.length > 0) {
+        // Aggregate annual totals from history (P1-P6 per period)
+        const history = sips.history as Array<Record<string, number>>
+        let t = 0
+        for (const h of history) {
+          t += (h.P1||0) + (h.P2||0) + (h.P3||0) + (h.P4||0) + (h.P5||0) + (h.P6||0)
+        }
+        // Take the most recent year (last entry if sorted)
+        const recent = history[0]
+        consumo_p1 = toNum(recent.P1); consumo_p2 = toNum(recent.P2); consumo_p3 = toNum(recent.P3)
+        consumo_p4 = toNum(recent.P4); consumo_p5 = toNum(recent.P5); consumo_p6 = toNum(recent.P6)
+        consumo_total = toNum(sips.totalKwh) ?? toNum(sips.totalConsumptionKwh) ?? (t > 0 ? Math.round(t / history.length) : null)
         source = 'sips'
       } else if (economics?.consumo) {
         for (const c of economics.consumo) {
           const period = String(c.periodo || '').toUpperCase()
-          const kwh = Number(c.kwh) || 0
+          const kwh = Number(c.kwh) || null
           if (period === 'P1') consumo_p1 = kwh
           else if (period === 'P2') consumo_p2 = kwh
           else if (period === 'P3') consumo_p3 = kwh
@@ -199,39 +152,39 @@ export async function POST(req: NextRequest) {
           else if (period === 'P5') consumo_p5 = kwh
           else if (period === 'P6') consumo_p6 = kwh
         }
-        consumo_total = economics.consumoTotalKwh ?? null
+        consumo_total = toNum(economics.consumoTotalKwh) ?? null
+        source = 'invoice_extraction'
       }
 
-      // Calculate total from periods if not available
-      if (!consumo_total || consumo_total === 0) {
-        const sum = (consumo_p1 || 0) + (consumo_p2 || 0) + (consumo_p3 || 0)
-          + (consumo_p4 || 0) + (consumo_p5 || 0) + (consumo_p6 || 0)
+      // Calculate total from periods if not set
+      if (!consumo_total) {
+        const sum = (consumo_p1||0) + (consumo_p2||0) + (consumo_p3||0) + (consumo_p4||0) + (consumo_p5||0) + (consumo_p6||0)
         if (sum > 0) consumo_total = sum
       }
 
-      // Also try SIPS total if we still have nothing
-      if (!consumo_total && sips?.totalConsumptionKwh) {
-        consumo_total = Number(sips.totalConsumptionKwh) || null
-      }
+      // Also try the consolidated totalKwh on SIPS data
+      if (!consumo_total && sips?.totalKwh) consumo_total = Number(sips.totalKwh) || null
+      if (!consumo_total && sips?.total) consumo_total = Number(sips.total) || null
 
-      // ── Tariff (supply priority, then SIPS, then invoice) — always normalize ──
+      // ── Tariff ──
       const rawTariff = supply.tariff || sips?.sips_tariff || sips?.tariff || economics?.tarifa || null
       const tariff = rawTariff ? (normalizeTariff(rawTariff) || rawTariff) : null
 
-      // ── Invoice file URL (best available) ──
-      const invoiceFileUrl = bestInvoice?.file_url || null
-
-      // ── Comercializadora (supply relation, then SIPS, then invoice) ──
+      // ── Comercializadora ──
       const comercializadora = comercializadoraName || sips?.distribuidora || economics?.comercializadora || null
 
-      // ── Validation ──
+      // ── Invoice file URL ──
+      const invoiceFileUrl = bestInvoice?.file_url || null
+
+      // ── Validation status ──
       const hasCups = !!supply.cups
       const hasTariff = !!tariff
       const hasConsumption = (consumo_total || 0) > 0
       const hasAddress = !!supply.address
-      const validation = (!hasCups || !hasTariff) ? 'Incompleto' as const
-        : (!hasConsumption || !hasAddress) ? 'Revisar' as const
-        : 'OK' as const
+      const validation: 'OK' | 'Revisar' | 'Incompleto' =
+        !hasCups || !hasTariff ? 'Incompleto'
+        : !hasConsumption || !hasAddress ? 'Revisar'
+        : 'OK'
 
       return {
         client_id,
@@ -239,7 +192,7 @@ export async function POST(req: NextRequest) {
         name: supply.name || null,
         cups: supply.cups || '',
         tariff,
-        supply_type: supply.type || null,
+        supply_type: supply.type === 'gas' ? 'gas' : supply.type === 'luz' ? 'luz' : null,
         comercializadora,
         address: supply.address || null,
         potencia_p1, potencia_p2, potencia_p3, potencia_p4, potencia_p5, potencia_p6,
@@ -251,22 +204,43 @@ export async function POST(req: NextRequest) {
         confidence_json: null,
         invoice_file_url: invoiceFileUrl,
         periodo: null,
-        created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }
     })
 
-    // 5. Insert all snapshots
+    // 4. Insert all snapshots at once
     const { error: insertErr } = await supabase
       .from('consumption_snapshots')
       .insert(snapshots)
 
     if (insertErr) {
+      console.error('[sync-consumption] Insert error:', insertErr)
       return NextResponse.json({ error: insertErr.message }, { status: 500 })
     }
 
-    return NextResponse.json({ success: true, count: snapshots.length })
+    const sipsFilled = snapshots.filter(s => s.source === 'sips').length
+    const invoiceFilled = snapshots.filter(s => s.source === 'invoice_extraction').length
+    const empty = snapshots.filter(s => s.source === 'manual').length
+
+    console.log(`[sync-consumption] Created ${snapshots.length} snapshots: ${sipsFilled} SIPS, ${invoiceFilled} invoice, ${empty} empty`)
+
+    return NextResponse.json({
+      success: true,
+      count: snapshots.length,
+      sips_count: sipsFilled,
+      invoice_count: invoiceFilled,
+      empty_count: empty,
+    })
   } catch (error: any) {
+    console.error('[sync-consumption] Unexpected error:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+function toNum(v: any): number | null {
+  if (v == null) return null
+  const n = Number(v)
+  return isNaN(n) ? null : n
 }

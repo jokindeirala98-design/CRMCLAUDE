@@ -113,15 +113,15 @@ export function ChangeOwnerModal({
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       
-      <div className="relative w-full max-w-2xl bg-surface rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="relative w-full max-w-2xl bg-bg rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-outline-variant/10">
+        <div className="flex items-center justify-between p-6 border-b border-line-2-variant/10">
           <div>
-            <h2 className="text-xl font-display font-bold text-on-surface">Nuevo Titular / Ficha específica</h2>
-            <p className="text-sm text-on-surface-variant">Configura los datos propios para este suministro</p>
+            <h2 className="text-xl font-sans font-bold text-ink">Nuevo Titular / Ficha específica</h2>
+            <p className="text-sm text-ink-3">Configura los datos propios para este suministro</p>
           </div>
-          <button onClick={onClose} className="p-2 rounded-full hover:bg-surface-container-high transition">
-            <X className="w-6 h-6 text-on-surface-variant" />
+          <button onClick={onClose} className="p-2 rounded-full hover:bg-bg-2 transition">
+            <X className="w-6 h-6 text-ink-3" />
           </button>
         </div>
 
@@ -214,16 +214,16 @@ export function ChangeOwnerModal({
           </div>
 
           {error && (
-            <div className="p-3 bg-error/10 border border-error/20 rounded-xl text-error text-sm">
+            <div className="p-3 bg-error/10 border border-error/20 rounded-xl text-err text-sm">
               {error}
             </div>
           )}
         </form>
 
         {/* Footer */}
-        <div className="p-6 border-t border-outline-variant/10 flex justify-end gap-3">
+        <div className="p-6 border-t border-line-2-variant/10 flex justify-end gap-3">
           <Button variant="secondary" onClick={onClose}>Cancelar</Button>
-          <Button onClick={handleSave} loading={saving} className="bg-primary text-white">
+          <Button onClick={handleSave} loading={saving} className="bg-brand text-white">
             <Save className="w-4 h-4 mr-2" />
             Crear y vincular suministro
           </Button>

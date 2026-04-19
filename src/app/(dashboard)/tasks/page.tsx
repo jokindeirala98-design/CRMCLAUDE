@@ -29,15 +29,15 @@ import { useAuthStore } from '@/stores/auth'
 import { getUserInitials } from '@/lib/utils/format'
 
 const PRIORITY_CONFIG = {
-  high: { label: 'Alta', color: 'bg-error/10 text-error', dot: 'bg-error', border: 'border-l-error' },
-  medium: { label: 'Media', color: 'bg-warning/10 text-warning', dot: 'bg-warning', border: 'border-l-warning' },
-  low: { label: 'Baja', color: 'bg-success/10 text-success', dot: 'bg-success', border: 'border-l-success' },
+  high: { label: 'Alta', color: 'bg-error/10 text-err', dot: 'bg-err', border: 'border-l-error' },
+  medium: { label: 'Media', color: 'bg-warning/10 text-warn', dot: 'bg-warn', border: 'border-l-warning' },
+  low: { label: 'Baja', color: 'bg-success/10 text-ok', dot: 'bg-ok', border: 'border-l-success' },
 }
 
 const STATUS_CONFIG = {
-  pending: { label: 'Pendiente', icon: Circle, color: 'text-on-surface-variant' },
-  in_progress: { label: 'En progreso', icon: Clock, color: 'text-primary' },
-  completed: { label: 'Completada', icon: CheckCircle2, color: 'text-success' },
+  pending: { label: 'Pendiente', icon: Circle, color: 'text-ink-3' },
+  in_progress: { label: 'En progreso', icon: Clock, color: 'text-brand' },
+  completed: { label: 'Completada', icon: CheckCircle2, color: 'text-ok' },
 }
 
 type TaskType = {
@@ -224,7 +224,7 @@ export default function TasksPage() {
         onDragStart={() => handleDragStart(task.id)}
         onDragOver={handleDragOver}
         onDrop={() => handleDrop(task.id, task.status)}
-        className={`group p-4 bg-surface rounded-2xl border-l-4 ${prio.border} shadow-ambient-xs hover:shadow-ambient-sm transition-all ${
+        className={`group p-4 bg-bg rounded-2xl border-l-4 ${prio.border} shadow-ambient-xs hover:shadow-ambient-sm transition-all ${
           draggedId === task.id ? 'opacity-50' : ''
         } ${task.status === 'completed' ? 'opacity-60' : ''}`}
       >
@@ -232,7 +232,7 @@ export default function TasksPage() {
           {/* Drag handle + status toggle */}
           <div className="flex flex-col items-center gap-1 pt-0.5">
             {task.status !== 'completed' && (
-              <GripVertical className="w-4 h-4 text-on-surface-variant/30 cursor-grab opacity-0 group-hover:opacity-100 transition-opacity" />
+              <GripVertical className="w-4 h-4 text-ink-3/30 cursor-grab opacity-0 group-hover:opacity-100 transition-opacity" />
             )}
             <button
               onClick={() => {
@@ -245,7 +245,7 @@ export default function TasksPage() {
             >
               <StatusIcon
                 className={`w-5 h-5 ${statusConf.color} ${
-                  task.status === 'completed' ? '' : 'hover:text-success'
+                  task.status === 'completed' ? '' : 'hover:text-ok'
                 }`}
               />
             </button>
@@ -254,14 +254,14 @@ export default function TasksPage() {
           {/* Content */}
           <div className="flex-1 min-w-0">
             <p
-              className={`text-sm font-semibold text-on-surface ${
-                task.status === 'completed' ? 'line-through text-on-surface-variant' : ''
+              className={`text-sm font-semibold text-ink ${
+                task.status === 'completed' ? 'line-through text-ink-3' : ''
               }`}
             >
               {task.title}
             </p>
             {task.description && (
-              <p className="text-xs text-on-surface-variant mt-1 line-clamp-2">
+              <p className="text-xs text-ink-3 mt-1 line-clamp-2">
                 {task.description}
               </p>
             )}
@@ -272,35 +272,35 @@ export default function TasksPage() {
               </Badge>
 
               {task.client && (
-                <span className="flex items-center gap-1 text-[10px] text-secondary font-medium">
+                <span className="flex items-center gap-1 text-[10px] text-brand font-medium">
                   <Building2 className="w-3 h-3" />
                   {task.client.name}
                 </span>
               )}
 
               {task.assigned_user && (
-                <span className="flex items-center gap-1 text-[10px] text-on-surface-variant">
+                <span className="flex items-center gap-1 text-[10px] text-ink-3">
                   <UserIcon className="w-3 h-3" />
                   {getUserInitials(task.assigned_user.full_name)}
                 </span>
               )}
 
               {isOverdue && (
-                <span className="flex items-center gap-1 text-[10px] text-error font-semibold">
+                <span className="flex items-center gap-1 text-[10px] text-err font-semibold">
                   <AlertTriangle className="w-3 h-3" />
                   Vencida ({Math.abs(daysLeft!)}d)
                 </span>
               )}
 
               {isDueSoon && (
-                <span className="flex items-center gap-1 text-[10px] text-warning font-semibold">
+                <span className="flex items-center gap-1 text-[10px] text-warn font-semibold">
                   <Clock className="w-3 h-3" />
                   {daysLeft === 0 ? 'Hoy' : `${daysLeft}d`}
                 </span>
               )}
 
               {task.due_date && !isOverdue && !isDueSoon && task.status !== 'completed' && (
-                <span className="text-[10px] text-on-surface-variant">
+                <span className="text-[10px] text-ink-3">
                   {new Date(task.due_date).toLocaleDateString('es-ES', {
                     day: 'numeric',
                     month: 'short',
@@ -315,7 +315,7 @@ export default function TasksPage() {
             {task.status !== 'completed' && (
               <button
                 onClick={() => setReassigningId(reassigningId === task.id ? null : task.id)}
-                className="p-1.5 rounded-lg hover:bg-primary/10 text-on-surface-variant hover:text-primary transition-all"
+                className="p-1.5 rounded-lg hover:bg-primary/10 text-ink-3 hover:text-brand transition-all"
                 title="Reasignar"
               >
                 <ArrowRightLeft className="w-4 h-4" />
@@ -324,7 +324,7 @@ export default function TasksPage() {
             {task.status !== 'completed' && (
               <button
                 onClick={() => updateTaskStatus(task.id, 'completed')}
-                className="p-1.5 rounded-lg hover:bg-success/10 text-on-surface-variant hover:text-success transition-all"
+                className="p-1.5 rounded-lg hover:bg-success/10 text-ink-3 hover:text-ok transition-all"
                 title="Completar"
               >
                 <CheckCircle2 className="w-4 h-4" />
@@ -333,7 +333,7 @@ export default function TasksPage() {
             {isAdmin && (
               <button
                 onClick={() => deleteTask(task.id)}
-                className="p-1.5 rounded-lg hover:bg-error/10 text-on-surface-variant hover:text-error transition-all"
+                className="p-1.5 rounded-lg hover:bg-error/10 text-ink-3 hover:text-err transition-all"
                 title="Eliminar"
               >
                 <Trash2 className="w-4 h-4" />
@@ -345,13 +345,13 @@ export default function TasksPage() {
         {/* Reassign dropdown */}
         {reassigningId === task.id && (
           <div className="mt-3 pt-3 border-t border-surface-container-low">
-            <p className="text-[10px] text-on-surface-variant mb-2 font-semibold uppercase tracking-wider">Reasignar a:</p>
+            <p className="text-[10px] text-ink-3 mb-2 font-semibold uppercase tracking-wider">Reasignar a:</p>
             <div className="flex flex-wrap gap-1.5">
               {users.filter(u => u.id !== task.assigned_to).map((u) => (
                 <button
                   key={u.id}
                   onClick={() => reassignTask(task.id, u.id)}
-                  className="px-2.5 py-1 rounded-lg text-xs bg-surface-container-high text-on-surface-variant hover:bg-primary hover:text-white transition-all"
+                  className="px-2.5 py-1 rounded-lg text-xs bg-bg-2 text-ink-3 hover:bg-brand hover:text-white transition-all"
                 >
                   {getUserInitials(u.full_name)}
                 </button>
@@ -380,16 +380,16 @@ export default function TasksPage() {
         {/* Stats */}
         <div className="grid grid-cols-3 gap-4">
           <Card className="text-center">
-            <p className="text-xs text-on-surface-variant font-medium">Activas</p>
-            <p className="font-display font-bold text-2xl text-on-surface">{totalActive}</p>
+            <p className="text-xs text-ink-3 font-medium">Activas</p>
+            <p className="font-sans font-bold text-2xl text-ink">{totalActive}</p>
           </Card>
           <Card className="text-center">
-            <p className="text-xs text-error font-medium">Urgentes</p>
-            <p className="font-display font-bold text-2xl text-error">{totalHigh}</p>
+            <p className="text-xs text-err font-medium">Urgentes</p>
+            <p className="font-sans font-bold text-2xl text-err">{totalHigh}</p>
           </Card>
           <Card className="text-center">
-            <p className="text-xs text-success font-medium">Completadas</p>
-            <p className="font-display font-bold text-2xl text-success">{totalCompleted}</p>
+            <p className="text-xs text-ok font-medium">Completadas</p>
+            <p className="font-sans font-bold text-2xl text-ok">{totalCompleted}</p>
           </Card>
         </div>
 
@@ -401,10 +401,10 @@ export default function TasksPage() {
               <Send className="w-5 h-5 text-[#2AABEE]" />
             </div>
             <div className="flex-1">
-              <p className="text-sm font-semibold text-on-surface">
+              <p className="text-sm font-semibold text-ink">
                 {telegramPending} documento{telegramPending !== 1 ? 's' : ''} de Telegram
               </p>
-              <p className="text-xs text-on-surface-variant">Pendiente{telegramPending !== 1 ? 's' : ''} de procesar en la bandeja</p>
+              <p className="text-xs text-ink-3">Pendiente{telegramPending !== 1 ? 's' : ''} de procesar en la bandeja</p>
             </div>
             <ArrowRight className="w-4 h-4 text-[#2AABEE] group-hover:translate-x-0.5 transition-transform" />
           </Link>
@@ -416,8 +416,8 @@ export default function TasksPage() {
             onClick={() => setFilter('all')}
             className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
               filter === 'all'
-                ? 'bg-primary text-white'
-                : 'bg-surface-container-high text-on-surface-variant hover:bg-surface-container-low'
+                ? 'bg-brand text-white'
+                : 'bg-bg-2 text-ink-3 hover:bg-bg-2'
             }`}
           >
             Todas
@@ -426,8 +426,8 @@ export default function TasksPage() {
             onClick={() => setFilter('mine')}
             className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
               filter === 'mine'
-                ? 'bg-primary text-white'
-                : 'bg-surface-container-high text-on-surface-variant hover:bg-surface-container-low'
+                ? 'bg-brand text-white'
+                : 'bg-bg-2 text-ink-3 hover:bg-bg-2'
             }`}
           >
             Mis tareas
@@ -439,8 +439,8 @@ export default function TasksPage() {
                 onClick={() => setFilter(u.id)}
                 className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
                   filter === u.id
-                    ? 'bg-secondary text-white'
-                    : 'bg-surface-container-high text-on-surface-variant hover:bg-surface-container-low'
+                    ? 'bg-brand text-white'
+                    : 'bg-bg-2 text-ink-3 hover:bg-bg-2'
                 }`}
               >
                 {getUserInitials(u.full_name)}
@@ -450,13 +450,13 @@ export default function TasksPage() {
 
         {loading ? (
           <div className="flex items-center justify-center py-20">
-            <div className="animate-spin w-6 h-6 border-2 border-secondary border-t-transparent rounded-full" />
+            <div className="animate-spin w-6 h-6 border-2 border-brand border-t-transparent rounded-full" />
           </div>
         ) : activeTasks.length === 0 && completedTasks.length === 0 ? (
           <Card className="text-center py-12">
-            <ClipboardList className="w-12 h-12 text-on-surface-variant/30 mx-auto mb-3" />
-            <p className="text-on-surface-variant">No hay tareas en el corcho</p>
-            <p className="text-sm text-on-surface-variant/60 mt-1">
+            <ClipboardList className="w-12 h-12 text-ink-3/30 mx-auto mb-3" />
+            <p className="text-ink-3">No hay tareas en el corcho</p>
+            <p className="text-sm text-ink-3/60 mt-1">
               Crea tareas para organizar el trabajo del equipo.
             </p>
             <Button className="mt-4" onClick={() => setShowModal(true)}>
@@ -469,7 +469,7 @@ export default function TasksPage() {
             {/* In progress section */}
             {inProgressTasks.length > 0 && (
               <div>
-                <h3 className="text-sm font-semibold text-primary mb-3 flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-brand mb-3 flex items-center gap-2">
                   <Clock className="w-4 h-4" />
                   En progreso ({inProgressTasks.length})
                 </h3>
@@ -480,7 +480,7 @@ export default function TasksPage() {
             {/* Pending section */}
             {pendingTasks.length > 0 && (
               <div>
-                <h3 className="text-sm font-semibold text-on-surface-variant mb-3 flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-ink-3 mb-3 flex items-center gap-2">
                   <Circle className="w-4 h-4" />
                   Pendientes ({pendingTasks.length})
                 </h3>
@@ -493,7 +493,7 @@ export default function TasksPage() {
               <div>
                 <button
                   onClick={() => setShowCompleted(!showCompleted)}
-                  className="flex items-center gap-2 text-sm font-semibold text-success mb-3 hover:underline"
+                  className="flex items-center gap-2 text-sm font-semibold text-ok mb-3 hover:underline"
                 >
                   {showCompleted ? (
                     <ChevronDown className="w-4 h-4" />

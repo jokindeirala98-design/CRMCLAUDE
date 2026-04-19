@@ -113,41 +113,44 @@ export default function ConsumptionDistribution({ clientId, supplies }: Props) {
 
   // Export to Excel
   const exportExcel = async () => {
-    const XLSX = await import('xlsx')
-    const exportData = rows.map(r => ({
-      'CUPS': r.cups,
-      'Tarifa': r.tariff,
-      'Tipo': r.supply_type === 'gas' ? 'Gas' : 'Electricidad',
-      'Comercializadora': r.comercializadora,
-      'Direccion': r.address,
-      'Pot. P1 (kW)': r.potencia_p1,
-      'Pot. P2 (kW)': r.potencia_p2,
-      'Pot. P3 (kW)': r.potencia_p3,
-      'Pot. P4 (kW)': r.potencia_p4,
-      'Pot. P5 (kW)': r.potencia_p5,
-      'Pot. P6 (kW)': r.potencia_p6,
-      'Cons. P1 (kWh)': r.consumo_p1,
-      'Cons. P2 (kWh)': r.consumo_p2,
-      'Cons. P3 (kWh)': r.consumo_p3,
-      'Cons. P4 (kWh)': r.consumo_p4,
-      'Cons. P5 (kWh)': r.consumo_p5,
-      'Cons. P6 (kWh)': r.consumo_p6,
-      'Consumo Total (kWh)': r.consumo_total,
-      'Estado': r.validation_status,
-      'Observaciones': r.observations,
-    }))
+    const ExcelJS = (await import('exceljs')).default
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('Suministros')
 
-    const ws = XLSX.utils.json_to_sheet(exportData)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Suministros')
-    XLSX.writeFile(wb, `distribucion_consumos_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    ws.addRow([
+      'CUPS', 'Tarifa', 'Tipo', 'Comercializadora', 'Direccion',
+      'Pot. P1 (kW)', 'Pot. P2 (kW)', 'Pot. P3 (kW)', 'Pot. P4 (kW)', 'Pot. P5 (kW)', 'Pot. P6 (kW)',
+      'Cons. P1 (kWh)', 'Cons. P2 (kWh)', 'Cons. P3 (kWh)', 'Cons. P4 (kWh)', 'Cons. P5 (kWh)', 'Cons. P6 (kWh)',
+      'Consumo Total (kWh)', 'Estado', 'Observaciones',
+    ])
+
+    rows.forEach(r => {
+      ws.addRow([
+        r.cups, r.tariff, r.supply_type === 'gas' ? 'Gas' : 'Electricidad',
+        r.comercializadora, r.address,
+        r.potencia_p1, r.potencia_p2, r.potencia_p3, r.potencia_p4, r.potencia_p5, r.potencia_p6,
+        r.consumo_p1, r.consumo_p2, r.consumo_p3, r.consumo_p4, r.consumo_p5, r.consumo_p6,
+        r.consumo_total, r.validation_status, r.observations,
+      ])
+    })
+
+    const buffer = await wb.xlsx.writeBuffer()
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `distribucion_consumos_${new Date().toISOString().slice(0, 10)}.xlsx`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
   }
 
   if (loading) {
     return (
       <Card>
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin w-6 h-6 border-2 border-secondary border-t-transparent rounded-full" />
+          <div className="animate-spin w-6 h-6 border-2 border-brand border-t-transparent rounded-full" />
         </div>
       </Card>
     )
@@ -155,16 +158,11 @@ export default function ConsumptionDistribution({ clientId, supplies }: Props) {
 
   return (
     <div className="space-y-4">
-      {/* Header */}
+      {/* Toolbar */}
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="font-display font-semibold text-lg text-on-surface">
-            Distribucion de consumo por suministro
-          </h2>
-          <p className="text-xs text-on-surface-variant mt-0.5">
-            {rows.length} suministros registrados
-          </p>
-        </div>
+        <p className="text-xs text-ink-3">
+          {rows.length} suministros registrados
+        </p>
 
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={fetchRows} title="Actualizar">
@@ -194,36 +192,36 @@ export default function ConsumptionDistribution({ clientId, supplies }: Props) {
             {showMenu && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
-                <div className="absolute right-0 mt-1 w-56 bg-white rounded-xl shadow-lg border border-outline-variant/15 py-1 z-20">
+                <div className="absolute right-0 mt-1 w-56 bg-white rounded-xl shadow-lg border border-line-2-variant/15 py-1 z-20">
                   <button
                     onClick={() => { syncFromInvoices(); setShowMenu(false) }}
                     disabled={syncing}
-                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-on-surface hover:bg-surface-container-low transition-colors text-left"
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-ink hover:bg-bg-2 transition-colors text-left"
                   >
-                    <Upload className="w-4 h-4 text-on-surface-variant" />
+                    <Upload className="w-4 h-4 text-ink-3" />
                     <div>
                       <p className="font-medium text-xs">Importar desde facturas CRM</p>
-                      <p className="text-[10px] text-on-surface-variant">Extrae de facturas ya procesadas</p>
+                      <p className="text-[10px] text-ink-3">Extrae de facturas ya procesadas</p>
                     </div>
                   </button>
                   <button
                     onClick={() => { setShowImport(true); setShowMenu(false) }}
-                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-on-surface hover:bg-surface-container-low transition-colors text-left"
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-ink hover:bg-bg-2 transition-colors text-left"
                   >
-                    <FileSpreadsheet className="w-4 h-4 text-on-surface-variant" />
+                    <FileSpreadsheet className="w-4 h-4 text-ink-3" />
                     <div>
                       <p className="font-medium text-xs">Importar Excel de consumos</p>
-                      <p className="text-[10px] text-on-surface-variant">Matching por CUPS</p>
+                      <p className="text-[10px] text-ink-3">Matching por CUPS</p>
                     </div>
                   </button>
                   <button
                     onClick={() => { setShowQuickEntry(true); setShowMenu(false) }}
-                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-on-surface hover:bg-surface-container-low transition-colors text-left"
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-ink hover:bg-bg-2 transition-colors text-left"
                   >
-                    <Plus className="w-4 h-4 text-on-surface-variant" />
+                    <Plus className="w-4 h-4 text-ink-3" />
                     <div>
                       <p className="font-medium text-xs">Anadir manualmente</p>
-                      <p className="text-[10px] text-on-surface-variant">Entrada rapida por suministro</p>
+                      <p className="text-[10px] text-ink-3">Entrada rapida por suministro</p>
                     </div>
                   </button>
                 </div>
@@ -240,9 +238,9 @@ export default function ConsumptionDistribution({ clientId, supplies }: Props) {
       {rows.length === 0 ? (
         <Card>
           <div className="text-center py-12">
-            <FileSpreadsheet className="w-10 h-10 text-on-surface-variant/30 mx-auto mb-3" />
-            <p className="text-sm font-medium text-on-surface">No hay datos de consumo todavia</p>
-            <p className="text-xs text-on-surface-variant mt-1 mb-4">
+            <FileSpreadsheet className="w-10 h-10 text-ink-3/30 mx-auto mb-3" />
+            <p className="text-sm font-medium text-ink">No hay datos de consumo todavia</p>
+            <p className="text-xs text-ink-3 mt-1 mb-4">
               Importa datos desde las facturas del CRM, un Excel o anaade manualmente
             </p>
             <div className="flex justify-center gap-2">

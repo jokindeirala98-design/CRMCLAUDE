@@ -86,8 +86,8 @@ export const SearchableClientSelector = ({
   return (
     <div className="space-y-1.5">
       {label && (
-        <label className="block text-sm font-medium text-on-surface">
-          {label} {required && <span className="text-error">*</span>}
+        <label className="block text-sm font-medium text-ink">
+          {label} {required && <span className="text-err">*</span>}
         </label>
       )}
       <div className="relative" ref={containerRef}>
@@ -104,10 +104,10 @@ export const SearchableClientSelector = ({
             placeholder={selectedClient ? '' : placeholder}
             disabled={disabled}
             className={cn(
-              'w-full px-4 py-2.5 bg-surface-container-high rounded-xl text-sm text-on-surface',
-              'placeholder:text-on-surface-variant/50 font-body',
+              'w-full px-4 py-2.5 bg-bg-2 rounded-xl text-sm text-ink',
+              'placeholder:text-ink-3/50 font-sans',
               'outline-none transition-all duration-200',
-              'focus:focus-glow focus:bg-surface-container-lowest',
+              'focus:focus-glow focus:bg-card',
               disabled && 'opacity-50 cursor-not-allowed',
               error && 'ring-2 ring-error/40'
             )}
@@ -115,32 +115,32 @@ export const SearchableClientSelector = ({
           {selectedClient && !isOpen && (
             <button
               onClick={handleClear}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-lg hover:bg-surface-container-lowest transition-all"
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-lg hover:bg-card transition-all"
               type="button"
             >
-              <X className="w-4 h-4 text-on-surface-variant" />
+              <X className="w-4 h-4 text-ink-3" />
             </button>
           )}
         </div>
 
         {/* Dropdown */}
         {isOpen && (filteredClients.length > 0 || showAutoDetect) && (
-          <div className="absolute z-10 top-full mt-1 w-full bg-surface-container-lowest border border-outline-variant/30 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+          <div className="absolute z-10 top-full mt-1 w-full bg-card border border-line-2-variant/30 rounded-xl shadow-lg max-h-48 overflow-y-auto">
             {/* Auto-detect option */}
             {showAutoDetect && (
               <button
                 onClick={handleSelectAutoDetect}
                 className={cn(
-                  'w-full text-left px-4 py-2.5 hover:bg-surface-container-high transition-all border-b border-outline-variant/10',
+                  'w-full text-left px-4 py-2.5 hover:bg-bg-2 transition-all border-b border-line-2-variant/10',
                   'flex items-center gap-2',
                   !value && 'bg-secondary/10'
                 )}
                 type="button"
               >
-                <Sparkles className="w-3.5 h-3.5 text-secondary flex-shrink-0" />
+                <Sparkles className="w-3.5 h-3.5 text-brand flex-shrink-0" />
                 <div>
-                  <p className="text-sm font-medium text-secondary">Detectar automáticamente</p>
-                  <p className="text-xs text-on-surface-variant">Desde el CIF/NIF de la factura</p>
+                  <p className="text-sm font-medium text-brand">Detectar automáticamente</p>
+                  <p className="text-xs text-ink-3">Desde el CIF/NIF de la factura</p>
                 </div>
               </button>
             )}
@@ -149,15 +149,15 @@ export const SearchableClientSelector = ({
                 key={client.id}
                 onClick={() => handleSelect(client)}
                 className={cn(
-                  'w-full text-left px-4 py-2.5 hover:bg-surface-container-high transition-all border-b border-outline-variant/10',
+                  'w-full text-left px-4 py-2.5 hover:bg-bg-2 transition-all border-b border-line-2-variant/10',
                   'last:border-b-0 flex items-center justify-between gap-2',
                   value === client.id && 'bg-primary/10'
                 )}
                 type="button"
               >
                 <div>
-                  <p className="text-sm font-medium text-on-surface">{client.alias || client.name}</p>
-                  <p className="text-xs text-on-surface-variant">
+                  <p className="text-sm font-medium text-ink">{client.alias || client.name}</p>
+                  <p className="text-xs text-ink-3">
                     {client.alias ? client.name : (client.cif || client.nif || client.cif_nif || '')}
                   </p>
                 </div>
@@ -168,30 +168,30 @@ export const SearchableClientSelector = ({
 
         {/* No results message */}
         {isOpen && search && filteredClients.length === 0 && !showAutoDetect && (
-          <div className="absolute z-10 top-full mt-1 w-full bg-surface-container-lowest border border-outline-variant/30 rounded-xl shadow-lg p-3 text-center">
-            <p className="text-sm text-on-surface-variant">No se encontraron clientes</p>
+          <div className="absolute z-10 top-full mt-1 w-full bg-card border border-line-2-variant/30 rounded-xl shadow-lg p-3 text-center">
+            <p className="text-sm text-ink-3">No se encontraron clientes</p>
           </div>
         )}
 
         {/* No results with auto-detect hint */}
         {isOpen && search && filteredClients.length === 0 && showAutoDetect && (
-          <div className="absolute z-10 top-full mt-1 w-full bg-surface-container-lowest border border-outline-variant/30 rounded-xl shadow-lg overflow-hidden">
+          <div className="absolute z-10 top-full mt-1 w-full bg-card border border-line-2-variant/30 rounded-xl shadow-lg overflow-hidden">
             <button
               onClick={handleSelectAutoDetect}
-              className="w-full text-left px-4 py-2.5 hover:bg-surface-container-high transition-all flex items-center gap-2"
+              className="w-full text-left px-4 py-2.5 hover:bg-bg-2 transition-all flex items-center gap-2"
               type="button"
             >
-              <Sparkles className="w-3.5 h-3.5 text-secondary flex-shrink-0" />
+              <Sparkles className="w-3.5 h-3.5 text-brand flex-shrink-0" />
               <div>
-                <p className="text-sm font-medium text-secondary">Detectar automáticamente</p>
-                <p className="text-xs text-on-surface-variant">El cliente se detectará desde el CIF/NIF de la factura</p>
+                <p className="text-sm font-medium text-brand">Detectar automáticamente</p>
+                <p className="text-xs text-ink-3">El cliente se detectará desde el CIF/NIF de la factura</p>
               </div>
             </button>
           </div>
         )}
       </div>
 
-      {error && <p className="text-xs text-error font-medium">{error}</p>}
+      {error && <p className="text-xs text-err font-medium">{error}</p>}
     </div>
   )
 }

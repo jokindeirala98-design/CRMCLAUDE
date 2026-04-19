@@ -7,7 +7,7 @@ import {
   CreditCard, Zap, Edit2, Trash2, Plus, ExternalLink, FileCheck,
   Send, Sparkles, AlertTriangle, BarChart3,
   Check, XCircle, Clock, DollarSign, Pencil, X, Flame, Phone as PhoneIcon,
-  Loader2
+  Loader2, Activity
 } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
 import { Card } from '@/components/ui/Card'
@@ -19,6 +19,7 @@ import { NewIncidentModal } from '@/components/modals/NewIncidentModal'
 import { createClient } from '@/lib/supabase/client'
 import { formatDate, formatCurrency, calculateVAT, getUserInitials } from '@/lib/utils/format'
 import { getViewUrl } from '@/lib/utils/storage'
+import ConsumptionDistribution from './components/ConsumptionDistribution'
 
 export default function ClientDetailPage() {
   const { id } = useParams()
@@ -106,7 +107,7 @@ export default function ClientDetailPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen">
-        <div className="animate-spin w-8 h-8 border-2 border-secondary border-t-transparent rounded-full" />
+        <div className="animate-spin w-8 h-8 border-2 border-brand border-t-transparent rounded-full" />
       </div>
     )
   }
@@ -114,7 +115,7 @@ export default function ClientDetailPage() {
   if (!client) {
     return (
       <div className="flex flex-col items-center justify-center h-screen gap-4">
-        <p className="text-on-surface-variant">Cliente no encontrado</p>
+        <p className="text-ink-3">Cliente no encontrado</p>
         <Button variant="secondary" onClick={() => router.push('/clients')}>
           Volver a clientes
         </Button>
@@ -192,15 +193,15 @@ export default function ClientDetailPage() {
             {clientTasks.map((task) => {
               const isHigh = task.priority === 'high'
               const isMedium = task.priority === 'medium'
-              const bgColor = isHigh ? 'bg-red-50 border-red-300' : isMedium ? 'bg-amber-50 border-amber-300' : 'bg-green-50 border-green-300'
-              const textColor = isHigh ? 'text-red-800' : isMedium ? 'text-amber-800' : 'text-green-800'
-              const subColor = isHigh ? 'text-red-600' : isMedium ? 'text-amber-600' : 'text-green-600'
-              const iconColor = isHigh ? 'text-red-500' : isMedium ? 'text-amber-500' : 'text-green-500'
+              const bgColor = isHigh ? 'bg-err-container/40 border-err/30' : isMedium ? 'bg-warn-container/40 border-warn/30' : 'bg-ok-container/40 border-ok/30'
+              const textColor = isHigh ? 'text-err' : isMedium ? 'text-warn' : 'text-ok'
+              const subColor = isHigh ? 'text-err' : isMedium ? 'text-warn' : 'text-ok'
+              const iconColor = isHigh ? 'text-err' : isMedium ? 'text-warn' : 'text-ok'
               const btnColor = isHigh
-                ? 'bg-red-600 hover:bg-red-700 text-white'
+                ? 'bg-err hover:bg-err-container text-white'
                 : isMedium
-                ? 'bg-amber-500 hover:bg-amber-600 text-white'
-                : 'bg-green-600 hover:bg-green-700 text-white'
+                ? 'bg-warn-container/400 hover:bg-warn-container text-white'
+                : 'bg-ok text-white hover:opacity-90'
 
               return (
                 <div key={task.id} className={`flex items-center gap-4 px-5 py-3 rounded-xl border ${bgColor}`}>
@@ -242,28 +243,28 @@ export default function ClientDetailPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Informacion basica */}
           <Card>
-            <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-4 flex items-center gap-2">
+            <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-4 flex items-center gap-2">
               <Building2 className="w-3.5 h-3.5" /> Informacion basica
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1">
-                <p className="text-[10px] text-on-surface-variant uppercase font-bold">Tipo</p>
+                <p className="text-[10px] text-ink-3 uppercase font-bold">Tipo</p>
                 <p className="text-sm font-medium capitalize">{client.type}</p>
               </div>
               <div className="space-y-1">
-                <p className="text-[10px] text-on-surface-variant uppercase font-bold">Origen</p>
+                <p className="text-[10px] text-ink-3 uppercase font-bold">Origen</p>
                 <p className="text-sm font-medium capitalize">{client.origin || '—'}</p>
               </div>
               <div className="sm:col-span-2 space-y-1">
-                <p className="text-[10px] text-on-surface-variant uppercase font-bold">Resumen actividad</p>
+                <p className="text-[10px] text-ink-3 uppercase font-bold">Resumen actividad</p>
                 <div className="flex gap-4 pt-1">
-                  <div className="text-center bg-surface-container-low rounded-xl px-4 py-2 border border-outline-variant/10">
-                    <p className="font-display font-bold text-lg">{client.supplies?.length || 0}</p>
-                    <p className="text-[9px] text-on-surface-variant uppercase">Suministros</p>
+                  <div className="text-center bg-bg-2 rounded-xl px-4 py-2 border border-line-2-variant/10">
+                    <p className="font-sans font-bold text-lg">{client.supplies?.length || 0}</p>
+                    <p className="text-[9px] text-ink-3 uppercase">Suministros</p>
                   </div>
-                  <div className="text-center bg-surface-container-low rounded-xl px-4 py-2 border border-outline-variant/10">
-                    <p className="font-display font-bold text-lg">{client.contracts?.length || 0}</p>
-                    <p className="text-[9px] text-on-surface-variant uppercase">Contratos</p>
+                  <div className="text-center bg-bg-2 rounded-xl px-4 py-2 border border-line-2-variant/10">
+                    <p className="font-sans font-bold text-lg">{client.contracts?.length || 0}</p>
+                    <p className="text-[9px] text-ink-3 uppercase">Contratos</p>
                   </div>
                 </div>
               </div>
@@ -272,49 +273,49 @@ export default function ClientDetailPage() {
 
           {/* Asignacion */}
           <Card>
-            <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-4 flex items-center gap-2">
+            <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-4 flex items-center gap-2">
               <Pencil className="w-3.5 h-3.5" /> Asignacion
             </h3>
             <div className="space-y-4">
-              <div className="flex items-center gap-3 bg-surface-container-low p-3 rounded-2xl border border-outline-variant/10">
-                <div className="w-10 h-10 rounded-full gradient-primary flex items-center justify-center flex-shrink-0">
+              <div className="flex items-center gap-3 bg-bg-2 p-3 rounded-2xl border border-line-2-variant/10">
+                <div className="w-10 h-10 rounded-full bg-brand flex items-center justify-center flex-shrink-0">
                   <span className="text-white text-sm font-bold">
                     {getUserInitials(client.commercial?.full_name || client.commercial?.email)?.charAt(0) || '?'}
                   </span>
                 </div>
                 <div>
-                  <p className="text-[10px] text-on-surface-variant uppercase font-bold">Comercial asignado</p>
+                  <p className="text-[10px] text-ink-3 uppercase font-bold">Comercial asignado</p>
                   <p className="text-sm font-semibold">{client.commercial?.full_name || 'Sin asignar'}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2 px-3">
-                <div className={`p-1 rounded-full ${client.marketing_consent ? 'bg-success/10 text-success' : 'bg-surface-container-high text-on-surface-variant/40'}`}>
+                <div className={`p-1 rounded-full ${client.marketing_consent ? 'bg-success/10 text-ok' : 'bg-bg-2 text-ink-3/40'}`}>
                   <Check className="w-3 h-3" />
                 </div>
-                <p className="text-xs text-on-surface-variant">Consentimiento marketing otorgado</p>
+                <p className="text-xs text-ink-3">Consentimiento marketing otorgado</p>
               </div>
             </div>
           </Card>
 
           {/* Datos de contacto */}
           <Card>
-            <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-4 flex items-center gap-2">
+            <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-4 flex items-center gap-2">
               <Mail className="w-3.5 h-3.5" /> Datos de contacto
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1">
-                <p className="text-[10px] text-on-surface-variant uppercase font-bold">Email</p>
+                <p className="text-[10px] text-ink-3 uppercase font-bold">Email</p>
                 <div className="flex items-center gap-2 text-sm font-medium">
                   {client.email || '—'}
-                  {client.email && <button onClick={() => navigator.clipboard.writeText(client.email)} className="p-1 hover:bg-primary/10 rounded transition text-primary"><CreditCard className="w-3 h-3"/></button>}
+                  {client.email && <button onClick={() => navigator.clipboard.writeText(client.email)} className="p-1 hover:bg-primary/10 rounded transition text-brand"><CreditCard className="w-3 h-3"/></button>}
                 </div>
               </div>
               <div className="space-y-1">
-                <p className="text-[10px] text-on-surface-variant uppercase font-bold">Telefono</p>
+                <p className="text-[10px] text-ink-3 uppercase font-bold">Telefono</p>
                 <p className="text-sm font-medium">{client.phone || '—'}</p>
               </div>
-              <div className="sm:col-span-2 space-y-1 pt-2 border-t border-outline-variant/10">
-                <p className="text-[10px] text-on-surface-variant uppercase font-bold">Direccion fiscal</p>
+              <div className="sm:col-span-2 space-y-1 pt-2 border-t border-line-2-variant/10">
+                <p className="text-[10px] text-ink-3 uppercase font-bold">Direccion fiscal</p>
                 <p className="text-sm font-medium leading-relaxed">{client.fiscal_address || '—'}</p>
               </div>
             </div>
@@ -322,7 +323,7 @@ export default function ClientDetailPage() {
 
           {/* Documentacion */}
           <Card>
-            <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-4 flex items-center gap-2">
+            <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-4 flex items-center gap-2">
               <FileCheck className="w-3.5 h-3.5" /> Documentacion
             </h3>
             <div className="space-y-3">
@@ -335,10 +336,10 @@ export default function ClientDetailPage() {
           {/* Notas */}
           <div className="md:col-span-2">
             <Card>
-              <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-3 flex items-center gap-2">
+              <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-3 flex items-center gap-2">
                 <FileText className="w-3.5 h-3.5" /> Notas
               </h3>
-              <p className="text-sm text-on-surface leading-relaxed whitespace-pre-wrap min-h-[4rem]">
+              <p className="text-sm text-ink leading-relaxed whitespace-pre-wrap min-h-[4rem]">
                 {client.notes || 'No hay notas adicionales.'}
               </p>
             </Card>
@@ -348,7 +349,7 @@ export default function ClientDetailPage() {
         {/* Supplies */}
         <div>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-display font-semibold text-lg text-on-surface">
+            <h2 className="font-sans font-semibold text-lg text-ink">
               Suministros ({client.supplies?.length || 0})
             </h2>
             <div className="flex items-center gap-2">
@@ -361,7 +362,7 @@ export default function ClientDetailPage() {
 
           {(!client.supplies || client.supplies.length === 0) ? (
             <Card>
-              <p className="text-sm text-on-surface-variant text-center py-6">No hay suministros para este cliente</p>
+              <p className="text-sm text-ink-3 text-center py-6">No hay suministros para este cliente</p>
             </Card>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -388,7 +389,7 @@ export default function ClientDetailPage() {
                         router.push(`/supplies/${supply.id}`)
                       }
                     }}
-                    className="group relative bg-surface-container-lowest rounded-2xl shadow-ambient-sm hover:shadow-ambient-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                    className="group relative bg-card rounded-2xl shadow-ambient-sm hover:shadow-ambient-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
                   >
                     {/* Subtle gradient accent based on status */}
                     <div className={`absolute inset-x-0 top-0 h-20 bg-gradient-to-b ${accentByStatus} pointer-events-none`} />
@@ -404,7 +405,7 @@ export default function ClientDetailPage() {
                           {!isEditingName && (
                             <button
                               onClick={e => { e.stopPropagation(); setEditingSupplyName(supply.id); setSupplyNameValue(supply.name || '') }}
-                              className="p-1.5 text-on-surface-variant/30 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                              className="p-1.5 text-ink-3/30 hover:text-brand hover:bg-primary/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
                               title="Editar nombre"
                             >
                               <Pencil className="w-3.5 h-3.5" />
@@ -427,23 +428,23 @@ export default function ClientDetailPage() {
                                 if (e.key === 'Escape') setEditingSupplyName(null)
                               }}
                               placeholder="Nombre del suministro"
-                              className="flex-1 min-w-0 px-2 py-1 text-sm bg-surface-container-high rounded-lg outline-none focus:ring-2 focus:ring-primary/40"
+                              className="flex-1 min-w-0 px-2 py-1 text-sm bg-bg-2 rounded-lg outline-none focus:ring-2 focus:ring-primary/40"
                               autoFocus
                             />
-                            <button onClick={(e) => { e.stopPropagation(); handleSaveSupplyName(supply.id) }} className="p-1 text-success hover:bg-success/10 rounded">
+                            <button onClick={(e) => { e.stopPropagation(); handleSaveSupplyName(supply.id) }} className="p-1 text-ok hover:bg-success/10 rounded">
                               <Check className="w-4 h-4" />
                             </button>
-                            <button onClick={(e) => { e.stopPropagation(); setEditingSupplyName(null) }} className="p-1 text-error hover:bg-error/10 rounded">
+                            <button onClick={(e) => { e.stopPropagation(); setEditingSupplyName(null) }} className="p-1 text-err hover:bg-error/10 rounded">
                               <X className="w-4 h-4" />
                             </button>
                           </div>
                         ) : (
                           <>
-                            <h3 className="text-sm font-semibold text-on-surface truncate group-hover:text-primary transition-colors">
+                            <h3 className="text-sm font-semibold text-ink truncate group-hover:text-brand transition-colors">
                               {supply.name || supply.cups || 'Sin CUPS'}
                             </h3>
                             {supply.name && supply.cups && (
-                              <p className="text-[10px] font-mono text-on-surface-variant truncate mt-0.5">{supply.cups}</p>
+                              <p className="text-[10px] font-mono text-ink-3 truncate mt-0.5">{supply.cups}</p>
                             )}
                           </>
                         )}
@@ -451,34 +452,34 @@ export default function ClientDetailPage() {
 
                       {/* Stats grid: tariff, type, invoices, annual kWh */}
                       <div className="grid grid-cols-2 gap-2 pt-1">
-                        <div className="rounded-lg bg-surface-container-low/60 px-2.5 py-1.5">
-                          <p className="text-[9px] uppercase tracking-wider text-on-surface-variant/70 font-semibold">Tarifa</p>
-                          <p className="text-xs text-on-surface font-semibold truncate">{supply.tariff || '—'}</p>
+                        <div className="rounded-lg bg-bg-2/60 px-2.5 py-1.5">
+                          <p className="text-[9px] uppercase tracking-wider text-ink-3/70 font-semibold">Tarifa</p>
+                          <p className="text-xs text-ink font-semibold truncate">{supply.tariff || '—'}</p>
                         </div>
-                        <div className="rounded-lg bg-surface-container-low/60 px-2.5 py-1.5">
-                          <p className="text-[9px] uppercase tracking-wider text-on-surface-variant/70 font-semibold">Tipo</p>
-                          <p className="text-xs text-on-surface font-semibold capitalize truncate">{supply.type || '—'}</p>
+                        <div className="rounded-lg bg-bg-2/60 px-2.5 py-1.5">
+                          <p className="text-[9px] uppercase tracking-wider text-ink-3/70 font-semibold">Tipo</p>
+                          <p className="text-xs text-ink font-semibold capitalize truncate">{supply.type || '—'}</p>
                         </div>
-                        <div className="rounded-lg bg-surface-container-low/60 px-2.5 py-1.5">
-                          <p className="text-[9px] uppercase tracking-wider text-on-surface-variant/70 font-semibold">Documentos</p>
+                        <div className="rounded-lg bg-bg-2/60 px-2.5 py-1.5">
+                          <p className="text-[9px] uppercase tracking-wider text-ink-3/70 font-semibold">Documentos</p>
                           <p className="text-xs font-semibold truncate">
-                            <span className={invoiceCount > 0 ? 'text-primary' : 'text-on-surface-variant/50'}>{invoiceCount}</span>
+                            <span className={invoiceCount > 0 ? 'text-brand' : 'text-ink-3/50'}>{invoiceCount}</span>
                           </p>
                         </div>
-                        <div className="rounded-lg bg-surface-container-low/60 px-2.5 py-1.5">
-                          <p className="text-[9px] uppercase tracking-wider text-on-surface-variant/70 font-semibold">Consumo anual</p>
+                        <div className="rounded-lg bg-bg-2/60 px-2.5 py-1.5">
+                          <p className="text-[9px] uppercase tracking-wider text-ink-3/70 font-semibold">Consumo anual</p>
                           <p className="text-xs font-semibold truncate">
                             {annualKwh > 0
-                              ? <span className="text-success">{fmtKwh(annualKwh)}</span>
-                              : <span className="text-on-surface-variant/50">—</span>}
+                              ? <span className="text-ok">{fmtKwh(annualKwh)}</span>
+                              : <span className="text-ink-3/50">—</span>}
                           </p>
                         </div>
                       </div>
 
                       {/* Address */}
                       {supply.address && (
-                        <div className="pt-1 border-t border-outline-variant/10">
-                          <p className="text-[10px] text-on-surface-variant truncate" title={supply.address}>
+                        <div className="pt-1 border-t border-line-2-variant/10">
+                          <p className="text-[10px] text-ink-3 truncate" title={supply.address}>
                             {supply.address}
                           </p>
                         </div>
@@ -491,10 +492,39 @@ export default function ClientDetailPage() {
           )}
         </div>
 
+        {/* ─── Distribución de consumo (solo para ayuntamientos) ─── */}
+        {client.type === 'ayuntamiento' && (
+          <div className="mt-2">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-sans font-semibold text-lg text-ink flex items-center gap-2">
+                <Activity className="w-5 h-5 text-brand" />
+                Distribución de consumo
+              </h2>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => router.push(`/clients/${id}/audit-report`)}
+              >
+                <BarChart3 className="w-4 h-4" />
+                Informe de auditoría
+              </Button>
+            </div>
+            <ConsumptionDistribution
+              clientId={id as string}
+              supplies={(client.supplies || []).map((s: any) => ({
+                id: s.id,
+                cups: s.cups,
+                type: s.type,
+                tariff: s.tariff,
+              }))}
+            />
+          </div>
+        )}
+
         {/* ─── Subscription History ─── */}
         {client.subscriptions && client.subscriptions.length > 0 && (
           <div className="mt-6">
-            <h3 className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-3 flex items-center gap-2">
+            <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-3 flex items-center gap-2">
               <CreditCard className="w-4 h-4" />
               Historial de suscripciones y pagos
             </h3>
@@ -530,36 +560,36 @@ export default function ClientDetailPage() {
                   return (
                     <Card key={sub.id} className={`!p-0 overflow-hidden ${isCancelled ? 'opacity-70' : ''}`}>
                       {/* Header */}
-                      <div className={`flex items-center gap-3 px-4 py-3 ${isCancelled ? 'bg-red-50/50' : isActive ? 'bg-emerald-50/50' : 'bg-amber-50/50'}`}>
+                      <div className={`flex items-center gap-3 px-4 py-3 ${isCancelled ? 'bg-err-container/40' : isActive ? 'bg-ok-container/40' : 'bg-warn-container/40'}`}>
                         <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${
-                          isCancelled ? 'bg-red-100' : isActive ? 'bg-emerald-100' : 'bg-amber-100'
+                          isCancelled ? 'bg-err-container' : isActive ? 'bg-ok-container' : 'bg-warn-container'
                         }`}>
-                          {isCancelled ? <XCircle className="w-4 h-4 text-red-500" /> :
-                           isActive ? <Check className="w-4 h-4 text-emerald-600" /> :
-                           <Clock className="w-4 h-4 text-amber-500" />}
+                          {isCancelled ? <XCircle className="w-4 h-4 text-err" /> :
+                           isActive ? <Check className="w-4 h-4 text-ok" /> :
+                           <Clock className="w-4 h-4 text-warn" />}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <p className={`text-sm font-medium ${isCancelled ? 'text-red-700 line-through' : 'text-on-surface'}`}>
+                            <p className={`text-sm font-medium ${isCancelled ? 'text-err line-through' : 'text-ink'}`}>
                               {planLabel}
                             </p>
                             <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
-                              isCancelled ? 'bg-red-100 text-red-600' :
-                              isActive ? 'bg-emerald-100 text-emerald-700' :
-                              'bg-amber-100 text-amber-700'
+                              isCancelled ? 'bg-err-container text-err' :
+                              isActive ? 'bg-ok-container text-ok' :
+                              'bg-warn-container text-warn'
                             }`}>
                               {isCancelled ? 'Cancelada' : isActive ? 'Activa' : 'Pendiente'}
                             </span>
                           </div>
-                          <p className="text-xs text-on-surface-variant">
+                          <p className="text-xs text-ink-3">
                             {sub.payment_mode === 'immediate' ? 'Pago unico' : 'Fraccionado (4 trim.)'} · {amountLabel}
                             {isCancelled && sub.cancelled_at && ` · Cancelada el ${formatDate(sub.cancelled_at)}`}
                           </p>
                         </div>
                         <div className="text-right flex-shrink-0">
-                          <p className="text-xs text-on-surface-variant">Desde {formatDate(sub.start_date || sub.created_at)}</p>
+                          <p className="text-xs text-ink-3">Desde {formatDate(sub.start_date || sub.created_at)}</p>
                           {paidCount > 0 && (
-                            <p className="text-xs font-medium text-secondary flex items-center gap-1 justify-end">
+                            <p className="text-xs font-medium text-brand flex items-center gap-1 justify-end">
                               <DollarSign className="w-3 h-3" />
                               {paidCount} pago{paidCount !== 1 ? 's' : ''} · {formatCurrency(totalPaid)}
                             </p>
@@ -572,7 +602,7 @@ export default function ClientDetailPage() {
                         <div className="px-4 py-2 border-t border-surface-container-low">
                           <table className="w-full text-xs">
                             <thead>
-                              <tr className="text-on-surface-variant">
+                              <tr className="text-ink-3">
                                 <th className="text-left py-1 font-medium">Fecha</th>
                                 <th className="text-left py-1 font-medium">Concepto</th>
                                 <th className="text-right py-1 font-medium">Total</th>
@@ -582,14 +612,14 @@ export default function ClientDetailPage() {
                             <tbody>
                               {subBillings.map((bill: any) => (
                                 <tr key={bill.id} className="border-t border-surface-container-low/30">
-                                  <td className="py-1.5 text-on-surface">{formatDate(bill.created_at)}</td>
-                                  <td className="py-1.5 text-on-surface truncate max-w-[200px]">{bill.concept}</td>
-                                  <td className="py-1.5 text-on-surface text-right font-medium">{formatCurrency(bill.total_amount)}</td>
+                                  <td className="py-1.5 text-ink">{formatDate(bill.created_at)}</td>
+                                  <td className="py-1.5 text-ink truncate max-w-[200px]">{bill.concept}</td>
+                                  <td className="py-1.5 text-ink text-right font-medium">{formatCurrency(bill.total_amount)}</td>
                                   <td className="py-1.5 text-center">
                                     <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                                      bill.status === 'paid' ? 'bg-emerald-50 text-emerald-700' :
-                                      bill.status === 'sent' ? 'bg-blue-50 text-blue-600' :
-                                      bill.status === 'overdue' ? 'bg-red-50 text-red-600' :
+                                      bill.status === 'paid' ? 'bg-ok-container/40 text-ok' :
+                                      bill.status === 'sent' ? 'bg-info-container/40 text-info' :
+                                      bill.status === 'overdue' ? 'bg-err-container/40 text-err' :
                                       'bg-slate-50 text-slate-600'
                                     }`}>
                                       {bill.status === 'paid' ? 'Cobrado' : bill.status === 'sent' ? 'Pendiente' : bill.status === 'overdue' ? 'Impagado' : bill.status}
@@ -600,7 +630,7 @@ export default function ClientDetailPage() {
                             </tbody>
                           </table>
                           {totalPending > 0 && (
-                            <p className="text-[10px] text-on-surface-variant mt-1 text-right">Pendiente de cobro: {formatCurrency(totalPending)}</p>
+                            <p className="text-[10px] text-ink-3 mt-1 text-right">Pendiente de cobro: {formatCurrency(totalPending)}</p>
                           )}
                         </div>
                       )}
@@ -608,7 +638,7 @@ export default function ClientDetailPage() {
                       {/* No payments message */}
                       {subBillings.length === 0 && (
                         <div className="px-4 py-2 border-t border-surface-container-low">
-                          <p className="text-xs text-on-surface-variant italic">Sin pagos registrados</p>
+                          <p className="text-xs text-ink-3 italic">Sin pagos registrados</p>
                         </div>
                       )}
                     </Card>
@@ -645,11 +675,11 @@ export default function ClientDetailPage() {
 
 function DocRow({ label, value, url }: { label: string; value: string | null; url: string | null }) {
   return (
-    <div className="flex items-center justify-between p-3 bg-surface-container-low rounded-xl border border-outline-variant/10">
+    <div className="flex items-center justify-between p-3 bg-bg-2 rounded-xl border border-line-2-variant/10">
       <div className="flex items-center gap-2.5 min-w-0">
-        <FileText className="w-4 h-4 text-on-surface-variant flex-shrink-0" />
+        <FileText className="w-4 h-4 text-ink-3 flex-shrink-0" />
         <div className="min-w-0">
-          <p className="text-[10px] text-on-surface-variant uppercase font-bold">{label}</p>
+          <p className="text-[10px] text-ink-3 uppercase font-bold">{label}</p>
           <p className="text-sm font-medium truncate">{value || 'No disponible'}</p>
         </div>
       </div>
@@ -658,7 +688,7 @@ function DocRow({ label, value, url }: { label: string; value: string | null; ur
           href={getViewUrl(url)} 
           target="_blank" 
           rel="noopener noreferrer"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-[10px] font-bold hover:bg-primary/20 transition whitespace-nowrap"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 text-brand text-[10px] font-bold hover:bg-primary/20 transition whitespace-nowrap"
         >
           <ExternalLink className="w-3.5 h-3.5" /> VER
         </a>
