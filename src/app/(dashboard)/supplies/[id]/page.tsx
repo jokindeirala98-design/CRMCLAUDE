@@ -152,7 +152,7 @@ export default function SupplyDetailPage() {
       .from('supplies')
       .select(`
         *,
-        client:clients(id, name, alias, cif, nif, cif_nif, email, phone, type, fiscal_address),
+        client:clients(*),
         comercializadora:comercializadoras(id, name, signing_method),
         contracts(*),
         prescorings:prescorings(*),
@@ -311,6 +311,8 @@ export default function SupplyDetailPage() {
   }, [id])
 
   useEffect(() => {
+    // Ensure the `alias` column exists in `clients` (runs migration if needed, safe to call repeatedly)
+    fetch('/api/migrate-client-alias', { method: 'POST' }).catch(() => {})
     fetchSupply()
   }, [fetchSupply])
 
