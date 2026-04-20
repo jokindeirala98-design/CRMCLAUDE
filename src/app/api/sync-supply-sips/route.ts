@@ -50,14 +50,15 @@ export async function POST(req: NextRequest) {
     }
 
     // 3. Persist SIPS on the supply record
-    // Compute total from history (sum of all P1-P6 across all periods) — more accurate than ConsumoEstimado
-    const historySum = (sipsData.consumptionHistory || []).reduce((sum: number, h: any) => {
-      return sum + (Number(h.P1) || 0) + (Number(h.P2) || 0) + (Number(h.P3) || 0)
-           + (Number(h.P4) || 0) + (Number(h.P5) || 0) + (Number(h.P6) || 0)
-    }, 0)
+    // consumoPeriodos (ConsumoPeriodos from SIPS) = annual breakdown by period — most accurate annual total
+    const cp = sipsData.consumoPeriodos || {}
+    const consumoPeriodosSum = (Number(cp.P1)||0) + (Number(cp.P2)||0) + (Number(cp.P3)||0)
+                             + (Number(cp.P4)||0) + (Number(cp.P5)||0) + (Number(cp.P6)||0)
     const estimatedKwh = sipsData.totalConsumptionKwh || 0
-    // Use whichever is larger: the sum of actual history data beats the SIPS estimate
-    const bestTotalKwh = historySum > estimatedKwh ? historySum : (estimatedKwh || historySum || null)
+    // Prefer consumoPeriodos sum over ConsumoEstimado (which is often inaccurate)
+    const bestTotalKwh = consumoPeriodosSum > 0
+      ? consumoPeriodosSum
+      : (estimatedKwh || null)
 
     const updatedConsumption = {
       ...(supply.consumption_data || {}),

@@ -1493,11 +1493,14 @@ export default function SupplyDetailPage() {
                     {/* Summary cards */}
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                       <div className="bg-bg-2 rounded-xl p-3">
-                        <p className="text-xs text-ink-3">Consumo Total</p>
+                        <p className="text-xs text-ink-3">Consumo Anual</p>
                         <p className="text-lg font-bold text-ink mt-0.5">
-                          {supply.consumption_data.totalKwh
-                            ? `${Math.round(supply.consumption_data.totalKwh).toLocaleString('es-ES')} kWh`
-                            : supply.consumption_data.total || '-'}
+                          {(() => {
+                            const cp2 = supply.consumption_data.consumoPeriodos || {}
+                            const pSum = (Number(cp2.P1)||0)+(Number(cp2.P2)||0)+(Number(cp2.P3)||0)+(Number(cp2.P4)||0)+(Number(cp2.P5)||0)+(Number(cp2.P6)||0)
+                            const kwh = pSum > 0 ? pSum : (supply.consumption_data.totalKwh || 0)
+                            return kwh > 0 ? `${Math.round(kwh).toLocaleString('es-ES')} kWh` : '-'
+                          })()}
                         </p>
                       </div>
                       <div className="bg-bg-2 rounded-xl p-3">

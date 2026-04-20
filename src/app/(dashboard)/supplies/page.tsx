@@ -78,15 +78,14 @@ export default function SuppliesPage() {
     if (suppliesResult.data) {
       suppliesResult.data.forEach((supply: any) => {
         if (!consumptionData[supply.id]) {
-          // Compute history sum in case totalKwh stored an incorrect ConsumoEstimado
-          // NOTE: total field is a string like "38.811 kWh" — do NOT pass to Math.max
-          const histSum = (supply.consumption_data?.history || []).reduce((s: number, h: any) =>
-            s + (Number(h.P1)||0) + (Number(h.P2)||0) + (Number(h.P3)||0)
-              + (Number(h.P4)||0) + (Number(h.P5)||0) + (Number(h.P6)||0), 0)
-          const sipsKwh = Math.max(
-            Number(supply.consumption_data?.totalKwh) || 0,
-            histSum,
-          )
+          // Use consumoPeriodos sum (annual breakdown by period) — the correct annual value from SIPS
+          // consumoPeriodos.P1+P2+P3 for 3.0TD, etc. This matches "Consumo Anual por Periodo" in detail view
+          const cp = supply.consumption_data?.consumoPeriodos || {}
+          const periodosSum = (Number(cp.P1)||0) + (Number(cp.P2)||0) + (Number(cp.P3)||0)
+                            + (Number(cp.P4)||0) + (Number(cp.P5)||0) + (Number(cp.P6)||0)
+          const sipsKwh = periodosSum > 0
+            ? periodosSum
+            : (Number(supply.consumption_data?.totalKwh) || 0)
           if (sipsKwh > 0) {
             consumptionData[supply.id] = sipsKwh
           }
