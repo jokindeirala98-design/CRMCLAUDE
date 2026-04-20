@@ -1,6 +1,6 @@
 'use client'
 
-import { Bell, Pencil, Check, X as XIcon } from 'lucide-react'
+import { Pencil, Check, X as XIcon } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 
 interface HeaderProps {
@@ -111,9 +111,6 @@ export function Header({
         </div>
 
         <div className="flex items-center gap-2 ml-3">
-          <button className="hidden lg:flex relative w-9 h-9 items-center justify-center rounded-lg hover:bg-line transition-all">
-            <Bell className="w-4.5 h-4.5 text-ink-3" />
-          </button>
           {actions}
         </div>
       </div>
