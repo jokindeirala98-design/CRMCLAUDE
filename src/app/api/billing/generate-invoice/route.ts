@@ -17,9 +17,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createSupabase } from '@supabase/supabase-js'
-import React from 'react'
-import { renderToBuffer } from '@react-pdf/renderer'
-import { VoltisInvoicePDF } from '@/lib/voltis-invoice-pdf'
+import { generateInvoicePDF } from '@/lib/generate-invoice-pdf'
 import { Resend } from 'resend'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://wqzicwrmmwhnafaihhqh.supabase.co'
@@ -113,9 +111,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ── 4. Generate PDF ──
-    const pdfBuffer = await renderToBuffer(
-      React.createElement(VoltisInvoicePDF, { data: invoiceData })
-    )
+    const pdfBuffer = generateInvoicePDF(invoiceData)
 
     // ── 5. Upload to Supabase Storage ──
     const fileName = `facturas/${invoiceNumber.replace('/', '-')}_${client.name.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`
