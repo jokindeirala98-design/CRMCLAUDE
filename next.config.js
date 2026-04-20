@@ -6,6 +6,8 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  // Required for server-only packages used in API routes
+  serverExternalPackages: ['@react-pdf/renderer'],
   // Include DOCX contract templates in the server bundle (for API routes)
   outputFileTracingIncludes: {
     '/api/signwell/send': ['./public/contract-templates/**'],

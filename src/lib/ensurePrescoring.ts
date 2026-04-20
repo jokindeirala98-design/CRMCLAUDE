@@ -159,7 +159,8 @@ export async function ensurePendingPrescoring(
         if (nullOrEmpty(currentRow.client_name) && payload.client_name) patch.client_name = payload.client_name
         if (nullOrEmpty(currentRow.cif) && payload.cif) patch.cif = payload.cif
         if (nullOrEmpty(currentRow.producto) && payload.producto) patch.producto = payload.producto
-        if (nullOrEmpty(currentRow.consumo_anual) && payload.consumo_anual) patch.consumo_anual = payload.consumo_anual
+        // consumo_anual: always overwrite — SIPS is the authoritative source
+        if (payload.consumo_anual) patch.consumo_anual = payload.consumo_anual
         if (nullOrEmpty(currentRow.entidad) && payload.entidad) patch.entidad = payload.entidad
         if (nullOrEmpty(currentRow.telefono) && payload.telefono) patch.telefono = payload.telefono
         if (nullOrEmpty(currentRow.poblacion) && payload.poblacion) patch.poblacion = payload.poblacion
