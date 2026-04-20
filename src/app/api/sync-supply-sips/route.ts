@@ -51,9 +51,11 @@ export async function POST(req: NextRequest) {
 
     // 3. Persist SIPS on the supply record
     // consumoPeriodos (ConsumoPeriodos from SIPS) = annual breakdown by period — most accurate annual total
-    const cp = sipsData.consumoPeriodos || {}
-    const consumoPeriodosSum = (Number(cp.P1)||0) + (Number(cp.P2)||0) + (Number(cp.P3)||0)
-                             + (Number(cp.P4)||0) + (Number(cp.P5)||0) + (Number(cp.P6)||0)
+    const cpAnnual = sipsData.consumoPeriodos as { P1?: number; P2?: number; P3?: number; P4?: number; P5?: number; P6?: number } | undefined
+    const consumoPeriodosSum = cpAnnual
+      ? (Number(cpAnnual.P1)||0) + (Number(cpAnnual.P2)||0) + (Number(cpAnnual.P3)||0)
+        + (Number(cpAnnual.P4)||0) + (Number(cpAnnual.P5)||0) + (Number(cpAnnual.P6)||0)
+      : 0
     const estimatedKwh = sipsData.totalConsumptionKwh || 0
     // Prefer consumoPeriodos sum over ConsumoEstimado (which is often inaccurate)
     const bestTotalKwh = consumoPeriodosSum > 0
@@ -93,8 +95,8 @@ export async function POST(req: NextRequest) {
     await supabase.from('supplies').update(supplyUpdate).eq('id', supply_id)
 
     // 4. Build updated snapshot fields from SIPS
-    const cp = sipsData.consumoPeriodos
-    const pp = sipsData.potenciaContratada
+    const cp = sipsData.consumoPeriodos as { P1?: number; P2?: number; P3?: number; P4?: number; P5?: number; P6?: number } | undefined
+    const pp = sipsData.potenciaContratada as { P1?: number; P2?: number; P3?: number; P4?: number; P5?: number; P6?: number } | undefined
 
     const snapshotUpdate: Record<string, any> = {
       source: 'sips',

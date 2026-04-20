@@ -71,6 +71,7 @@ export async function processTelegramInboxItem(
   mimeType?: string,
   itemData?: { file_url: string; file_type: string; file_name: string; user_id: string },
   extraPages?: Array<{ base64Data: string; mimeType: string }>,
+  preAnalyzed?: any,
 ): Promise<ProcessResult> {
   const supabase = getSupabase()
 
@@ -122,22 +123,30 @@ export async function processTelegramInboxItem(
     fileMime = item.file_type === 'pdf' ? 'application/pdf' : 'image/jpeg'
   }
 
-  // 3. Analyze with Gemini
+  // 3. Analyze with Gemini (skip if pre-analyzed data was passed from webhook)
   let extractedData: any
-  try {
-    extractedData = await analyzeInvoice(base64, fileMime, extraPages)
-    console.log(`[TelegramProcess] Analysis done:`, {
+  if (preAnalyzed) {
+    extractedData = preAnalyzed
+    console.log(`[TelegramProcess] Using pre-analyzed data for ${inboxId}:`, {
       cups: extractedData?.cups,
       holder: extractedData?.holder_name,
-      cif: extractedData?.holder_cif || extractedData?.economics?.cif_titular,
     })
-  } catch (analysisErr: any) {
-    console.error(`[TelegramProcess] Analysis failed:`, analysisErr)
-    await supabase.from('telegram_inbox').update({
-      status: 'error',
-      processed_at: new Date().toISOString(),
-    }).eq('id', inboxId)
-    return { ok: false, error: 'Analysis failed: ' + analysisErr.message }
+  } else {
+    try {
+      extractedData = await analyzeInvoice(base64, fileMime, extraPages)
+      console.log(`[TelegramProcess] Analysis done:`, {
+        cups: extractedData?.cups,
+        holder: extractedData?.holder_name,
+        cif: extractedData?.holder_cif || extractedData?.economics?.cif_titular,
+      })
+    } catch (analysisErr: any) {
+      console.error(`[TelegramProcess] Analysis failed:`, analysisErr)
+      await supabase.from('telegram_inbox').update({
+        status: 'error',
+        processed_at: new Date().toISOString(),
+      }).eq('id', inboxId)
+      return { ok: false, error: 'Analysis failed: ' + analysisErr.message }
+    }
   }
 
   // 4. Extract key fields

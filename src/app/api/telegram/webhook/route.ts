@@ -4,6 +4,7 @@ import {
   downloadFile, inlineKeyboard, button, createBotSupabase,
 } from '@/lib/telegram'
 import { processTelegramInboxItem } from '@/lib/telegram-process'
+import { analyzeDocument } from '@/lib/gemini'
 
 /* ─── Types ────────────────────────────────────────────────────────────────── */
 interface TelegramUpdate {
@@ -119,11 +120,11 @@ async function searchClients(
   rawQuery: string,
   limit: number = 5
 ): Promise<any[]> {
-  // 1. Try exact/substring match first (handles CIF/NIF and close names)
+  // 1. Try exact/substring match first (includes alias for nickname search)
   const { data: exactMatches } = await supabase
     .from('clients')
-    .select('id, name, cif_nif, cif, nif')
-    .or(`name.ilike.%${rawQuery}%,cif_nif.ilike.%${rawQuery}%,cif.ilike.%${rawQuery}%,nif.ilike.%${rawQuery}%`)
+    .select('id, name, cif_nif, cif, nif, alias')
+    .or(`name.ilike.%${rawQuery}%,alias.ilike.%${rawQuery}%,cif_nif.ilike.%${rawQuery}%,cif.ilike.%${rawQuery}%,nif.ilike.%${rawQuery}%`)
     .limit(limit)
 
   if (exactMatches?.length) return exactMatches
@@ -247,26 +248,43 @@ async function handleMessage(msg: TelegramMessage) {
     return handleDocumentFile(msg)
   }
 
-  // Conversation continuation (e.g., waiting for note text)
+  // Conversation continuation (skip if client is just active with no pending step)
   const convo = await getConvo(chatId)
-  if (convo && convo.step !== 'idle') {
+  if (convo && convo.step !== 'idle' && convo.step !== 'client_active') {
     return handleConvoStep(msg, convo)
   }
 
-  // Natural text: try quick query
+  if (!text) return
+
+  const user = await getLinkedUser(chatId)
+  if (!user) return sendMessage(chatId, '🔒 Vincula tu cuenta con /vincular')
+
+  // Detect structured data: CIF, NIF, NIE, IBAN, phone, email
+  const cleanText = text.replace(/[\s.\-()]/g, '').toUpperCase()
+  const isCifPat = /^[A-HJNPQS-W][0-9]{7}[0-9A-J]$/i.test(cleanText)
+  const isNifPat = /^[0-9]{8}[TRWAGMYFPDXBNJZSQVHLCKE]$/i.test(cleanText)
+  const isNiePat = /^[XYZ][0-9]{7}[TRWAGMYFPDXBNJZSQVHLCKE]$/i.test(cleanText)
+  const isIbanPat = /^ES[0-9]{22}$/i.test(cleanText)
+  const isPhonePat = /^(\+34)?[6789][0-9]{8}$/.test(text.replace(/[\s.\-()]/g, ''))
+  const isEmailPat = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)
+
+  if (isCifPat || isNifPat || isNiePat || isIbanPat || isPhonePat || isEmailPat) {
+    return handleTextData(chatId, text, user)
+  }
+
+  // Otherwise: treat as client name/alias to activate
   if (text.length > 1) {
-    return handleSearch(chatId, text)
+    return handleClientActivation(chatId, text, user)
   }
 
   await sendMessage(chatId,
-    '👋 Envíame <b>documentos</b> (foto o PDF) y se guardarán en tu <b>Bandeja</b>.\n\n' +
-    'Puedo procesar:\n' +
+    '👋 Envíame <b>documentos</b> o escribe el <b>nombre de un cliente</b> para activarlo.\n\n' +
+    'Acepto:\n' +
     '• 📄 <b>Facturas</b> de luz/gas\n' +
-    '• 🏢 <b>CIF</b> de empresa\n' +
-    '• 🪪 <b>NIF/DNI</b>\n' +
-    '• 🏦 <b>IBAN</b>\n' +
-    '• 📋 <b>Contratos</b>\n\n' +
-    'Comandos: /vincular · /mis · /buscar · /ayuda'
+    '• 🪪 <b>DNI / NIF / CIF</b> (foto o PDF)\n' +
+    '• 🏦 <b>Certificados bancarios</b>\n' +
+    '• 📞 Teléfono  📧 Email  💳 IBAN (texto)\n\n' +
+    'Comandos: /vincular · /mis · /buscar · /salir · /ayuda'
   )
 }
 
@@ -603,6 +621,7 @@ async function handleDocumentFile(msg: TelegramMessage) {
 
 /**
  * Core process + notify function used by all document flows.
+ * Analyzes the document once, then routes to invoice or client-document handler.
  */
 async function processAndNotify(
   chatId: number,
@@ -617,12 +636,24 @@ async function processAndNotify(
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
 
   try {
+    // Single Gemini call — classifies AND extracts all fields
+    const analyzed = await analyzeDocument(base64, mimeType, undefined, extraPages.length ? extraPages : undefined)
+    const docType = analyzed.documentType
+
+    // Route non-invoice documents (DNI, bank cert, contract…) to client doc handler
+    if (docType && docType !== 'factura') {
+      await handleNonInvoiceDocResult(chatId, inboxId, analyzed, user)
+      return
+    }
+
+    // Invoice flow — pass pre-analyzed data to skip 2nd Gemini call
     const result = await processTelegramInboxItem(
       inboxId,
       base64,
       mimeType,
       { file_url: '', file_type: mimeType.includes('pdf') ? 'pdf' : 'image', file_name: 'photo.jpg', user_id: user.userId },
       extraPages.length > 0 ? extraPages : undefined,
+      analyzed,
     )
     console.log(`[Telegram] Process result for ${inboxId}:`, JSON.stringify(result))
 
@@ -637,7 +668,6 @@ async function processAndNotify(
         const aytoTag = isAyto ? '\n🏛 <i>Ayuntamiento — sincronizando datos SIPS e informe de consumos...</i>' : ''
         const multiPageTag = extraPages.length > 0 ? '\n📄 <i>Procesadas ' + (extraPages.length + 1) + ' páginas juntas</i>' : ''
 
-        // If CUPS wasn't extracted AND it was sent as a compressed photo, guide the user
         const noCupsPhotoHint = (!result.cups && isTelegramPhoto)
           ? '\n\n📎 <i>Sin CUPS detectado. Para mejor extracción, envía la factura como <b>archivo</b> (📎 adjunto) en lugar de como foto.</i>'
           : (!result.cups ? '\n\n⚠️ <i>CUPS no detectado. Verifica la calidad de la imagen o complétalo manualmente en el CRM.</i>' : '')
@@ -658,6 +688,245 @@ async function processAndNotify(
     console.error(`[Telegram] Inline process error:`, processErr.message)
     sendMessage(chatId, `⚠️ Error en procesamiento: ${processErr.message}`).catch(() => {})
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  CLIENT ACTIVATION BY NAME/ALIAS                                          */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+async function handleClientActivation(chatId: number, text: string, user: { userId: string; userName: string }) {
+  await sendChatAction(chatId, 'typing')
+  const supabase = createBotSupabase()
+  const clients = await searchClients(supabase, text)
+
+  if (clients.length === 1) {
+    const c = clients[0]
+    await setConvo(chatId, 'client_active', { clientModeId: c.id, clientModeName: c.name })
+    return sendMessage(chatId,
+      `✅ <b>Cliente activo: ${c.name}</b>${c.cif_nif ? ` (${c.cif_nif})` : ''}\n\n` +
+      `Todo lo que envíes se asociará a este cliente.\n/salir para cambiar de cliente.`
+    )
+  }
+
+  if (clients.length > 1 && clients.length <= 6) {
+    const rows = clients.map((c: any) => [
+      button(`${c.alias ? c.alias + ' — ' : ''}${c.name}${c.cif_nif ? ` (${c.cif_nif})` : ''}`, `set_client:${c.id}:${c.name.substring(0, 40)}`)
+    ])
+    rows.push([button('❌ Cancelar', 'cancel')])
+    return sendMessage(chatId,
+      `🔍 Encontré ${clients.length} clientes con "<b>${text}</b>":`,
+      { replyMarkup: inlineKeyboard(rows) }
+    )
+  }
+
+  if (clients.length > 6) {
+    return sendMessage(chatId, `🔍 Demasiados resultados para "<b>${text}</b>". Sé más específico.`)
+  }
+
+  const convo = await getConvo(chatId)
+  const activeClient = convo?.data?.clientModeId ? convo.data.clientModeName : null
+  return sendMessage(chatId,
+    `❓ No encontré ningún cliente con "<b>${text}</b>".\n` +
+    (activeClient ? `\nCliente activo: <b>${activeClient}</b>` : '') +
+    `\n\nUsa /buscar para buscar.`
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  TEXT DATA HANDLER (phone, email, IBAN, CIF, NIF, NIE as plain text)      */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+async function handleTextData(chatId: number, text: string, user: { userId: string; userName: string }) {
+  const supabase = createBotSupabase()
+  const clean = text.replace(/[\s.\-()]/g, '').toUpperCase()
+
+  let dataType: string, fieldName: string, displayLabel: string, emoji: string
+
+  if (/^[A-HJNPQS-W][0-9]{7}[0-9A-J]$/i.test(clean)) {
+    dataType = 'cif';  fieldName = 'cif';   displayLabel = 'CIF';      emoji = '🏢'
+  } else if (/^[0-9]{8}[TRWAGMYFPDXBNJZSQVHLCKE]$/i.test(clean)) {
+    dataType = 'nif';  fieldName = 'nif';   displayLabel = 'NIF';      emoji = '🪪'
+  } else if (/^[XYZ][0-9]{7}[TRWAGMYFPDXBNJZSQVHLCKE]$/i.test(clean)) {
+    dataType = 'nie';  fieldName = 'nif';   displayLabel = 'NIE';      emoji = '🪪'
+  } else if (/^ES[0-9]{22}$/i.test(clean)) {
+    dataType = 'iban'; fieldName = 'iban';  displayLabel = 'IBAN';     emoji = '🏦'
+  } else if (/^(\+34)?[6789][0-9]{8}$/.test(text.replace(/[\s.\-()]/g, ''))) {
+    dataType = 'phone'; fieldName = 'phone'; displayLabel = 'Teléfono'; emoji = '📞'
+  } else {
+    dataType = 'email'; fieldName = 'email'; displayLabel = 'Email';   emoji = '📧'
+  }
+
+  let clientId: string | null = null
+  let clientName = ''
+
+  // For identifiers: find matching client directly — overrides active client
+  if (['cif', 'nif', 'nie'].includes(dataType)) {
+    const { data: matches } = await supabase
+      .from('clients')
+      .select('id, name')
+      .or(`cif_nif.ilike.%${clean}%,cif.ilike.%${clean}%,nif.ilike.%${clean}%`)
+      .limit(1)
+    if (matches?.length) {
+      clientId = matches[0].id
+      clientName = matches[0].name
+      await setConvo(chatId, 'client_active', { clientModeId: clientId, clientModeName: clientName })
+    }
+  }
+
+  // Fallback: use active client from session
+  if (!clientId) {
+    const convo = await getConvo(chatId)
+    if (convo?.data?.clientModeId) {
+      clientId = convo.data.clientModeId
+      clientName = convo.data.clientModeName || ''
+    }
+  }
+
+  if (!clientId) {
+    return sendMessage(chatId,
+      `${emoji} <code>${text}</code>\n\n` +
+      `❓ No sé a qué cliente pertenece este dato.\n` +
+      `Escribe el nombre del cliente primero y luego envía los datos.`
+    )
+  }
+
+  // Build patch — for CIF/NIF also update cif_nif for backwards compat
+  const patch: Record<string, any> = { [fieldName]: text.trim(), updated_at: new Date().toISOString() }
+  if (dataType === 'cif') patch.cif_nif = clean
+  if (dataType === 'nif' || dataType === 'nie') patch.cif_nif = clean
+
+  const { error } = await supabase.from('clients').update(patch).eq('id', clientId)
+  if (error) return sendMessage(chatId, `❌ Error guardando: ${error.message}`)
+
+  return sendMessage(chatId, `${emoji} <b>${clientName}</b>\n✅ ${displayLabel} guardado: <code>${text.trim()}</code>`)
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  NON-INVOICE DOCUMENT HANDLER (DNI, bank cert, contract, other)           */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+async function handleNonInvoiceDocResult(
+  chatId: number,
+  inboxId: string,
+  analyzed: any,
+  user: { userId: string; userName: string },
+) {
+  const supabase = createBotSupabase()
+
+  // Get file URL from inbox row
+  const { data: inboxRow } = await supabase
+    .from('telegram_inbox')
+    .select('file_url, file_name')
+    .eq('id', inboxId)
+    .single()
+  const fileUrl = inboxRow?.file_url || ''
+
+  const docType = analyzed.documentType // 'cif' | 'nif' | 'iban' | 'contrato' | 'otro'
+  const extractedId = (analyzed.cif || analyzed.nif || analyzed.holder_cif_nif || '').replace(/[\s.\-]/g, '').toUpperCase()
+  const extractedIban = (analyzed.iban || '').replace(/\s/g, '').toUpperCase()
+  const extractedName = analyzed.holder_name || analyzed.account_holder || ''
+
+  // 1 — Find the client
+  let clientId: string | null = null
+  let clientName = ''
+  let foundViaDoc = false
+
+  // Priority 1: identifier extracted from document
+  if (extractedId && extractedId.length >= 8) {
+    const { data: matches } = await supabase
+      .from('clients')
+      .select('id, name')
+      .or(`cif_nif.ilike.%${extractedId}%,cif.ilike.%${extractedId}%,nif.ilike.%${extractedId}%`)
+      .limit(2)
+
+    if (matches?.length === 1) {
+      clientId = matches[0].id
+      clientName = matches[0].name
+      foundViaDoc = true
+      // Auto-activate this client
+      await setConvo(chatId, 'client_active', { clientModeId: clientId, clientModeName: clientName })
+    } else if (matches && matches.length > 1) {
+      // Ambiguous — ask user to pick
+      const rows = matches.map((c: any) => [
+        button(c.name, `assoc_doc:${c.id}:${inboxId}:${docType}`)
+      ])
+      rows.push([button('❌ Cancelar', 'cancel')])
+      await supabase.from('telegram_inbox').update({ status: 'pending_confirm' }).eq('id', inboxId)
+      return sendMessage(chatId,
+        `🔍 El identificador <code>${extractedId}</code> coincide con varios clientes. ¿A cuál lo asocio?`,
+        { replyMarkup: inlineKeyboard(rows) }
+      )
+    }
+  }
+
+  // Priority 2: name from document
+  if (!clientId && extractedName && extractedName !== 'No detectado') {
+    const matches = await searchClients(supabase, extractedName, 2)
+    if (matches?.length === 1) {
+      clientId = matches[0].id
+      clientName = matches[0].name
+      foundViaDoc = true
+      await setConvo(chatId, 'client_active', { clientModeId: clientId, clientModeName: clientName })
+    }
+  }
+
+  // Priority 3: active client from session
+  if (!clientId) {
+    const convo = await getConvo(chatId)
+    if (convo?.data?.clientModeId) {
+      clientId = convo.data.clientModeId
+      clientName = convo.data.clientModeName || ''
+    }
+  }
+
+  if (!clientId) {
+    await supabase.from('telegram_inbox').update({ status: 'pending_confirm' }).eq('id', inboxId)
+    return sendMessage(chatId,
+      `📎 Documento recibido (<b>${docTypeLabel(docType)}</b>)\n\n` +
+      `❓ No pude identificar el cliente. Escribe el nombre del cliente para asociar este documento.`
+    )
+  }
+
+  // 2 — Update client fields based on document type
+  const patch: Record<string, any> = { updated_at: new Date().toISOString() }
+  let savedFields: string[] = []
+
+  if ((docType === 'cif' || docType === 'nif') && extractedId) {
+    const field = docType === 'cif' ? 'cif' : 'nif'
+    const fileField = docType === 'cif' ? 'cif_file_url' : 'nif_file_url'
+    patch[field] = extractedId
+    patch.cif_nif = extractedId
+    if (fileUrl) patch[fileField] = fileUrl
+    savedFields = [extractedId, fileUrl ? '(doc guardado)' : '']
+  } else if (docType === 'iban') {
+    const ibanVal = extractedIban || extractedId
+    if (ibanVal) { patch.iban = ibanVal; savedFields.push(ibanVal) }
+    if (fileUrl) { patch.iban_file_url = fileUrl; savedFields.push('(certificado guardado)') }
+    if (analyzed.bank_name) savedFields.push(analyzed.bank_name)
+  } else if (docType === 'contrato' || docType === 'otro') {
+    // For other docs: just store file URL in notes or acknowledge
+    savedFields = ['documento archivado']
+  }
+
+  if (Object.keys(patch).length > 1) {
+    await supabase.from('clients').update(patch).eq('id', clientId)
+  }
+
+  // 3 — Mark inbox as processed
+  await supabase.from('telegram_inbox').update({ status: 'processed', processed_at: new Date().toISOString() }).eq('id', inboxId)
+
+  // 4 — Confirm
+  const emojiMap: Record<string, string> = { cif: '🏢', nif: '🪪', iban: '🏦', contrato: '📋', otro: '📎' }
+  const docEmoji = emojiMap[docType as string] || '📎'
+  const sourceTag = foundViaDoc ? ' <i>(identificado del documento)</i>' : ''
+  const fieldsTag = savedFields.filter(Boolean).join(' · ')
+
+  return sendMessage(chatId,
+    `${docEmoji} <b>${docTypeLabel(docType)} guardado</b>${sourceTag}\n\n` +
+    `👤 <b>${clientName}</b>\n` +
+    (fieldsTag ? `✅ ${fieldsTag}` : '')
+  )
+}
+
+function docTypeLabel(t: string): string {
+  return { cif: 'CIF', nif: 'DNI/NIF', iban: 'Certificado bancario', contrato: 'Contrato', otro: 'Documento' }[t] || 'Documento'
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
@@ -928,6 +1197,48 @@ async function handleCallback(cb: CallbackQuery) {
           await setConvo(chatId, 'await_supply_note', { supplyId })
           await answerCallback(cb.id)
           return sendMessage(chatId, '📝 Escribe la nota (o /cancelar):')
+        }
+
+      case 'set_client':
+        {
+          // params[0] = clientId, params[1] = clientName (may be truncated)
+          const [clientIdParam, ...nameParts] = params
+          const clientNameParam = nameParts.join(':')
+          if (!clientIdParam) return answerCallback(cb.id, 'Error: falta ID')
+          await setConvo(chatId, 'client_active', { clientModeId: clientIdParam, clientModeName: clientNameParam })
+          await answerCallback(cb.id, `✅ Cliente activo: ${clientNameParam}`)
+          return sendMessage(chatId,
+            `✅ <b>Cliente activo: ${clientNameParam}</b>\n\n` +
+            `Todo lo que envíes se asociará a este cliente.\n/salir para cambiar de cliente.`
+          )
+        }
+
+      case 'assoc_doc':
+        {
+          // params: [clientId, inboxId, docType]
+          const [assocClientId, assocInboxId, assocDocType] = params
+          if (!assocClientId || !assocInboxId) return answerCallback(cb.id, 'Error')
+          await answerCallback(cb.id, 'Asociando...')
+
+          const user = await getLinkedUser(chatId)
+          if (!user) return sendMessage(chatId, '🔒 Vincula tu cuenta con /vincular')
+
+          const supabase = createBotSupabase()
+          const { data: cl } = await supabase.from('clients').select('name').eq('id', assocClientId).single()
+          const { data: inboxRow } = await supabase.from('telegram_inbox').select('file_url').eq('id', assocInboxId).single()
+          const fileUrl = inboxRow?.file_url || ''
+          const clientNameAssoc = cl?.name || ''
+
+          // Set as active and update fields
+          await setConvo(chatId, 'client_active', { clientModeId: assocClientId, clientModeName: clientNameAssoc })
+          const patch: Record<string, any> = { updated_at: new Date().toISOString() }
+          if (assocDocType === 'iban' && fileUrl) patch.iban_file_url = fileUrl
+          else if (assocDocType === 'cif' && fileUrl) patch.cif_file_url = fileUrl
+          else if (assocDocType === 'nif' && fileUrl) patch.nif_file_url = fileUrl
+          if (Object.keys(patch).length > 1) await supabase.from('clients').update(patch).eq('id', assocClientId)
+          await supabase.from('telegram_inbox').update({ status: 'processed', processed_at: new Date().toISOString() }).eq('id', assocInboxId)
+
+          return sendMessage(chatId, `✅ <b>${clientNameAssoc}</b>\n${docTypeLabel(assocDocType)} guardado correctamente.`)
         }
 
       case 'cancel':
