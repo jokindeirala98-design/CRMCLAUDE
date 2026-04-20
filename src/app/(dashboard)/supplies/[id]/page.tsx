@@ -776,23 +776,20 @@ export default function SupplyDetailPage() {
           .single()
 
         if (clientData?.commercial_id) {
-          // Use notify API so it also sends a Telegram push to the commercial
-          await fetch('/api/notify', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              userId: clientData.commercial_id,
-              type: 'estudio_completado',
-              title: 'Informe listo',
-              message: `El informe económico de ${clientData.name} (${supply.cups || 'sin CUPS'}) ya está disponible.`,
-              link: `/supplies/${supply.id}`,
-              metadata: {
-                report_url: reportUrl,
-                client_name: clientData.name,
-                cups: supply.cups,
-                supply_id: supply.id,
-              },
-            }),
+          await supabase.from('notifications').insert({
+            user_id: clientData.commercial_id,
+            type: 'estudio_completado',
+            title: 'Informe listo',
+            message: `El informe económico de ${clientData.name} (${supply.cups || 'sin CUPS'}) ya está disponible.`,
+            link: `/supplies/${supply.id}`,
+            read: false,
+            created_at: new Date().toISOString(),
+            metadata: {
+              report_url: reportUrl,
+              client_name: clientData.name,
+              cups: supply.cups,
+              supply_id: supply.id,
+            },
           })
         }
       }
