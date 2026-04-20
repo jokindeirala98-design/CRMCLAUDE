@@ -79,12 +79,12 @@ export default function SuppliesPage() {
       suppliesResult.data.forEach((supply: any) => {
         if (!consumptionData[supply.id]) {
           // Compute history sum in case totalKwh stored an incorrect ConsumoEstimado
+          // NOTE: total field is a string like "38.811 kWh" — do NOT pass to Math.max
           const histSum = (supply.consumption_data?.history || []).reduce((s: number, h: any) =>
             s + (Number(h.P1)||0) + (Number(h.P2)||0) + (Number(h.P3)||0)
               + (Number(h.P4)||0) + (Number(h.P5)||0) + (Number(h.P6)||0), 0)
           const sipsKwh = Math.max(
-            supply.consumption_data?.totalKwh ?? 0,
-            supply.consumption_data?.total ?? 0,
+            Number(supply.consumption_data?.totalKwh) || 0,
             histSum,
           )
           if (sipsKwh > 0) {
