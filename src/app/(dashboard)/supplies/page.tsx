@@ -74,21 +74,19 @@ export default function SuppliesPage() {
       })
     }
 
-    // Fallback: for supplies with no invoices, use SIPS data from consumption_data
+    // SIPS consumoPeriodos overrides invoice data — it's the official annual figure from the distributor
     if (suppliesResult.data) {
       suppliesResult.data.forEach((supply: any) => {
-        if (!consumptionData[supply.id]) {
-          // Use consumoPeriodos sum (annual breakdown by period) — the correct annual value from SIPS
-          // consumoPeriodos.P1+P2+P3 for 3.0TD, etc. This matches "Consumo Anual por Periodo" in detail view
-          const cp = supply.consumption_data?.consumoPeriodos || {}
-          const periodosSum = (Number(cp.P1)||0) + (Number(cp.P2)||0) + (Number(cp.P3)||0)
-                            + (Number(cp.P4)||0) + (Number(cp.P5)||0) + (Number(cp.P6)||0)
-          const sipsKwh = periodosSum > 0
-            ? periodosSum
-            : (Number(supply.consumption_data?.totalKwh) || 0)
-          if (sipsKwh > 0) {
-            consumptionData[supply.id] = sipsKwh
-          }
+        const cp = supply.consumption_data?.consumoPeriodos || {}
+        const periodosSum = (Number(cp.P1)||0) + (Number(cp.P2)||0) + (Number(cp.P3)||0)
+                          + (Number(cp.P4)||0) + (Number(cp.P5)||0) + (Number(cp.P6)||0)
+        if (periodosSum > 0) {
+          // consumoPeriodos always wins — this is the annual breakdown from SIPS
+          consumptionData[supply.id] = periodosSum
+        } else if (!consumptionData[supply.id]) {
+          // No consumoPeriodos: fall back to totalKwh stored from SIPS
+          const totalKwh = Number(supply.consumption_data?.totalKwh) || 0
+          if (totalKwh > 0) consumptionData[supply.id] = totalKwh
         }
       })
     }
