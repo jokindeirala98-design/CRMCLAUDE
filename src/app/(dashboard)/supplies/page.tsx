@@ -74,12 +74,20 @@ export default function SuppliesPage() {
       })
     }
 
-    // Fallback: for supplies with no invoices, use SIPS totalKwh from consumption_data
+    // Fallback: for supplies with no invoices, use SIPS data from consumption_data
     if (suppliesResult.data) {
       suppliesResult.data.forEach((supply: any) => {
         if (!consumptionData[supply.id]) {
-          const sipsKwh = supply.consumption_data?.totalKwh ?? supply.consumption_data?.total
-          if (sipsKwh && sipsKwh > 0) {
+          // Compute history sum in case totalKwh stored an incorrect ConsumoEstimado
+          const histSum = (supply.consumption_data?.history || []).reduce((s: number, h: any) =>
+            s + (Number(h.P1)||0) + (Number(h.P2)||0) + (Number(h.P3)||0)
+              + (Number(h.P4)||0) + (Number(h.P5)||0) + (Number(h.P6)||0), 0)
+          const sipsKwh = Math.max(
+            supply.consumption_data?.totalKwh ?? 0,
+            supply.consumption_data?.total ?? 0,
+            histSum,
+          )
+          if (sipsKwh > 0) {
             consumptionData[supply.id] = sipsKwh
           }
         }
