@@ -111,11 +111,14 @@ export async function ensurePendingPrescoring(
       supply.type === 'telefonia' ? 'Telefonía' :
       'Electricidad'
 
-    const consumoAnual =
-      sips?.total ||
-      sips?.totalKwh ||
-      extracted?.economics?.consumoTotalKwh ||
-      null
+    // consumoPeriodos is the annual breakdown from SIPS — most accurate source
+    const cp = (sips?.consumoPeriodos || {}) as { P1?: number; P2?: number; P3?: number; P4?: number; P5?: number; P6?: number }
+    const periodosSum = (Number(cp.P1)||0) + (Number(cp.P2)||0) + (Number(cp.P3)||0)
+                      + (Number(cp.P4)||0) + (Number(cp.P5)||0) + (Number(cp.P6)||0)
+    const consumoAnualNum = periodosSum > 0
+      ? periodosSum
+      : (Number(sips?.totalKwh) > 0 ? Number(sips?.totalKwh) : (extracted?.economics?.consumoTotalKwh || 0))
+    const consumoAnual = consumoAnualNum > 0 ? consumoAnualNum : null
 
     const poblacion = sips?.municipio || null
     const direccionFiscal =
@@ -132,7 +135,7 @@ export async function ensurePendingPrescoring(
       cif: cif,
       producto,
       tariff: supply.tariff || null,
-      consumo_anual: consumoAnual ? String(consumoAnual) : null,
+      consumo_anual: consumoAnual ? `${Math.round(Number(consumoAnual)).toLocaleString('es-ES')} kWh` : null,
       entidad: extracted?.comercializadora || null,
       telefono: client?.phone || null,
       poblacion,
