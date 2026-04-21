@@ -134,20 +134,28 @@ export async function POST(
     const periodCount = boe2026.length
 
     const sipsData = supply.consumption_data as any
+    // DEBUG — remove after testing
+    console.log('[economic-study] sipsData keys:', sipsData ? Object.keys(sipsData) : 'null')
+    console.log('[economic-study] sipsData sample:', JSON.stringify(sipsData)?.slice(0, 600))
+    console.log('[economic-study] invoices count:', supply.invoices?.length, '| first invoice keys:', supply.invoices?.[0] ? Object.keys(supply.invoices[0]) : 'none')
+
     const powers = extractPowers(sipsData, periodCount)
     const consumption = extractConsumption(sipsData, periodCount)
     const totalKwh = consumption.reduce((a, b) => a + b, 0)
     const actualAvgPrice = avgPriceFromInvoices(supply.invoices || [])
+
+    console.log('[economic-study] powers:', powers)
+    console.log('[economic-study] consumption:', consumption)
+    console.log('[economic-study] totalKwh:', totalKwh, '| avgPrice:', actualAvgPrice)
     const comercializadoraActual = supply.comercializadora?.name || 'Comercializadora actual'
     const clientName = supply.client?.name || ''
     const cups = supply.cups || ''
     const tariffLabel = `TARIFA ${normalizeTariff(tariff)}`
 
     // ── Abrir plantilla ───────────────────────────────────────────────────────
-    // Se usa la versión "clean" sin gráficos para compatibilidad con ExcelJS
-    const templatePath = path.join(process.cwd(), 'templates', 'estudio-economico-clean.xlsx')
+    const templatePath = path.join(process.cwd(), 'templates', 'estudio-economico.xlsx')
     if (!fs.existsSync(templatePath)) {
-      return NextResponse.json({ error: 'Plantilla no encontrada en /templates/estudio-economico-clean.xlsx' }, { status: 500 })
+      return NextResponse.json({ error: 'Plantilla no encontrada en /templates/estudio-economico.xlsx' }, { status: 500 })
     }
 
     const wb = new ExcelJS.Workbook()
