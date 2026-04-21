@@ -629,11 +629,11 @@ function WeekTaskRow({
 }) {
   const [showMove, setShowMove] = useState(false)
 
-  const MOVE_OPTIONS: { z: 'director' | 'mine' | 'inbox'; label: string }[] = [
-    { z: 'director', label: '📌 Dirección' },
-    { z: 'mine', label: '✏️ Mis tareas' },
-    { z: 'inbox', label: '📥 Sin revisar' },
-  ].filter(o => o.z !== zone)
+  const MOVE_OPTIONS = ([
+    { z: 'director' as const, label: '📌 Dirección' },
+    { z: 'mine' as const, label: '✏️ Mis tareas' },
+    { z: 'inbox' as const, label: '📥 Sin revisar' },
+  ] as const).filter(o => o.z !== zone)
 
   return (
     <div className={cn(

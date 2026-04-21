@@ -103,6 +103,18 @@ const PERIOD_COLORS: Record<string, string> = {
   P1: '#60a5fa', P2: '#818cf8', P3: '#a78bfa',
   P4: '#c084fc', P5: '#e879f9', P6: '#fb7185',
 }
+
+/** Returns true for 2.0TD tariffs (doméstico, only P1+P2) */
+function is2TDTariff(tarifa?: string | null): boolean {
+  if (!tarifa) return false
+  const t = tarifa.trim().toUpperCase().replace(/\s+/g, '')
+  return t.startsWith('2.0') || t === '2.0TD' || t === '20TD'
+}
+
+/** Returns active periods based on tariff — P1+P2 only for 2.0TD, P1–P6 otherwise */
+function getActivePeriods(tarifa?: string | null): string[] {
+  return is2TDTariff(tarifa) ? ['P1', 'P2'] : PERIODS
+}
 const CANONICAL_MONTHS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
 const CANONICAL_MONTHS_FULL = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 
@@ -738,6 +750,14 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
 
   const isGas = isGasSupply(invoices, authoritativeType)
 
+  // Detect active periods — 2.0TD only uses P1+P2
+  const tarifa = invoices.find(inv => getEco(inv)?.tarifa || inv.extracted_data?.tariff)
+    ?.extracted_data?.tariff as string | undefined
+    || invoices.find(inv => getEco(inv)?.tarifa)
+    ? getEco(invoices.find(inv => getEco(inv)?.tarifa)!)?.tarifa
+    : undefined
+  const activePeriods = getActivePeriods(tarifa)
+
   // ── Common header rows (both luz & gas) ──
   const headerRows: RowDef[] = [
     {
@@ -875,7 +895,7 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
       isSectionHeader: true,
       render: (eco) => <span className="text-white font-bold text-sm">{fmt(eco?.consumoTotalKwh, 0)}</span>,
     },
-    ...PERIODS.map(p => ({
+    ...activePeriods.map(p => ({
       key: `consumo_${p}`,
       label: `CONSUMO ${p}`,
       indent: true,
@@ -908,7 +928,7 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
       isSectionHeader: true,
       render: (eco) => <span className="text-white font-bold text-sm">{fmt(eco?.costeTotalPotencia)}</span>,
     },
-    ...PERIODS.map(p => ({
+    ...activePeriods.map(p => ({
       key: `potencia_${p}`,
       label: `POTENCIA ${p}`,
       indent: true,
@@ -1058,29 +1078,31 @@ const kpiGlassStyle: React.CSSProperties = {
 // ─── Generic Audit Matrix Table ──────────────────────────────────────────────
 
 function AuditMatrixTable<T extends { mes: string; periods: Record<string, unknown>; total: unknown }>({
-  rows, renderCell, renderTotal, footerRow, onRowClick,
+  rows, renderCell, renderTotal, footerRow, onRowClick, activePeriods: periods = PERIODS,
 }: {
   rows: T[]
   renderCell: (row: T, period: string) => React.ReactNode
   renderTotal: (row: T) => React.ReactNode
   footerRow?: React.ReactNode
   onRowClick?: (row: T) => void
+  activePeriods?: string[]
 }) {
+  const colCount = periods.length
   return (
     <div className="rounded-2xl overflow-hidden" style={glassStyle}>
       <div className="grid text-xs text-white/30 tracking-widest py-3 px-4 border-b border-white/5"
-        style={{ gridTemplateColumns: '220px repeat(6, 1fr) 180px' }}>
+        style={{ gridTemplateColumns: `220px repeat(${colCount}, 1fr) 180px` }}>
         <span>MES</span>
-        {PERIODS.map(p => <span key={p}>{p}</span>)}
+        {periods.map(p => <span key={p}>{p}</span>)}
         <span>TOTAL</span>
       </div>
       {rows.map((row, i) => (
         <div key={i}
           className={`grid items-center py-4 px-4 border-b border-white/[0.04] transition ${onRowClick ? 'cursor-pointer hover:bg-white/[0.06]' : 'hover:bg-white/[0.02]'}`}
-          style={{ gridTemplateColumns: '220px repeat(6, 1fr) 180px' }}
+          style={{ gridTemplateColumns: `220px repeat(${colCount}, 1fr) 180px` }}
           onClick={onRowClick ? () => onRowClick(row) : undefined}>
           <span className="text-white font-bold text-sm italic">{row.mes}</span>
-          {PERIODS.map(p => <div key={p}>{renderCell(row, p)}</div>)}
+          {periods.map(p => <div key={p}>{renderCell(row, p)}</div>)}
           <div>{renderTotal(row)}</div>
         </div>
       ))}
@@ -1331,6 +1353,16 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
     [validInvoices, selectedMonths]
   )
 
+  // Supply info — computed early so useMemo below can use activePeriods
+  const firstEco = validInvoices.length > 0 ? getEco(validInvoices[0]) : null
+  const firstEd = validInvoices[0]?.extracted_data
+  const cups = firstEco?.cups || firstEd?.cups || '—'
+  const tarifa = firstEco?.tarifa || firstEd?.tariff || '—'
+  const titular = firstEco?.titular || (firstEd?.holder_name as string) || supplyName || 'PROYECTO'
+
+  // Active periods: P1+P2 only for 2.0TD, P1–P6 for everything else
+  const activePeriods = getActivePeriods(tarifa !== '—' ? tarifa : null)
+
   // All computed data
   const { chartData, pieData, summaryStats, tableData, excessData, totalExcessAmount, hasExcesses, averagePriceStats } = useMemo(() => {
     const allMonthly = getMonthlyAggregatedData(validInvoices)
@@ -1386,7 +1418,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
       const pricesByPeriod: Record<string, number> = {}
       const periodSpend: Record<string, { eur: number; isEstimated: boolean }> = {}
 
-      PERIODS.forEach(p => {
+      activePeriods.forEach(p => {
         const item = eco.consumo?.find(c => c.periodo === p)
         kwhByPeriod[p] = item?.kwh || 0
         // Apply discount factor to price
@@ -1427,7 +1459,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
     }).sort((a, b) => a.monthIndex - b.monthIndex)
 
     // Per-period average price stats (for Modal 3)
-    const avgPriceStats = PERIODS.map(p => {
+    const avgPriceStats = activePeriods.map(p => {
       let totalKwhP = 0, totalEurP = 0
       tData.forEach(r => {
         totalKwhP += r.kwhByPeriod[p] || 0
@@ -1455,27 +1487,20 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
       hasExcesses: totalExcess > 0,
       averagePriceStats: avgPriceStats,
     }
-  }, [validInvoices, filteredInvoices, selectedMonths])
-
-  // Supply info
-  const firstEco = validInvoices.length > 0 ? getEco(validInvoices[0]) : null
-  const firstEd = validInvoices[0]?.extracted_data
-  const cups = firstEco?.cups || firstEd?.cups || '—'
-  const tarifa = firstEco?.tarifa || firstEd?.tariff || '—'
-  const titular = firstEco?.titular || (firstEd?.holder_name as string) || supplyName || 'PROYECTO'
+  }, [validInvoices, filteredInvoices, selectedMonths, activePeriods])
 
   const avgPriceAll = tableData.length > 0 ? tableData.reduce((s, r) => s + r.avgPrice, 0) / tableData.length : 0
 
   const spendTotals = useMemo((): Record<string, number> => {
     const totals: Record<string, number> = {}
-    PERIODS.forEach(p => { totals[p] = 0 })
+    activePeriods.forEach(p => { totals[p] = 0 })
     totals.grandTotal = 0
     tableData.forEach(row => {
-      PERIODS.forEach(p => { totals[p] += row.periodSpend[p]?.eur || 0 })
+      activePeriods.forEach(p => { totals[p] += row.periodSpend[p]?.eur || 0 })
       totals.grandTotal += row.totalFactura
     })
     return totals
-  }, [tableData])
+  }, [tableData, activePeriods])
 
   // ESC key to exit fullscreen report
   useEffect(() => {
@@ -1716,11 +1741,12 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
                 const isMax = v === maxV && v > 0
                 return <span className={`font-bold text-sm ${isMax ? 'text-err bg-err-container/400/10 px-2 py-0.5 rounded' : 'text-info'}`}>{fmt(v, 0)}</span>
               }}
+              activePeriods={activePeriods}
               footerRow={
                 <div className="grid items-center py-4 px-4 border-t border-white/10 bg-white/[0.03]"
-                  style={{ gridTemplateColumns: '220px repeat(6, 1fr) 180px' }}>
+                  style={{ gridTemplateColumns: `220px repeat(${activePeriods.length}, 1fr) 180px` }}>
                   <span className="text-[#60a5fa] font-black text-sm tracking-wider">TOTAL</span>
-                  {PERIODS.map(p => {
+                  {activePeriods.map(p => {
                     const total = tableData.reduce((s, r) => s + (r.kwhByPeriod[p] || 0), 0)
                     return <span key={p} className="text-info font-bold text-sm">{total > 0 ? fmt(total, 0) : '-'}</span>
                   })}
@@ -1738,6 +1764,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
               <h3 className="text-3xl md:text-4xl font-black tracking-tight mb-6">MATRIZ DE COSTE POR PERIODO (€/KWH)</h3>
             </div>
             <AuditMatrixTable
+              activePeriods={activePeriods}
               rows={tableData.map(r => ({ id: r.id, mes: r.mes, periods: r.pricesByPeriod as Record<string, unknown>, total: r.avgPrice }))}
               renderCell={(row, p) => {
                 const v = row.periods[p] as number
@@ -1762,7 +1789,8 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
               <h3 className="text-3xl md:text-4xl font-black tracking-tight mb-6">MATRIZ DE GASTO POR PERIODO (€)</h3>
             </div>
             <AuditMatrixTable
-              rows={tableData.map(r => ({ id: r.id, mes: r.mes, periods: Object.fromEntries(PERIODS.map(p => [p, r.periodSpend[p]])) as Record<string, unknown>, total: r.totalFactura }))}
+              activePeriods={activePeriods}
+              rows={tableData.map(r => ({ id: r.id, mes: r.mes, periods: Object.fromEntries(activePeriods.map(p => [p, r.periodSpend[p]])) as Record<string, unknown>, total: r.totalFactura }))}
               renderCell={(row, p) => {
                 const cell = row.periods[p] as { eur: number; isEstimated: boolean } | undefined
                 if (!cell || cell.eur === 0) return <span className="text-white/20 text-sm">—</span>
@@ -1772,9 +1800,9 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
               onRowClick={(row) => setSelectedBillId((row as any).id)}
               footerRow={
                 <div className="grid items-center py-4 px-4 border-t border-white/10 bg-white/[0.03]"
-                  style={{ gridTemplateColumns: '220px repeat(6, 1fr) 180px' }}>
+                  style={{ gridTemplateColumns: `220px repeat(${activePeriods.length}, 1fr) 180px` }}>
                   <span className="text-white font-black text-sm tracking-wider">TOTAL</span>
-                  {PERIODS.map(p => <span key={p} className="text-info font-bold text-sm">{spendTotals[p] > 0 ? fmt(spendTotals[p]) : '—'}</span>)}
+                  {activePeriods.map(p => <span key={p} className="text-info font-bold text-sm">{spendTotals[p] > 0 ? fmt(spendTotals[p]) : '—'}</span>)}
                   <span className="text-info font-black text-sm">{fmt(spendTotals.grandTotal)} €</span>
                 </div>
               }
@@ -1861,7 +1889,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
                   <div className="col-span-2 rounded-xl p-4 bg-white/5 border border-white/10">
                     <p className="text-white/50 text-xs tracking-wider mb-3">ENERGÍA POR PERIODO</p>
                     <div className="grid grid-cols-3 gap-2">
-                      {PERIODS.map(p => {
+                      {activePeriods.map(p => {
                         const spend = bill.periodSpend[p]
                         if (!spend || spend.eur === 0) return null
                         return (

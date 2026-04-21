@@ -477,7 +477,7 @@ async function handleMiSemana(chatId: number) {
     .order('zone')
     .order('sort_order')
 
-  const allTasks = tasks || []
+  const allTasks: { title: string; zone: string; is_focus_today: boolean; is_pinned: boolean; priority: string; status: string }[] = tasks || []
 
   if (allTasks.length === 0) {
     return sendMessage(chatId,
