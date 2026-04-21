@@ -24,6 +24,8 @@ import {
 import { motion, AnimatePresence } from 'framer-motion'
 import { getViewUrl, getDownloadUrl } from '@/lib/utils/storage'
 import { advanceSupplyPipeline } from '@/lib/supply-pipeline'
+import { EconomicStudyModal } from '@/components/modals/EconomicStudyModal'
+import { getPeriodCount } from '@/lib/boe-prices'
 
 /* ---------- types ---------- */
 interface PendingSupply {
@@ -92,6 +94,32 @@ function fmtKwh(val: number): string {
   return `${val.toLocaleString('es-ES', { maximumFractionDigits: 0 })} kWh/año`
 }
 
+function extractConsumptionByPeriod(cd: Record<string, unknown> | null, periodCount: number): number[] {
+  if (!cd) return Array(periodCount).fill(0)
+  const d = cd as any
+  if (Array.isArray(d.consumoPorPeriodo)) return d.consumoPorPeriodo.slice(0, periodCount).map(Number)
+  const cons: number[] = []
+  for (let i = 1; i <= periodCount; i++) {
+    cons.push(Number(d[`consumoP${i}`] ?? d[`energiaP${i}`] ?? 0))
+  }
+  if (cons.some(c => c > 0)) return cons
+  const total = Number(d.totalKwh ?? d.total ?? 0)
+  return Array(periodCount).fill(Math.round(total / periodCount))
+}
+
+function extractPowersByPeriod(cd: Record<string, unknown> | null, periodCount: number): number[] {
+  if (!cd) return Array(periodCount).fill(0)
+  const d = cd as any
+  if (Array.isArray(d.potenciasContratadas)) return d.potenciasContratadas.slice(0, periodCount).map(Number)
+  const powers: number[] = []
+  for (let i = 1; i <= periodCount; i++) {
+    powers.push(Number(d[`potenciaP${i}`] ?? d[`p${i}`] ?? d[`P${i}`] ?? 0))
+  }
+  if (powers.some(p => p > 0)) return powers
+  const single = Number(d.potenciaContratada ?? d.potencia ?? 0)
+  return Array(periodCount).fill(single)
+}
+
 function formatTariff(raw: string | null | undefined): string {
   if (!raw) return '-'
   const s = raw.replace(/\s+/g, '').toUpperCase()
@@ -113,6 +141,7 @@ export default function InformesPage() {
   const [uploading, setUploading] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedClient, setSelectedClient] = useState<ClientGroup | null>(null)
+  const [economicStudySupply, setEconomicStudySupply] = useState<PendingSupply | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const activeSupplyRef = useRef<string | null>(null)
 
@@ -406,25 +435,65 @@ export default function InformesPage() {
                   ))}
                 </div>
 
-                {/* Upload report action */}
-                <div className="px-4 pb-4">
+                {/* Generar informe económico */}
+                <div className="px-4 pb-4 space-y-2">
+                  <button
+                    onClick={() => setEconomicStudySupply(supply)}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-brand text-white rounded-xl font-semibold text-sm hover:bg-secondary/90 transition-all active:scale-[0.98]"
+                  >
+                    <FileSpreadsheet className="w-4 h-4" />
+                    Generar Informe Económico
+                  </button>
+                  {/* Mantener subida manual como fallback */}
                   <button
                     onClick={() => handleUploadReport(supply.id)}
                     disabled={isUploading}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-brand text-white rounded-xl font-semibold text-sm hover:bg-secondary/90 transition-all disabled:opacity-50 active:scale-[0.98]"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-bg-2 text-ink-3 rounded-xl text-xs font-medium hover:bg-bg-2/80 transition-all disabled:opacity-50 border border-line"
                   >
-                    {isUploading ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Upload className="w-4 h-4" />
-                    )}
-                    {isUploading ? 'Subiendo...' : 'Adjuntar Informe Económico'}
+                    {isUploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                    {isUploading ? 'Subiendo...' : 'Subir archivo existente'}
                   </button>
                 </div>
               </div>
             )
           })}
         </div>
+
+        {/* Economic Study Modal */}
+        {economicStudySupply && (
+          <EconomicStudyModal
+            supplyId={economicStudySupply.id}
+            cups={economicStudySupply.cups || ''}
+            tariff={economicStudySupply.tariff || '3.0TD'}
+            clientName={selectedClient.clientName}
+            comercializadoraActual={economicStudySupply.comercializadora?.name}
+            consumptionByPeriod={extractConsumptionByPeriod(
+              economicStudySupply.consumption_data,
+              getPeriodCount(economicStudySupply.tariff || '3.0TD')
+            )}
+            powersByPeriod={extractPowersByPeriod(
+              economicStudySupply.consumption_data,
+              getPeriodCount(economicStudySupply.tariff || '3.0TD')
+            )}
+            autoSave={true}
+            onClose={() => setEconomicStudySupply(null)}
+            onSaved={() => {
+              const supplyId = economicStudySupply.id
+              setSupplies(prev => prev.filter(s => s.id !== supplyId))
+              setEconomicStudySupply(null)
+              const remaining = selectedClient.supplies.filter(s => s.id !== supplyId)
+              if (remaining.length === 0) {
+                setSelectedClient(null)
+              } else {
+                setSelectedClient({
+                  ...selectedClient,
+                  supplies: remaining,
+                  totalConsumption: remaining.reduce((acc, s) => acc + getSupplyConsumption(s), 0),
+                })
+              }
+            }}
+          />
+        )}
       </div>
     )
   }

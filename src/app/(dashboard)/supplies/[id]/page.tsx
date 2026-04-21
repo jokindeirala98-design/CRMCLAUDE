@@ -115,7 +115,7 @@ export default function SupplyDetailPage() {
   const invoiceInputRef = useRef<HTMLInputElement>(null)
   const studyInputRef = useRef<HTMLInputElement>(null)
   const notificationTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const { user } = useAuthStore()
+  const { user, isAdmin } = useAuthStore()
 
   // ── Show notification with auto-dismiss ──────────────────────────────────
   const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
@@ -2364,12 +2364,11 @@ export default function SupplyDetailPage() {
                       </div>
                       <button
                         type="button"
-                        onClick={() => studyInputRef.current?.click()}
-                        disabled={uploadingStudy}
-                        className="text-xs text-brand font-semibold hover:text-primary/80 transition flex items-center gap-1"
+                        onClick={() => setEconomicStudyOpen(true)}
+                        className="text-xs text-ok font-semibold hover:text-ok/80 transition flex items-center gap-1"
                       >
-                        {uploadingStudy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
-                        Subir
+                        <TrendingUp className="w-3 h-3" />
+                        Generar
                       </button>
                     </div>
                     {supply.studies && supply.studies.filter((s: any) => s.status === 'completed').length > 0 ? (
@@ -2407,6 +2406,27 @@ export default function SupplyDetailPage() {
                       </div>
                     ) : (
                       <p className="text-xs text-ink-3">Sin informes económicos</p>
+                    )}
+
+                    {/* Upload fallback */}
+                    <button
+                      type="button"
+                      onClick={() => studyInputRef.current?.click()}
+                      disabled={uploadingStudy}
+                      className="mt-1 text-[10px] text-ink-4 hover:text-ink-3 transition flex items-center gap-1"
+                    >
+                      {uploadingStudy ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Upload className="w-2.5 h-2.5" />}
+                      Subir archivo existente
+                    </button>
+
+                    {/* Study notes — admin only */}
+                    {isAdmin() && supply.study_notes && (
+                      <div className="mt-2 p-2.5 rounded-lg bg-warn-container/20 border border-warn/20">
+                        <p className="text-[10px] font-bold text-warn uppercase tracking-wider mb-1 flex items-center gap-1">
+                          🔒 Notas internas
+                        </p>
+                        <p className="text-xs text-ink whitespace-pre-wrap">{supply.study_notes}</p>
+                      </div>
                     )}
                   </div>
                 </div>
