@@ -129,9 +129,10 @@ export async function POST(
     const tariffLabel = `TARIFA ${normalizeTariff(tariff)}`
 
     // ── Abrir plantilla ───────────────────────────────────────────────────────
-    const templatePath = path.join(process.cwd(), 'templates', 'estudio-economico.xlsx')
+    // Se usa la versión "clean" sin gráficos para compatibilidad con ExcelJS
+    const templatePath = path.join(process.cwd(), 'templates', 'estudio-economico-clean.xlsx')
     if (!fs.existsSync(templatePath)) {
-      return NextResponse.json({ error: 'Plantilla no encontrada en /templates/estudio-economico.xlsx' }, { status: 500 })
+      return NextResponse.json({ error: 'Plantilla no encontrada en /templates/estudio-economico-clean.xlsx' }, { status: 500 })
     }
 
     const wb = new ExcelJS.Workbook()
