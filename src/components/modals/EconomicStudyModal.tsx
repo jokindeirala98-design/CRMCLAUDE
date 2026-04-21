@@ -74,9 +74,19 @@ export function EconomicStudyModal({
     setError('')
     setGenerating(true)
     try {
+      // Read session token from localStorage (app stores auth there, not in cookies)
+      let accessToken: string | null = null
+      try {
+        const raw = localStorage.getItem('voltis-auth')
+        if (raw) accessToken = JSON.parse(raw)?.access_token ?? null
+      } catch {}
+
       const res = await fetch(`/api/supplies/${supplyId}/economic-study`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
+        },
         body: JSON.stringify({
           nueva_comercializadora: nuevaComercializadora,
           precios_nuevos: preciosNuevos.slice(0, periodCount).map(p => parseFloat(p)),

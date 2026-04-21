@@ -19,7 +19,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { createClient } from '@supabase/supabase-js'
 import { getBOEPrices, normalizeTariff } from '@/lib/boe-prices'
 import ExcelJS from 'exceljs'
 import path from 'path'
@@ -93,8 +93,23 @@ export async function POST(
       return NextResponse.json({ error: 'nueva_comercializadora y precios_nuevos son obligatorios' }, { status: 400 })
     }
 
-    const supabase = createServerSupabaseClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    // ── Auth: verify token from Authorization header (app stores session in localStorage, not cookies)
+    const authHeader = req.headers.get('Authorization')
+    const token = authHeader?.replace('Bearer ', '').trim()
+
+    // Use service-role client for data ops (bypasses RLS, needed for cross-table queries)
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
+
+    // Still verify the caller is a valid authenticated user
+    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const anonClient = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    )
+    const { data: { user } } = await anonClient.auth.getUser(token)
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     // ── Fetch supply + client + invoices ──────────────────────────────────────
