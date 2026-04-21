@@ -679,28 +679,10 @@ E2. EXCESO DE POTENCIA — DETECCIÓN:
      cuarto-horario)", son el MISMO concepto expresado de dos maneras → emite SOLO UNO con
      el mayor importe (evita doble conteo).
 
-E3. TARIFA 2.0TD (doméstica — reforma tarifaria 2021, sustituye a 2.0A/2.0DHA/2.1A/2.1DHA):
-   - SIEMPRE tiene DOS periodos: P1 (punta, caro) y P2 (valle, barato). Nunca P3–P6.
-   - Potencia: P1 y P2 (mismo kW contratado en ambos es habitual en doméstico).
-   - Energía: P1 y P2.
-
-   NOMENCLATURA VARIABLE — según comercializadora pueden aparecer así:
-   ┌──────────────────────────────────────────────┬─────┐
-   │ En la factura                                │ → ? │
-   ├──────────────────────────────────────────────┼─────┤
-   │ "Horas NO promocionadas" / "No promocionadas"│ → P1│
-   │ "Horas promocionadas" / "Promocionadas"      │ → P2│
-   │ "Punta" / "Período punta" / "Hora punta"     │ → P1│
-   │ "Valle" / "Período valle" / "Hora valle"     │ → P2│
-   │ "P1" (explícito)                             │ → P1│
-   │ "P2" (explícito)                             │ → P2│
-   │ "Precio fijo de energía" (único precio flat) │ → P1│
-   └──────────────────────────────────────────────┴─────┘
-   REGLA: si ves UN SOLO precio de energía (factura 2.0TD básica) → ponlo en P1.
-          si ves DOS precios (DH o Plan X horas) → el caro = P1, el barato = P2.
-
-   Iberdrola "Plan Elige X horas": "Horas no promocionadas" = P1, "Horas promocionadas" = P2.
-   El periodo promocionado = las X horas baratas elegidas por el cliente = P2 (valle).
+E3. TARIFA 2.0TD (doméstica, 1 o 2 periodos):
+   - 2.0TD estándar: UN solo periodo de potencia (P1). Potencia típica: 3,5 – 15 kW.
+   - 2.0DHA / 2.0A (discriminación horaria): P1 (punta) y P2 (valle). Potencia idéntica en ambos.
+   - Si ves dos precios de potencia pero el kW es el mismo → es 2.0DHA. OK.
 
 E4. TARIFA 3.0TD (pequeña/mediana empresa):
    - 6 periodos de potencia y 6 de energía. kW contratado puede ser diferente por periodo.

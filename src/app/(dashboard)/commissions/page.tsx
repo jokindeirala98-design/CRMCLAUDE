@@ -1,29 +1,14 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { Plus, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Download, FileSpreadsheet, Users, ChevronLeft, ChevronRight, Loader2, AlertTriangle } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
-import { DataTable } from '@/components/ui/DataTable'
 import { Select } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { createClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/auth'
-import { formatCurrency, formatDate, getUserInitials } from '@/lib/utils/format'
-import type { Commission } from '@/types/database'
-
-type CommissionWithRelations = Commission & {
-  commercial?: { full_name: string }
-  client?: { name: string }
-  supply?: { cups: string | null }
-}
-
-const STATUS_CONFIG = {
-  pending: { label: 'Pendiente', color: 'warning' as const },
-  approved: { label: 'Aprobada', color: 'info' as const },
-  paid: { label: 'Pagada', color: 'success' as const },
-}
 
 const MONTHS = [
   { value: '01', label: 'Enero' },
@@ -42,216 +27,197 @@ const MONTHS = [
 
 export default function CommissionsPage() {
   const { user } = useAuthStore()
-  const [commissions, setCommissions] = useState<CommissionWithRelations[]>([])
-  const [users, setUsers] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [selectedCommercial, setSelectedCommercial] = useState<string>('')
-  const [currentDate, setCurrentDate] = useState(new Date())
+  const [commercials, setCommercials] = useState<{ id: string; full_name: string }[]>([])
+  const [selectedComercial, setSelectedComercial] = useState('all')
+  const [month, setMonth] = useState(() => String(new Date().getMonth() + 1).padStart(2, '0'))
+  const [year, setYear] = useState(() => String(new Date().getFullYear()))
+  const [downloading, setDownloading] = useState(false)
+  const [downloadingAll, setDownloadingAll] = useState(false)
+  const [error, setError] = useState('')
+  const [isAdmin, setIsAdmin] = useState(false)
 
-  const isAdmin = user?.role === 'admin'
-
-  // Get current month in YYYY-MM format
-  const currentMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`
-  const monthDisplay = MONTHS[currentDate.getMonth()]?.label || 'Mes'
-  const yearDisplay = currentDate.getFullYear()
-
-  const fetchCommissions = useCallback(async () => {
-    const supabase = createClient()
-
-    let query = supabase
-      .from('commissions')
-      .select(`
-        *,
-        commercial:users_profile!commercial_id(full_name),
-        client:clients(name),
-        supply:supplies(cups)
-      `)
-      .eq('month', currentMonth)
-
-    // If not admin, only show own commissions
-    if (!isAdmin) {
-      query = query.eq('commercial_id', user?.id)
-    } else if (selectedCommercial) {
-      // If admin with filter, show selected commercial
-      query = query.eq('commercial_id', selectedCommercial)
+  useEffect(() => {
+    const load = async () => {
+      const supabase = createClient()
+      const [profileRes, comRes] = await Promise.all([
+        supabase.from('users_profile').select('role').eq('id', user?.id).single(),
+        supabase.from('users_profile').select('id, full_name').eq('active', true).order('full_name'),
+      ])
+      setIsAdmin(profileRes.data?.role === 'admin')
+      setCommercials(comRes.data || [])
     }
+    if (user?.id) load()
+  }, [user?.id])
 
-    const { data } = await query.order('created_at', { ascending: false })
-    setCommissions((data as CommissionWithRelations[]) || [])
-    setLoading(false)
-  }, [currentMonth, selectedCommercial, isAdmin, user?.id])
+  const downloadLiquidacion = async (comercial: string, all = false) => {
+    setError('')
+    if (all) setDownloadingAll(true)
+    else setDownloading(true)
 
-  const fetchUsers = useCallback(async () => {
-    const supabase = createClient()
-    const { data } = await supabase
-      .from('users_profile')
-      .select('id, full_name, role')
-      .eq('active', true)
-      .eq('role', 'commercial')
-      .order('full_name')
-    setUsers(data || [])
-  }, [])
+    try {
+      const params = new URLSearchParams({
+        comercial: all ? 'all' : comercial,
+        month,
+        year,
+      })
+      const res = await fetch(`/api/liquidaciones/generate?${params}`)
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Error al generar liquidación')
+      }
 
-  useEffect(() => {
-    fetchCommissions()
-  }, [fetchCommissions])
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
 
-  useEffect(() => {
-    fetchUsers()
-  }, [fetchUsers])
+      // Build filename from Content-Disposition or fallback
+      const cd = res.headers.get('Content-Disposition') || ''
+      const match = cd.match(/filename="(.+)"/)
+      const monthLabel = MONTHS.find(m => m.value === month)?.label.toLowerCase() || month
+      a.download = match?.[1] || (all
+        ? `liquidaciones_${monthLabel}_${year}.zip`
+        : `liquidacion_${comercial.toLowerCase()}_${monthLabel}.xlsx`)
 
-  // Calculate stats
-  const totalEarned = commissions.reduce((sum, c) => sum + c.amount, 0)
-  const pending = commissions.filter((c) => c.status === 'pending').reduce((sum, c) => sum + c.amount, 0)
-  const paid = commissions.filter((c) => c.status === 'paid').reduce((sum, c) => sum + c.amount, 0)
-
-  const handlePreviousMonth = () => {
-    const newDate = new Date(currentDate)
-    newDate.setMonth(newDate.getMonth() - 1)
-    setCurrentDate(newDate)
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setDownloading(false)
+      setDownloadingAll(false)
+    }
   }
 
-  const handleNextMonth = () => {
-    const newDate = new Date(currentDate)
-    newDate.setMonth(newDate.getMonth() + 1)
-    setCurrentDate(newDate)
-  }
-
-  const updateCommissionStatus = async (commissionId: string, newStatus: string) => {
-    const supabase = createClient()
-    const updates: any = { status: newStatus }
-    if (newStatus === 'approved') updates.approved_at = new Date().toISOString()
-    if (newStatus === 'paid') updates.paid_at = new Date().toISOString()
-
-    await supabase.from('commissions').update(updates).eq('id', commissionId)
-    fetchCommissions()
-  }
-
-  const columns = [
-    {
-      key: 'client',
-      header: 'Cliente',
-      render: (item: CommissionWithRelations) => (
-        <span className="text-sm text-ink">{item.client?.name || '-'}</span>
-      ),
-    },
-    {
-      key: 'supply',
-      header: 'Suministro',
-      render: (item: CommissionWithRelations) => (
-        <span className="text-sm font-mono text-ink-3">{item.supply?.cups || '-'}</span>
-      ),
-    },
-    {
-      key: 'concept',
-      header: 'Concepto',
-      render: (item: CommissionWithRelations) => (
-        <span className="text-sm text-ink">{item.concept || '-'}</span>
-      ),
-    },
-    {
-      key: 'amount',
-      header: 'Importe',
-      render: (item: CommissionWithRelations) => (
-        <span className="text-sm font-semibold text-ink">{formatCurrency(item.amount)}</span>
-      ),
-    },
-    {
-      key: 'status',
-      header: 'Estado',
-      render: (item: CommissionWithRelations) => {
-        const config = STATUS_CONFIG[item.status as keyof typeof STATUS_CONFIG]
-        return (
-          <div className="flex items-center gap-2">
-            <Badge variant={config.color}>{config.label}</Badge>
-            {isAdmin && (
-              <button
-                onClick={() => {
-                  const nextStatus =
-                    item.status === 'pending' ? 'approved' : item.status === 'approved' ? 'paid' : 'pending'
-                  updateCommissionStatus(item.id, nextStatus)
-                }}
-                className="text-xs px-2 py-1 rounded-lg bg-bg-2 text-brand hover:bg-brand hover:text-white transition-all"
-              >
-                {item.status === 'paid' ? 'Reset' : 'Avanzar'}
-              </button>
-            )}
+  if (!isAdmin) {
+    return (
+      <div className="flex flex-col min-h-screen bg-bg">
+        <Header title="Liquidaciones" />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <AlertTriangle className="w-12 h-12 text-warn mx-auto mb-3" />
+            <p className="text-ink-2">Sólo los administradores pueden acceder a esta sección.</p>
           </div>
-        )
-      },
-    },
-  ]
+        </div>
+      </div>
+    )
+  }
+
+  const monthLabel = MONTHS.find(m => m.value === month)?.label || ''
+  const years = Array.from({ length: 3 }, (_, i) => String(new Date().getFullYear() - i))
+  const selectedName = commercials.find(c => c.id === selectedComercial)?.full_name || selectedComercial
 
   return (
-    <div>
-      <Header
-        title="Comisiones"
-        subtitle={`Comisiones de ${monthDisplay} ${yearDisplay}`}
-      />
+    <div className="flex flex-col min-h-screen bg-bg">
+      <Header title="Liquidaciones" subtitle="Genera y descarga liquidaciones de comerciales" />
 
-      <div className="px-6 lg:px-8 pb-8 space-y-6">
-        {/* Month Navigation */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={handlePreviousMonth}
-              className="p-2 rounded-xl hover:bg-bg-2 transition-all"
-              title="Mes anterior"
+      <div className="flex-1 px-6 py-8 max-w-3xl mx-auto w-full space-y-6">
+
+        {/* ── Selector de período ── */}
+        <Card className="p-6">
+          <p className="text-sm font-semibold text-ink mb-4">Período</p>
+          <div className="grid grid-cols-2 gap-4">
+            <Select
+              label="Mes"
+              value={month}
+              onChange={e => setMonth(e.target.value)}
             >
-              <ChevronLeft className="w-5 h-5 text-ink-3" />
-            </button>
-            <span className="text-sm font-semibold text-ink min-w-[120px] text-center">
-              {monthDisplay} {yearDisplay}
-            </span>
-            <button
-              onClick={handleNextMonth}
-              className="p-2 rounded-xl hover:bg-bg-2 transition-all"
-              title="Mes siguiente"
+              {MONTHS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+            </Select>
+            <Select
+              label="Año"
+              value={year}
+              onChange={e => setYear(e.target.value)}
             >
-              <ChevronRight className="w-5 h-5 text-ink-3" />
-            </button>
+              {years.map(y => <option key={y} value={y}>{y}</option>)}
+            </Select>
+          </div>
+        </Card>
+
+        {/* ── Descarga individual ── */}
+        <Card className="p-6">
+          <p className="text-sm font-semibold text-ink mb-4">Liquidación individual</p>
+          <div className="flex gap-3 items-end">
+            <div className="flex-1">
+              <Select
+                label="Comercial"
+                value={selectedComercial}
+                onChange={e => setSelectedComercial(e.target.value)}
+              >
+                <option value="">Seleccionar comercial</option>
+                {commercials.map(c => (
+                  <option key={c.id} value={c.full_name}>{c.full_name}</option>
+                ))}
+              </Select>
+            </div>
+            <Button
+              onClick={() => downloadLiquidacion(selectedComercial)}
+              disabled={downloading || !selectedComercial}
+              className="flex items-center gap-2 h-[42px]"
+            >
+              {downloading ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Generando...</>
+              ) : (
+                <><Download className="w-4 h-4" /> Descargar</>
+              )}
+            </Button>
           </div>
 
-          {/* Filter by commercial (admin only) */}
-          {isAdmin && (
-            <Select
-              value={selectedCommercial}
-              onChange={(e) => setSelectedCommercial(e.target.value)}
-            >
-              <option value="">Todos los comerciales</option>
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {getUserInitials(u.full_name)}
-                </option>
-              ))}
-            </Select>
+          {selectedComercial && (
+            <div className="mt-4 p-3 bg-bg-2 rounded-xl flex items-center gap-3">
+              <FileSpreadsheet className="w-8 h-8 text-ok shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-ink">
+                  liquidacion_{selectedComercial.toLowerCase()}_{monthLabel.toLowerCase()}.xlsx
+                </p>
+                <p className="text-xs text-ink-3">
+                  Contratos cerrados en {monthLabel} {year} · Comisiones para rellenar manualmente
+                </p>
+              </div>
+            </div>
           )}
-        </div>
+        </Card>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-3 gap-4">
-          <Card>
-            <p className="text-xs text-ink-3 font-medium">Ganado</p>
-            <p className="font-sans font-bold text-2xl text-brand mt-1">{formatCurrency(totalEarned)}</p>
-          </Card>
-          <Card>
-            <p className="text-xs text-ink-3 font-medium">Pendiente</p>
-            <p className="font-sans font-bold text-2xl text-warn mt-1">{formatCurrency(pending)}</p>
-          </Card>
-          <Card>
-            <p className="text-xs text-ink-3 font-medium">Pagadas</p>
-            <p className="font-sans font-bold text-2xl text-ok mt-1">{formatCurrency(paid)}</p>
-          </Card>
-        </div>
+        {/* ── Descarga todos ── */}
+        <Card className="p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-ink">Todas las liquidaciones</p>
+              <p className="text-xs text-ink-3 mt-0.5">
+                Descarga un ZIP con la liquidación de cada comercial para {monthLabel} {year}
+              </p>
+            </div>
+            <Button
+              variant="secondary"
+              onClick={() => downloadLiquidacion('all', true)}
+              disabled={downloadingAll}
+              className="flex items-center gap-2"
+            >
+              {downloadingAll ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Generando...</>
+              ) : (
+                <><Users className="w-4 h-4" /> Descargar todas</>
+              )}
+            </Button>
+          </div>
+        </Card>
 
-        {/* Table */}
-        <DataTable
-          columns={columns}
-          data={commissions}
-          keyExtractor={(item) => item.id}
-          loading={loading}
-          emptyMessage={isAdmin ? 'No hay comisiones para este mes.' : 'No tienes comisiones para este mes.'}
-        />
+        {/* Error */}
+        {error && (
+          <div className="flex items-center gap-3 p-4 bg-err-container rounded-xl border border-err/20">
+            <AlertTriangle className="w-5 h-5 text-err shrink-0" />
+            <p className="text-sm text-err">{error}</p>
+          </div>
+        )}
+
+        {/* Info box */}
+        <div className="p-4 bg-info-container/40 rounded-xl border border-info/20 text-xs text-ink-3 space-y-1">
+          <p className="font-medium text-ink-2">Sobre las liquidaciones</p>
+          <p>• Los datos se leen directamente de <strong>VOLTIS CONTRATACIONES</strong> en Google Drive.</p>
+          <p>• Si el período tiene clientes con estado <strong>CAÍDO</strong>, aparecerán marcados en rojo con aviso de decomisión para Administración.</p>
+          <p>• Las comisiones quedan en blanco para rellenar manualmente hasta que se implemente el sistema de rappels.</p>
+          <p>• La descarga incluye los contratos desde el día 1 hasta hoy (o hasta el último día del mes si ya ha pasado).</p>
+        </div>
       </div>
     </div>
   )

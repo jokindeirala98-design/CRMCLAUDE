@@ -111,14 +111,11 @@ export async function ensurePendingPrescoring(
       supply.type === 'telefonia' ? 'Telefonía' :
       'Electricidad'
 
-    // consumoPeriodos is the annual breakdown from SIPS — most accurate source
-    const cp = (sips?.consumoPeriodos || {}) as { P1?: number; P2?: number; P3?: number; P4?: number; P5?: number; P6?: number }
-    const periodosSum = (Number(cp.P1)||0) + (Number(cp.P2)||0) + (Number(cp.P3)||0)
-                      + (Number(cp.P4)||0) + (Number(cp.P5)||0) + (Number(cp.P6)||0)
-    const consumoAnualNum = periodosSum > 0
-      ? periodosSum
-      : (Number(sips?.totalKwh) > 0 ? Number(sips?.totalKwh) : (extracted?.economics?.consumoTotalKwh || 0))
-    const consumoAnual = consumoAnualNum > 0 ? consumoAnualNum : null
+    const consumoAnual =
+      sips?.total ||
+      sips?.totalKwh ||
+      extracted?.economics?.consumoTotalKwh ||
+      null
 
     const poblacion = sips?.municipio || null
     const direccionFiscal =
@@ -135,7 +132,7 @@ export async function ensurePendingPrescoring(
       cif: cif,
       producto,
       tariff: supply.tariff || null,
-      consumo_anual: consumoAnual ? `${Math.round(Number(consumoAnual)).toLocaleString('es-ES')} kWh` : null,
+      consumo_anual: consumoAnual ? String(consumoAnual) : null,
       entidad: extracted?.comercializadora || null,
       telefono: client?.phone || null,
       poblacion,
@@ -159,8 +156,7 @@ export async function ensurePendingPrescoring(
         if (nullOrEmpty(currentRow.client_name) && payload.client_name) patch.client_name = payload.client_name
         if (nullOrEmpty(currentRow.cif) && payload.cif) patch.cif = payload.cif
         if (nullOrEmpty(currentRow.producto) && payload.producto) patch.producto = payload.producto
-        // consumo_anual: always overwrite — SIPS is the authoritative source
-        if (payload.consumo_anual) patch.consumo_anual = payload.consumo_anual
+        if (nullOrEmpty(currentRow.consumo_anual) && payload.consumo_anual) patch.consumo_anual = payload.consumo_anual
         if (nullOrEmpty(currentRow.entidad) && payload.entidad) patch.entidad = payload.entidad
         if (nullOrEmpty(currentRow.telefono) && payload.telefono) patch.telefono = payload.telefono
         if (nullOrEmpty(currentRow.poblacion) && payload.poblacion) patch.poblacion = payload.poblacion

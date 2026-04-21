@@ -98,8 +98,7 @@ async function clearConvo(chatId: number) {
 /* ─── Smart client search ─────────────────────────────────────────────────── */
 // Strips legal suffixes, splits into keywords, searches flexibly
 const LEGAL_SUFFIXES = /\b(s\.?l\.?u?\.?|s\.?a\.?|s\.?c\.?|s\.?coop\.?|c\.?b\.?|sociedad|limitada|anonima|anónima|cooperativa|comunidad\s+de\s+bienes)\b/gi
-const FILLER_WORDS = /\b(de|del|la|las|los|el|y|e|en|con|a)\b/gi
-const GENERIC_WORDS = /\b(industria|industrial|industriales|industrias|servicios|servicio|soluciones|solucion|comercial|comerciales|comercio|grafica|graficas|grafico|graficos|tecnologia|tecnologias|tecnico|tecnicos|proyectos|proyecto|construccion|construcciones|obras|obra|gestion|gestiones|consultoria|instalaciones|instalacion|grupo|grupos|internacional|internacionales|nacional|nacionales|iberica|espana|navarra|aragon|cataluna|valencia|asturias|galicia|andalucia)\b/gi
+const FILLER_WORDS = /\b(de|del|la|las|los|el|y|e|en|con)\b/gi
 
 function extractSearchKeywords(text: string): string[] {
   // Remove legal suffixes and filler words
@@ -112,21 +111,8 @@ function extractSearchKeywords(text: string): string[] {
   // Split into words, filter short ones
   const words = cleaned.split(/\s+/).filter(w => w.length >= 3)
 
-  // Return unique significant words (order-preserving so first = brand name)
-  return words.map(w => w.toLowerCase()).filter((w, i, arr) => arr.indexOf(w) === i)
-}
-
-/** Brand keywords: same as extractSearchKeywords but also strips generic industry words.
- *  First element is the most distinctive part of the company name. */
-function extractBrandKeywords(text: string): string[] {
-  let cleaned = text
-    .replace(LEGAL_SUFFIXES, '')
-    .replace(FILLER_WORDS, '')
-    .replace(GENERIC_WORDS, '')
-    .replace(/[.,;:'"()]/g, '')
-    .trim()
-  const words = cleaned.split(/\s+/).filter(w => w.length >= 3)
-  return words.map(w => w.toLowerCase()).filter((w, i, arr) => arr.indexOf(w) === i)
+  // Return unique significant words
+  return Array.from(new Set(words.map(w => w.toLowerCase())))
 }
 
 async function searchClients(
@@ -143,32 +129,33 @@ async function searchClients(
 
   if (exactMatches?.length) return exactMatches
 
-  // 2. Keyword search — use brand keyword (first non-generic word) as primary
+  // 2. Keyword search — each significant word must match
   const keywords = extractSearchKeywords(rawQuery)
   if (keywords.length === 0) return []
 
-  const brandKws = extractBrandKeywords(rawQuery)
-  const primaryKeyword = brandKws.length > 0 ? brandKws[0] : keywords[0]
+  // Search by each keyword and intersect results
+  // Use the most significant keyword (longest) for the primary search
+  const primaryKeyword = keywords.sort((a, b) => b.length - a.length)[0]
 
   const { data: keywordMatches } = await supabase
     .from('clients')
     .select('id, name, cif_nif, cif, nif')
     .or(`name.ilike.%${primaryKeyword}%,cif_nif.ilike.%${primaryKeyword}%`)
-    .limit(limit * 2)
+    .limit(limit * 2) // fetch more so we can filter
 
   if (!keywordMatches?.length) return []
 
-  // Score and filter: require at least 2 keyword matches when there are multiple keywords
-  const scored = keywordMatches.map((c: any) => {
-    const haystack = `${c.name} ${c.cif_nif || ''} ${c.cif || ''} ${c.nif || ''}`.toLowerCase()
-    const score = keywords.filter(k => haystack.includes(k)).length
-    return { ...c, score }
-  })
+  // If multiple keywords, filter to ensure all match somewhere
+  if (keywords.length > 1) {
+    return keywordMatches.filter((c: any) => {
+      const haystack = `${c.name} ${c.cif_nif || ''} ${c.cif || ''} ${c.nif || ''}`.toLowerCase()
+      // At least the primary keyword must match (it does by query)
+      // Check if any OTHER keyword also matches for better relevance
+      return keywords.some(k => haystack.includes(k))
+    }).slice(0, limit)
+  }
 
-  const minScore = keywords.length >= 2 ? 2 : 1
-  return scored.filter((c: any) => c.score >= minScore)
-    .sort((a: any, b: any) => b.score - a.score)
-    .slice(0, limit)
+  return keywordMatches.slice(0, limit)
 }
 
 // For invoice auto-matching: search by holder name AND CIF with keyword splitting
@@ -198,9 +185,8 @@ async function findClientByInvoiceData(
     const keywords = extractSearchKeywords(holderName)
     if (keywords.length === 0) return []
 
-    // Use brand keyword (first non-generic word) as primary to avoid false positives
-    const brandKws = extractBrandKeywords(holderName)
-    const primaryKeyword = brandKws.length > 0 ? brandKws[0] : keywords[0]
+    // Search by longest keyword
+    const primaryKeyword = keywords.sort((a, b) => b.length - a.length)[0]
 
     const { data: nameMatches } = await supabase
       .from('clients')
@@ -210,7 +196,7 @@ async function findClientByInvoiceData(
 
     if (!nameMatches?.length) return []
 
-    // Score matches by how many keywords match; require ≥2 when multiple keywords
+    // Score matches by how many keywords match
     const scored = nameMatches.map((c: any) => {
       const haystack = c.name.toLowerCase()
       const score = keywords.filter(k => haystack.includes(k)).length
@@ -218,9 +204,7 @@ async function findClientByInvoiceData(
     }).filter((c: any) => c.score > 0)
       .sort((a: any, b: any) => b.score - a.score)
 
-    // Require at least 2 keyword matches when there are multiple keywords
-    const minScore = keywords.length >= 2 ? 2 : 1
-    return scored.filter((c: any) => c.score >= minScore).slice(0, 5)
+    return scored.slice(0, 5)
   }
 
   return results
@@ -352,14 +336,6 @@ async function handleCommand(msg: TelegramMessage, text: string) {
     case '/pendientes':
       return handlePendingActions(chatId)
 
-    case '/nueva':
-      if (!arg) return sendMessage(chatId, '📝 Escribe: <code>/nueva título de la tarea</code>')
-      return handleNuevaTarea(chatId, arg)
-
-    case '/semana':
-    case '/plan':
-      return handleMiSemana(chatId)
-
     case '/ayuda':
     case '/help':
       return sendMessage(chatId,
@@ -374,146 +350,12 @@ async function handleCommand(msg: TelegramMessage, text: string) {
         '/vincular [código] — Vincular cuenta\n' +
         '/mis — Mis suministros pendientes\n' +
         '/buscar [texto] — Buscar cliente/CUPS\n' +
-        '/pendientes — Tareas del día\n\n' +
-        '<b>📅 Plan semanal:</b>\n' +
-        '/nueva [título] — Añadir tarea a la semana\n' +
-        '/semana — Ver tus tareas de esta semana'
+        '/pendientes — Tareas del día'
       )
 
     default:
       return sendMessage(chatId, '❓ Comando no reconocido. /ayuda para ver opciones.')
   }
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════ */
-/*  WEEKLY PLAN COMMANDS                                                      */
-/* ═══════════════════════════════════════════════════════════════════════════ */
-
-function getCurrentWeekMonday(): string {
-  const now = new Date()
-  const day = now.getDay()
-  const monday = new Date(now)
-  monday.setDate(now.getDate() - (day === 0 ? 6 : day - 1))
-  monday.setHours(0, 0, 0, 0)
-  return monday.toISOString().split('T')[0]
-}
-
-async function getActiveWeek(): Promise<{ id: string; starts_at: string; ends_at: string } | null> {
-  const supabase = createBotSupabase()
-  const monday = getCurrentWeekMonday()
-  const { data } = await supabase
-    .from('weeks')
-    .select('id, starts_at, ends_at')
-    .eq('status', 'active')
-    .gte('starts_at', monday)
-    .limit(1)
-    .maybeSingle()
-  return data ?? null
-}
-
-async function handleNuevaTarea(chatId: number, title: string) {
-  const user = await getLinkedUser(chatId)
-  if (!user) {
-    return sendMessage(chatId, '🔒 Vincula tu cuenta con <b>/vincular</b> para usar el plan semanal.')
-  }
-
-  const week = await getActiveWeek()
-  if (!week) {
-    return sendMessage(chatId,
-      '⚠️ No hay semana activa esta semana.\n' +
-      'Pide a un admin que inicie la semana desde la pestaña <b>Semana</b> en el CRM.'
-    )
-  }
-
-  const supabase = createBotSupabase()
-
-  // Count existing tasks in inbox for sort_order
-  const { count } = await supabase
-    .from('tasks')
-    .select('id', { count: 'exact', head: true })
-    .eq('week_id', week.id)
-    .eq('assigned_to', user.userId)
-    .eq('zone', 'inbox')
-
-  await supabase.from('tasks').insert({
-    title: title.trim(),
-    week_id: week.id,
-    assigned_to: user.userId,
-    created_by: user.userId,
-    zone: 'inbox',
-    is_pinned: false,
-    origin: 'bot',
-    status: 'pending',
-    priority: 'medium',
-    sort_order: (count || 0),
-  })
-
-  return sendMessage(chatId,
-    `✅ Tarea añadida a <b>Sin revisar</b>:\n<i>${title.trim()}</i>\n\n` +
-    `La puedes mover a tus tareas desde la pestaña <b>Semana</b> en el CRM.`
-  )
-}
-
-async function handleMiSemana(chatId: number) {
-  const user = await getLinkedUser(chatId)
-  if (!user) {
-    return sendMessage(chatId, '🔒 Vincula tu cuenta con <b>/vincular</b> para ver tu plan semanal.')
-  }
-
-  const week = await getActiveWeek()
-  if (!week) {
-    return sendMessage(chatId,
-      '⚠️ No hay semana activa.\nPide a dirección que inicie la semana desde el CRM.'
-    )
-  }
-
-  const supabase = createBotSupabase()
-  const { data: tasks } = await supabase
-    .from('tasks')
-    .select('title, zone, is_focus_today, is_pinned, priority, status')
-    .eq('week_id', week.id)
-    .eq('assigned_to', user.userId)
-    .neq('status', 'completed')
-    .order('zone')
-    .order('sort_order')
-
-  const allTasks: { title: string; zone: string; is_focus_today: boolean; is_pinned: boolean; priority: string; status: string }[] = tasks || []
-
-  if (allTasks.length === 0) {
-    return sendMessage(chatId,
-      `📅 <b>Tu semana</b>\n\nNo tienes tareas asignadas esta semana.\n` +
-      `Usa <code>/nueva título</code> para añadir una.`
-    )
-  }
-
-  const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
-  const s = new Date(week.starts_at + 'T12:00:00')
-  const e = new Date(week.ends_at + 'T12:00:00')
-  const weekRange = `${s.getDate()}–${e.getDate()} ${months[e.getMonth()]}`
-
-  const lines: string[] = [`📅 <b>Semana ${weekRange}</b> — ${user.userName.split(' ')[0]}`]
-
-  const director = allTasks.filter(t => t.zone === 'director')
-  const mine     = allTasks.filter(t => t.zone === 'mine')
-  const inbox    = allTasks.filter(t => t.zone === 'inbox')
-
-  if (director.length > 0) {
-    lines.push('\n📌 <b>Fijado por dirección:</b>')
-    director.forEach((t, i) => lines.push(`  ${i + 1}. ${t.title}${t.is_focus_today ? ' ☀️' : ''}`))
-  }
-  if (mine.length > 0) {
-    lines.push('\n✏️ <b>Mis tareas:</b>')
-    mine.forEach((t, i) => lines.push(`  ${i + 1}. ${t.title}${t.is_focus_today ? ' ☀️' : ''}`))
-  }
-  if (inbox.length > 0) {
-    lines.push(`\n📥 <b>Sin revisar (${inbox.length}):</b>`)
-    inbox.slice(0, 4).forEach((t, i) => lines.push(`  ${i + 1}. ${t.title}`))
-    if (inbox.length > 4) lines.push(`  <i>... y ${inbox.length - 4} más</i>`)
-  }
-
-  lines.push('\n<i>/nueva [título] para añadir una tarea</i>')
-
-  return sendMessage(chatId, lines.join('\n'))
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
@@ -555,13 +397,6 @@ async function handleLinkCode(chatId: number, code: string, telegramUserId: numb
     .select('full_name')
     .eq('id', link.user_id)
     .single()
-
-  // Keep telegram_chat_id in sync on users_profile for daily briefing cron
-  await supabase
-    .from('users_profile')
-    .update({ telegram_chat_id: String(chatId) })
-    .eq('id', link.user_id)
-    .catch(() => {})
 
   return sendMessage(chatId,
     `✅ ¡Cuenta vinculada correctamente!\n\n` +

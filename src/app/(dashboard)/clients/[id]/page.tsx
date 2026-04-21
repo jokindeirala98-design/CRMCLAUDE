@@ -7,7 +7,7 @@ import {
   CreditCard, Zap, Edit2, Trash2, Plus, ExternalLink, FileCheck,
   Send, Sparkles, AlertTriangle, BarChart3,
   Check, XCircle, Clock, DollarSign, Pencil, X, Flame, Phone as PhoneIcon,
-  Loader2, Activity
+  Loader2, Activity, ShieldOff, ShieldCheck
 } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
 import { Card } from '@/components/ui/Card'
@@ -35,6 +35,7 @@ export default function ClientDetailPage() {
   const [supplyNameValue, setSupplyNameValue] = useState('')
   const [clientTasks, setClientTasks] = useState<any[]>([])
   const [dismissingTaskIds, setDismissingTaskIds] = useState<Set<string>>(new Set())
+  const [togglingFallen, setTogglingFallen] = useState(false)
 
   const fetchClient = useCallback(async () => {
     const supabase = createClient()
@@ -101,6 +102,37 @@ export default function ClientDetailPage() {
       console.error('Error deleting client:', err)
       alert('No se pudo eliminar el cliente. Puede tener suministros asociados.')
       setDeleting(false)
+    }
+  }
+
+  const handleToggleFallen = async () => {
+    if (!client) return
+    const newFallen = !client.is_fallen
+    const confirmed = newFallen
+      ? confirm(`¿Marcar a ${client.name} como CLIENTE CAÍDO?\n\nSe pausarán los pagos y aparecerá como inactivo. Su comercial verá un aviso de decomisión en la liquidación.`)
+      : confirm(`¿Reactivar a ${client.name}?\n\nEl cliente volverá a estar activo y se actualizará su estado en VOLTIS CONTRATACIONES.`)
+    if (!confirmed) return
+
+    setTogglingFallen(true)
+    try {
+      const res = await fetch(`/api/clients/${id}/fallen`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fallen: newFallen }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Error al actualizar estado')
+      }
+      setClient((prev: any) => ({
+        ...prev,
+        is_fallen: newFallen,
+        fallen_at: newFallen ? new Date().toISOString() : null,
+      }))
+    } catch (e: any) {
+      alert(e.message)
+    } finally {
+      setTogglingFallen(false)
     }
   }
 
@@ -179,6 +211,15 @@ export default function ClientDetailPage() {
               <Edit2 className="w-4 h-4" />
               Editar
             </Button>
+            <Button
+              variant={client.is_fallen ? 'secondary' : 'danger'}
+              size="sm"
+              onClick={handleToggleFallen}
+              loading={togglingFallen}
+              title={client.is_fallen ? 'Reactivar cliente' : 'Marcar como cliente caído'}
+            >
+              {client.is_fallen ? <ShieldCheck className="w-4 h-4" /> : <ShieldOff className="w-4 h-4" />}
+            </Button>
             <Button variant="danger" size="sm" onClick={handleDelete} loading={deleting}>
               <Trash2 className="w-4 h-4" />
             </Button>
@@ -187,6 +228,30 @@ export default function ClientDetailPage() {
       />
 
       <div className="px-6 lg:px-8 pb-8 space-y-6">
+
+        {/* ── Cliente caído banner ── */}
+        {client.is_fallen && (
+          <div className="flex items-center gap-4 px-5 py-4 rounded-xl border border-err/30 bg-err-container/40">
+            <ShieldOff className="w-6 h-6 text-err flex-shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-bold text-err">Cliente caído</p>
+              <p className="text-xs text-err mt-0.5">
+                Este cliente está marcado como caído
+                {client.fallen_at ? ` desde el ${formatDate(client.fallen_at)}` : ''}.
+                Los pagos están pausados y aparecerá un aviso de decomisión en la liquidación del comercial.
+              </p>
+            </div>
+            <button
+              onClick={handleToggleFallen}
+              disabled={togglingFallen}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-ok text-white hover:opacity-90 transition-opacity flex-shrink-0"
+            >
+              {togglingFallen ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+              Reactivar
+            </button>
+          </div>
+        )}
+
         {/* Task disclaimers */}
         {clientTasks.length > 0 && (
           <div className="space-y-2">

@@ -4,9 +4,8 @@ import { useEffect, useState, useMemo, useCallback } from 'react'
 import {
   Plus, CreditCard, Send, X, Check, AlertCircle, Loader2, Search, Zap, Calendar,
   Euro, Ban, TrendingUp, ChevronDown, ChevronUp, XCircle, BarChart3, DollarSign,
-  Clock, Users, AlertTriangle, ExternalLink, RefreshCw, Copy, Trash2, FileText
+  Clock, Users, AlertTriangle, ExternalLink, RefreshCw, Copy, Trash2
 } from 'lucide-react'
-import { GenerateInvoiceModal } from '@/components/billing/GenerateInvoiceModal'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Header } from '@/components/layout/Header'
 import { Button } from '@/components/ui/Button'
@@ -60,7 +59,6 @@ export default function SubscriptionsPage() {
   const [subscriptions, setSubscriptions] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
-  const [invoiceModal, setInvoiceModal] = useState<{ clientId: string; subscriptionId: string } | null>(null)
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -622,22 +620,6 @@ export default function SubscriptionsPage() {
                             </div>
                           )}
 
-                          {/* Generate Invoice button */}
-                          {sub.client_id && (
-                            <div className="mt-3">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setInvoiceModal({ clientId: sub.client_id, subscriptionId: sub.id })
-                                }}
-                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-brand border border-brand/30 bg-brand/5 rounded-lg hover:bg-brand/10 transition-colors"
-                              >
-                                <FileText className="w-3.5 h-3.5" />
-                                Generar factura
-                              </button>
-                            </div>
-                          )}
-
                           {/* Renew button (for cancelled/expired) */}
                           {(sub.status === 'cancelled' || sub.status === 'expired') && (
                             <div className="mt-4 flex justify-end">
@@ -736,15 +718,6 @@ export default function SubscriptionsPage() {
           />
         )}
       </AnimatePresence>
-
-      {invoiceModal && (
-        <GenerateInvoiceModal
-          preselectedClientId={invoiceModal.clientId}
-          preselectedSubscriptionId={invoiceModal.subscriptionId}
-          onClose={() => setInvoiceModal(null)}
-          onCreated={() => { fetchSubscriptions(); setInvoiceModal(null) }}
-        />
-      )}
     </div>
   )
 }

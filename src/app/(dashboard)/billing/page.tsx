@@ -1,25 +1,24 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Plus, FileText, Send, CheckCircle, Eye, RotateCcw, Loader2 } from 'lucide-react'
+import { Plus, Download, Filter, FileText, Send, CheckCircle } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
 import { Button } from '@/components/ui/Button'
 import { DataTable } from '@/components/ui/DataTable'
 import { StatusBadge } from '@/components/ui/Badge'
-import { StatCard } from '@/components/ui/Card'
-import { GenerateInvoiceModal } from '@/components/billing/GenerateInvoiceModal'
+import { StatCard, Card } from '@/components/ui/Card'
+import { NewInvoiceModal } from '@/components/billing/NewInvoiceModal'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatDate } from '@/lib/utils/format'
+import type { Billing } from '@/types/database'
 
 export default function BillingPage() {
   const [invoices, setInvoices] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [filter, setFilter] = useState<string>('all')
-  const [resendingId, setResendingId] = useState<string | null>(null)
 
   const fetchInvoices = async () => {
-    setLoading(true)
     const supabase = createClient()
     let query = supabase
       .from('billing')
@@ -35,31 +34,17 @@ export default function BillingPage() {
     setLoading(false)
   }
 
-  useEffect(() => { fetchInvoices() }, [filter])
+  useEffect(() => {
+    fetchInvoices()
+  }, [filter])
 
   const handleMarkPaid = async (id: string) => {
     const supabase = createClient()
-    await supabase.from('billing').update({ status: 'paid', paid_at: new Date().toISOString() }).eq('id', id)
+    await supabase
+      .from('billing')
+      .update({ status: 'paid', paid_at: new Date().toISOString() })
+      .eq('id', id)
     fetchInvoices()
-  }
-
-  const handleResend = async (id: string) => {
-    setResendingId(id)
-    try {
-      const res = await fetch('/api/billing/generate-invoice', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ billing_id: id }),
-      })
-      if (!res.ok) {
-        const data = await res.json()
-        alert(data.error || 'Error enviando email')
-      } else {
-        fetchInvoices()
-      }
-    } finally {
-      setResendingId(null)
-    }
   }
 
   const stats = {
@@ -72,7 +57,7 @@ export default function BillingPage() {
   const columns = [
     {
       key: 'invoice_number',
-      header: 'Nº Factura',
+      header: 'N. Factura',
       render: (item: any) => (
         <span className="font-mono text-sm font-medium text-ink">{item.invoice_number}</span>
       ),
@@ -83,7 +68,7 @@ export default function BillingPage() {
       render: (item: any) => (
         <div>
           <p className="text-sm font-medium text-ink">{item.client?.name || '-'}</p>
-          <p className="text-xs text-ink-3">{item.client?.cif_nif || item.client?.email}</p>
+          <p className="text-xs text-ink-3">{item.client?.cif_nif}</p>
         </div>
       ),
     },
@@ -91,7 +76,7 @@ export default function BillingPage() {
       key: 'concept',
       header: 'Concepto',
       render: (item: any) => (
-        <span className="text-sm text-ink-3 max-w-xs truncate block">{item.concept}</span>
+        <span className="text-sm text-ink-3">{item.concept}</span>
       ),
     },
     {
@@ -105,7 +90,7 @@ export default function BillingPage() {
       key: 'total_amount',
       header: 'Total',
       render: (item: any) => (
-        <span className="font-semibold text-ink">{formatCurrency(item.total_amount)}</span>
+        <span className="font-sans font-semibold text-ink">{formatCurrency(item.total_amount)}</span>
       ),
     },
     {
@@ -125,37 +110,10 @@ export default function BillingPage() {
       header: '',
       render: (item: any) => (
         <div className="flex items-center gap-1">
-          {/* View PDF */}
-          {item.file_url && (
-            <a
-              href={item.file_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="p-1.5 rounded-lg text-ink-3 hover:bg-bg-2 hover:text-brand transition"
-              title="Ver PDF"
-            >
-              <Eye className="w-4 h-4" />
-            </a>
-          )}
-          {/* Send / resend email */}
-          {item.client?.email && item.file_url && (item.status === 'draft' || item.status === 'sent') && (
-            <button
-              onClick={(e) => { e.stopPropagation(); handleResend(item.id) }}
-              disabled={resendingId === item.id}
-              className="p-1.5 rounded-lg text-ink-3 hover:bg-info-container/30 hover:text-info transition disabled:opacity-40"
-              title={item.status === 'draft' ? 'Enviar por email' : 'Reenviar por email'}
-            >
-              {resendingId === item.id
-                ? <Loader2 className="w-4 h-4 animate-spin" />
-                : <Send className="w-4 h-4" />}
-            </button>
-          )}
-          {/* Mark paid */}
           {item.status === 'sent' && (
             <button
               onClick={(e) => { e.stopPropagation(); handleMarkPaid(item.id) }}
-              className="p-1.5 rounded-lg text-ok hover:bg-ok-container/30 transition"
+              className="p-1.5 rounded-lg text-ok hover:bg-ok-container/30 transition-all"
               title="Marcar como pagada"
             >
               <CheckCircle className="w-4 h-4" />
@@ -170,7 +128,7 @@ export default function BillingPage() {
     <div>
       <Header
         title="Facturación"
-        subtitle="Facturas emitidas por Voltis Energía a clientes"
+        subtitle="Gestión de facturas propias de Voltis Energía"
         actions={
           <Button onClick={() => setShowModal(true)}>
             <Plus className="w-4 h-4" />
@@ -179,17 +137,17 @@ export default function BillingPage() {
         }
       />
 
-      <div className="px-4 lg:px-8 pb-8 space-y-6">
+      <div className="px-6 lg:px-8 pb-8 space-y-6">
         {/* Stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard label="Facturado Total" value={formatCurrency(stats.total)} color="default" />
           <StatCard label="Cobrado" value={formatCurrency(stats.paid)} color="success" />
-          <StatCard label="Pendiente cobro" value={formatCurrency(stats.pending)} color="warning" />
+          <StatCard label="Pendiente" value={formatCurrency(stats.pending)} color="warning" />
           <StatCard label="Vencido" value={formatCurrency(stats.overdue)} color="error" />
         </div>
 
         {/* Filters */}
-        <div className="flex gap-2 overflow-x-auto pb-1">
+        <div className="flex gap-2">
           {[
             { key: 'all', label: 'Todas' },
             { key: 'draft', label: 'Borrador' },
@@ -200,7 +158,7 @@ export default function BillingPage() {
             <button
               key={f.key}
               onClick={() => setFilter(f.key)}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
                 filter === f.key
                   ? 'bg-brand text-white'
                   : 'bg-bg-2 text-ink-3 hover:bg-bg-2'
@@ -217,12 +175,12 @@ export default function BillingPage() {
           data={invoices}
           keyExtractor={(item) => item.id}
           loading={loading}
-          emptyMessage="No hay facturas todavía"
+          emptyMessage="No hay facturas todavia"
         />
       </div>
 
       {showModal && (
-        <GenerateInvoiceModal
+        <NewInvoiceModal
           onClose={() => setShowModal(false)}
           onCreated={fetchInvoices}
         />

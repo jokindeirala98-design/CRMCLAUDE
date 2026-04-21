@@ -4,7 +4,6 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import {
   CalendarDays,
   ClipboardList,
-  Target,
   Plus,
   CheckCircle2,
   Circle,
@@ -35,7 +34,6 @@ import { Badge } from '@/components/ui/Badge'
 import { NewTaskModal } from '@/components/modals/NewTaskModal'
 import { NewAppointmentModal } from '@/components/modals/NewAppointmentModal'
 import { QuickCreateModal } from '@/components/modals/QuickCreateModal'
-import { WeeklyPlan } from '@/components/agenda/WeeklyPlan'
 import { createClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/auth'
 import { cn } from '@/lib/utils/cn'
@@ -98,7 +96,7 @@ const TYPE_LABELS: Record<string, string> = {
 }
 
 // ── Tab type ───────────────────────────────────────────────────
-type ViewTab = 'corcho' | 'calendario' | 'semana'
+type ViewTab = 'corcho' | 'calendario'
 
 // ── Main Component ─────────────────────────────────────────────
 export default function AgendaPage() {
@@ -494,16 +492,6 @@ export default function AgendaPage() {
               <CalendarDays className="w-4 h-4" />
               Calendario
             </button>
-            <button
-              onClick={() => setActiveTab('semana')}
-              className={cn(
-                'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all',
-                activeTab === 'semana' ? 'bg-bg shadow-ambient-xs text-brand' : 'text-ink-3 hover:text-ink'
-              )}
-            >
-              <Target className="w-4 h-4" />
-              Semana
-            </button>
           </div>
 
           {/* User selector */}
@@ -880,11 +868,6 @@ export default function AgendaPage() {
               </Card>
             </div>
           </div>
-        )}
-
-        {/* ── SEMANA VIEW ─────────────────────────────────────── */}
-        {activeTab === 'semana' && (
-          <WeeklyPlan users={users} />
         )}
       </div>
 

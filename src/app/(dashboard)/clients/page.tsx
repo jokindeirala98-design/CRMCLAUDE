@@ -399,8 +399,9 @@ export default function ClientsPage() {
                         <Icon className="w-4 h-4 text-brand" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <h3 className="text-sm font-semibold text-ink truncate">
+                        <h3 className={`text-sm font-semibold truncate ${client.is_fallen ? 'text-err' : 'text-ink'}`}>
                           {client.alias || client.name}
+                          {client.is_fallen && <span className="ml-1.5 text-[10px] font-bold bg-err/10 text-err px-1.5 py-0.5 rounded">CAÍDO</span>}
                         </h3>
                         <p className="text-xs text-ink-3 truncate">
                           {client.alias ? client.name : (client.cif || client.nif || client.cif_nif || 'Sin CIF/NIF')}
@@ -484,7 +485,10 @@ export default function ClientsPage() {
                     <Icon className="w-4 h-4 text-brand" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-ink truncate">{client.alias || client.name}</p>
+                    <p className={`text-sm font-medium truncate ${client.is_fallen ? 'text-err' : 'text-ink'}`}>
+                      {client.alias || client.name}
+                      {client.is_fallen && <span className="ml-1.5 text-[10px] font-bold bg-err/10 text-err px-1.5 py-0.5 rounded">CAÍDO</span>}
+                    </p>
                     <p className="text-xs text-ink-3 truncate">
                       {client.alias ? client.name : (client.cif || client.nif || client.cif_nif || 'Sin CIF/NIF')}
                       {!client.alias && client.email && ` · ${client.email}`}
