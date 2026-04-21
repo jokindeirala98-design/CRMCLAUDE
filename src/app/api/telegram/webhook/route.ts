@@ -352,6 +352,14 @@ async function handleCommand(msg: TelegramMessage, text: string) {
     case '/pendientes':
       return handlePendingActions(chatId)
 
+    case '/nueva':
+      if (!arg) return sendMessage(chatId, '📝 Escribe: <code>/nueva título de la tarea</code>')
+      return handleNuevaTarea(chatId, arg)
+
+    case '/semana':
+    case '/plan':
+      return handleMiSemana(chatId)
+
     case '/ayuda':
     case '/help':
       return sendMessage(chatId,
@@ -366,12 +374,146 @@ async function handleCommand(msg: TelegramMessage, text: string) {
         '/vincular [código] — Vincular cuenta\n' +
         '/mis — Mis suministros pendientes\n' +
         '/buscar [texto] — Buscar cliente/CUPS\n' +
-        '/pendientes — Tareas del día'
+        '/pendientes — Tareas del día\n\n' +
+        '<b>📅 Plan semanal:</b>\n' +
+        '/nueva [título] — Añadir tarea a la semana\n' +
+        '/semana — Ver tus tareas de esta semana'
       )
 
     default:
       return sendMessage(chatId, '❓ Comando no reconocido. /ayuda para ver opciones.')
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  WEEKLY PLAN COMMANDS                                                      */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+function getCurrentWeekMonday(): string {
+  const now = new Date()
+  const day = now.getDay()
+  const monday = new Date(now)
+  monday.setDate(now.getDate() - (day === 0 ? 6 : day - 1))
+  monday.setHours(0, 0, 0, 0)
+  return monday.toISOString().split('T')[0]
+}
+
+async function getActiveWeek(): Promise<{ id: string; starts_at: string; ends_at: string } | null> {
+  const supabase = createBotSupabase()
+  const monday = getCurrentWeekMonday()
+  const { data } = await supabase
+    .from('weeks')
+    .select('id, starts_at, ends_at')
+    .eq('status', 'active')
+    .gte('starts_at', monday)
+    .limit(1)
+    .maybeSingle()
+  return data ?? null
+}
+
+async function handleNuevaTarea(chatId: number, title: string) {
+  const user = await getLinkedUser(chatId)
+  if (!user) {
+    return sendMessage(chatId, '🔒 Vincula tu cuenta con <b>/vincular</b> para usar el plan semanal.')
+  }
+
+  const week = await getActiveWeek()
+  if (!week) {
+    return sendMessage(chatId,
+      '⚠️ No hay semana activa esta semana.\n' +
+      'Pide a un admin que inicie la semana desde la pestaña <b>Semana</b> en el CRM.'
+    )
+  }
+
+  const supabase = createBotSupabase()
+
+  // Count existing tasks in inbox for sort_order
+  const { count } = await supabase
+    .from('tasks')
+    .select('id', { count: 'exact', head: true })
+    .eq('week_id', week.id)
+    .eq('assigned_to', user.userId)
+    .eq('zone', 'inbox')
+
+  await supabase.from('tasks').insert({
+    title: title.trim(),
+    week_id: week.id,
+    assigned_to: user.userId,
+    created_by: user.userId,
+    zone: 'inbox',
+    is_pinned: false,
+    origin: 'bot',
+    status: 'pending',
+    priority: 'medium',
+    sort_order: (count || 0),
+  })
+
+  return sendMessage(chatId,
+    `✅ Tarea añadida a <b>Sin revisar</b>:\n<i>${title.trim()}</i>\n\n` +
+    `La puedes mover a tus tareas desde la pestaña <b>Semana</b> en el CRM.`
+  )
+}
+
+async function handleMiSemana(chatId: number) {
+  const user = await getLinkedUser(chatId)
+  if (!user) {
+    return sendMessage(chatId, '🔒 Vincula tu cuenta con <b>/vincular</b> para ver tu plan semanal.')
+  }
+
+  const week = await getActiveWeek()
+  if (!week) {
+    return sendMessage(chatId,
+      '⚠️ No hay semana activa.\nPide a dirección que inicie la semana desde el CRM.'
+    )
+  }
+
+  const supabase = createBotSupabase()
+  const { data: tasks } = await supabase
+    .from('tasks')
+    .select('title, zone, is_focus_today, is_pinned, priority, status')
+    .eq('week_id', week.id)
+    .eq('assigned_to', user.userId)
+    .neq('status', 'completed')
+    .order('zone')
+    .order('sort_order')
+
+  const allTasks = tasks || []
+
+  if (allTasks.length === 0) {
+    return sendMessage(chatId,
+      `📅 <b>Tu semana</b>\n\nNo tienes tareas asignadas esta semana.\n` +
+      `Usa <code>/nueva título</code> para añadir una.`
+    )
+  }
+
+  const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+  const s = new Date(week.starts_at + 'T12:00:00')
+  const e = new Date(week.ends_at + 'T12:00:00')
+  const weekRange = `${s.getDate()}–${e.getDate()} ${months[e.getMonth()]}`
+
+  const lines: string[] = [`📅 <b>Semana ${weekRange}</b> — ${user.userName.split(' ')[0]}`]
+
+  const director = allTasks.filter(t => t.zone === 'director')
+  const mine     = allTasks.filter(t => t.zone === 'mine')
+  const inbox    = allTasks.filter(t => t.zone === 'inbox')
+
+  if (director.length > 0) {
+    lines.push('\n📌 <b>Fijado por dirección:</b>')
+    director.forEach((t, i) => lines.push(`  ${i + 1}. ${t.title}${t.is_focus_today ? ' ☀️' : ''}`))
+  }
+  if (mine.length > 0) {
+    lines.push('\n✏️ <b>Mis tareas:</b>')
+    mine.forEach((t, i) => lines.push(`  ${i + 1}. ${t.title}${t.is_focus_today ? ' ☀️' : ''}`))
+  }
+  if (inbox.length > 0) {
+    lines.push(`\n📥 <b>Sin revisar (${inbox.length}):</b>`)
+    inbox.slice(0, 4).forEach((t, i) => lines.push(`  ${i + 1}. ${t.title}`))
+    if (inbox.length > 4) lines.push(`  <i>... y ${inbox.length - 4} más</i>`)
+  }
+
+  lines.push('\n<i>/nueva [título] para añadir una tarea</i>')
+
+  return sendMessage(chatId, lines.join('\n'))
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
@@ -413,6 +555,13 @@ async function handleLinkCode(chatId: number, code: string, telegramUserId: numb
     .select('full_name')
     .eq('id', link.user_id)
     .single()
+
+  // Keep telegram_chat_id in sync on users_profile for daily briefing cron
+  await supabase
+    .from('users_profile')
+    .update({ telegram_chat_id: String(chatId) })
+    .eq('id', link.user_id)
+    .catch(() => {})
 
   return sendMessage(chatId,
     `✅ ¡Cuenta vinculada correctamente!\n\n` +

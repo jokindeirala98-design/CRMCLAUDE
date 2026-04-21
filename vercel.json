@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/daily-tasks",
       "schedule": "55 5 * * *"
+    },
+    {
+      "path": "/api/telegram/daily-briefing",
+      "schedule": "0 6 * * 1-5"
     }
   ]
 }
