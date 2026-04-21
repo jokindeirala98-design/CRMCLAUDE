@@ -18,6 +18,7 @@ import { Card } from '@/components/ui/Card'
 import { Badge, StatusBadge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { TechnicalAuditModal } from '@/components/modals/TechnicalAuditModal'
+import { EconomicStudyModal } from '@/components/modals/EconomicStudyModal'
 import { DataTable } from '@/components/ui/DataTable'
 import { createClient } from '@/lib/supabase/client'
 import { formatDate, formatCurrency } from '@/lib/utils/format'
@@ -107,6 +108,7 @@ export default function SupplyDetailPage() {
   const [supplyOverlayOpen, setSupplyOverlayOpen] = useState(false)
   const [docsOverlayOpen, setDocsOverlayOpen] = useState(false)
   const [technicalModalOpen, setTechnicalModalOpen] = useState(false)
+  const [economicStudyOpen, setEconomicStudyOpen] = useState(false)
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const [zipProgress, setZipProgress] = useState<DownloadProgress | null>(null)
@@ -776,20 +778,23 @@ export default function SupplyDetailPage() {
           .single()
 
         if (clientData?.commercial_id) {
-          await supabase.from('notifications').insert({
-            user_id: clientData.commercial_id,
-            type: 'estudio_completado',
-            title: 'Informe listo',
-            message: `El informe económico de ${clientData.name} (${supply.cups || 'sin CUPS'}) ya está disponible.`,
-            link: `/supplies/${supply.id}`,
-            read: false,
-            created_at: new Date().toISOString(),
-            metadata: {
-              report_url: reportUrl,
-              client_name: clientData.name,
-              cups: supply.cups,
-              supply_id: supply.id,
-            },
+          // Use notify API so it also sends a Telegram push to the commercial
+          await fetch('/api/notify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userId: clientData.commercial_id,
+              type: 'estudio_completado',
+              title: 'Informe listo',
+              message: `El informe económico de ${clientData.name} (${supply.cups || 'sin CUPS'}) ya está disponible.`,
+              link: `/supplies/${supply.id}`,
+              metadata: {
+                report_url: reportUrl,
+                client_name: clientData.name,
+                cups: supply.cups,
+                supply_id: supply.id,
+              },
+            }),
           })
         }
       }
@@ -1254,6 +1259,15 @@ export default function SupplyDetailPage() {
                       </button>
                     )
                   })}
+
+                  {/* ─── Estudio económico comparativo ─── */}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setEconomicStudyOpen(true) }}
+                    className="flex items-center gap-1.5 px-3 py-0.5 rounded-md text-[11px] font-bold bg-ok/10 text-ok hover:bg-ok hover:text-white transition-all shadow-sm border border-ok/20"
+                  >
+                    <TrendingUp className="w-3.5 h-3.5" />
+                    Estudio económico
+                  </button>
 
                   {/* ─── Trigger for Supply Report (Ayuntamientos) ─── */}
                   {supply?.client?.type === 'ayuntamiento' && (
@@ -2550,6 +2564,39 @@ export default function SupplyDetailPage() {
           onClose={() => setTechnicalModalOpen(false)}
           clientId={supply.client_id as string}
           clientName={supply.client.name}
+        />
+      )}
+
+      {economicStudyOpen && supply && (
+        <EconomicStudyModal
+          supplyId={supply.id}
+          cups={supply.cups || ''}
+          tariff={supply.tariff || '3.0TD'}
+          clientName={supply.client?.name || ''}
+          comercializadoraActual={supply.comercializadora?.name}
+          consumptionByPeriod={(() => {
+            const cd = supply.consumption_data as any
+            if (!cd) return []
+            if (Array.isArray(cd.consumoPorPeriodo)) return cd.consumoPorPeriodo.map(Number)
+            const periods: number[] = []
+            for (let i = 1; i <= 6; i++) {
+              const v = cd[`consumoP${i}`] ?? cd[`energiaP${i}`]
+              if (v !== undefined) periods.push(Number(v))
+            }
+            return periods
+          })()}
+          powersByPeriod={(() => {
+            const cd = supply.consumption_data as any
+            if (!cd) return []
+            if (Array.isArray(cd.potenciasContratadas)) return cd.potenciasContratadas.map(Number)
+            const powers: number[] = []
+            for (let i = 1; i <= 6; i++) {
+              const v = cd[`potenciaP${i}`] ?? cd[`p${i}`]
+              if (v !== undefined) powers.push(Number(v))
+            }
+            return powers
+          })()}
+          onClose={() => setEconomicStudyOpen(false)}
         />
       )}
     </div>
