@@ -72,15 +72,6 @@ function toIsoDate(raw: string | null | undefined): string | null {
   return null
 }
 
-function extractKeywords(text: string): string[] {
-  const cleaned = text
-    .replace(LEGAL_SUFFIXES, '')
-    .replace(FILLER_WORDS, '')
-    .replace(/[.,;:'"()]/g, '')
-    .trim()
-  return Array.from(new Set(cleaned.split(/\s+/).filter(w => w.length >= 3).map(w => w.toLowerCase())))
-}
-
 export interface ProcessResult {
   ok: boolean
   supply_id?: string
