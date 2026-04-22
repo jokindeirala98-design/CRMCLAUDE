@@ -38,6 +38,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import ExcelJS from 'exceljs'
+import { fetchSipsForCups } from '@/lib/sips'
+import { normalizeTariff as normalizeTariffLib } from '@/lib/consumption-utils'
+
+export const maxDuration = 60
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -271,16 +275,22 @@ export async function POST(req: NextRequest) {
           if (existing) {
             resolvedClientId = existing.id
           } else {
-            // Create new client
-            const { data: newClient } = await supabase
+            // Create new client — commercial_id required (NOT NULL), use the calling user
+            const { data: newClient, error: clientErr } = await supabase
               .from('clients')
               .insert({
                 name: nameToCreate,
-                created_at: new Date().toISOString(),
-                status: 'active',
+                type: 'empresa',
+                commercial_id: user.id,
+                origin: 'auditoria',
+                marketing_consent: false,
               })
               .select('id')
               .single()
+            if (clientErr) {
+              results.push({ fileName, cups: parsed.cups, ok: false, error: `Error creando cliente: ${clientErr.message}` })
+              continue
+            }
             if (newClient) resolvedClientId = newClient.id
           }
         }
@@ -334,6 +344,62 @@ export async function POST(req: NextRequest) {
             continue
           }
           supplyId = newSupply.id
+        }
+
+        // ── SIPS fetch + power study (fire and forget) ──────────────────────
+        // Only for new supplies or those without SIPS data yet
+        if (!existingSupply || !existingSupply.consumption_data?.distribuidora) {
+          const sipsPromise = fetchSipsForCups(parsed.cups, 'luz').then(async (sipsData) => {
+            if (!sipsData) return
+            // Merge SIPS location/distributor data into the Excel-derived consumption_data
+            const merged = {
+              ...annualData,
+              source: 'excel_import_with_sips',
+              fetched_at: new Date().toISOString(),
+              totalKwh: annualData.totalKwh,
+              sips_tariff: sipsData.tariff,
+              distribuidora: sipsData.distribuidora,
+              codigoPostal: sipsData.codigoPostal,
+              provincia: sipsData.provincia,
+              municipio: sipsData.municipio,
+              cnae: sipsData.cnae,
+              tension: sipsData.tension,
+              history: sipsData.consumptionHistory || [],
+              maximetroHistory: sipsData.maximetroHistory || [],
+            }
+            const sipsNormalizedTariff = sipsData.tariff ? (normalizeTariffLib(sipsData.tariff) || sipsData.tariff) : null
+            await supabase.from('supplies').update({
+              consumption_data: merged,
+              ...(sipsNormalizedTariff ? { tariff: sipsNormalizedTariff } : {}),
+              address: sipsData.municipio ? [sipsData.municipio, sipsData.provincia].filter(Boolean).join(', ') : undefined,
+              updated_at: new Date().toISOString(),
+            }).eq('id', supplyId)
+
+            // Power study
+            if (sipsData.consumptionHistory?.length && sipsData.potenciaContratada) {
+              const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
+              const r = await fetch(`${baseUrl}/api/power-study-auto`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  cups: parsed.cups,
+                  clientName: nameToCreate || 'Excel Import',
+                  potenciaContratada: sipsData.potenciaContratada,
+                  consumptionHistory: sipsData.consumptionHistory,
+                  maximetroHistory: sipsData.maximetroHistory || [],
+                }),
+              })
+              if (r.ok) {
+                const studyResult = await r.json()
+                await supabase.from('supplies')
+                  .update({ power_study_result: studyResult, updated_at: new Date().toISOString() })
+                  .eq('id', supplyId)
+              }
+            }
+          }).catch((err) => console.warn('[import-from-excel] SIPS error (non-fatal):', err.message))
+
+          // Don't await — let it run in background
+          void sipsPromise
         }
 
         // ── Find comercializadora ────────────────────────────────────────────
