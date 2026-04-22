@@ -246,9 +246,9 @@ export async function POST(
       .from('supplies')
       .select(`
         *,
-        client:clients(id, name, cif_nif, commercial:users_profile!commercial_id(full_name)),
+        client:clients(id, name, cif_nif),
         comercializadora:comercializadoras(name),
-        invoices(id, period_start, period_end, total_amount, consumption_kwh, extracted_data)
+        invoices(*)
       `)
       .eq('id', params.id)
       .single()
