@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { X, Upload, FileText, AlertCircle, CheckCircle2, Loader2, Zap } from 'lucide-react'
+import { X, Upload, FileText, AlertCircle, CheckCircle2, Loader2, Zap, TableIcon } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from '@/components/ui/Button'
 import { SearchableClientSelector } from '@/components/ui/SearchableClientSelector'
@@ -52,6 +52,18 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
 
   const cupsValid = isCupsValid(cupsInput)
 
+  // ── Excel import state ──
+  type ExcelResult = {
+    fileName: string; cups?: string; tarifa?: string; supplyId?: string
+    ok: boolean; error?: string; invoicesCreated?: number; invoicesSkipped?: number; isNew?: boolean
+  }
+  const [xlsxFiles, setXlsxFiles] = useState<{ id: string; file: File }[]>([])
+  const [xlsxImporting, setXlsxImporting] = useState(false)
+  const [xlsxResults, setXlsxResults] = useState<ExcelResult[]>([])
+  const [xlsxErr, setXlsxErr] = useState('')
+  const xlsxDragRef = useRef<HTMLDivElement>(null)
+  const xlsxInputRef = useRef<HTMLInputElement>(null)
+
   // ── Initialize ──
   useEffect(() => {
     if (!open) return
@@ -64,6 +76,10 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
     setCupsSuccessId(null)
     setCupsSuccessMsg('')
     setCupsErr('')
+    setXlsxFiles([])
+    setXlsxImporting(false)
+    setXlsxResults([])
+    setXlsxErr('')
 
     const fetchClients = async () => {
       const supabase = createClient()
@@ -209,6 +225,67 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
     } catch (err: any) {
       setError(err.message || 'Error al encolar archivos')
       setUploading(false)
+    }
+  }
+
+  // ── Excel drag & drop handlers ──
+  const handleXlsxDragOver  = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); xlsxDragRef.current?.classList.add('border-brand/60', 'bg-secondary/5') }
+  const handleXlsxDragLeave = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); xlsxDragRef.current?.classList.remove('border-brand/60', 'bg-secondary/5') }
+  const handleXlsxDrop = (e: React.DragEvent) => {
+    e.preventDefault(); e.stopPropagation()
+    xlsxDragRef.current?.classList.remove('border-brand/60', 'bg-secondary/5')
+    addXlsxFiles(Array.from(e.dataTransfer.files))
+  }
+  const handleXlsxInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) addXlsxFiles(Array.from(e.target.files))
+    if (xlsxInputRef.current) xlsxInputRef.current.value = ''
+  }
+  const addXlsxFiles = (incoming: File[]) => {
+    setXlsxErr('')
+    setXlsxResults([])
+    const valid = incoming.filter(f => f.name.toLowerCase().endsWith('.xlsx'))
+    if (!valid.length) { setXlsxErr('Solo se aceptan archivos .xlsx'); return }
+    setXlsxFiles(prev => [
+      ...prev,
+      ...valid
+        .filter(f => !prev.some(p => p.file.name === f.name))
+        .map(f => ({ id: `${Date.now()}_${Math.random().toString(36).slice(2)}`, file: f })),
+    ])
+  }
+  const removeXlsxFile = (id: string) => {
+    setXlsxFiles(prev => prev.filter(f => f.id !== id))
+    setXlsxResults([])
+  }
+
+  const handleXlsxImport = async () => {
+    if (!xlsxFiles.length) { setXlsxErr('Añade al menos un Excel'); return }
+    setXlsxImporting(true)
+    setXlsxErr('')
+    setXlsxResults([])
+
+    try {
+      let accessToken: string | null = null
+      try { const raw = localStorage.getItem('voltis-auth'); if (raw) accessToken = JSON.parse(raw)?.access_token ?? null } catch {}
+
+      const fd = new FormData()
+      if (clientId) fd.append('clientId', clientId)
+      for (const { file } of xlsxFiles) fd.append('files', file)
+
+      const res = await fetch('/api/supplies/import-from-excel', {
+        method: 'POST',
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+        body: fd,
+      })
+      const data = await res.json()
+
+      if (!res.ok) { setXlsxErr(data.error || 'Error en la importación'); return }
+
+      setXlsxResults(data.results || [])
+      onCreated()
+    } catch (err: any) {
+      setXlsxErr(err.message || 'Error desconocido')
+    } finally {
+      setXlsxImporting(false)
     }
   }
 
@@ -433,6 +510,132 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
                   </div>
                 )}
               </div>
+
+              {/* ════════════════════════════════════════════
+                  SECCIÓN 3 — IMPORTAR DESDE EXCEL DE FACTURAS
+              ════════════════════════════════════════════ */}
+              <div className="space-y-3">
+                {/* Divider */}
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 h-px bg-outline-variant/30" />
+                  <span className="text-[10px] font-semibold tracking-wider text-ink-3/60 uppercase">
+                    Importar desde Excel
+                  </span>
+                  <div className="flex-1 h-px bg-outline-variant/30" />
+                </div>
+
+                <p className="text-xs text-ink-3 leading-relaxed">
+                  Adjunta los Excel de facturas (formato VOLTIS). Se crean los suministros e importan todas las facturas automáticamente.
+                </p>
+
+                {/* Drop zone Excel */}
+                {xlsxResults.length === 0 && (
+                  <>
+                    <div
+                      ref={xlsxDragRef}
+                      onDragOver={handleXlsxDragOver}
+                      onDragLeave={handleXlsxDragLeave}
+                      onDrop={handleXlsxDrop}
+                      className="border-2 border-dashed border-brand/30 rounded-2xl p-6 text-center transition-all cursor-pointer hover:border-brand/60 hover:bg-secondary/5"
+                      onClick={() => xlsxInputRef.current?.click()}
+                    >
+                      <TableIcon className="w-7 h-7 text-brand/70 mx-auto mb-2" />
+                      <p className="text-sm font-medium text-ink">
+                        Arrastra tus Excel aquí
+                      </p>
+                      <p className="text-xs text-ink-3 mt-0.5">
+                        Archivos .xlsx · Uno por suministro
+                      </p>
+                    </div>
+
+                    <input
+                      ref={xlsxInputRef}
+                      type="file"
+                      multiple
+                      accept=".xlsx"
+                      onChange={handleXlsxInputChange}
+                      className="hidden"
+                    />
+
+                    {/* File list */}
+                    {xlsxFiles.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-ink-3">{xlsxFiles.length} archivo{xlsxFiles.length !== 1 ? 's' : ''} listos</p>
+                        <div className="max-h-32 overflow-y-auto space-y-1">
+                          {xlsxFiles.map(({ id, file }) => (
+                            <div key={id} className="flex items-center gap-2 py-1.5 px-3 bg-secondary/5 border border-brand/15 rounded-lg text-xs">
+                              <TableIcon className="w-3.5 h-3.5 text-brand/60 flex-shrink-0" />
+                              <span className="flex-1 truncate text-ink">{file.name}</span>
+                              <span className="text-ink-3">{(file.size / 1024).toFixed(0)} KB</span>
+                              <button onClick={() => removeXlsxFile(id)} className="p-0.5 text-ink-3 hover:text-err flex-shrink-0">
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {xlsxErr && (
+                      <div className="bg-err-container rounded-xl px-4 py-2.5 flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-err flex-shrink-0" />
+                        <p className="text-sm text-err font-medium">{xlsxErr}</p>
+                      </div>
+                    )}
+
+                    {xlsxFiles.length > 0 && (
+                      <button
+                        onClick={handleXlsxImport}
+                        disabled={xlsxImporting}
+                        className="w-full flex items-center justify-center gap-2 h-10 rounded-xl text-sm font-medium bg-brand text-white hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-60"
+                      >
+                        {xlsxImporting ? (
+                          <><Loader2 className="w-4 h-4 animate-spin" />Importando…</>
+                        ) : (
+                          <><TableIcon className="w-4 h-4" />Importar {xlsxFiles.length} Excel</>
+                        )}
+                      </button>
+                    )}
+                  </>
+                )}
+
+                {/* Results */}
+                {xlsxResults.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold text-ink">Resultado de la importación</p>
+                      <button onClick={() => { setXlsxFiles([]); setXlsxResults([]) }} className="text-[10px] text-brand hover:underline">Importar más</button>
+                    </div>
+                    <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+                      {xlsxResults.map((r, i) => (
+                        <div key={i} className={`rounded-xl px-3 py-2.5 text-xs border ${r.ok ? 'bg-ok-container/20 border-ok/20' : 'bg-err-container/20 border-err/20'}`}>
+                          <div className="flex items-center gap-2">
+                            {r.ok
+                              ? <CheckCircle2 className="w-3.5 h-3.5 text-ok flex-shrink-0" />
+                              : <AlertCircle className="w-3.5 h-3.5 text-err flex-shrink-0" />}
+                            <span className="font-medium text-ink truncate flex-1">{r.fileName}</span>
+                          </div>
+                          {r.ok ? (
+                            <p className="mt-1 text-ink-3 pl-5">
+                              {r.cups} · {r.tarifa} · {r.isNew ? 'Nuevo suministro' : 'Suministro existente'} · {r.invoicesCreated} factura{r.invoicesCreated !== 1 ? 's' : ''} importada{r.invoicesCreated !== 1 ? 's' : ''}
+                              {r.invoicesSkipped ? ` (${r.invoicesSkipped} ya existían)` : ''}
+                            </p>
+                          ) : (
+                            <p className="mt-1 text-err pl-5">{r.error}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    <button
+                      onClick={onClose}
+                      className="w-full h-9 rounded-xl text-sm font-medium bg-brand text-white hover:opacity-90 transition-all"
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+                )}
+              </div>
+
             </div>
 
             {/* Footer */}
