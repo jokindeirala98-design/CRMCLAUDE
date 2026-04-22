@@ -209,9 +209,49 @@ export async function POST(req: NextRequest) {
     })
 
     // 4. Insert all snapshots at once
-    const { error: insertErr } = await supabase
+    // Attempt 1: full insert with all columns
+    let { error: insertErr } = await supabase
       .from('consumption_snapshots')
       .insert(snapshots)
+
+    // Attempt 2: if a column doesn't exist yet (pending migration), strip it and retry
+    if (insertErr && (
+      insertErr.message?.includes('invoice_file_url') ||
+      insertErr.message?.includes('column') ||
+      insertErr.message?.includes('does not exist')
+    )) {
+      console.warn('[sync-consumption] Column error on insert, retrying without invoice_file_url:', insertErr.message)
+      const stripped = snapshots.map((s: any) => {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { invoice_file_url, ...rest } = s
+        return rest
+      })
+      const { error: retryErr } = await supabase
+        .from('consumption_snapshots')
+        .insert(stripped)
+      if (retryErr) {
+        // Attempt 3: also strip `name` column (migration 014 might be missing too)
+        if (retryErr.message?.includes('name') || retryErr.message?.includes('column')) {
+          console.warn('[sync-consumption] Column error on retry, stripping name too:', retryErr.message)
+          const stripped2 = stripped.map((s: any) => {
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const { name, ...rest } = s
+            return rest
+          })
+          const { error: retry2Err } = await supabase
+            .from('consumption_snapshots')
+            .insert(stripped2)
+          if (retry2Err) {
+            console.error('[sync-consumption] Insert error (final retry):', retry2Err)
+            return NextResponse.json({ error: retry2Err.message }, { status: 500 })
+          }
+        } else {
+          console.error('[sync-consumption] Insert error (retry):', retryErr)
+          return NextResponse.json({ error: retryErr.message }, { status: 500 })
+        }
+      }
+      insertErr = null // Reset — retry succeeded
+    }
 
     if (insertErr) {
       console.error('[sync-consumption] Insert error:', insertErr)
