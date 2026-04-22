@@ -235,7 +235,8 @@ export async function POST(req: NextRequest) {
 
     // Parse multipart form
     const formData = await req.formData()
-    const clientId = formData.get('clientId') as string | null
+    const clientId      = formData.get('clientId')      as string | null
+    const newClientName = formData.get('newClientName') as string | null
     const files = formData.getAll('files') as File[]
 
     if (!files.length) {
@@ -255,12 +256,15 @@ export async function POST(req: NextRequest) {
         // ── Find or create client ────────────────────────────────────────────
         let resolvedClientId: string | null = clientId || null
 
-        if (!resolvedClientId && parsed.titular) {
+        // Priority: 1) clientId param, 2) newClientName param (never auto-extract from Excel Titular)
+        const nameToCreate = newClientName?.trim() || ''
+
+        if (!resolvedClientId && nameToCreate) {
           // Try to find existing client by name
           const { data: existing } = await supabase
             .from('clients')
             .select('id')
-            .ilike('name', parsed.titular)
+            .ilike('name', nameToCreate)
             .limit(1)
             .single()
 
@@ -271,7 +275,7 @@ export async function POST(req: NextRequest) {
             const { data: newClient } = await supabase
               .from('clients')
               .insert({
-                name: parsed.titular,
+                name: nameToCreate,
                 created_at: new Date().toISOString(),
                 status: 'active',
               })
@@ -282,7 +286,7 @@ export async function POST(req: NextRequest) {
         }
 
         if (!resolvedClientId) {
-          results.push({ fileName, cups: parsed.cups, ok: false, error: 'No se pudo determinar el cliente' })
+          results.push({ fileName, cups: parsed.cups, ok: false, error: 'No se pudo determinar el cliente. Especifica un nombre.' })
           continue
         }
 
