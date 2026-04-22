@@ -16,21 +16,12 @@
  *   Filas 13-30: Potencia P1-P6 (kW, €/kW·día, €)
  *   Filas 32-49: Consumo P1-P6 (kWh, €/kWh, €)
  *   Fila 51: Total consumo kWh
- *   Fila 52: Coste bruto consumo
- *   Fila 53: Descuento energía
- *   Fila 55: Total coste consumo
- *   Fila 56: Total coste potencia
- *   Fila 57: IVA %
- *   Fila 59: Peajes
- *   Fila 60: Impuesto eléctrico
- *   Fila 61: Alquiler equipos
- *   Fila 62: Otros
- *   Fila 63: IVA / IGIC
  *   Fila 65: Total factura
  *
  * Body: multipart/form-data
  *   files: File[]   (uno o varios .xlsx)
  *   clientId: string (opcional, UUID del cliente preseleccionado)
+ *   newClientName: string (opcional, nombre para crear nuevo cliente)
  *
  * Response: { results: ImportResult[] }
  */
@@ -41,7 +32,7 @@ import ExcelJS from 'exceljs'
 import { fetchSipsForCups } from '@/lib/sips'
 import { normalizeTariff as normalizeTariffLib } from '@/lib/consumption-utils'
 
-export const maxDuration = 60
+export const maxDuration = 300
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -60,13 +51,6 @@ function normalizeTariff(raw: string): string {
     '2.0DHA': '2.0DHA', '2.0A': '2.0TD',
   }
   return map[t] || raw
-}
-
-/** Número de períodos activos según tarifa */
-function periodCount(tariff: string): number {
-  const t = normalizeTariff(tariff)
-  if (t.startsWith('2.0')) return 2
-  return 6  // 3.0TD, 6.1TD, 6.x TD
 }
 
 interface ParsedInvoice {
@@ -109,10 +93,8 @@ async function parseExcelFile(buffer: Buffer, fileName: string): Promise<ParsedS
   const ws = wb.getWorksheet('Facturas') || wb.worksheets[0]
   if (!ws) throw new Error(`${fileName}: no se encontró la hoja "Facturas"`)
 
-  // Helper: get cell value from (row, col) — 1-indexed
   const gc = (row: number, col: number): any => ws.getCell(row, col).value
 
-  // Static fields (same across columns, read from first data column = 2)
   const cups    = s(gc(3, 2))
   const titular = s(gc(4, 2))
   const compania = s(gc(5, 2))
@@ -120,76 +102,66 @@ async function parseExcelFile(buffer: Buffer, fileName: string): Promise<ParsedS
 
   if (!cups) throw new Error(`${fileName}: no se encontró CUPS en la celda B3`)
 
-  // Determine number of data columns (starting from col 2)
+  // Find number of data columns
   let maxCol = 2
   while (ws.getCell(1, maxCol + 1).value !== null && ws.getCell(1, maxCol + 1).value !== undefined) {
     maxCol++
-    if (maxCol > 50) break // safety limit
+    if (maxCol > 50) break
   }
 
   const PERIODS = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6']
-  const pCount = periodCount(tarifa)
-
   const invoices: ParsedInvoice[] = []
 
   for (let col = 2; col <= maxCol; col++) {
     const g = (row: number) => gc(row, col)
-
-    // Skip empty columns (no invoice number)
     const numFact = s(g(7))
     if (!numFact) continue
 
-    const fechaInicio = s(g(8))
-    const fechaFin    = s(g(9))
-    const fechaEmision = s(g(10))
     const dias = n(g(11))
-
-    // Potencia P1-P6 (rows 13-30, 3 rows per period: kW, precio, total)
     const potencia = []
     for (let i = 0; i < 6; i++) {
       const baseRow = 13 + i * 3
       potencia.push({
         periodo: PERIODS[i],
-        kw:         n(g(baseRow)),
+        kw:          n(g(baseRow)),
         precioKwDia: n(g(baseRow + 1)),
         dias,
-        total:      n(g(baseRow + 2)),
+        total:       n(g(baseRow + 2)),
       })
     }
 
-    // Consumo P1-P6 (rows 32-49, 3 rows per period: kWh, precio, total)
     const consumo = []
     for (let i = 0; i < 6; i++) {
       const baseRow = 32 + i * 3
       consumo.push({
-        periodo: PERIODS[i],
-        kwh:      n(g(baseRow)),
+        periodo:   PERIODS[i],
+        kwh:       n(g(baseRow)),
         precioKwh: n(g(baseRow + 1)),
-        total:    n(g(baseRow + 2)),
+        total:     n(g(baseRow + 2)),
       })
     }
 
     invoices.push({
       numFactura:    numFact,
-      fechaInicio,
-      fechaFin,
-      fechaEmision,
+      fechaInicio:   s(g(8)),
+      fechaFin:      s(g(9)),
+      fechaEmision:  s(g(10)),
       dias,
       potencia,
       consumo,
-      consumoTotalKwh:   n(g(51)),
-      costeBrutoConsumo: n(g(52)),
-      descuentoEnergia:  n(g(53)),
-      costeNetoConsumo:  n(g(54)),
-      costeTotalConsumo: n(g(55)),
+      consumoTotalKwh:    n(g(51)),
+      costeBrutoConsumo:  n(g(52)),
+      descuentoEnergia:   n(g(53)),
+      costeNetoConsumo:   n(g(54)),
+      costeTotalConsumo:  n(g(55)),
       costeTotalPotencia: n(g(56)),
-      iva:               n(g(57)),
-      peajes:            n(g(59)),
-      impuestoElectrico: n(g(60)),
-      alquiler:          n(g(61)),
-      otros:             n(g(62)),
-      ivaTotal:          n(g(63)),
-      totalFactura:      n(g(65)),
+      iva:                n(g(57)),
+      peajes:             n(g(59)),
+      impuestoElectrico:  n(g(60)),
+      alquiler:           n(g(61)),
+      otros:              n(g(62)),
+      ivaTotal:           n(g(63)),
+      totalFactura:       n(g(65)),
     })
   }
 
@@ -205,15 +177,217 @@ function buildAnnualConsumptionData(parsed: ParsedSupplyFile) {
     for (const c of inv.consumo) {
       consumoPeriodos[c.periodo] = (consumoPeriodos[c.periodo] || 0) + c.kwh
     }
-    // Take max potencia seen (most recent invoice wins)
     for (const p of inv.potencia) {
       if (p.kw > 0) potenciaContratada[p.periodo] = p.kw
     }
   }
 
   const totalKwh = Object.values(consumoPeriodos).reduce((a, b) => a + b, 0)
-
   return { consumoPeriodos, potenciaContratada, totalKwh }
+}
+
+/** Procesa un fichero Excel: crea/actualiza suministro e inserta facturas */
+async function processFile(
+  file: File,
+  resolvedClientId: string,
+  newClientName: string,
+  supabase: any
+): Promise<{ fileName: string; cups?: string; ok: boolean; invoicesCreated?: number; invoicesSkipped?: number; isNew?: boolean; tarifa?: string; supplyId?: string; error?: string }> {
+  const fileName = file.name
+  try {
+    const arrayBuffer = await file.arrayBuffer()
+    const buffer = Buffer.from(arrayBuffer)
+    const parsed = await parseExcelFile(buffer, fileName)
+    const annualData = buildAnnualConsumptionData(parsed)
+
+    // ── Find or create supply ────────────────────────────────────────────────
+    const { data: existingSupply } = await supabase
+      .from('supplies')
+      .select('id, consumption_data')
+      .eq('cups', parsed.cups)
+      .limit(1)
+      .single()
+
+    let supplyId: string
+
+    if (existingSupply) {
+      supplyId = existingSupply.id
+      await supabase
+        .from('supplies')
+        .update({
+          consumption_data: annualData,
+          tariff: parsed.tarifa,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', supplyId)
+    } else {
+      const { data: newSupply, error: supplyErr } = await supabase
+        .from('supplies')
+        .insert({
+          cups: parsed.cups,
+          client_id: resolvedClientId,
+          tariff: parsed.tarifa,
+          type: 'luz',
+          status: 'facturas_recibidas',
+          consumption_data: annualData,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .select('id')
+        .single()
+
+      if (supplyErr || !newSupply) {
+        return { fileName, cups: parsed.cups, ok: false, error: supplyErr?.message || 'Error creando suministro' }
+      }
+      supplyId = newSupply.id
+    }
+
+    // ── SIPS fetch + power study (fire and forget, only for new supplies) ────
+    if (!existingSupply) {
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
+      void fetchSipsForCups(parsed.cups, 'luz').then(async (sipsData) => {
+        if (!sipsData) return
+        const sipsNormalizedTariff = sipsData.tariff ? (normalizeTariffLib(sipsData.tariff) || sipsData.tariff) : null
+        const merged = {
+          ...annualData,
+          source: 'excel_import_with_sips',
+          fetched_at: new Date().toISOString(),
+          sips_tariff: sipsData.tariff,
+          distribuidora: sipsData.distribuidora,
+          codigoPostal: sipsData.codigoPostal,
+          provincia: sipsData.provincia,
+          municipio: sipsData.municipio,
+          cnae: sipsData.cnae,
+          tension: sipsData.tension,
+          history: sipsData.consumptionHistory || [],
+          maximetroHistory: sipsData.maximetroHistory || [],
+        }
+        await supabase.from('supplies').update({
+          consumption_data: merged,
+          ...(sipsNormalizedTariff ? { tariff: sipsNormalizedTariff } : {}),
+          address: sipsData.municipio ? [sipsData.municipio, sipsData.provincia].filter(Boolean).join(', ') : undefined,
+          updated_at: new Date().toISOString(),
+        }).eq('id', supplyId)
+
+        if (sipsData.consumptionHistory?.length && sipsData.potenciaContratada) {
+          const r = await fetch(`${baseUrl}/api/power-study-auto`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              cups: parsed.cups,
+              clientName: newClientName || 'Excel Import',
+              potenciaContratada: sipsData.potenciaContratada,
+              consumptionHistory: sipsData.consumptionHistory,
+              maximetroHistory: sipsData.maximetroHistory || [],
+            }),
+          })
+          if (r.ok) {
+            const studyResult = await r.json()
+            await supabase.from('supplies')
+              .update({ power_study_result: studyResult, updated_at: new Date().toISOString() })
+              .eq('id', supplyId)
+          }
+        }
+      }).catch((err: any) => console.warn('[import-from-excel] SIPS error (non-fatal):', err?.message))
+    }
+
+    // ── Find comercializadora (best-effort) ──────────────────────────────────
+    if (parsed.compania) {
+      supabase
+        .from('comercializadoras')
+        .select('id')
+        .ilike('name', `%${parsed.compania}%`)
+        .limit(1)
+        .single()
+        .then(({ data: comerc }: { data: any }) => {
+          if (comerc) {
+            supabase.from('supplies').update({ comercializadora_id: comerc.id }).eq('id', supplyId)
+          }
+        })
+        .catch(() => {})
+    }
+
+    // ── Batch insert invoices ────────────────────────────────────────────────
+    // Fetch existing period pairs to deduplicate
+    const { data: existingInvoices } = await supabase
+      .from('invoices')
+      .select('period_start, period_end')
+      .eq('supply_id', supplyId)
+
+    const existingPairs = new Set(
+      (existingInvoices || []).map((i: any) => `${i.period_start}|${i.period_end}`)
+    )
+
+    const toInsert = []
+    for (const inv of parsed.invoices) {
+      const pairKey = `${inv.fechaInicio}|${inv.fechaFin}`
+      if (existingPairs.has(pairKey)) continue
+
+      const economics = {
+        fechaInicio:   inv.fechaInicio,
+        fechaFin:      inv.fechaFin,
+        cups:          parsed.cups,
+        tarifa:        parsed.tarifa,
+        supply_type:   'luz' as const,
+        comercializadora: parsed.compania || undefined,
+        potencia:      inv.potencia.filter(p => p.kw > 0 || p.total > 0),
+        consumo:       inv.consumo.filter(c => c.kwh > 0 || c.total > 0).map(c => ({
+          ...c,
+          total: c.total || c.kwh * c.precioKwh,
+        })),
+        consumoTotalKwh:    inv.consumoTotalKwh,
+        costeBrutoConsumo:  inv.costeBrutoConsumo,
+        descuentoEnergia:   inv.descuentoEnergia,
+        costeNetoConsumo:   inv.costeNetoConsumo,
+        costeTotalConsumo:  inv.costeTotalConsumo,
+        costeTotalPotencia: inv.costeTotalPotencia,
+        costeMedioKwh: inv.consumoTotalKwh > 0 ? inv.costeTotalConsumo / inv.consumoTotalKwh : 0,
+        costeMedioKwhNeto: inv.consumoTotalKwh > 0 ? inv.costeNetoConsumo / inv.consumoTotalKwh : 0,
+        otrosConceptos: [
+          inv.peajes > 0            && { concepto: 'Peajes y Transportes',  total: inv.peajes },
+          inv.impuestoElectrico > 0 && { concepto: 'Impuesto Eléctrico',    total: inv.impuestoElectrico },
+          inv.alquiler > 0          && { concepto: 'Alquiler de Equipos',   total: inv.alquiler },
+          inv.otros > 0             && { concepto: 'Otros',                 total: inv.otros },
+          inv.ivaTotal > 0          && { concepto: `IVA ${inv.iva}%`,       total: inv.ivaTotal },
+        ].filter(Boolean),
+        totalFactura: inv.totalFactura,
+      }
+
+      toInsert.push({
+        supply_id:         supplyId,
+        file_url:          '',
+        file_type:         'pdf',
+        period_start:      inv.fechaInicio || null,
+        period_end:        inv.fechaFin    || null,
+        total_amount:      inv.totalFactura || null,
+        extraction_status: 'completed',
+        extracted_data:    { economics, source: 'excel_import', numFactura: inv.numFactura },
+        created_at:        new Date().toISOString(),
+      })
+    }
+
+    let invoicesCreated = 0
+    const invoicesSkipped = existingPairs.size
+
+    if (toInsert.length > 0) {
+      const { error: invErr } = await supabase.from('invoices').insert(toInsert)
+      if (!invErr) invoicesCreated = toInsert.length
+      else console.warn(`[import-from-excel] Invoice insert error for ${parsed.cups}:`, invErr.message)
+    }
+
+    return {
+      fileName,
+      cups: parsed.cups,
+      tarifa: parsed.tarifa,
+      supplyId,
+      ok: true,
+      invoicesCreated,
+      invoicesSkipped,
+      isNew: !existingSupply,
+    }
+  } catch (fileErr: any) {
+    return { fileName, ok: false, error: fileErr.message }
+  }
 }
 
 // ── Route handler ──────────────────────────────────────────────────────────────
@@ -240,266 +414,63 @@ export async function POST(req: NextRequest) {
     // Parse multipart form
     const formData = await req.formData()
     const clientId      = formData.get('clientId')      as string | null
-    const newClientName = formData.get('newClientName') as string | null
+    const newClientName = (formData.get('newClientName') as string | null)?.trim() || ''
     const files = formData.getAll('files') as File[]
 
     if (!files.length) {
       return NextResponse.json({ error: 'No se recibieron archivos' }, { status: 400 })
     }
 
-    const results = []
+    // ── Resolve client ONCE for all files ───────────────────────────────────
+    let resolvedClientId: string | null = clientId || null
 
-    for (const file of files) {
-      const fileName = file.name
-      try {
-        // Parse Excel
-        const arrayBuffer = await file.arrayBuffer()
-        const buffer = Buffer.from(arrayBuffer)
-        const parsed = await parseExcelFile(buffer, fileName)
+    if (!resolvedClientId && newClientName) {
+      // Try to find existing client by name
+      const { data: existing } = await supabase
+        .from('clients')
+        .select('id')
+        .ilike('name', newClientName)
+        .limit(1)
+        .single()
 
-        // ── Find or create client ────────────────────────────────────────────
-        let resolvedClientId: string | null = clientId || null
-
-        // Priority: 1) clientId param, 2) newClientName param (never auto-extract from Excel Titular)
-        const nameToCreate = newClientName?.trim() || ''
-
-        if (!resolvedClientId && nameToCreate) {
-          // Try to find existing client by name
-          const { data: existing } = await supabase
-            .from('clients')
-            .select('id')
-            .ilike('name', nameToCreate)
-            .limit(1)
-            .single()
-
-          if (existing) {
-            resolvedClientId = existing.id
-          } else {
-            // Create new client — commercial_id required (NOT NULL), use the calling user
-            const { data: newClient, error: clientErr } = await supabase
-              .from('clients')
-              .insert({
-                name: nameToCreate,
-                type: 'empresa',
-                commercial_id: user.id,
-                origin: 'auditoria',
-                marketing_consent: false,
-              })
-              .select('id')
-              .single()
-            if (clientErr) {
-              results.push({ fileName, cups: parsed.cups, ok: false, error: `Error creando cliente: ${clientErr.message}` })
-              continue
-            }
-            if (newClient) resolvedClientId = newClient.id
-          }
-        }
-
-        if (!resolvedClientId) {
-          results.push({ fileName, cups: parsed.cups, ok: false, error: 'No se pudo determinar el cliente. Especifica un nombre.' })
-          continue
-        }
-
-        // ── Find or create supply ────────────────────────────────────────────
-        const annualData = buildAnnualConsumptionData(parsed)
-
-        let supplyId: string
-        const { data: existingSupply } = await supabase
-          .from('supplies')
-          .select('id, consumption_data')
-          .eq('cups', parsed.cups)
-          .limit(1)
+      if (existing) {
+        resolvedClientId = existing.id
+      } else {
+        const { data: newClient, error: clientErr } = await supabase
+          .from('clients')
+          .insert({
+            name: newClientName,
+            type: 'empresa',
+            commercial_id: user.id,
+            origin: 'auditoria',
+            marketing_consent: false,
+          })
+          .select('id')
           .single()
 
-        if (existingSupply) {
-          supplyId = existingSupply.id
-          // Update consumption_data with aggregated annual data
-          await supabase
-            .from('supplies')
-            .update({
-              consumption_data: annualData,
-              tariff: parsed.tarifa,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', supplyId)
-        } else {
-          // Create new supply
-          const { data: newSupply, error: supplyErr } = await supabase
-            .from('supplies')
-            .insert({
-              cups: parsed.cups,
-              client_id: resolvedClientId,
-              tariff: parsed.tarifa,
-              type: 'luz',
-              status: 'facturas_recibidas',
-              consumption_data: annualData,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            })
-            .select('id')
-            .single()
-
-          if (supplyErr || !newSupply) {
-            results.push({ fileName, cups: parsed.cups, ok: false, error: supplyErr?.message || 'Error creando suministro' })
-            continue
-          }
-          supplyId = newSupply.id
+        if (clientErr) {
+          return NextResponse.json({ error: `Error creando cliente: ${clientErr.message}` }, { status: 500 })
         }
-
-        // ── SIPS fetch + power study (fire and forget) ──────────────────────
-        // Only for new supplies or those without SIPS data yet
-        if (!existingSupply || !existingSupply.consumption_data?.distribuidora) {
-          const sipsPromise = fetchSipsForCups(parsed.cups, 'luz').then(async (sipsData) => {
-            if (!sipsData) return
-            // Merge SIPS location/distributor data into the Excel-derived consumption_data
-            const merged = {
-              ...annualData,
-              source: 'excel_import_with_sips',
-              fetched_at: new Date().toISOString(),
-              totalKwh: annualData.totalKwh,
-              sips_tariff: sipsData.tariff,
-              distribuidora: sipsData.distribuidora,
-              codigoPostal: sipsData.codigoPostal,
-              provincia: sipsData.provincia,
-              municipio: sipsData.municipio,
-              cnae: sipsData.cnae,
-              tension: sipsData.tension,
-              history: sipsData.consumptionHistory || [],
-              maximetroHistory: sipsData.maximetroHistory || [],
-            }
-            const sipsNormalizedTariff = sipsData.tariff ? (normalizeTariffLib(sipsData.tariff) || sipsData.tariff) : null
-            await supabase.from('supplies').update({
-              consumption_data: merged,
-              ...(sipsNormalizedTariff ? { tariff: sipsNormalizedTariff } : {}),
-              address: sipsData.municipio ? [sipsData.municipio, sipsData.provincia].filter(Boolean).join(', ') : undefined,
-              updated_at: new Date().toISOString(),
-            }).eq('id', supplyId)
-
-            // Power study
-            if (sipsData.consumptionHistory?.length && sipsData.potenciaContratada) {
-              const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
-              const r = await fetch(`${baseUrl}/api/power-study-auto`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  cups: parsed.cups,
-                  clientName: nameToCreate || 'Excel Import',
-                  potenciaContratada: sipsData.potenciaContratada,
-                  consumptionHistory: sipsData.consumptionHistory,
-                  maximetroHistory: sipsData.maximetroHistory || [],
-                }),
-              })
-              if (r.ok) {
-                const studyResult = await r.json()
-                await supabase.from('supplies')
-                  .update({ power_study_result: studyResult, updated_at: new Date().toISOString() })
-                  .eq('id', supplyId)
-              }
-            }
-          }).catch((err) => console.warn('[import-from-excel] SIPS error (non-fatal):', err.message))
-
-          // Don't await — let it run in background
-          void sipsPromise
-        }
-
-        // ── Find comercializadora ────────────────────────────────────────────
-        if (parsed.compania) {
-          const { data: comerc } = await supabase
-            .from('comercializadoras')
-            .select('id')
-            .ilike('name', `%${parsed.compania}%`)
-            .limit(1)
-            .single()
-          if (comerc) {
-            await supabase.from('supplies')
-              .update({ comercializadora_id: comerc.id })
-              .eq('id', supplyId)
-          }
-        }
-
-        // ── Create invoice records ───────────────────────────────────────────
-        let invoicesCreated = 0
-        let invoicesSkipped = 0
-
-        for (const inv of parsed.invoices) {
-          // Deduplicate by period_start + period_end + supply_id
-          if (inv.fechaInicio && inv.fechaFin) {
-            const { data: existingInv } = await supabase
-              .from('invoices')
-              .select('id')
-              .eq('supply_id', supplyId)
-              .eq('period_start', inv.fechaInicio)
-              .eq('period_end', inv.fechaFin)
-              .limit(1)
-              .single()
-            if (existingInv) { invoicesSkipped++; continue }
-          }
-
-          // Build extracted_data.economics matching the BillEconomics type
-          const economics = {
-            fechaInicio:   inv.fechaInicio,
-            fechaFin:      inv.fechaFin,
-            cups:          parsed.cups,
-            tarifa:        parsed.tarifa,
-            supply_type:   'luz' as const,
-            comercializadora: parsed.compania || undefined,
-            potencia:      inv.potencia.filter(p => p.kw > 0 || p.total > 0),
-            consumo:       inv.consumo.filter(c => c.kwh > 0 || c.total > 0).map(c => ({
-              ...c,
-              total: c.total || c.kwh * c.precioKwh,
-            })),
-            consumoTotalKwh:    inv.consumoTotalKwh,
-            costeBrutoConsumo:  inv.costeBrutoConsumo,
-            descuentoEnergia:   inv.descuentoEnergia,
-            costeNetoConsumo:   inv.costeNetoConsumo,
-            costeTotalConsumo:  inv.costeTotalConsumo,
-            costeTotalPotencia: inv.costeTotalPotencia,
-            costeMedioKwh: inv.consumoTotalKwh > 0
-              ? inv.costeTotalConsumo / inv.consumoTotalKwh
-              : 0,
-            costeMedioKwhNeto: inv.consumoTotalKwh > 0
-              ? inv.costeNetoConsumo / inv.consumoTotalKwh
-              : 0,
-            otrosConceptos: [
-              inv.peajes > 0            && { concepto: 'Peajes y Transportes',  total: inv.peajes },
-              inv.impuestoElectrico > 0 && { concepto: 'Impuesto Eléctrico',    total: inv.impuestoElectrico },
-              inv.alquiler > 0          && { concepto: 'Alquiler de Equipos',   total: inv.alquiler },
-              inv.otros > 0             && { concepto: 'Otros',                 total: inv.otros },
-              inv.ivaTotal > 0          && { concepto: `IVA ${inv.iva}%`,       total: inv.ivaTotal },
-            ].filter(Boolean),
-            totalFactura: inv.totalFactura,
-          }
-
-          await supabase.from('invoices').insert({
-            supply_id:         supplyId,
-            file_url:          '',           // no physical file
-            file_type:         'pdf',
-            period_start:      inv.fechaInicio || null,
-            period_end:        inv.fechaFin    || null,
-            total_amount:      inv.totalFactura || null,
-            extraction_status: 'completed',
-            extracted_data:    { economics, source: 'excel_import', numFactura: inv.numFactura },
-            created_at:        new Date().toISOString(),
-          })
-
-          invoicesCreated++
-        }
-
-        results.push({
-          fileName,
-          cups: parsed.cups,
-          tarifa: parsed.tarifa,
-          supplyId,
-          ok: true,
-          invoicesCreated,
-          invoicesSkipped,
-          isNew: !existingSupply,
-        })
-
-      } catch (fileErr: any) {
-        results.push({ fileName, ok: false, error: fileErr.message })
+        if (newClient) resolvedClientId = newClient.id
       }
     }
+
+    if (!resolvedClientId) {
+      return NextResponse.json({ error: 'No se pudo determinar el cliente. Especifica un nombre.' }, { status: 400 })
+    }
+
+    const finalClientId = resolvedClientId
+
+    // ── Process all files IN PARALLEL ───────────────────────────────────────
+    const settled = await Promise.allSettled(
+      files.map(file => processFile(file, finalClientId, newClientName, supabase))
+    )
+
+    const results = settled.map(r =>
+      r.status === 'fulfilled'
+        ? r.value
+        : { fileName: 'unknown', ok: false, error: (r.reason as any)?.message || 'Error desconocido' }
+    )
 
     return NextResponse.json({ results })
 
