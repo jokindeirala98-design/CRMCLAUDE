@@ -371,8 +371,17 @@ async function processFile(
 
     if (toInsert.length > 0) {
       const { error: invErr } = await supabase.from('invoices').insert(toInsert)
-      if (!invErr) invoicesCreated = toInsert.length
-      else console.warn(`[import-from-excel] Invoice insert error for ${parsed.cups}:`, invErr.message)
+      if (!invErr) {
+        invoicesCreated = toInsert.length
+        // Advance status: supplies with invoices → "Esperando informes"
+        await supabase
+          .from('supplies')
+          .update({ status: 'estudio_en_curso', updated_at: new Date().toISOString() })
+          .eq('id', supplyId)
+          .in('status', ['facturas_recibidas', 'primer_contacto'])
+      } else {
+        console.warn(`[import-from-excel] Invoice insert error for ${parsed.cups}:`, invErr.message)
+      }
     }
 
     return {
@@ -436,11 +445,16 @@ export async function POST(req: NextRequest) {
       if (existing) {
         resolvedClientId = existing.id
       } else {
+        // Auto-detect client type from name
+        const autoType = /ayuntamiento/i.test(newClientName) ? 'ayuntamiento'
+          : /comunidad\s+de\s+vecinos|copropiedad|junta\s+de\s+propietarios/i.test(newClientName) ? 'comunidad'
+          : 'empresa'
+
         const { data: newClient, error: clientErr } = await supabase
           .from('clients')
           .insert({
             name: newClientName,
-            type: 'empresa',
+            type: autoType,
             commercial_id: user.id,
             origin: 'auditoria',
             marketing_consent: false,

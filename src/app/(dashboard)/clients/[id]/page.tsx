@@ -7,7 +7,7 @@ import {
   CreditCard, Zap, Edit2, Trash2, Plus, ExternalLink, FileCheck,
   Send, Sparkles, AlertTriangle, BarChart3,
   Check, XCircle, Clock, DollarSign, Pencil, X, Flame, Phone as PhoneIcon,
-  Loader2, Activity, ShieldOff, ShieldCheck
+  Loader2, Activity, ShieldOff, ShieldCheck, Copy, CheckCheck,
 } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
 import { Card } from '@/components/ui/Card'
@@ -33,6 +33,7 @@ export default function ClientDetailPage() {
   const [clientBillings, setClientBillings] = useState<any[]>([])
   const [editingSupplyName, setEditingSupplyName] = useState<string | null>(null)
   const [supplyNameValue, setSupplyNameValue] = useState('')
+  const [copiedCups, setCopiedCups] = useState<string | null>(null)
   const [clientTasks, setClientTasks] = useState<any[]>([])
   const [dismissingTaskIds, setDismissingTaskIds] = useState<Set<string>>(new Set())
   const [togglingFallen, setTogglingFallen] = useState(false)
@@ -172,8 +173,23 @@ export default function ClientDetailPage() {
   const getSupplyAnnualConsumption = (supply: any): number => {
     const cd = supply?.consumption_data as any
     if (!cd) return 0
+    // consumoPeriodos (from SIPS or Excel import) takes priority
+    const cp = cd.consumoPeriodos
+    if (cp && typeof cp === 'object') {
+      const sum = Object.values(cp).reduce((a: number, v) => a + (Number(v) || 0), 0)
+      if (sum > 0) return sum
+    }
+    // Fallback to totalKwh field
     const kwh = Number(cd.totalKwh ?? cd.total ?? 0)
     return Number.isFinite(kwh) && kwh > 0 ? kwh : 0
+  }
+
+  const handleCopyCups = (e: React.MouseEvent, cups: string) => {
+    e.stopPropagation()
+    navigator.clipboard.writeText(cups).then(() => {
+      setCopiedCups(cups)
+      setTimeout(() => setCopiedCups(null), 1800)
+    })
   }
 
   const fmtKwh = (n: number) =>
@@ -467,15 +483,6 @@ export default function ClientDetailPage() {
                         </div>
                         <div className="flex items-center gap-1">
                           <StatusBadge status={supply.status} />
-                          {!isEditingName && (
-                            <button
-                              onClick={e => { e.stopPropagation(); setEditingSupplyName(supply.id); setSupplyNameValue(supply.name || '') }}
-                              className="p-1.5 text-ink-3/30 hover:text-brand hover:bg-primary/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                              title="Editar nombre"
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                            </button>
-                          )}
                         </div>
                       </div>
 
@@ -492,7 +499,7 @@ export default function ClientDetailPage() {
                                 if (e.key === 'Enter') handleSaveSupplyName(supply.id)
                                 if (e.key === 'Escape') setEditingSupplyName(null)
                               }}
-                              placeholder="Nombre del suministro"
+                              placeholder="Ej: Luz polideportivo"
                               className="flex-1 min-w-0 px-2 py-1 text-sm bg-bg-2 rounded-lg outline-none focus:ring-2 focus:ring-primary/40"
                               autoFocus
                             />
@@ -505,12 +512,41 @@ export default function ClientDetailPage() {
                           </div>
                         ) : (
                           <>
-                            <h3 className="text-sm font-semibold text-ink truncate group-hover:text-brand transition-colors">
-                              {supply.name || supply.cups || 'Sin CUPS'}
-                            </h3>
-                            {supply.name && supply.cups && (
-                              <p className="text-[10px] font-mono text-ink-3 truncate mt-0.5">{supply.cups}</p>
+                            {/* Nickname (if set) */}
+                            {supply.name && (
+                              <h3 className="text-sm font-semibold text-ink truncate group-hover:text-brand transition-colors mb-0.5">
+                                {supply.name}
+                              </h3>
                             )}
+                            {/* CUPS: always visible, double-click to set nickname, copy button */}
+                            <div
+                              className="flex items-center gap-1 min-w-0"
+                              onClick={e => e.stopPropagation()}
+                            >
+                              <p
+                                className="font-mono text-[10px] text-ink-3 truncate cursor-text select-text"
+                                title="Doble clic para añadir nombre"
+                                onDoubleClick={e => {
+                                  e.stopPropagation()
+                                  setEditingSupplyName(supply.id)
+                                  setSupplyNameValue(supply.name || '')
+                                }}
+                              >
+                                {supply.cups || 'Sin CUPS'}
+                              </p>
+                              {supply.cups && (
+                                <button
+                                  onClick={e => handleCopyCups(e, supply.cups)}
+                                  className="p-0.5 text-ink-3/40 hover:text-brand transition-colors flex-shrink-0"
+                                  title="Copiar CUPS"
+                                >
+                                  {copiedCups === supply.cups
+                                    ? <CheckCheck className="w-3 h-3 text-ok" />
+                                    : <Copy className="w-3 h-3" />
+                                  }
+                                </button>
+                              )}
+                            </div>
                           </>
                         )}
                       </div>

@@ -284,7 +284,7 @@ export async function POST(
     const actualAvgPrice = avgPriceFromInvoices(invoices)
 
     const comercializadoraActual = supply.comercializadora?.name || 'Comercializadora actual'
-    const clientName = supply.client?.name || ''
+    const clientName = supply.client?.name || supply.cups || 'Sin cliente'
     const cups = supply.cups || ''
     const tariffLabel = `TARIFA ${normalizeTariff(tariff)}`
 
