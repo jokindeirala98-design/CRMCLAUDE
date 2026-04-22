@@ -237,9 +237,36 @@ async function processFile(
         .single()
 
       if (supplyErr || !newSupply) {
-        return { fileName, cups: parsed.cups, ok: false, error: supplyErr?.message || 'Error creando suministro' }
+        // Race condition: another parallel file already inserted this CUPS
+        const isUniqueConflict = supplyErr?.code === '23505'
+          || supplyErr?.message?.includes('unique')
+          || supplyErr?.message?.includes('duplicate')
+        if (isUniqueConflict) {
+          const { data: raced } = await supabase
+            .from('supplies')
+            .select('id, consumption_data')
+            .eq('cups', parsed.cups)
+            .limit(1)
+            .single()
+          if (raced) {
+            // Merge our consumption data into the winner supply and continue
+            await supabase.from('supplies').update({
+              consumption_data: annualData,
+              tariff: parsed.tarifa,
+              updated_at: new Date().toISOString(),
+            }).eq('id', raced.id)
+            supplyId = raced.id
+            // Mark as "existing" so SIPS isn't re-triggered
+            ;(existingSupply as any) = raced
+          } else {
+            return { fileName, cups: parsed.cups, ok: false, error: 'Error de conflicto al crear suministro' }
+          }
+        } else {
+          return { fileName, cups: parsed.cups, ok: false, error: supplyErr?.message || 'Error creando suministro' }
+        }
+      } else {
+        supplyId = newSupply.id
       }
-      supplyId = newSupply.id
     }
 
     // ── SIPS fetch + power study (fire and forget, only for new supplies) ────
@@ -475,16 +502,23 @@ export async function POST(req: NextRequest) {
 
     const finalClientId = resolvedClientId
 
-    // ── Process all files IN PARALLEL ───────────────────────────────────────
-    const settled = await Promise.allSettled(
-      files.map(file => processFile(file, finalClientId, newClientName, supabase))
-    )
+    // ── Process files in batches of 5 to avoid saturating Supabase connections
+    const BATCH_SIZE = 5
+    const results: any[] = []
 
-    const results = settled.map(r =>
-      r.status === 'fulfilled'
-        ? r.value
-        : { fileName: 'unknown', ok: false, error: (r.reason as any)?.message || 'Error desconocido' }
-    )
+    for (let i = 0; i < files.length; i += BATCH_SIZE) {
+      const batch = files.slice(i, i + BATCH_SIZE)
+      const settled = await Promise.allSettled(
+        batch.map(file => processFile(file, finalClientId, newClientName, supabase))
+      )
+      for (const r of settled) {
+        results.push(
+          r.status === 'fulfilled'
+            ? r.value
+            : { fileName: 'unknown', ok: false, error: (r.reason as any)?.message || 'Error desconocido' }
+        )
+      }
+    }
 
     return NextResponse.json({ results })
 
