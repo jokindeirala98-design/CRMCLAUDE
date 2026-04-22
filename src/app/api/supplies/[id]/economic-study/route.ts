@@ -181,13 +181,30 @@ export async function POST(
     const tariffLabel = `TARIFA ${normalizeTariff(tariff)}`
 
     // ── Abrir plantilla ───────────────────────────────────────────────────────
-    const templatePath = path.join(process.cwd(), 'templates', 'estudio-economico.xlsx')
-    if (!fs.existsSync(templatePath)) {
-      return NextResponse.json({ error: 'Plantilla no encontrada en /templates/estudio-economico.xlsx' }, { status: 500 })
+    // Intentamos la plantilla original (con logos). Si ExcelJS no está parcheado
+    // todavía (primer deploy sin postinstall), caemos al template limpio sin drawings.
+    const templateFull  = path.join(process.cwd(), 'templates', 'estudio-economico.xlsx')
+    const templateClean = path.join(process.cwd(), 'templates', 'estudio-economico-clean.xlsx')
+
+    const loadTemplate = async (): Promise<ExcelJS.Workbook> => {
+      if (fs.existsSync(templateFull)) {
+        try {
+          const w = new ExcelJS.Workbook()
+          await w.xlsx.readFile(templateFull)
+          return w
+        } catch {
+          // ExcelJS sin parchear — usar template sin drawings
+        }
+      }
+      if (!fs.existsSync(templateClean)) {
+        throw new Error('Plantilla no encontrada')
+      }
+      const w = new ExcelJS.Workbook()
+      await w.xlsx.readFile(templateClean)
+      return w
     }
 
-    const wb = new ExcelJS.Workbook()
-    await wb.xlsx.readFile(templatePath)
+    const wb = await loadTemplate()
     const ws = wb.worksheets[0]
 
     // ── Cabecera ──────────────────────────────────────────────────────────────
