@@ -33,40 +33,77 @@ function set(ws: ExcelJS.Worksheet, cell: string, value: any) {
 
 function fmt2(n: number) { return Math.round(n * 100) / 100 }
 
+const PERIOD_KEYS = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6']
+
 function extractPowers(sipsData: any, periodCount: number): number[] {
   if (!sipsData) return Array(periodCount).fill(0)
+
+  // Format 1: potenciaContratada as object { P1: 120, P2: 130, ... } — used by greening/totalenergies SIPS
+  const pc = sipsData.potenciaContratada
+  if (pc && typeof pc === 'object' && !Array.isArray(pc)) {
+    const vals = PERIOD_KEYS.slice(0, periodCount).map(k => Number(pc[k] ?? pc[k.toLowerCase()] ?? 0))
+    if (vals.some(v => v > 0)) return vals
+  }
+
+  // Format 2: potenciasContratadas as array [120, 130, ...]
   if (Array.isArray(sipsData.potenciasContratadas))
     return sipsData.potenciasContratadas.slice(0, periodCount).map(Number)
-  const powers: number[] = []
+
+  // Format 3: potenciaP1, potenciaP2... flat keys
+  const byKey: number[] = []
   for (let i = 1; i <= periodCount; i++) {
-    const v = sipsData[`potenciaP${i}`] ?? sipsData[`p${i}`] ?? sipsData[`P${i}`] ?? 0
-    powers.push(Number(v))
+    byKey.push(Number(sipsData[`potenciaP${i}`] ?? sipsData[`p${i}`] ?? sipsData[`P${i}`] ?? 0))
   }
-  if (powers.some(p => p > 0)) return powers
-  const single = Number(sipsData.potenciaContratada ?? sipsData.potencia ?? 0)
-  return Array(periodCount).fill(single)
+  if (byKey.some(v => v > 0)) return byKey
+
+  // Format 4: potenciaContratada as single number — distribute equally
+  if (typeof pc === 'number' && pc > 0) return Array(periodCount).fill(pc)
+
+  return Array(periodCount).fill(0)
 }
 
 function extractConsumption(sipsData: any, periodCount: number): number[] {
   if (!sipsData) return Array(periodCount).fill(0)
+
+  // Format 1: consumoPeriodos as object { P1: 56208, P2: 70237, ... } — primary SIPS format
+  const cp = sipsData.consumoPeriodos
+  if (cp && typeof cp === 'object' && !Array.isArray(cp)) {
+    const vals = PERIOD_KEYS.slice(0, periodCount).map(k => Number(cp[k] ?? cp[k.toLowerCase()] ?? 0))
+    if (vals.some(v => v > 0)) return vals
+  }
+
+  // Format 2: consumoPorPeriodo as array
   if (Array.isArray(sipsData.consumoPorPeriodo))
     return sipsData.consumoPorPeriodo.slice(0, periodCount).map(Number)
-  const cons: number[] = []
+
+  // Format 3: consumoP1, consumoP2... flat keys
+  const byKey: number[] = []
   for (let i = 1; i <= periodCount; i++) {
-    const v = sipsData[`consumoP${i}`] ?? sipsData[`energiaP${i}`] ?? 0
-    cons.push(Number(v))
+    byKey.push(Number(sipsData[`consumoP${i}`] ?? sipsData[`energiaP${i}`] ?? 0))
   }
-  if (cons.some(c => c > 0)) return cons
+  if (byKey.some(v => v > 0)) return byKey
+
+  // Format 4: totalKwh — distribute equally across periods as last resort
   const total = Number(sipsData.totalKwh ?? sipsData.total ?? 0)
-  return Array(periodCount).fill(Math.round(total / periodCount))
+  if (total > 0) return Array(periodCount).fill(Math.round(total / periodCount))
+
+  return Array(periodCount).fill(0)
 }
 
 function avgPriceFromInvoices(invoices: any[]): number {
   if (!invoices?.length) return 0
   let totalCost = 0, totalKwh = 0
   for (const inv of invoices) {
-    const kwh = Number(inv.consumption_kwh ?? inv.kwh ?? 0)
-    const cost = Number(inv.energy_cost ?? inv.importe_energia ?? 0)
+    // Try multiple possible field names from invoice extracted_data
+    const ed = inv.extracted_data as any
+    const kwh = Number(
+      inv.consumption_kwh ?? inv.kwh ??
+      ed?.economics?.consumoTotalKwh ?? ed?.consumoKwh ?? 0
+    )
+    const cost = Number(
+      inv.energy_cost ?? inv.importe_energia ??
+      ed?.economics?.importeEnergia ?? ed?.importeEnergia ?? 0
+    )
     if (kwh > 0 && cost > 0) { totalKwh += kwh; totalCost += cost }
   }
   return totalKwh > 0 ? totalCost / totalKwh : 0
@@ -134,19 +171,10 @@ export async function POST(
     const periodCount = boe2026.length
 
     const sipsData = supply.consumption_data as any
-    // DEBUG — remove after testing
-    console.log('[economic-study] sipsData keys:', sipsData ? Object.keys(sipsData) : 'null')
-    console.log('[economic-study] sipsData sample:', JSON.stringify(sipsData)?.slice(0, 600))
-    console.log('[economic-study] invoices count:', supply.invoices?.length, '| first invoice keys:', supply.invoices?.[0] ? Object.keys(supply.invoices[0]) : 'none')
-
     const powers = extractPowers(sipsData, periodCount)
     const consumption = extractConsumption(sipsData, periodCount)
     const totalKwh = consumption.reduce((a, b) => a + b, 0)
     const actualAvgPrice = avgPriceFromInvoices(supply.invoices || [])
-
-    console.log('[economic-study] powers:', powers)
-    console.log('[economic-study] consumption:', consumption)
-    console.log('[economic-study] totalKwh:', totalKwh, '| avgPrice:', actualAvgPrice)
     const comercializadoraActual = supply.comercializadora?.name || 'Comercializadora actual'
     const clientName = supply.client?.name || ''
     const cups = supply.cups || ''
@@ -196,7 +224,6 @@ export async function POST(
 
     // ── ENERGÍA ───────────────────────────────────────────────────────────────
     const ENE_ROWS = [30, 31, 32, 33, 34, 35]
-    const PERIOD_LABELS = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6']
     let totalEnergiaActual = 0, totalEnergiaNueva = 0
 
     set(ws, 'D29', totalKwh); set(ws, 'J29', totalKwh)
@@ -210,9 +237,9 @@ export async function POST(
       const costeA = fmt2(kwh * precioA)
       const costeN = fmt2(kwh * precioN)
 
-      set(ws, `C${row}`, PERIOD_LABELS[i]); set(ws, `D${row}`, kwh)
+      set(ws, `C${row}`, PERIOD_KEYS[i]); set(ws, `D${row}`, kwh)
       set(ws, `E${row}`, precioA); set(ws, `F${row}`, costeA); set(ws, `G${row}`, pct)
-      set(ws, `I${row}`, PERIOD_LABELS[i]); set(ws, `J${row}`, kwh)
+      set(ws, `I${row}`, PERIOD_KEYS[i]); set(ws, `J${row}`, kwh)
       set(ws, `L${row}`, precioN); set(ws, `M${row}`, costeN)
 
       totalEnergiaActual += costeA; totalEnergiaNueva += costeN

@@ -44,7 +44,7 @@ export default function SuppliesPage() {
     // Fetch supplies
     let query = supabase
       .from('supplies')
-      .select('*, client:clients(name, cif_nif)')
+      .select('id, name, cups, tariff, type, status, address, created_at, updated_at, client_id, consumption_data, comercializadora_id, client:clients(name, cif_nif)')
       .order('created_at', { ascending: false })
 
     if (filter !== 'all') {

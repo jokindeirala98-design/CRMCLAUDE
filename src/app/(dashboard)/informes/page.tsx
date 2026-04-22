@@ -94,30 +94,38 @@ function fmtKwh(val: number): string {
   return `${val.toLocaleString('es-ES', { maximumFractionDigits: 0 })} kWh/año`
 }
 
+const PERIOD_KEYS_FE = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6']
+
 function extractConsumptionByPeriod(cd: Record<string, unknown> | null, periodCount: number): number[] {
   if (!cd) return Array(periodCount).fill(0)
   const d = cd as any
+  // Primary: consumoPeriodos object { P1: ..., P2: ... }
+  if (d.consumoPeriodos && typeof d.consumoPeriodos === 'object' && !Array.isArray(d.consumoPeriodos)) {
+    const vals = PERIOD_KEYS_FE.slice(0, periodCount).map(k => Number(d.consumoPeriodos[k] ?? 0))
+    if (vals.some(v => v > 0)) return vals
+  }
   if (Array.isArray(d.consumoPorPeriodo)) return d.consumoPorPeriodo.slice(0, periodCount).map(Number)
   const cons: number[] = []
-  for (let i = 1; i <= periodCount; i++) {
-    cons.push(Number(d[`consumoP${i}`] ?? d[`energiaP${i}`] ?? 0))
-  }
+  for (let i = 1; i <= periodCount; i++) cons.push(Number(d[`consumoP${i}`] ?? d[`energiaP${i}`] ?? 0))
   if (cons.some(c => c > 0)) return cons
   const total = Number(d.totalKwh ?? d.total ?? 0)
-  return Array(periodCount).fill(Math.round(total / periodCount))
+  return total > 0 ? Array(periodCount).fill(Math.round(total / periodCount)) : Array(periodCount).fill(0)
 }
 
 function extractPowersByPeriod(cd: Record<string, unknown> | null, periodCount: number): number[] {
   if (!cd) return Array(periodCount).fill(0)
   const d = cd as any
+  // Primary: potenciaContratada object { P1: ..., P2: ... }
+  if (d.potenciaContratada && typeof d.potenciaContratada === 'object' && !Array.isArray(d.potenciaContratada)) {
+    const vals = PERIOD_KEYS_FE.slice(0, periodCount).map(k => Number(d.potenciaContratada[k] ?? 0))
+    if (vals.some(v => v > 0)) return vals
+  }
   if (Array.isArray(d.potenciasContratadas)) return d.potenciasContratadas.slice(0, periodCount).map(Number)
   const powers: number[] = []
-  for (let i = 1; i <= periodCount; i++) {
-    powers.push(Number(d[`potenciaP${i}`] ?? d[`p${i}`] ?? d[`P${i}`] ?? 0))
-  }
+  for (let i = 1; i <= periodCount; i++) powers.push(Number(d[`potenciaP${i}`] ?? d[`p${i}`] ?? d[`P${i}`] ?? 0))
   if (powers.some(p => p > 0)) return powers
-  const single = Number(d.potenciaContratada ?? d.potencia ?? 0)
-  return Array(periodCount).fill(single)
+  const single = typeof d.potenciaContratada === 'number' ? d.potenciaContratada : 0
+  return single > 0 ? Array(periodCount).fill(single) : Array(periodCount).fill(0)
 }
 
 function formatTariff(raw: string | null | undefined): string {

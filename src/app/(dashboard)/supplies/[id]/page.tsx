@@ -2597,6 +2597,12 @@ export default function SupplyDetailPage() {
           consumptionByPeriod={(() => {
             const cd = supply.consumption_data as any
             if (!cd) return []
+            const keys = ['P1','P2','P3','P4','P5','P6']
+            // Primary: consumoPeriodos object
+            if (cd.consumoPeriodos && typeof cd.consumoPeriodos === 'object' && !Array.isArray(cd.consumoPeriodos)) {
+              const vals = keys.map(k => Number(cd.consumoPeriodos[k] ?? 0))
+              if (vals.some(v => v > 0)) return vals
+            }
             if (Array.isArray(cd.consumoPorPeriodo)) return cd.consumoPorPeriodo.map(Number)
             const periods: number[] = []
             for (let i = 1; i <= 6; i++) {
@@ -2608,6 +2614,12 @@ export default function SupplyDetailPage() {
           powersByPeriod={(() => {
             const cd = supply.consumption_data as any
             if (!cd) return []
+            const keys = ['P1','P2','P3','P4','P5','P6']
+            // Primary: potenciaContratada object
+            if (cd.potenciaContratada && typeof cd.potenciaContratada === 'object' && !Array.isArray(cd.potenciaContratada)) {
+              const vals = keys.map(k => Number(cd.potenciaContratada[k] ?? 0))
+              if (vals.some(v => v > 0)) return vals
+            }
             if (Array.isArray(cd.potenciasContratadas)) return cd.potenciasContratadas.map(Number)
             const powers: number[] = []
             for (let i = 1; i <= 6; i++) {
