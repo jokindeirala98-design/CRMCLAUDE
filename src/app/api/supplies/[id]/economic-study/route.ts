@@ -32,31 +32,48 @@ function set(ws: ExcelJS.Worksheet, cell: string, value: any) {
 }
 
 function fmt2(n: number) { return Math.round(n * 100) / 100 }
+function fmt4(n: number) { return Math.round(n * 10000) / 10000 }
 
 const PERIOD_KEYS = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6']
+
+// Border style for table cells
+const THIN_BORDER: ExcelJS.Border = { style: 'thin', color: { argb: 'FFB0B0B0' } }
+const THIN_ALL: Partial<ExcelJS.Borders> = {
+  top: THIN_BORDER, bottom: THIN_BORDER,
+  left: THIN_BORDER, right: THIN_BORDER,
+}
+
+function applyBorders(ws: ExcelJS.Worksheet, fromRow: number, toRow: number, fromCol: number, toCol: number) {
+  for (let r = fromRow; r <= toRow; r++) {
+    for (let c = fromCol; c <= toCol; c++) {
+      const cell = ws.getCell(r, c)
+      cell.border = THIN_ALL
+    }
+  }
+}
 
 function extractPowers(sipsData: any, periodCount: number): number[] {
   if (!sipsData) return Array(periodCount).fill(0)
 
-  // Format 1: potenciaContratada as object { P1: 120, P2: 130, ... } — used by greening/totalenergies SIPS
+  // Format 1: potenciaContratada as object { P1: 120, P2: 130, ... }
   const pc = sipsData.potenciaContratada
   if (pc && typeof pc === 'object' && !Array.isArray(pc)) {
     const vals = PERIOD_KEYS.slice(0, periodCount).map(k => Number(pc[k] ?? pc[k.toLowerCase()] ?? 0))
     if (vals.some(v => v > 0)) return vals
   }
 
-  // Format 2: potenciasContratadas as array [120, 130, ...]
+  // Format 2: potenciasContratadas as array
   if (Array.isArray(sipsData.potenciasContratadas))
     return sipsData.potenciasContratadas.slice(0, periodCount).map(Number)
 
-  // Format 3: potenciaP1, potenciaP2... flat keys
+  // Format 3: flat keys potenciaP1, potenciaP2...
   const byKey: number[] = []
   for (let i = 1; i <= periodCount; i++) {
     byKey.push(Number(sipsData[`potenciaP${i}`] ?? sipsData[`p${i}`] ?? sipsData[`P${i}`] ?? 0))
   }
   if (byKey.some(v => v > 0)) return byKey
 
-  // Format 4: potenciaContratada as single number — distribute equally
+  // Format 4: single number — distribute equally
   if (typeof pc === 'number' && pc > 0) return Array(periodCount).fill(pc)
 
   return Array(periodCount).fill(0)
@@ -65,7 +82,7 @@ function extractPowers(sipsData: any, periodCount: number): number[] {
 function extractConsumption(sipsData: any, periodCount: number): number[] {
   if (!sipsData) return Array(periodCount).fill(0)
 
-  // Format 1: consumoPeriodos as object { P1: 56208, P2: 70237, ... } — primary SIPS format
+  // Format 1: consumoPeriodos as object { P1: 56208, P2: 70237, ... }
   const cp = sipsData.consumoPeriodos
   if (cp && typeof cp === 'object' && !Array.isArray(cp)) {
     const vals = PERIOD_KEYS.slice(0, periodCount).map(k => Number(cp[k] ?? cp[k.toLowerCase()] ?? 0))
@@ -76,25 +93,100 @@ function extractConsumption(sipsData: any, periodCount: number): number[] {
   if (Array.isArray(sipsData.consumoPorPeriodo))
     return sipsData.consumoPorPeriodo.slice(0, periodCount).map(Number)
 
-  // Format 3: consumoP1, consumoP2... flat keys
+  // Format 3: flat keys
   const byKey: number[] = []
   for (let i = 1; i <= periodCount; i++) {
     byKey.push(Number(sipsData[`consumoP${i}`] ?? sipsData[`energiaP${i}`] ?? 0))
   }
   if (byKey.some(v => v > 0)) return byKey
 
-  // Format 4: totalKwh — distribute equally across periods as last resort
+  // Format 4: totalKwh — distribute equally
   const total = Number(sipsData.totalKwh ?? sipsData.total ?? 0)
   if (total > 0) return Array(periodCount).fill(Math.round(total / periodCount))
 
   return Array(periodCount).fill(0)
 }
 
+/**
+ * Extract invoice-level power data per period.
+ * Aggregates across all invoices: picks the most recent non-zero value for each period.
+ * Returns: { powers: number[], prices: number[] } indexed [0..periodCount-1]
+ */
+function extractInvoicePowerData(
+  invoices: any[],
+  periodCount: number,
+): { powers: number[]; prices: number[] } {
+  const powers = Array(periodCount).fill(0)
+  const prices = Array(periodCount).fill(0)
+
+  if (!invoices?.length) return { powers, prices }
+
+  // Use the most recent invoice that has potencia data
+  // Sort invoices descending by period_end
+  const sorted = [...invoices].sort((a, b) => {
+    const da = a.period_end || a.period_start || ''
+    const db = b.period_end || b.period_start || ''
+    return db.localeCompare(da)
+  })
+
+  for (const inv of sorted) {
+    const eco = inv.extracted_data?.economics
+    if (!eco?.potencia?.length) continue
+
+    let filled = 0
+    for (let i = 0; i < periodCount; i++) {
+      const p = PERIOD_KEYS[i]
+      const item = eco.potencia.find((x: any) => x.periodo === p || x.periodo === `Periodo ${i + 1}`)
+      if (item) {
+        if (item.kw > 0 && powers[i] === 0) powers[i] = Number(item.kw)
+        if (item.precioKwDia > 0 && prices[i] === 0) prices[i] = Number(item.precioKwDia)
+        filled++
+      }
+    }
+    // If we got data for at least one period, stop (most recent invoice wins)
+    if (filled > 0) break
+  }
+
+  return { powers, prices }
+}
+
+/**
+ * Extract invoice-level energy prices per period.
+ * Returns array indexed [0..periodCount-1], 0 if period has no data.
+ */
+function extractInvoiceEnergyPrices(invoices: any[], periodCount: number): number[] {
+  const prices = Array(periodCount).fill(0)
+  if (!invoices?.length) return prices
+
+  const sorted = [...invoices].sort((a, b) => {
+    const da = a.period_end || a.period_start || ''
+    const db = b.period_end || b.period_start || ''
+    return db.localeCompare(da)
+  })
+
+  for (const inv of sorted) {
+    const eco = inv.extracted_data?.economics
+    if (!eco?.consumo?.length) continue
+
+    let filled = 0
+    for (let i = 0; i < periodCount; i++) {
+      const p = PERIOD_KEYS[i]
+      const item = eco.consumo.find((x: any) => x.periodo === p || x.periodo === `Periodo ${i + 1}`)
+      if (item && item.precioKwh > 0 && prices[i] === 0) {
+        prices[i] = Number(item.precioKwh)
+        filled++
+      }
+    }
+    if (filled > 0) break
+  }
+
+  return prices
+}
+
 function avgPriceFromInvoices(invoices: any[]): number {
   if (!invoices?.length) return 0
   let totalCost = 0, totalKwh = 0
   for (const inv of invoices) {
-    // Try multiple possible field names from invoice extracted_data
     const ed = inv.extracted_data as any
     const kwh = Number(
       inv.consumption_kwh ?? inv.kwh ??
@@ -130,18 +222,12 @@ export async function POST(
       return NextResponse.json({ error: 'nueva_comercializadora y precios_nuevos son obligatorios' }, { status: 400 })
     }
 
-    // ── Auth: verify token from Authorization header (app stores session in localStorage, not cookies)
+    // ── Auth: verify token from Authorization header
     const authHeader = req.headers.get('Authorization')
     const token = authHeader?.replace('Bearer ', '').trim()
 
-    // Use service-role client for data ops (bypasses RLS, needed for cross-table queries)
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    )
-
-    // Still verify the caller is a valid authenticated user
     if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
     const anonClient = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -149,14 +235,20 @@ export async function POST(
     const { data: { user } } = await anonClient.auth.getUser(token)
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+    // Use service-role client for data ops (bypasses RLS)
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
+
     // ── Fetch supply + client + invoices ──────────────────────────────────────
     const { data: supply, error } = await supabase
       .from('supplies')
       .select(`
         *,
-        client:clients(name, cif_nif, commercial:users_profile!commercial_id(full_name)),
+        client:clients(id, name, cif_nif, commercial:users_profile!commercial_id(full_name)),
         comercializadora:comercializadoras(name),
-        invoices(*)
+        invoices(id, period_start, period_end, total_amount, consumption_kwh, extracted_data)
       `)
       .eq('id', params.id)
       .single()
@@ -171,18 +263,32 @@ export async function POST(
     const periodCount = boe2026.length
 
     const sipsData = supply.consumption_data as any
-    const powers = extractPowers(sipsData, periodCount)
+    const invoices = supply.invoices || []
+
+    // Consumption always from SIPS (official distributor data)
     const consumption = extractConsumption(sipsData, periodCount)
-    const totalKwh = consumption.reduce((a, b) => a + b, 0)
-    const actualAvgPrice = avgPriceFromInvoices(supply.invoices || [])
+    const totalKwh = consumption.reduce((a: number, b: number) => a + b, 0)
+
+    // Powers ACTUAL: prefer invoice data (what client actually pays for), fallback SIPS
+    const invoicePower = extractInvoicePowerData(invoices, periodCount)
+    const sipsPowers = extractPowers(sipsData, periodCount)
+    const powers = invoicePower.powers.some(v => v > 0) ? invoicePower.powers : sipsPowers
+
+    // Power prices ACTUAL: from invoice
+    const powerPricesActual = invoicePower.prices
+
+    // Energy prices ACTUAL per period: from invoice
+    const energyPricesActual = extractInvoiceEnergyPrices(invoices, periodCount)
+
+    // Fallback: overall average price if per-period not available
+    const actualAvgPrice = avgPriceFromInvoices(invoices)
+
     const comercializadoraActual = supply.comercializadora?.name || 'Comercializadora actual'
     const clientName = supply.client?.name || ''
     const cups = supply.cups || ''
     const tariffLabel = `TARIFA ${normalizeTariff(tariff)}`
 
     // ── Abrir plantilla ───────────────────────────────────────────────────────
-    // Intentamos la plantilla original (con logos). Si ExcelJS no está parcheado
-    // todavía (primer deploy sin postinstall), caemos al template limpio sin drawings.
     const templateFull  = path.join(process.cwd(), 'templates', 'estudio-economico.xlsx')
     const templateClean = path.join(process.cwd(), 'templates', 'estudio-economico-clean.xlsx')
 
@@ -222,59 +328,107 @@ export async function POST(
     for (let i = 0; i < periodCount; i++) {
       const row = POT_ROWS[i]
       const kw = powers[i] || 0
-      const boeA = boe2025[i]?.pricePerKwDay ?? 0
+      // Actual: use invoice price per kW·day; fallback to BOE 2025
+      const boeA = powerPricesActual[i] > 0 ? powerPricesActual[i] : (boe2025[i]?.pricePerKwDay ?? 0)
+      // Nueva: always BOE 2026
       const boeN = boe2026[i]?.pricePerKwDay ?? 0
       const costeA = fmt2(kw * DIAS * boeA)
       const costeN = fmt2(kw * DIAS * boeN)
 
-      set(ws, `B${row}`, kw);  set(ws, `C${row}`, DIAS)
-      set(ws, `D${row}`, boeA); set(ws, `E${row}`, fmt2(kw * boeA * DIAS / 12))
+      // ACTUAL columns
+      set(ws, `B${row}`, kw)
+      set(ws, `C${row}`, DIAS)
+      set(ws, `D${row}`, fmt4(boeA))
+      set(ws, `E${row}`, fmt2(kw * boeA * DIAS / 12))
       set(ws, `F${row}`, costeA)
-      set(ws, `J${row}`, kw);  set(ws, `K${row}`, DIAS)
-      set(ws, `L${row}`, boeN); set(ws, `M${row}`, fmt2(kw * boeN * DIAS / 12))
+
+      // NUEVO columns
+      set(ws, `J${row}`, kw)
+      set(ws, `K${row}`, DIAS)
+      set(ws, `L${row}`, fmt4(boeN))
+      set(ws, `M${row}`, fmt2(kw * boeN * DIAS / 12))
       set(ws, `N${row}`, costeN)
 
-      totalPotenciaActual += costeA; totalPotenciaNueva += costeN; totalKwPot += kw
+      totalPotenciaActual += costeA
+      totalPotenciaNueva += costeN
+      totalKwPot += kw
     }
-    set(ws, 'B19', totalKwPot); set(ws, 'F19', fmt2(totalPotenciaActual))
-    set(ws, 'J19', totalKwPot); set(ws, 'N19', fmt2(totalPotenciaNueva))
+
+    // Totales potencia
+    set(ws, 'B19', totalKwPot)
+    set(ws, 'F19', fmt2(totalPotenciaActual))
+    set(ws, 'J19', totalKwPot)
+    set(ws, 'N19', fmt2(totalPotenciaNueva))
 
     // ── ENERGÍA ───────────────────────────────────────────────────────────────
     const ENE_ROWS = [30, 31, 32, 33, 34, 35]
     let totalEnergiaActual = 0, totalEnergiaNueva = 0
 
-    set(ws, 'D29', totalKwh); set(ws, 'J29', totalKwh)
+    set(ws, 'D29', totalKwh)
+    set(ws, 'J29', totalKwh)
 
     for (let i = 0; i < periodCount; i++) {
       const row = ENE_ROWS[i]
       const kwh = consumption[i] || 0
       const pct = totalKwh > 0 ? kwh / totalKwh : 0
-      const precioA = actualAvgPrice || 0
+
+      // Energy price ACTUAL: use per-period invoice price, fallback to overall avg
+      const precioA = energyPricesActual[i] > 0 ? energyPricesActual[i] : (kwh > 0 ? actualAvgPrice : 0)
       const precioN = precios_nuevos[i] || 0
       const costeA = fmt2(kwh * precioA)
       const costeN = fmt2(kwh * precioN)
 
-      set(ws, `C${row}`, PERIOD_KEYS[i]); set(ws, `D${row}`, kwh)
-      set(ws, `E${row}`, precioA); set(ws, `F${row}`, costeA); set(ws, `G${row}`, pct)
-      set(ws, `I${row}`, PERIOD_KEYS[i]); set(ws, `J${row}`, kwh)
-      set(ws, `L${row}`, precioN); set(ws, `M${row}`, costeN)
+      // ACTUAL columns
+      set(ws, `C${row}`, PERIOD_KEYS[i])
+      set(ws, `D${row}`, kwh)
+      set(ws, `E${row}`, fmt4(precioA))
+      set(ws, `F${row}`, costeA)
+      set(ws, `G${row}`, pct)
 
-      totalEnergiaActual += costeA; totalEnergiaNueva += costeN
+      // NUEVO columns
+      set(ws, `I${row}`, PERIOD_KEYS[i])
+      set(ws, `J${row}`, kwh)
+      set(ws, `L${row}`, fmt4(precioN))
+      set(ws, `M${row}`, costeN)
+
+      totalEnergiaActual += costeA
+      totalEnergiaNueva += costeN
     }
 
+    // Totales energía
     const avgActual = totalKwh > 0 ? totalEnergiaActual / totalKwh : 0
-    set(ws, 'D37', totalKwh); set(ws, 'E37', fmt2(avgActual)); set(ws, 'F37', fmt2(totalEnergiaActual))
-    set(ws, 'J37', totalKwh); set(ws, 'K37', 0); set(ws, 'L37', 0)
+    const avgNueva = totalKwh > 0 ? totalEnergiaNueva / totalKwh : 0
+    set(ws, 'D37', totalKwh)
+    set(ws, 'E37', fmt4(avgActual))
+    set(ws, 'F37', fmt2(totalEnergiaActual))
+    set(ws, 'J37', totalKwh)
+    set(ws, 'L37', fmt4(avgNueva))
+    set(ws, 'M37', fmt2(totalEnergiaNueva))
 
+    // Diferencia energía (ahorro)
     const difEnergia = fmt2(totalEnergiaActual - totalEnergiaNueva)
     set(ws, 'G40', difEnergia)
 
     // ── Resumen ───────────────────────────────────────────────────────────────
     const difPotencia = fmt2(totalPotenciaActual - totalPotenciaNueva)
     const difTotal = fmt2(difEnergia + difPotencia + (ssaa || 0) + (excesos || 0))
-    set(ws, 'I23', 0)
-    set(ws, 'I24', fmt2(totalEnergiaActual))
-    set(ws, 'K25', difTotal)
+
+    set(ws, 'I23', fmt2(difPotencia))          // Ahorro potencia
+    set(ws, 'I24', fmt2(difEnergia))            // Ahorro energía
+    set(ws, 'I25', fmt2(ssaa || 0))             // SSAA
+    set(ws, 'I26', fmt2(excesos || 0))          // Excesos
+    set(ws, 'M24', fmt2(difTotal))              // Total ahorro (K24:L24 = label "diferencia total:")
+
+    // ── Bordes ───────────────────────────────────────────────────────────────
+    // Potencia: columnas B-F (2..6) y J-N (10..14), filas 12-19
+    applyBorders(ws, 12, 19, 2, 6)
+    applyBorders(ws, 12, 19, 10, 14)
+    // Energía: columnas C-G (3..7) y I-M (9..13), filas 29-37
+    applyBorders(ws, 29, 37, 3, 7)
+    applyBorders(ws, 29, 37, 9, 13)
+    // Resumen: I23-I26 and M24
+    applyBorders(ws, 23, 26, 9, 9)
+    applyBorders(ws, 24, 24, 13, 13)
 
     // ── Generar buffer ────────────────────────────────────────────────────────
     const tariffSlug = normalizeTariff(tariff).replace('.', '')
@@ -310,7 +464,7 @@ export async function POST(
           completed_at: now,
         })
 
-        // 3. Guardar notas + avanzar pipeline si procede
+        // 3. Guardar notas + avanzar pipeline
         await supabase.from('supplies').update({
           ...(notes ? { study_notes: notes } : {}),
           status: 'estudio_completado',
