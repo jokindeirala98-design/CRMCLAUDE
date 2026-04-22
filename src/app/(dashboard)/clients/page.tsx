@@ -18,7 +18,7 @@ import type { Client, SupplyStatus } from '@/types/database'
 
 // ── Status groups for filtering ──
 const STATUS_GROUPS: { label: string; statuses: SupplyStatus[] }[] = [
-  { label: 'Inicio',     statuses: ['primer_contacto', 'facturas_recibidas'] },
+  { label: 'Inicio',     statuses: ['primer_contacto'] },
   { label: 'Informes',   statuses: ['estudio_en_curso', 'estudio_completado'] },
   { label: 'Presentado', statuses: ['presentado'] },
   { label: 'Firma',      statuses: ['pendiente_firma', 'firmado'] },
@@ -41,7 +41,7 @@ const supplyTypeIcons: Record<string, React.ElementType> = {
 function getClientMaxStatus(supplies: any[]): SupplyStatus | null {
   if (!supplies?.length) return null
   const ORDER: SupplyStatus[] = [
-    'primer_contacto', 'facturas_recibidas', 'estudio_en_curso',
+    'primer_contacto', 'facturas_recibidas', 'estudio_en_curso', // facturas_recibidas kept for legacy DB records
     'estudio_completado', 'presentado', 'pendiente_firma',
     'firmado', 'suscrito', 'seguimiento_activo',
   ]

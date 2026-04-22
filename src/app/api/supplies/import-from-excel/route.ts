@@ -228,7 +228,7 @@ async function processFile(
           client_id: resolvedClientId,
           tariff: parsed.tarifa,
           type: 'luz',
-          status: 'facturas_recibidas',
+          status: 'estudio_en_curso',
           consumption_data: annualData,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -405,7 +405,7 @@ async function processFile(
           .from('supplies')
           .update({ status: 'estudio_en_curso', updated_at: new Date().toISOString() })
           .eq('id', supplyId)
-          .in('status', ['facturas_recibidas', 'primer_contacto'])
+          .in('status', ['estudio_en_curso', 'facturas_recibidas', 'primer_contacto'])
       } else {
         console.warn(`[import-from-excel] Invoice insert error for ${parsed.cups}:`, invErr.message)
       }

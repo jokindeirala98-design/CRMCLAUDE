@@ -169,7 +169,7 @@ export default function SuppliesPage() {
   const statusFilters = [
     { key: 'all', label: 'Todos' },
     { key: 'primer_contacto', label: 'Primer contacto' },
-    { key: 'facturas_recibidas', label: 'Facturas recibidas' },
+
     { key: 'prescoring_pendiente', label: 'Prescoring pte.' },
     { key: 'estudio_en_curso', label: 'En estudio' },
     { key: 'pendiente_firma', label: 'Pte. firma' },

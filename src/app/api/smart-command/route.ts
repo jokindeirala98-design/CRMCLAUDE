@@ -250,7 +250,7 @@ OTHER:
 34. "unknown" — Cannot understand
 
 SUPPLY PIPELINE (in order):
-primer_contacto → facturas_recibidas → prescoring_pendiente → prescoring_completado → estudio_en_curso → estudio_completado → presentacion_pendiente → presentacion_realizada → rechazado → pendiente_firma → firmado → suscrito → seguimiento_activo
+primer_contacto → prescoring_pendiente → prescoring_completado → estudio_en_curso → estudio_completado → presentacion_pendiente → presentacion_realizada → rechazado → pendiente_firma → firmado → suscrito → seguimiento_activo
 
 JSON RESPONSE STRUCTURE:
 {
@@ -593,7 +593,7 @@ function interpretWithHeuristics(command: string, hasFiles: boolean, crmContext?
     if (/suscripción|suscripcion/i.test(lower)) entity = 'subscriptions'
 
     const filters: Record<string, string> = {}
-    const SUPPLY_STATUSES = ['primer_contacto','facturas_recibidas','prescoring_pendiente','prescoring_completado','estudio_en_curso','estudio_completado','presentacion_pendiente','presentacion_realizada','rechazado','pendiente_firma','firmado','suscrito','seguimiento_activo']
+    const SUPPLY_STATUSES = ['primer_contacto','prescoring_pendiente','prescoring_completado','estudio_en_curso','estudio_completado','presentacion_pendiente','presentacion_realizada','rechazado','pendiente_firma','firmado','suscrito','seguimiento_activo']
     for (const s of SUPPLY_STATUSES) {
       if (lower.includes(s.replace(/_/g, ' '))) { filters.status = s; break }
     }
@@ -696,7 +696,7 @@ function interpretWithHeuristics(command: string, hasFiles: boolean, crmContext?
 
   // UPDATE STATUS
   if (/(?:pasa|cambia|mover?|actualiza)\s.*(?:a\s+|al estado\s+)/i.test(lower)) {
-    const SUPPLY_STATUSES = ['primer_contacto','facturas_recibidas','prescoring_pendiente','prescoring_completado','estudio_en_curso','estudio_completado','presentacion_pendiente','presentacion_realizada','rechazado','pendiente_firma','firmado','suscrito','seguimiento_activo']
+    const SUPPLY_STATUSES = ['primer_contacto','prescoring_pendiente','prescoring_completado','estudio_en_curso','estudio_completado','presentacion_pendiente','presentacion_realizada','rechazado','pendiente_firma','firmado','suscrito','seguimiento_activo']
     let ns: string | undefined
     for (const s of SUPPLY_STATUSES) { if (lower.includes(s.replace(/_/g, ' '))) { ns = s; break } }
     if (lower.includes('firmado')) ns = 'firmado'

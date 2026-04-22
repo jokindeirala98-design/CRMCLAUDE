@@ -33,7 +33,6 @@ import type { SupplyStatus } from '@/types/database'
 // Pipeline steps in order
 const PIPELINE_STEPS: { key: SupplyStatus; label: string; icon: any }[] = [
   { key: 'primer_contacto', label: 'Contacto', icon: UserCheck },
-  { key: 'facturas_recibidas', label: 'Facturas', icon: Upload },
   { key: 'estudio_en_curso', label: 'Informes', icon: BarChart3 },
   { key: 'estudio_completado', label: 'Inf. Listo', icon: CheckCircle2 },
   { key: 'presentado', label: 'Presentado', icon: Presentation },
@@ -47,17 +46,17 @@ const PIPELINE_STEPS: { key: SupplyStatus; label: string; icon: any }[] = [
 function getPipelineIndex(status: string): number {
   const map: Record<string, number> = {
     primer_contacto: 0,
-    facturas_recibidas: 1,
-    estudio_en_curso: 2,
-    estudio_completado: 3,
-    presentado: 4,
+    facturas_recibidas: 1, // legacy — maps to estudio_en_curso position
+    estudio_en_curso: 1,
+    estudio_completado: 2,
+    presentado: 3,
     // Legacy states map to closest step
-    prescoring_pendiente: 4,
-    prescoring_completado: 4,
-    pendiente_firma: 5,
-    firmado: 6,
-    suscrito: 7,
-    seguimiento_activo: 8,
+    prescoring_pendiente: 3,
+    prescoring_completado: 3,
+    pendiente_firma: 4,
+    firmado: 5,
+    suscrito: 6,
+    seguimiento_activo: 7,
     rechazado: -1,
   }
   return map[status] ?? -1
@@ -67,8 +66,8 @@ function getPipelineIndex(status: string): number {
 const TRANSITIONS: Record<string, { next: SupplyStatus; label: string }[]> = {
   // Main pipeline flow
   // Prescoring is now automatic — created when invoices are added
-  primer_contacto: [{ next: 'facturas_recibidas', label: 'Facturas recibidas' }],
-  facturas_recibidas: [{ next: 'estudio_en_curso', label: 'Enviar a informes' }],
+  primer_contacto: [{ next: 'estudio_en_curso', label: 'Esperando informes' }],
+  facturas_recibidas: [{ next: 'estudio_en_curso', label: 'Esperando informes' }], // legacy
   estudio_en_curso: [], // Admin transitions this via /informes page
   estudio_completado: [{ next: 'presentado', label: 'Marcar como presentado' }],
   presentado: [
@@ -953,7 +952,7 @@ export default function SupplyDetailPage() {
         }
 
         // Auto-transition to estudio_en_curso if in early stages
-        const earlyStatuses = ['primer_contacto', 'facturas_recibidas']
+        const earlyStatuses = ['primer_contacto', 'facturas_recibidas'] // facturas_recibidas kept for legacy DB records
         if (earlyStatuses.includes(supply.status)) {
           await createClient()
             .from('supplies')

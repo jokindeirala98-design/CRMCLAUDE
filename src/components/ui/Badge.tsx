@@ -72,7 +72,7 @@ export function Badge({ children, variant = 'default', hideDot = false, classNam
 
 const statusColorMap: Record<string, BadgeVariant> = {
   primer_contacto:          'info',
-  facturas_recibidas:       'info',
+  facturas_recibidas:       'warning', // legacy → show same as estudio_en_curso
   prescoring_pendiente:     'warning',
   prescoring_completado:    'success',
   estudio_en_curso:         'warning',
@@ -103,7 +103,7 @@ const statusColorMap: Record<string, BadgeVariant> = {
 
 const statusLabelMap: Record<string, string> = {
   primer_contacto:          'Primer contacto',
-  facturas_recibidas:       'Facturas recibidas',
+  facturas_recibidas:       'Esperando informes', // legacy redirect
   prescoring_pendiente:     'Prescoring pte.',
   prescoring_completado:    'Prescoring OK',
   estudio_en_curso:         'Esperando informes',

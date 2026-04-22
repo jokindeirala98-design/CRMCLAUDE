@@ -15,14 +15,13 @@
 // ── Pipeline order (index = priority, higher = further along) ──────────────
 const PIPELINE_ORDER: string[] = [
   'primer_contacto',        // 0
-  'facturas_recibidas',     // 1
-  'estudio_en_curso',       // 2  ← appears in /informes for admin
-  'estudio_completado',     // 3
-  'presentado',             // 4
-  'pendiente_firma',        // 5
-  'firmado',                // 6
-  'suscrito',               // 7
-  'seguimiento_activo',     // 8
+  'estudio_en_curso',       // 1  ← "Esperando informes" (facturas_recibidas merged here)
+  'estudio_completado',     // 2
+  'presentado',             // 3
+  'pendiente_firma',        // 4
+  'firmado',                // 5
+  'suscrito',               // 6
+  'seguimiento_activo',     // 7
 ]
 
 function pipelineIndex(status: string): number {

@@ -51,7 +51,7 @@ interface SubscriptionWithPlan extends Omit<Subscription, 'plan_tier'> {
 // ---- Supply Status Config ----
 const SUPPLY_STATUS_CONFIG: Record<string, { label: string; bg: string; text: string }> = {
   primer_contacto:      { label: 'Primer contacto',     bg: 'bg-info-container',    text: 'text-info' },
-  facturas_recibidas:   { label: 'Facturas recibidas',   bg: 'bg-info-container',    text: 'text-info' },
+  facturas_recibidas:   { label: 'Esperando informes',   bg: 'bg-warn-container',    text: 'text-warn' }, // legacy
   prescoring_pendiente: { label: 'Prescoring pendiente', bg: 'bg-warn-container',    text: 'text-warn' },
   estudio_en_curso:     { label: 'Estudio en curso',     bg: 'bg-warn-container',    text: 'text-warn' },
   presentacion:         { label: 'Presentación',         bg: 'bg-neutral-container', text: 'text-neutral' },
@@ -62,9 +62,8 @@ const SUPPLY_STATUS_CONFIG: Record<string, { label: string; bg: string; text: st
 
 const PIPELINE_STATUSES = [
   'primer_contacto',
-  'facturas_recibidas',
-  'prescoring_pendiente',
   'estudio_en_curso',
+  'prescoring_pendiente',
   'presentacion',
   'pte_firma',
   'firmado',
