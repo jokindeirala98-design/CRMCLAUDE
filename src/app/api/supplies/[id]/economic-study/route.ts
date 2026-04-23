@@ -31,8 +31,19 @@ function set(ws: ExcelJS.Worksheet, cell: string, value: any) {
   ws.getCell(cell).value = value
 }
 
+/** Monetary totals: round to 2 decimal places (cents) */
 function fmt2(n: number) { return Math.round(n * 100) / 100 }
-function fmt4(n: number) { return Math.round(n * 10000) / 10000 }
+
+/**
+ * Write a price (€/kWh or €/kW·día) to a cell with full 6-decimal precision.
+ * Does NOT round — writes the exact number so BOE values like 0.081083 appear intact.
+ * Forces the cell number format to show 6 decimal places regardless of template format.
+ */
+function setPrice(ws: ExcelJS.Worksheet, cell: string, value: number) {
+  const c = ws.getCell(cell)
+  c.value = value           // raw JS number, no rounding
+  c.numFmt = '0.000000'     // always 6 decimal places, overrides template format
+}
 
 const PERIOD_KEYS = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6']
 
@@ -354,14 +365,14 @@ export async function POST(
       // ACTUAL columns
       set(ws, `B${row}`, kw)
       set(ws, `C${row}`, DIAS)
-      set(ws, `D${row}`, fmt4(boeA))
+      setPrice(ws, `D${row}`, boeA)           // €/kW·día actual — full precision
       set(ws, `E${row}`, fmt2(kw * boeA * DIAS / 12))
       set(ws, `F${row}`, costeA)
 
-      // NUEVO columns
+      // NUEVO columns (BOE 2026)
       set(ws, `J${row}`, kw)
       set(ws, `K${row}`, DIAS)
-      set(ws, `L${row}`, fmt4(boeN))
+      setPrice(ws, `L${row}`, boeN)           // €/kW·día nueva — full precision, e.g. 0.081083
       set(ws, `M${row}`, fmt2(kw * boeN * DIAS / 12))
       set(ws, `N${row}`, costeN)
 
@@ -397,14 +408,14 @@ export async function POST(
       // ACTUAL columns
       set(ws, `C${row}`, PERIOD_KEYS[i])
       set(ws, `D${row}`, kwh)
-      set(ws, `E${row}`, fmt4(precioA))
+      setPrice(ws, `E${row}`, precioA)        // €/kWh actual — full precision
       set(ws, `F${row}`, costeA)
       set(ws, `G${row}`, pct)
 
       // NUEVO columns
       set(ws, `I${row}`, PERIOD_KEYS[i])
       set(ws, `J${row}`, kwh)
-      set(ws, `L${row}`, fmt4(precioN))
+      setPrice(ws, `L${row}`, precioN)        // €/kWh nueva (entered by user) — full precision
       set(ws, `M${row}`, costeN)
 
       totalEnergiaActual += costeA
@@ -415,10 +426,10 @@ export async function POST(
     const avgActual = totalKwh > 0 ? totalEnergiaActual / totalKwh : 0
     const avgNueva = totalKwh > 0 ? totalEnergiaNueva / totalKwh : 0
     set(ws, 'D37', totalKwh)
-    set(ws, 'E37', fmt4(avgActual))
+    setPrice(ws, 'E37', avgActual)           // precio medio actual €/kWh — full precision
     set(ws, 'F37', fmt2(totalEnergiaActual))
     set(ws, 'J37', totalKwh)
-    set(ws, 'L37', fmt4(avgNueva))
+    setPrice(ws, 'L37', avgNueva)            // precio medio nueva €/kWh — full precision
     set(ws, 'M37', fmt2(totalEnergiaNueva))
 
     // Diferencia energía (ahorro)
