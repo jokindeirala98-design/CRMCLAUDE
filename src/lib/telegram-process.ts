@@ -21,7 +21,41 @@ function getSupabase() {
 
 // Legal suffixes for client name cleaning
 const LEGAL_SUFFIXES = /\b(s\.?l\.?u?\.?|s\.?a\.?|s\.?c\.?|s\.?coop\.?|c\.?b\.?|sociedad|limitada|anonima|anónima|cooperativa|comunidad\s+de\s+bienes)\b/gi
-const FILLER_WORDS = /\b(de|del|la|las|los|el|y|e|en|con)\b/gi
+const FILLER_WORDS = /\b(de|del|la|las|los|el|y|e|en|con|a)\b/gi
+/**
+ * Generic industry/descriptor words that appear in many company names.
+ * Stripping these before picking the "brand keyword" prevents false positives
+ * such as searching for "industria" and matching "Cromado industriales sarrasin"
+ * when the invoice belongs to "Rodona Industria Grafica SL".
+ */
+const GENERIC_WORDS = /\b(industria|industrial|industriales|industrias|servicios|servicio|soluciones|solucion|solucions|comercial|comerciales|comercio|grafica|graficas|grafico|graficos|tecnologia|tecnologias|tecnico|tecnicos|proyectos|proyecto|construccion|construcciones|obras|obra|gestion|gestiones|consultoria|instalaciones|instalacion|grupo|grupos|internacional|internacionales|nacional|nacionales|iberica|ibericas|espana|navarra|aragon|cataluna|valencia|asturias|galicia|andalucia)\b/gi
+
+/** All keywords (brand + generic) — used for scoring. */
+function extractKeywords(text: string): string[] {
+  const cleaned = text
+    .replace(LEGAL_SUFFIXES, '')
+    .replace(FILLER_WORDS, '')
+    .replace(/[.,;:'"()]/g, '')
+    .trim()
+  return Array.from(new Set(cleaned.split(/\s+/).filter(w => w.length >= 3).map(w => w.toLowerCase())))
+}
+
+/**
+ * Brand-only keywords: same as extractKeywords but also strips generic industry/
+ * descriptor words. The first element is the most distinctive part of the name.
+ * Used to pick the PRIMARY search term so we don't search for generic words.
+ */
+function extractBrandKeywords(text: string): string[] {
+  const cleaned = text
+    .replace(LEGAL_SUFFIXES, '')
+    .replace(FILLER_WORDS, '')
+    .replace(GENERIC_WORDS, '')
+    .replace(/[.,;:'"()]/g, '')
+    .trim()
+  // Preserve original word order (don't deduplicate-sort); first word = brand name
+  return cleaned.split(/\s+/).filter(w => w.length >= 3).map(w => w.toLowerCase())
+    .filter((w, i, arr) => arr.indexOf(w) === i) // unique, order-preserving
+}
 
 /** Convert DD/MM/YYYY or DD/MM/YY to YYYY-MM-DD for PostgreSQL. */
 function toIsoDate(raw: string | null | undefined): string | null {
@@ -36,15 +70,6 @@ function toIsoDate(raw: string | null | undefined): string | null {
     return `${year}-${month}-${day}`
   }
   return null
-}
-
-function extractKeywords(text: string): string[] {
-  const cleaned = text
-    .replace(LEGAL_SUFFIXES, '')
-    .replace(FILLER_WORDS, '')
-    .replace(/[.,;:'"()]/g, '')
-    .trim()
-  return Array.from(new Set(cleaned.split(/\s+/).filter(w => w.length >= 3).map(w => w.toLowerCase())))
 }
 
 export interface ProcessResult {
@@ -219,7 +244,14 @@ export async function processTelegramInboxItem(
   if (!clientId && holderName && holderName !== 'No detectado') {
     const keywords = extractKeywords(holderName)
     if (keywords.length > 0) {
-      const primaryKeyword = keywords.sort((a, b) => b.length - a.length)[0]
+      // Use the first brand keyword (non-generic, original word order) as the
+      // primary search term. This avoids searching for generic words like
+      // "industria" that appear as substrings in many unrelated company names.
+      const brandKeywords = extractBrandKeywords(holderName)
+      const primaryKeyword = brandKeywords.length > 0
+        ? brandKeywords[0]   // e.g. "rodona" instead of "industria"
+        : keywords[0]        // fallback: first keyword if all are generic
+
       const { data: nameMatches } = await supabase
         .from('clients')
         .select('id, name')
@@ -232,9 +264,12 @@ export async function processTelegramInboxItem(
           score: keywords.filter(k => c.name.toLowerCase().includes(k)).length,
         })).sort((a, b) => b.score - a.score)
 
-        if (scored[0].score >= 1) {
+        // When there are multiple keywords, require at least 2 to match
+        // to avoid single-word false positives (e.g. "industria" ≠ "industriales")
+        const minScore = keywords.length >= 2 ? 2 : 1
+        if (scored[0].score >= minScore) {
           clientId = scored[0].id
-          console.log(`[TelegramProcess] Matched client by name: ${scored[0].name}`)
+          console.log(`[TelegramProcess] Matched client by name: ${scored[0].name} (score ${scored[0].score}/${keywords.length})`)
         }
       }
     }
@@ -463,14 +498,14 @@ export async function processTelegramInboxItem(
 
   console.log(`[TelegramProcess] Done: ${inboxId} → supply ${supplyId} (${isExistingSupply ? 'existing' : 'new'})`)
 
-  // 12. Background: fetch SIPS data and power study (fire-and-forget)
+  // 12. Fetch SIPS + power study (awaited so consumption_data is ready before caller returns)
   if (cups && cups.length >= 20 && supplyId) {
-    fetchSipsAndStudy(supplyId, cups, holderName || 'Telegram').catch(err => {
-      console.error(`[TelegramProcess] Background SIPS error:`, err.message)
+    await fetchSipsAndStudy(supplyId, cups, holderName || 'Telegram').catch(err => {
+      console.error(`[TelegramProcess] SIPS error (non-fatal):`, err.message)
     })
   }
 
-  // 13. Background: for ayuntamiento clients, trigger sync-consumption
+  // 13. For ayuntamiento clients, trigger sync-consumption (fire-and-forget OK — secondary)
   if (clientType === 'ayuntamiento' && clientId) {
     triggerAyuntamientoSync(clientId).catch(err => {
       console.error(`[TelegramProcess] Background ayuntamiento sync error:`, err.message)

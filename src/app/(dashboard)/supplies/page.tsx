@@ -228,26 +228,40 @@ export default function SuppliesPage() {
         .not('extracted_data', 'is', null)
     ])
 
-    const consumptionData: Record<string, number> = {}
+    // Build invoice kwh sums as a fallback (used only when no SIPS data exists)
+    const invoiceKwhSum: Record<string, number> = {}
     if (invoicesResult.data) {
       invoicesResult.data.forEach((invoice: any) => {
         const kwh = invoice.extracted_data?.economics?.consumoTotalKwh
         if (kwh && invoice.supply_id) {
-          consumptionData[invoice.supply_id] = (consumptionData[invoice.supply_id] || 0) + kwh
+          invoiceKwhSum[invoice.supply_id] = (invoiceKwhSum[invoice.supply_id] || 0) + kwh
         }
       })
     }
 
+    // Priority for annual consumption (highest → lowest reliability):
+    //   1. consumption_data.consumoPeriodos sum (SIPS annual breakdown by period)
+    //   2. consumption_data.totalKwh (SIPS annual total — from totalConsumptionKwh)
+    //   3. Sum of invoice consumoTotalKwh (only one period's kwh, not reliable as annual)
+    const consumptionData: Record<string, number> = {}
     if (suppliesResult.data) {
       suppliesResult.data.forEach((supply: any) => {
-        const cp = supply.consumption_data?.consumoPeriodos || {}
+        const cd = supply.consumption_data as any
+        const cp = cd?.consumoPeriodos || {}
         const periodosSum = (Number(cp.P1)||0) + (Number(cp.P2)||0) + (Number(cp.P3)||0)
                           + (Number(cp.P4)||0) + (Number(cp.P5)||0) + (Number(cp.P6)||0)
         if (periodosSum > 0) {
           consumptionData[supply.id] = periodosSum
-        } else if (!consumptionData[supply.id]) {
-          const totalKwh = Number(supply.consumption_data?.totalKwh) || 0
-          if (totalKwh > 0) consumptionData[supply.id] = totalKwh
+        } else {
+          const sipsTotal = Number(cd?.totalKwh) || Number(cd?.total) || 0
+          if (sipsTotal > 0) {
+            consumptionData[supply.id] = sipsTotal
+          } else {
+            // Last resort: sum of individual invoice periods
+            // (may be just one month's data — imprecise but better than nothing)
+            const invSum = invoiceKwhSum[supply.id] || 0
+            if (invSum > 0) consumptionData[supply.id] = invSum
+          }
         }
       })
     }

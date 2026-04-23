@@ -120,8 +120,13 @@ function extractConsumption(sipsData: any, periodCount: number): number[] {
 
 /**
  * Extract invoice-level power data per period.
- * Aggregates across all invoices: picks the most recent non-zero value for each period.
- * Returns: { powers: number[], prices: number[] } indexed [0..periodCount-1]
+ *
+ * Tries three layers in order (most recent invoice first):
+ *   1. extracted_data.economics.potencia[]  — standard Gemini output (precioKwDia field)
+ *   2. extracted_data.potencia[]            — some older invoices store here directly
+ *   3. rawLineItems with potencia categories — fallback: compute precioKwDia from total/kW/días
+ *
+ * Returns { powers: kW[], prices: €/kW·día[] } indexed [0..periodCount-1]
  */
 function extractInvoicePowerData(
   invoices: any[],
@@ -132,30 +137,75 @@ function extractInvoicePowerData(
 
   if (!invoices?.length) return { powers, prices }
 
-  // Use the most recent invoice that has potencia data
-  // Sort invoices descending by period_end
   const sorted = [...invoices].sort((a, b) => {
     const da = a.period_end || a.period_start || ''
     const db = b.period_end || b.period_start || ''
     return db.localeCompare(da)
   })
 
-  for (const inv of sorted) {
-    const eco = inv.extracted_data?.economics
-    if (!eco?.potencia?.length) continue
+  const POTENCIA_CATS = new Set([
+    'potencia_peaje', 'potencia_cargo', 'potencia_comercializacion', 'potencia',
+  ])
 
-    let filled = 0
-    for (let i = 0; i < periodCount; i++) {
-      const p = PERIOD_KEYS[i]
-      const item = eco.potencia.find((x: any) => x.periodo === p || x.periodo === `Periodo ${i + 1}`)
-      if (item) {
-        if (item.kw > 0 && powers[i] === 0) powers[i] = Number(item.kw)
-        if (item.precioKwDia > 0 && prices[i] === 0) prices[i] = Number(item.precioKwDia)
+  for (const inv of sorted) {
+    const ed = inv.extracted_data as any
+    if (!ed) continue
+
+    // ── Layer 1 & 2: potencia[] array (from economics or top-level) ──────────
+    const potenciaArr: any[] | undefined =
+      ed.economics?.potencia ?? ed.potencia
+
+    if (Array.isArray(potenciaArr) && potenciaArr.length > 0) {
+      let filled = 0
+      for (let i = 0; i < periodCount; i++) {
+        const p = PERIOD_KEYS[i]
+        const item = potenciaArr.find(
+          (x: any) => x.periodo === p || x.periodo === `Periodo ${i + 1}`
+        )
+        if (!item) continue
+        const kw = Number(item.kw) || 0
+        const precio = Number(item.precioKwDia) || Number(item.precioKw) || 0
+        // Compute from total if precioKwDia missing
+        const computedPrecio = precio > 0
+          ? precio
+          : (kw > 0 && Number(item.dias) > 0
+              ? (Number(item.total) || 0) / (kw * Number(item.dias))
+              : 0)
+        if (kw > 0 && powers[i] === 0) powers[i] = kw
+        if (computedPrecio > 0 && prices[i] === 0) prices[i] = computedPrecio
         filled++
       }
+      if (filled > 0) break  // most recent invoice with data wins
     }
-    // If we got data for at least one period, stop (most recent invoice wins)
-    if (filled > 0) break
+
+    // ── Layer 3: rawLineItems fallback ────────────────────────────────────────
+    const rawItems: any[] | undefined =
+      ed.economics?.rawLineItems ?? ed.rawLineItems
+
+    if (Array.isArray(rawItems) && rawItems.length > 0) {
+      // Sum totals + pick kW + dias per period
+      const byPeriod: Record<string, { kw: number; dias: number; total: number }> = {}
+      for (const item of rawItems) {
+        if (!POTENCIA_CATS.has(item.category)) continue
+        const p = item.periodo as string
+        if (!p || !PERIOD_KEYS.includes(p)) continue
+        if (!byPeriod[p]) byPeriod[p] = { kw: 0, dias: 0, total: 0 }
+        if (Number(item.kw) > 0) byPeriod[p].kw = Number(item.kw)
+        if (Number(item.dias) > 0) byPeriod[p].dias = Number(item.dias)
+        byPeriod[p].total += Number(item.total) || 0
+      }
+
+      let filled = 0
+      for (let i = 0; i < periodCount; i++) {
+        const p = PERIOD_KEYS[i]
+        const row = byPeriod[p]
+        if (!row || row.kw <= 0 || row.dias <= 0 || row.total <= 0) continue
+        if (powers[i] === 0) powers[i] = row.kw
+        if (prices[i] === 0) prices[i] = row.total / (row.kw * row.dias)
+        filled++
+      }
+      if (filled > 0) break
+    }
   }
 
   return { powers, prices }

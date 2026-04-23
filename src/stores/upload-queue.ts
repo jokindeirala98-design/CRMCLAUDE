@@ -600,8 +600,11 @@ export async function processJobInBackground(jobId: string): Promise<void> {
       ...noCupsFiles.map((f) => ({ cups: '', files: [f] })),
     ]
 
-    // Track newly-created supplies that need background SIPS fetch
+    // Track ALL supplies (new and existing) that need background SIPS fetch.
+    // Existing supplies need SIPS re-fetch so consumption_data.totalKwh stays accurate
+    // and the supplies list shows the correct annual consumption instead of per-invoice kwh.
     const newSuppliesForSips: Array<{ supplyId: string; cups: string; holderName: string; supplyType: string }> = []
+    const allSuppliesForSips: Array<{ supplyId: string; cups: string; holderName: string; supplyType: string }> = []
 
     for (const group of allGroups) {
       const first = group.files[0].extractedData!
@@ -617,6 +620,7 @@ export async function processJobInBackground(jobId: string): Promise<void> {
 
       // Check if supply already exists
       let supplyId: string | null = null
+      let isExistingSupply = false
       if (cups) {
         const { data: existing } = await supabase
           .from('supplies')
@@ -624,7 +628,19 @@ export async function processJobInBackground(jobId: string): Promise<void> {
           .eq('cups', cups)
           .limit(1)
           .single()
-        if (existing) supplyId = existing.id
+        if (existing) {
+          supplyId = existing.id
+          isExistingSupply = true
+          // Queue existing supply for SIPS refresh so consumption_data.totalKwh stays accurate
+          if (cups) {
+            allSuppliesForSips.push({
+              supplyId,
+              cups,
+              holderName: first.holder_name || currentJob.clientName || '',
+              supplyType: type,
+            })
+          }
+        }
       }
 
       // Create supply if new — with race-condition protection
@@ -728,17 +744,27 @@ export async function processJobInBackground(jobId: string): Promise<void> {
       }
     }
 
-    updateJob(jobId, { status: 'done', finishedAt: Date.now() })
+    // ── Phase 4: SIPS fetch (awaited — runs before job is marked done) ────────
+    // We await SIPS so that when the user navigates to the supplies list,
+    // consumption_data.totalKwh already has the official annual value from
+    // the distributor and not just one invoice's partial consumption.
+    const sipsFetchTargets = [
+      ...newSuppliesForSips,
+      ...allSuppliesForSips.filter(s => !newSuppliesForSips.some(n => n.supplyId === s.supplyId)),
+    ]
 
-    // ── Phase 4: Background SIPS fetch for all newly-created supplies ──
-    // Fire-and-forget — we don't block the UI. Each supply gets its consumption_data
-    // populated automatically so annual consumption and reports work without
-    // the user needing to visit the SIPS tab manually.
-    for (const { supplyId, cups, holderName, supplyType } of newSuppliesForSips) {
-      fetchSipsForSupply(supplyId, cups, holderName, supplyType).catch((err) => {
-        console.error(`[UploadQueue] Background SIPS fetch failed for ${cups}:`, err)
-      })
+    if (sipsFetchTargets.length > 0) {
+      updateJob(jobId, { status: 'processing', progress: 'Cargando datos de consumo SIPS...' } as any)
+      await Promise.allSettled(
+        sipsFetchTargets.map(({ supplyId, cups, holderName, supplyType }) =>
+          fetchSipsForSupply(supplyId, cups, holderName, supplyType).catch((err) => {
+            console.error(`[UploadQueue] SIPS fetch failed for ${cups}:`, err)
+          })
+        )
+      )
     }
+
+    updateJob(jobId, { status: 'done', finishedAt: Date.now() })
   } catch (err: any) {
     console.error('[UploadQueue] Background job error:', err)
     updateJob(jobId, { status: 'error', errorMessage: err.message || 'Error creando suministros', finishedAt: Date.now() })
