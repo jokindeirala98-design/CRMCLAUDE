@@ -119,6 +119,24 @@ export async function processTelegramInboxItem(
     }
 
     item = data
+  } else if (!item.file_url && inboxId) {
+    // itemData was provided (to skip re-analysis) but file_url is empty.
+    // The webhook uploads the file to storage BEFORE calling this function,
+    // so the real public URL is already in telegram_inbox.file_url.
+    // Fetch it so the invoice record has a viewable/downloadable link.
+    const { data: dbItem } = await supabase
+      .from('telegram_inbox')
+      .select('file_url, file_name, file_type')
+      .eq('id', inboxId)
+      .single()
+    if (dbItem?.file_url) {
+      item = {
+        ...item,
+        file_url: dbItem.file_url,
+        file_name: item.file_name || dbItem.file_name,
+        file_type: item.file_type || dbItem.file_type,
+      }
+    }
   }
 
   // Mark as processing
