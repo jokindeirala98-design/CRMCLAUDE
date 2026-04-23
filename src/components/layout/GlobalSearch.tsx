@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Search, X, Users, Zap, FileText, CreditCard, ClipboardCheck, CheckSquare } from 'lucide-react'
+import { Search, X, Users, Zap, FileText, CreditCard, ClipboardCheck, CheckSquare, Clipboard } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 interface SearchResult {
@@ -52,13 +52,43 @@ export function GlobalSearch() {
     typingBufferRef.current = ''
   }, [pathname])
 
-  // Keyboard: type to search (invisible trigger) + Cmd+K
+  // Paste from clipboard → open search with clipboard content
+  const openWithClipboard = useCallback(async () => {
+    try {
+      const text = await navigator.clipboard.readText()
+      const cleaned = text.trim().replace(/\s+/g, ' ').slice(0, 100)
+      if (cleaned.length >= 2) {
+        setQuery(cleaned)
+        setOpen(true)
+      }
+    } catch {
+      // Clipboard permission denied or empty — just open empty search
+      setOpen(true)
+    }
+  }, [])
+
+  // Keyboard: type to search (invisible trigger) + Cmd+K + Cmd+V
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Cmd+K / Ctrl+K
+      // Cmd+K / Ctrl+K → open empty search
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault()
         setOpen(true)
+        return
+      }
+
+      // Cmd+V / Ctrl+V outside any input → search clipboard content
+      if ((e.metaKey || e.ctrlKey) && e.key === 'v') {
+        const tag = (e.target as HTMLElement).tagName
+        const isEditable = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+          || (e.target as HTMLElement).isContentEditable
+        // Only intercept when NOT in an editable field and search is closed
+        if (!isEditable && !open) {
+          e.preventDefault()
+          openWithClipboard()
+          return
+        }
+        // If search is already open, let the input handle the paste normally
         return
       }
 
@@ -100,7 +130,7 @@ export function GlobalSearch() {
       window.removeEventListener('keydown', handleKeyDown)
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
     }
-  }, [open])
+  }, [open, openWithClipboard])
 
   // Focus input when modal opens
   useEffect(() => {
@@ -277,9 +307,18 @@ export function GlobalSearch() {
                   placeholder="Buscar clientes, CUPS, emails..."
                   className="flex-1 bg-transparent text-ink text-sm outline-none placeholder:text-ink-3/50"
                 />
-                {query && (
+                {query ? (
                   <button onClick={() => setQuery('')} className="p-1 rounded-lg hover:bg-bg-2">
                     <X className="w-4 h-4 text-ink-3" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={openWithClipboard}
+                    title="Pegar portapapeles y buscar"
+                    className="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-bg-2 text-ink-3 hover:text-ink transition-colors"
+                  >
+                    <Clipboard className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-mono">⌘V</span>
                   </button>
                 )}
               </div>
@@ -345,6 +384,9 @@ export function GlobalSearch() {
                   <span><kbd className="px-1 py-0.5 bg-bg-2 rounded font-mono">↵</kbd> abrir</span>
                   <span><kbd className="px-1 py-0.5 bg-bg-2 rounded font-mono">esc</kbd> cerrar</span>
                 </div>
+                <span className="flex items-center gap-1 text-ink-3/60">
+                  <kbd className="px-1 py-0.5 bg-bg-2 rounded font-mono">⌘V</kbd> busca portapapeles
+                </span>
               </div>
             </motion.div>
           </div>
