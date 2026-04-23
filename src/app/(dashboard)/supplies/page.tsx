@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronDown, ChevronRight, Plus, Zap } from 'lucide-react'
+import { Plus, Zap, X, ChevronRight, MapPin } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { Header } from '@/components/layout/Header'
 import { Button } from '@/components/ui/Button'
 import { Badge, StatusBadge } from '@/components/ui/Badge'
@@ -10,7 +11,7 @@ import { BulkUploadModal } from '@/components/modals/BulkUploadModal'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils/cn'
 
-/** Normalize tariff strings for display — handles messy DB values */
+/** Normalize tariff strings for display */
 function formatTariff(raw: string | null | undefined): string {
   if (!raw) return '-'
   const s = raw.replace(/\s+/g, '').toUpperCase()
@@ -52,9 +53,149 @@ interface Supply {
 interface SupplyGroup {
   clientId: string
   clientName: string
+  clientCif?: string
   supplies: Supply[]
   totalKwh: number
 }
+
+// ── Supply cards modal ──────────────────────────────────────────────────────
+
+function SuppliesModal({
+  group,
+  consumptionMap,
+  onClose,
+}: {
+  group: SupplyGroup
+  consumptionMap: Record<string, number>
+  onClose: () => void
+}) {
+  const router = useRouter()
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  // Close on Escape
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const handleCardClick = (id: string) => {
+    router.push(`/supplies/${id}`)
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* Backdrop */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+        onClick={onClose}
+      />
+
+      {/* Panel */}
+      <motion.div
+        ref={panelRef}
+        initial={{ opacity: 0, scale: 0.96, y: 16 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: 16 }}
+        transition={{ duration: 0.18, ease: 'easeOut' }}
+        className="relative bg-bg rounded-2xl shadow-2xl w-full max-w-3xl max-h-[80vh] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-line shrink-0">
+          <div>
+            <h2 className="text-base font-bold text-ink">{group.clientName}</h2>
+            <p className="text-xs text-ink-3 mt-0.5">
+              {group.supplies.length} suministros
+              {group.clientCif && ` · ${group.clientCif}`}
+              {group.totalKwh > 0 && ` · ${fmtKwh(group.totalKwh)} total`}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-xl hover:bg-bg-2 text-ink-3 hover:text-ink transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Cards grid */}
+        <div className="overflow-y-auto p-4 scrollbar-thin">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {group.supplies.map((supply) => {
+              const kwh = consumptionMap[supply.id]
+              const tariff = formatTariff(supply.tariff)
+              const isGas = supply.type === 'gas'
+
+              return (
+                <button
+                  key={supply.id}
+                  onClick={() => handleCardClick(supply.id)}
+                  className="group text-left bg-card border border-line rounded-xl p-4 hover:border-brand/40 hover:shadow-ambient-md transition-all duration-150 hover:-translate-y-0.5 active:scale-[0.98]"
+                >
+                  {/* Type icon + tariff */}
+                  <div className="flex items-start justify-between gap-2 mb-3">
+                    <div className={cn(
+                      'w-8 h-8 rounded-lg flex items-center justify-center shrink-0',
+                      isGas ? 'bg-warn-container/40' : 'bg-info-container/40'
+                    )}>
+                      <Zap className={cn('w-4 h-4', isGas ? 'text-warn' : 'text-info')} />
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                      {tariff !== '-' && <Badge variant="info">{tariff}</Badge>}
+                      <StatusBadge status={supply.status ?? ''} />
+                    </div>
+                  </div>
+
+                  {/* CUPS */}
+                  <p className="font-mono text-[11px] text-ink-3 truncate mb-1">
+                    {supply.cups || 'Sin CUPS'}
+                  </p>
+
+                  {/* Alias / name */}
+                  {supply.name && (
+                    <p className="text-sm font-semibold text-ink truncate mb-1">{supply.name}</p>
+                  )}
+
+                  {/* Address */}
+                  {supply.address && (
+                    <div className="flex items-center gap-1 mt-1">
+                      <MapPin className="w-3 h-3 text-ink-3 shrink-0" />
+                      <p className="text-xs text-ink-3 truncate">{supply.address}</p>
+                    </div>
+                  )}
+
+                  {/* Consumption */}
+                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-line">
+                    <span className="text-xs text-ink-3">Consumo anual</span>
+                    <span className={cn(
+                      'text-xs font-semibold',
+                      kwh ? 'text-ink' : 'text-ink-3'
+                    )}>
+                      {kwh ? fmtKwh(kwh) : '—'}
+                    </span>
+                  </div>
+
+                  {/* Arrow hint on hover */}
+                  <div className="flex items-center gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <span className="text-[10px] text-brand font-medium">Ver suministro</span>
+                    <ChevronRight className="w-3 h-3 text-brand" />
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  )
+}
+
+// ── Main page ───────────────────────────────────────────────────────────────
 
 export default function SuppliesPage() {
   const [supplies, setSupplies] = useState<Supply[]>([])
@@ -63,7 +204,7 @@ export default function SuppliesPage() {
   const [sortBy, setSortBy] = useState<'recent' | 'consumption_desc' | 'consumption_asc'>('consumption_desc')
   const [consumptionMap, setConsumptionMap] = useState<Record<string, number>>({})
   const [showNewModal, setShowNewModal] = useState(false)
-  const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set())
+  const [openGroup, setOpenGroup] = useState<SupplyGroup | null>(null)
   const router = useRouter()
 
   const fetchSupplies = useCallback(async () => {
@@ -116,21 +257,15 @@ export default function SuppliesPage() {
     setLoading(false)
   }, [filter])
 
-  useEffect(() => {
-    fetchSupplies()
-  }, [fetchSupplies])
+  useEffect(() => { fetchSupplies() }, [fetchSupplies])
 
-  // Sort supplies
+  // Build groups
   const sortedSupplies = [...supplies].sort((a, b) => {
-    if (sortBy === 'consumption_desc') {
-      return (consumptionMap[b.id] || 0) - (consumptionMap[a.id] || 0)
-    } else if (sortBy === 'consumption_asc') {
-      return (consumptionMap[a.id] || 0) - (consumptionMap[b.id] || 0)
-    }
+    if (sortBy === 'consumption_desc') return (consumptionMap[b.id] || 0) - (consumptionMap[a.id] || 0)
+    if (sortBy === 'consumption_asc') return (consumptionMap[a.id] || 0) - (consumptionMap[b.id] || 0)
     return 0
   })
 
-  // Group supplies by client — clients with >1 supply get a collapsible group
   const groups: SupplyGroup[] = []
   const clientMap = new Map<string, Supply[]>()
 
@@ -145,31 +280,21 @@ export default function SuppliesPage() {
     groups.push({
       clientId,
       clientName: items[0]?.client?.name || 'Sin cliente',
+      clientCif: items[0]?.client?.cif_nif,
       supplies: items,
       totalKwh,
     })
   }
 
-  // Sort groups: by max supply consumption desc (or recent)
   groups.sort((a, b) => {
     if (sortBy === 'consumption_desc') return b.totalKwh - a.totalKwh
     if (sortBy === 'consumption_asc') return a.totalKwh - b.totalKwh
     return 0
   })
 
-  const toggleClient = (clientId: string) => {
-    setExpandedClients(prev => {
-      const next = new Set(prev)
-      if (next.has(clientId)) next.delete(clientId)
-      else next.add(clientId)
-      return next
-    })
-  }
-
   const statusFilters = [
     { key: 'all', label: 'Todos' },
     { key: 'primer_contacto', label: 'Primer contacto' },
-
     { key: 'prescoring_pendiente', label: 'Prescoring pte.' },
     { key: 'estudio_en_curso', label: 'En estudio' },
     { key: 'pendiente_firma', label: 'Pte. firma' },
@@ -178,7 +303,6 @@ export default function SuppliesPage() {
     { key: 'seguimiento_activo', label: 'Seguimiento' },
   ]
 
-  // ── Loading ────────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <div>
@@ -269,11 +393,10 @@ export default function SuppliesPage() {
                 <tbody>
                   {groups.map((group, gi) => {
                     const isMulti = group.supplies.length > 1
-                    const isExpanded = expandedClients.has(group.clientId)
                     const isLastGroup = gi === groups.length - 1
 
                     if (!isMulti) {
-                      // Single supply — flat row, no grouping
+                      // Single supply — flat row
                       const item = group.supplies[0]
                       return (
                         <tr
@@ -289,106 +412,64 @@ export default function SuppliesPage() {
                       )
                     }
 
-                    // Multi-supply group
+                    // Multi-supply group → click opens modal
                     return (
-                      <>
-                        {/* Group header row */}
-                        <tr
-                          key={`group-${group.clientId}`}
-                          onClick={() => toggleClient(group.clientId)}
-                          className={cn(
-                            'cursor-pointer transition-colors duration-100 hover:bg-bg bg-bg-2/60',
-                            (!isLastGroup || isExpanded) && 'border-b border-line'
+                      <tr
+                        key={`group-${group.clientId}`}
+                        onClick={() => setOpenGroup(group)}
+                        className={cn(
+                          'cursor-pointer transition-colors duration-100 hover:bg-bg bg-bg-2/40',
+                          !isLastGroup && 'border-b border-line',
+                          'group/row'
+                        )}
+                      >
+                        {/* CUPS col: supply count */}
+                        <td className="px-5 py-3.5">
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-md bg-brand/10 flex items-center justify-center">
+                              <span className="text-[10px] font-bold text-brand">{group.supplies.length}</span>
+                            </div>
+                            <span className="text-xs text-ink-3 group-hover/row:text-brand transition-colors">
+                              suministros
+                            </span>
+                          </div>
+                        </td>
+                        {/* Client name */}
+                        <td className="px-5 py-3.5">
+                          <p className="text-sm font-semibold text-ink">{group.clientName}</p>
+                          {group.clientCif && <p className="text-xs text-ink-3">{group.clientCif}</p>}
+                        </td>
+                        {/* Tariffs */}
+                        <td className="px-5 py-3.5">
+                          <div className="flex flex-wrap gap-1">
+                            {Array.from(new Set(group.supplies.map(s => formatTariff(s.tariff)).filter(t => t !== '-'))).map(t => (
+                              <Badge key={t} variant="info">{t}</Badge>
+                            ))}
+                          </div>
+                        </td>
+                        {/* Type */}
+                        <td className="px-5 py-3.5">
+                          <span className="text-sm text-ink-3 capitalize">
+                            {Array.from(new Set(group.supplies.map(s => s.type).filter(Boolean))).join(' / ')}
+                          </span>
+                        </td>
+                        {/* Total consumption */}
+                        <td className="px-5 py-3.5">
+                          <span className="text-sm font-medium text-ink">
+                            {group.totalKwh > 0 ? fmtKwh(group.totalKwh) : '—'}
+                          </span>
+                          {group.totalKwh > 0 && (
+                            <p className="text-[10px] text-ink-3">total grupo</p>
                           )}
-                        >
-                          {/* CUPS col: chevron + supply count */}
-                          <td className="px-5 py-3.5">
-                            <div className="flex items-center gap-2">
-                              {isExpanded
-                                ? <ChevronDown className="w-3.5 h-3.5 text-ink-3 shrink-0" />
-                                : <ChevronRight className="w-3.5 h-3.5 text-ink-3 shrink-0" />
-                              }
-                              <span className="text-xs font-medium text-ink-3">
-                                {group.supplies.length} suministros
-                              </span>
-                            </div>
-                          </td>
-                          {/* Client name */}
-                          <td className="px-5 py-3.5">
-                            <p className="text-sm font-semibold text-ink">{group.clientName}</p>
-                            <p className="text-xs text-ink-3">{group.supplies[0]?.client?.cif_nif}</p>
-                          </td>
-                          {/* Tariff: show unique tariffs */}
-                          <td className="px-5 py-3.5">
-                            <div className="flex flex-wrap gap-1">
-                              {Array.from(new Set(group.supplies.map(s => formatTariff(s.tariff)).filter(t => t !== '-'))).map(t => (
-                                <Badge key={t} variant="info">{t}</Badge>
-                              ))}
-                            </div>
-                          </td>
-                          {/* Type */}
-                          <td className="px-5 py-3.5">
-                            <span className="text-sm text-ink-3 capitalize">
-                              {Array.from(new Set(group.supplies.map(s => s.type).filter(Boolean))).join(' / ')}
-                            </span>
-                          </td>
-                          {/* Total consumption */}
-                          <td className="px-5 py-3.5">
-                            <span className="text-sm font-medium text-ink">
-                              {group.totalKwh > 0 ? fmtKwh(group.totalKwh) : '—'}
-                            </span>
-                            {group.totalKwh > 0 && (
-                              <p className="text-[10px] text-ink-3">total grupo</p>
-                            )}
-                          </td>
-                          {/* Status: dominant status */}
-                          <td className="px-5 py-3.5">
-                            <span className="text-xs text-ink-3">{isExpanded ? 'Contraer' : 'Ver todos'}</span>
-                          </td>
-                        </tr>
-
-                        {/* Expanded child rows */}
-                        {isExpanded && group.supplies.map((item, ii) => {
-                          const isLastChild = ii === group.supplies.length - 1
-                          return (
-                            <tr
-                              key={item.id}
-                              onClick={() => router.push(`/supplies/${item.id}`)}
-                              className={cn(
-                                'cursor-pointer transition-colors duration-100 hover:bg-bg',
-                                (!isLastGroup || !isLastChild) && 'border-b border-line',
-                                'bg-bg/40'
-                              )}
-                            >
-                              {/* CUPS col: indented */}
-                              <td className="px-5 py-3.5">
-                                <div className="flex items-center gap-2 pl-5">
-                                  <span className="font-mono text-xs text-ink">{item.cups || 'Sin CUPS'}</span>
-                                </div>
-                              </td>
-                              {/* Client: subdued since shown in group header */}
-                              <td className="px-5 py-3.5">
-                                <p className="text-sm text-ink-3">{item.address || '—'}</p>
-                              </td>
-                              <td className="px-5 py-3.5">
-                                <Badge variant="info">{formatTariff(item.tariff)}</Badge>
-                              </td>
-                              <td className="px-5 py-3.5">
-                                <span className="text-sm capitalize text-ink-3">{item.type}</span>
-                              </td>
-                              <td className="px-5 py-3.5">
-                                {consumptionMap[item.id]
-                                  ? <span className="text-sm text-ink font-medium">{fmtKwh(consumptionMap[item.id])}</span>
-                                  : <span className="text-sm text-ink-3">—</span>
-                                }
-                              </td>
-                              <td className="px-5 py-3.5">
-                                <StatusBadge status={item.status ?? ''} />
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      </>
+                        </td>
+                        {/* Hint */}
+                        <td className="px-5 py-3.5">
+                          <div className="flex items-center gap-1 text-ink-3 group-hover/row:text-brand transition-colors">
+                            <span className="text-xs font-medium">Ver CUPS</span>
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </div>
+                        </td>
+                      </tr>
                     )
                   })}
                 </tbody>
@@ -397,6 +478,17 @@ export default function SuppliesPage() {
           </div>
         )}
       </div>
+
+      {/* Supply group modal */}
+      <AnimatePresence>
+        {openGroup && (
+          <SuppliesModal
+            group={openGroup}
+            consumptionMap={consumptionMap}
+            onClose={() => setOpenGroup(null)}
+          />
+        )}
+      </AnimatePresence>
 
       <BulkUploadModal
         open={showNewModal}
@@ -407,7 +499,7 @@ export default function SuppliesPage() {
   )
 }
 
-/** Shared cell rendering for a single supply row */
+/** Shared cell rendering for a single supply flat row */
 function SupplyRowCells({
   item,
   consumptionMap,
@@ -437,9 +529,6 @@ function SupplyRowCells({
         {consumption ? (
           <div className="flex flex-col gap-0.5">
             <span className="text-sm text-ink font-medium">{fmtKwh(consumption)}</span>
-            {item.consumption_data?.totalKwh && !item.consumption_data?.consumoPeriodos && (
-              <span className="text-[10px] text-ink-3/60 font-medium">SIPS</span>
-            )}
           </div>
         ) : (
           <span className="text-sm text-ink-3">—</span>
