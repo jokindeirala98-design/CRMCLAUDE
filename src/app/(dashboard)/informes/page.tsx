@@ -54,6 +54,8 @@ interface PendingSupply {
     total_amount: number | null
   }[]
   consumption_data: Record<string, unknown> | null
+  /** Power study result — contains potenciaContratada from SIPS (always reliable) */
+  power_study_result: Record<string, unknown> | null
   studies: {
     id: string
     report_url: string | null
@@ -112,10 +114,31 @@ function extractConsumptionByPeriod(cd: Record<string, unknown> | null, periodCo
   return total > 0 ? Array(periodCount).fill(Math.round(total / periodCount)) : Array(periodCount).fill(0)
 }
 
-function extractPowersByPeriod(cd: Record<string, unknown> | null, periodCount: number): number[] {
+/**
+ * Extract contracted powers per period.
+ * Priority: power_study_result (always SIPS) → consumption_data → zeros
+ *
+ * power_study_result is populated by power-study-auto which receives potenciaContratada
+ * directly from the SIPS API, so it's always the official distributor value.
+ * consumption_data.potenciaContratada may contain stale Excel values for older imports.
+ */
+function extractPowersByPeriod(
+  cd: Record<string, unknown> | null,
+  periodCount: number,
+  powerStudyResult?: Record<string, unknown> | null,
+): number[] {
+  // 1. power_study_result.potenciaContratada — best source, always from SIPS
+  if (powerStudyResult) {
+    const psr = powerStudyResult as any
+    if (psr.potenciaContratada && typeof psr.potenciaContratada === 'object' && !Array.isArray(psr.potenciaContratada)) {
+      const vals = PERIOD_KEYS_FE.slice(0, periodCount).map(k => Number(psr.potenciaContratada[k] ?? 0))
+      if (vals.some(v => v > 0)) return vals
+    }
+  }
+
+  // 2. consumption_data.potenciaContratada — may be SIPS (if sync-supply-sips ran) or Excel (older imports)
   if (!cd) return Array(periodCount).fill(0)
   const d = cd as any
-  // Primary: potenciaContratada object { P1: ..., P2: ... }
   if (d.potenciaContratada && typeof d.potenciaContratada === 'object' && !Array.isArray(d.potenciaContratada)) {
     const vals = PERIOD_KEYS_FE.slice(0, periodCount).map(k => Number(d.potenciaContratada[k] ?? 0))
     if (vals.some(v => v > 0)) return vals
@@ -163,7 +186,7 @@ export default function InformesPage() {
     const { data, error } = await supabase
       .from('supplies')
       .select(`
-        id, cups, tariff, type, status, address, created_at, consumption_data, client_id,
+        id, cups, tariff, type, status, address, created_at, consumption_data, power_study_result, client_id,
         client:clients(id, name, cif_nif, email, phone, type),
         comercializadora:comercializadoras(name),
         invoices:invoices(id, file_url, file_type, extracted_data, total_amount),
@@ -481,7 +504,8 @@ export default function InformesPage() {
             )}
             powersByPeriod={extractPowersByPeriod(
               economicStudySupply.consumption_data,
-              getPeriodCount(economicStudySupply.tariff || '3.0TD')
+              getPeriodCount(economicStudySupply.tariff || '3.0TD'),
+              economicStudySupply.power_study_result,
             )}
             autoSave={true}
             onClose={() => setEconomicStudySupply(null)}

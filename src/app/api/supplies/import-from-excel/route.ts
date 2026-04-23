@@ -168,22 +168,24 @@ async function parseExcelFile(buffer: Buffer, fileName: string): Promise<ParsedS
   return { fileName, cups, titular, compania, tarifa, invoices }
 }
 
-/** Agrega consumo anual por periodo sumando todas las facturas */
+/** Agrega consumo anual por periodo sumando todos los datos del Excel.
+ *  NOTA: potenciaContratada NO se extrae del Excel — siempre se obtiene de SIPS.
+ *  Los datos de consumo de las hojas Excel pueden no coincidir con los valores oficiales del distribuidor.
+ */
 function buildAnnualConsumptionData(parsed: ParsedSupplyFile) {
   const consumoPeriodos: Record<string, number> = { P1: 0, P2: 0, P3: 0, P4: 0, P5: 0, P6: 0 }
-  const potenciaContratada: Record<string, number> = { P1: 0, P2: 0, P3: 0, P4: 0, P5: 0, P6: 0 }
+  // potenciaContratada is intentionally omitted here — it will be set from SIPS only
 
   for (const inv of parsed.invoices) {
     for (const c of inv.consumo) {
       consumoPeriodos[c.periodo] = (consumoPeriodos[c.periodo] || 0) + c.kwh
     }
-    for (const p of inv.potencia) {
-      if (p.kw > 0) potenciaContratada[p.periodo] = p.kw
-    }
+    // inv.potencia is stored in invoice extracted_data for billing reference,
+    // but is NOT aggregated into consumption_data.potenciaContratada
   }
 
   const totalKwh = Object.values(consumoPeriodos).reduce((a, b) => a + b, 0)
-  return { consumoPeriodos, potenciaContratada, totalKwh }
+  return { consumoPeriodos, totalKwh }
 }
 
 /** Procesa un fichero Excel: crea/actualiza suministro e inserta facturas */
@@ -277,6 +279,11 @@ async function processFile(
         const sipsNormalizedTariff = sipsData.tariff ? (normalizeTariffLib(sipsData.tariff) || sipsData.tariff) : null
         const merged = {
           ...annualData,
+          // ⚠️ Override potenciaContratada with official SIPS value (takes priority over Excel)
+          // Excel values can be wrong (e.g. 1.3 kW when real contracted power is 13 kW)
+          ...(sipsData.potenciaContratada ? { potenciaContratada: sipsData.potenciaContratada } : {}),
+          // Also override consumoPeriodos if SIPS has them (more accurate than Excel aggregation)
+          ...(sipsData.consumoPeriodos ? { consumoPeriodos: sipsData.consumoPeriodos } : {}),
           source: 'excel_import_with_sips',
           fetched_at: new Date().toISOString(),
           sips_tariff: sipsData.tariff,

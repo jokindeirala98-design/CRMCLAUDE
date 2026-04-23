@@ -6,9 +6,18 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  // Include DOCX contract templates in the server bundle (for API routes)
+  // Include templates in the server bundle (for API routes on Vercel)
   outputFileTracingIncludes: {
     '/api/signwell/send': ['./public/contract-templates/**'],
+    // Economic study Excel templates — accessed by /api/supplies/[id]/economic-study
+    '/api/supplies/[id]/economic-study': [
+      './templates/**',
+      './public/templates/**',
+    ],
+    // Power study Excel template — accessed by /api/power-study-excel
+    '/api/power-study-excel': [
+      './public/templates/**',
+    ],
   },
   images: {
     remotePatterns: [

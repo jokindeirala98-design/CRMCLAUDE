@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
       .from('supplies')
       .select(`
         id, name, cups, type, tariff, address, status,
-        consumption_data, power_data,
+        consumption_data, power_data, power_study_result,
         comercializadora:comercializadoras(name),
         invoices:invoices(id, file_url, period_start, period_end, extracted_data, created_at, extraction_status)
       `)
@@ -88,27 +88,38 @@ export async function POST(req: NextRequest) {
       let potencia_p5: number | null = null
       let potencia_p6: number | null = null
 
-      if (sips?.potenciaContratada) {
-        const pc = sips.potenciaContratada
+      // Potencia — SIEMPRE de SIPS, nunca del Excel ni de facturas.
+      //
+      // Prioridad:
+      //   1. power_study_result.potenciaContratada  → datos SIPS pasados al estudio de potencias
+      //                                               (fuente más fiable: siempre viene del distribuidor)
+      //   2. consumption_data.potenciaContratada    → SIPS si sync-supply-sips ha corrido;
+      //                                               PUEDE tener valores del Excel si no ha corrido
+      //   3. power_data.potenciaContratada          → campo legacy
+      //   (facturas/Excel ignoradas completamente para potencia)
+      const powerStudy = supply.power_study_result as any
+
+      const setPotencias = (pc: any) => {
         potencia_p1 = toNum(pc.P1); potencia_p2 = toNum(pc.P2); potencia_p3 = toNum(pc.P3)
         potencia_p4 = toNum(pc.P4); potencia_p5 = toNum(pc.P5); potencia_p6 = toNum(pc.P6)
-      } else if (supply.power_data) {
-        const pd = supply.power_data as any
-        const pc = pd.potenciaContratada || pd
-        if (pc.P1 != null) {
-          potencia_p1 = toNum(pc.P1); potencia_p2 = toNum(pc.P2); potencia_p3 = toNum(pc.P3)
-          potencia_p4 = toNum(pc.P4); potencia_p5 = toNum(pc.P5); potencia_p6 = toNum(pc.P6)
-        }
-      } else if (economics?.potencia) {
-        for (const p of economics.potencia) {
-          const period = String(p.periodo || '').toUpperCase()
-          const kw = Number(p.kw) || null
-          if (period === 'P1') potencia_p1 = kw
-          else if (period === 'P2') potencia_p2 = kw
-          else if (period === 'P3') potencia_p3 = kw
-          else if (period === 'P4') potencia_p4 = kw
-          else if (period === 'P5') potencia_p5 = kw
-          else if (period === 'P6') potencia_p6 = kw
+      }
+
+      if (powerStudy?.potenciaContratada) {
+        // Mejor fuente: power_study_result siempre contiene datos SIPS del distribuidor
+        const pc = powerStudy.potenciaContratada
+        if (Object.values(pc).some((v: any) => Number(v) > 0)) setPotencias(pc)
+      }
+
+      // Si power_study_result no tenía datos, intentar consumption_data
+      // (solo es SIPS fiable si sync-supply-sips corrió; podría tener valores Excel)
+      if (!potencia_p1 && !potencia_p2) {
+        if (sips?.potenciaContratada) {
+          const pc = sips.potenciaContratada
+          if (Object.values(pc).some((v: any) => Number(v) > 0)) setPotencias(pc)
+        } else if (supply.power_data) {
+          const pd = supply.power_data as any
+          const pc = pd.potenciaContratada || pd
+          if (pc?.P1 != null) setPotencias(pc)
         }
       }
 

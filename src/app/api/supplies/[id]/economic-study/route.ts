@@ -263,16 +263,28 @@ export async function POST(
     const periodCount = boe2026.length
 
     const sipsData = supply.consumption_data as any
+    const powerStudyResult = (supply as any).power_study_result as any
     const invoices = supply.invoices || []
 
     // Consumption always from SIPS (official distributor data)
     const consumption = extractConsumption(sipsData, periodCount)
     const totalKwh = consumption.reduce((a: number, b: number) => a + b, 0)
 
-    // Powers ACTUAL: prefer invoice data (what client actually pays for), fallback SIPS
-    const invoicePower = extractInvoicePowerData(invoices, periodCount)
+    // Powers: ALWAYS from SIPS — never from invoices or Excel data.
+    // Priority:
+    //   1. power_study_result.potenciaContratada — set by power-study-auto after SIPS fetch
+    //   2. consumption_data.potenciaContratada   — set by sync-supply-sips or post-import SIPS merge
+    const invoicePower = extractInvoicePowerData(invoices, periodCount) // used for PRICES only
     const sipsPowers = extractPowers(sipsData, periodCount)
-    const powers = invoicePower.powers.some(v => v > 0) ? invoicePower.powers : sipsPowers
+
+    let powers: number[]
+    if (powerStudyResult?.potenciaContratada) {
+      const pc = powerStudyResult.potenciaContratada
+      const studyPowers = PERIOD_KEYS.slice(0, periodCount).map(k => Number(pc[k] ?? 0))
+      powers = studyPowers.some(v => v > 0) ? studyPowers : sipsPowers
+    } else {
+      powers = sipsPowers // if no SIPS data yet, shows zeros (will fill after sync)
+    }
 
     // Power prices ACTUAL: from invoice
     const powerPricesActual = invoicePower.prices
@@ -289,25 +301,29 @@ export async function POST(
     const tariffLabel = `TARIFA ${normalizeTariff(tariff)}`
 
     // ── Abrir plantilla ───────────────────────────────────────────────────────
-    const templateFull  = path.join(process.cwd(), 'templates', 'estudio-economico.xlsx')
-    const templateClean = path.join(process.cwd(), 'templates', 'estudio-economico-clean.xlsx')
+    // Vercel serverless: only files declared in outputFileTracingIncludes are bundled.
+    // We check both root/templates/ (dev) and public/templates/ (Vercel fallback).
+    const cwd = process.cwd()
+    const candidates = [
+      path.join(cwd, 'templates', 'estudio-economico.xlsx'),
+      path.join(cwd, 'public', 'templates', 'estudio-economico.xlsx'),
+      path.join(cwd, 'templates', 'estudio-economico-clean.xlsx'),
+      path.join(cwd, 'public', 'templates', 'estudio-economico-clean.xlsx'),
+    ]
 
     const loadTemplate = async (): Promise<ExcelJS.Workbook> => {
-      if (fs.existsSync(templateFull)) {
+      for (const templatePath of candidates) {
+        if (!fs.existsSync(templatePath)) continue
         try {
           const w = new ExcelJS.Workbook()
-          await w.xlsx.readFile(templateFull)
+          await w.xlsx.readFile(templatePath)
           return w
         } catch {
-          // ExcelJS sin parchear — usar template sin drawings
+          // File exists but ExcelJS can't parse it (e.g. has drawings) — try next
+          continue
         }
       }
-      if (!fs.existsSync(templateClean)) {
-        throw new Error('Plantilla no encontrada')
-      }
-      const w = new ExcelJS.Workbook()
-      await w.xlsx.readFile(templateClean)
-      return w
+      throw new Error('Plantilla no encontrada. Asegúrate de que estudio-economico.xlsx está en templates/ o public/templates/')
     }
 
     const wb = await loadTemplate()
