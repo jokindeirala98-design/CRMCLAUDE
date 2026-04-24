@@ -308,7 +308,7 @@ REGLAS CRÍTICAS DE EXTRACCIÓN (V3.0) — APLICAN A FACTURAS DE LUZ Y GAS
    - holder_name: nombre EXACTO del titular tal como aparece (ej: "AYUNTAMIENTO DE AOIZ", no "Ayuntamiento").
    - holder_cif_nif: CIF o NIF del titular tal como aparece.
    - supply_address: DIRECCIÓN COMPLETA del punto de suministro (calle, número, CP, municipio).
-   - comercializadora: nombre de la empresa emisora.
+   - comercializadora: nombre EXACTO de la empresa emisora de la factura (Naturgy, Endesa, Galp, TotalEnergies, Axpo, Iberdrola, Repsol, EDP, Holaluz, Audax, etc.). OBLIGATORIO — siempre está impreso en la factura (logo, cabecera o pie de página).
    - tariff: tarifa exacta (2.0TD, 3.0TD, 6.1TD, RL.1, RL.2, etc.).
 
 2. **FACTURAS DE ANULACIÓN / ABONOS:** Si la factura es rectificativa o abono, devuelve TODOS los valores en NEGATIVO.
@@ -980,7 +980,7 @@ Para IBAN: { "iban": "ES76...", "bank_name": "...", "account_holder": "..." }`
 const MASTER_PROMPT = `Analiza este documento y responde SOLO con JSON (sin markdown, sin texto adicional).
 1. Identifica "documentType": "factura", "cif", "nif", "iban", "contrato", o "otro".
 2. Extrae TODOS los campos disponibles según el tipo:
-   - "factura" (luz/gas): cups (código ES...), supply_type ("luz" o "gas"), holder_name, holder_cif_nif, total_amount (número), tariff, comercializadora, supply_address, billing_period ("DD/MM/YYYY - DD/MM/YYYY"), economics: { fechaInicio, fechaFin, totalFactura, consumoTotalKwh, consumo, potencia, otrosConceptos }
+   - "factura" (luz/gas): cups (código ES...), supply_type ("luz" o "gas"), holder_name, holder_cif_nif, total_amount (número), tariff, comercializadora (OBLIGATORIO: empresa que emite la factura, ej. "Naturgy", "Endesa", "Galp", "TotalEnergies", "Axpo", etc.), supply_address, billing_period ("DD/MM/YYYY - DD/MM/YYYY"), economics: { fechaInicio, fechaFin, titular, comercializadora (repetir aquí también), cups, tarifa, totalFactura, consumoTotalKwh, consumo, potencia, otrosConceptos, rawLineItems }
    - "cif"/"nif": cif o nif, holder_name, fiscal_address.
    - "iban": iban, bank_name, account_holder.
    - "contrato": cups, holder_name, comercializadora.

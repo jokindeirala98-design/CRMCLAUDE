@@ -203,27 +203,41 @@ const POTENCIA_CATS = new Set([
   'potencia_peaje', 'potencia_cargo', 'potencia_comercializacion', 'potencia',
 ])
 
+/** Year of an invoice from its period dates, or null if unknown */
+function invoiceYear(inv: any): number | null {
+  const d = inv.period_end || inv.period_start || inv.created_at || ''
+  const y = parseInt(String(d).substring(0, 4))
+  return isNaN(y) || y < 2020 ? null : y
+}
+
 /**
- * Calculate WEIGHTED AVERAGE power price per period across ALL invoices.
+ * Weighted-average power price per period from invoices.
  *
- * avgPrice[P] = Σ(totalCost_P across all invoices) / Σ(kW_P × dias_P across all invoices)
+ * preferYear: if provided and there are invoices from that year, ONLY those are used.
+ * If no invoices match preferYear, falls back to all invoices.
  *
- * This mirrors how AnnualEconomics calculates the representative price from
- * historical billing, rather than trusting a single invoice's price.
+ * avgPrice[P] = Σ(totalCost_P) / Σ(kW_P × dias_P)
  *
- * Tries two sources per invoice in order:
- *   1. economics.potencia[]  — aggregated per-period object from Gemini (precioKwDia or total)
- *   2. rawLineItems          — individual lines (potencia_peaje + potencia_cargo per period)
+ * Sources per invoice (in order):
+ *   1. economics.potencia[]  — aggregated by Gemini (total or precioKwDia)
+ *   2. rawLineItems          — potencia_peaje + potencia_cargo per period
  */
 function extractAvgPowerPricesFromAllInvoices(
   invoices: any[],
   periodCount: number,
+  preferYear?: number,
 ): number[] {
-  // Accumulators: total cost and total kW×dias per period
+  // Filter to preferred year if available
+  let subset = invoices
+  if (preferYear) {
+    const filtered = invoices.filter(inv => invoiceYear(inv) === preferYear)
+    if (filtered.length > 0) subset = filtered
+  }
+
   const totalEur = Array(periodCount).fill(0)
   const totalKwDias = Array(periodCount).fill(0)
 
-  for (const inv of invoices) {
+  for (const inv of subset) {
     const ed = inv.extracted_data as any
     if (!ed) continue
     const eco = ed.economics || {}
@@ -241,7 +255,7 @@ function extractAvgPowerPricesFromAllInvoices(
         const kw = Number(item.kw) || 0
         const dias = Number(item.dias) || 0
         const total = Number(item.total) || Number(item.importe) || 0
-        // Normalize price to €/kW·día: if stored price > 2 it was likely saved as annual
+        // Normalize to €/kW·día: if stored value > 2 it was saved as annual (€/kW·year)
         const rawPrecio = Number(item.precioKwDia) || Number(item.precioKw) || 0
         const precio = rawPrecio > 2 ? rawPrecio / 365 : rawPrecio
 
@@ -280,7 +294,6 @@ function extractAvgPowerPricesFromAllInvoices(
     }
   }
 
-  // Weighted averages
   return totalEur.map((eur, i) => totalKwDias[i] > 0 ? eur / totalKwDias[i] : 0)
 }
 
@@ -472,17 +485,10 @@ export async function POST(
     const powerStudyResult = (supply as any).power_study_result as any
     const invoices = supply.invoices || []
 
-    // ── BOE year for "nuevo" column: year with the MAJORITY of invoices ──────────
-    // Use 2026 only if more than half the invoices are from 2026.
-    // This way a client with 11 invoices from 2025 + 1 from Jan 2026 stays on 2025 BOE.
-    const yearCounts: Record<number, number> = {}
-    for (const inv of invoices) {
-      const d = inv.period_end || inv.period_start || inv.created_at || ''
-      const y = parseInt(String(d).substring(0, 4))
-      if (!isNaN(y) && y >= 2024) yearCounts[y] = (yearCounts[y] || 0) + 1
-    }
-    const count2026 = yearCounts[2026] || 0
-    const boeNewYear: 2025 | 2026 = count2026 > (invoices.length / 2) ? 2026 : 2025
+    // ── BOE year for "nuevo" column: if ANY invoice is from 2026, use BOE 2026.
+    // This ensures clients with even one 2026 invoice get the current year's BOE rates.
+    const has2026Invoice = invoices.some((inv: any) => invoiceYear(inv) === 2026)
+    const boeNewYear: 2025 | 2026 = has2026Invoice ? 2026 : 2025
     const boeNuevo = getBOEPrices(tariff, boeNewYear)
 
     // Consumption always from SIPS (official distributor data)
@@ -504,10 +510,13 @@ export async function POST(
       powers = sipsPowers
     }
 
-    // Power prices ACTUAL: weighted average across ALL invoices (AnnualEconomics style)
-    // Falls back to BOE of the year matching the invoices if no invoice data available
-    const avgPowerPricesActual = extractAvgPowerPricesFromAllInvoices(invoices, periodCount)
-    const boeActualFallback = boeNewYear === 2026 ? boe2026 : boe2025
+    // Power prices ACTUAL: weighted average from invoices, using ONLY the most recent year.
+    // If client has 2025 + 2026 invoices → use ONLY 2026 invoices for actual prices.
+    // If only 2025 → use 2025. Falls back to BOE of matching year if no invoice data.
+    const invoiceYears = invoices.map((inv: any) => invoiceYear(inv)).filter(Boolean) as number[]
+    const preferYear = invoiceYears.length > 0 ? Math.max(...invoiceYears) : undefined
+    const avgPowerPricesActual = extractAvgPowerPricesFromAllInvoices(invoices, periodCount, preferYear)
+    const boeActualFallback = preferYear === 2026 ? boe2026 : boe2025
 
     // Energy prices ACTUAL per period: from invoice
     const energyPricesActual = extractInvoiceEnergyPrices(invoices, periodCount)
