@@ -267,15 +267,40 @@ function invoiceSortKey(inv: any): string {
 }
 
 /**
+ * Normalize a raw power price that could be stored as:
+ *   - €/kW·día  (value < 2, e.g. 0.078882) → use as-is
+ *   - €/kW·año  (value > 5, e.g. 28.79)    → divide by 365
+ *   - values 2..5 are ambiguous; treat as annual (err on safe side)
+ */
+function normPowerPrice(raw: number): number {
+  if (raw <= 0) return 0
+  return raw > 2 ? raw / 365 : raw
+}
+
+/**
+ * Normalize dias that Gemini may have extracted as:
+ *   - Actual integer days   (>= 1, e.g. 31)   → use as-is
+ *   - Fraction of year      (0 < d < 1, e.g. 31/365 = 0.0849) → multiply by 365
+ *   - Zero / null           → return 0
+ */
+function normDias(raw: number): number {
+  if (raw >= 1) return Math.round(raw)
+  if (raw > 0)  return Math.round(raw * 365)
+  return 0
+}
+
+/**
  * Extract power prices (€/kW·día) DIRECTLY from the most recent invoice
- * of the preferred year. No weighted averaging — returns the literal prices
- * printed on that one invoice.
+ * of the preferred year. Returns literal prices from the invoice — no averaging.
  *
- * Algorithm:
- *   1. Filter to invoices of preferYear (all invoices if none match)
- *   2. Sort by invoice date descending → pick most recent first
- *   3. For each invoice (most-recent-first), try potencia[] then rawLineItems
- *   4. Return first invoice that yields ≥1 period price
+ * Three extraction sources tried in order per invoice:
+ *   1. economics.potencia[]     → precioKwDia/precioKw, or total/(kw×dias)
+ *   2. economics.rawLineItems   → precioUnitario (most reliable for COX/consolidated)
+ *                                 or total/(kw×dias) with fractional-dias handling
+ *
+ * COX Energy format: "260 kW × 0,078882 €/kW × (31/365) días"
+ *   → Gemini may store dias=31 OR dias=0.0849 OR precioUnitario=0.078882
+ *   → All cases handled below.
  */
 function extractPowerPricesFromMostRecentInvoice(
   invoices: any[],
@@ -285,19 +310,21 @@ function extractPowerPricesFromMostRecentInvoice(
   const empty = { prices: Array(periodCount).fill(0), sourceYear: null, sourceDate: '' }
   if (!invoices?.length) return empty
 
-  // 1. Filter to preferred year; fall back to all if none match
+  // 1. Filter to preferred year; fall back to all invoices if none match
   let subset = invoices
   if (preferYear) {
     const filtered = invoices.filter(inv => invoiceYear(inv) === preferYear)
+    console.log(`[economic-study] preferYear=${preferYear} → ${filtered.length}/${invoices.length} invoices match`)
     if (filtered.length > 0) subset = filtered
   }
 
-  // 2. Sort by invoice date descending
+  // 2. Sort by invoice date descending (most recent first)
   const sorted = [...subset].sort((a, b) =>
     invoiceSortKey(b).localeCompare(invoiceSortKey(a))
   )
+  console.log(`[economic-study] invoice order:`, sorted.map(i => `${i.id}@${invoiceSortKey(i)}(year=${invoiceYear(i)})`))
 
-  // 3. Try each invoice
+  // 3. Try each invoice until one yields ≥1 period price
   for (const inv of sorted) {
     const ed = inv.extracted_data as any
     if (!ed) continue
@@ -305,7 +332,7 @@ function extractPowerPricesFromMostRecentInvoice(
     const prices = Array(periodCount).fill(0)
     let found = 0
 
-    // Source 1: potencia[] aggregated by Gemini
+    // ── Source 1: potencia[] aggregated by Gemini ───────────────────────────
     const potenciaArr: any[] | undefined = eco.potencia ?? ed.potencia
     if (Array.isArray(potenciaArr) && potenciaArr.length > 0) {
       for (let i = 0; i < periodCount; i++) {
@@ -314,54 +341,89 @@ function extractPowerPricesFromMostRecentInvoice(
           (x: any) => x.periodo === p || x.periodo === `Periodo ${i + 1}`
         )
         if (!item) continue
-        const kw   = Number(item.kw)   || 0
-        const dias  = Number(item.dias)  || 0
-        const total = Number(item.total) || Number(item.importe) || 0
-        const rawPrecio = Number(item.precioKwDia) || Number(item.precioKw) || 0
+        const kw       = Number(item.kw) || 0
+        const rawDias  = Number(item.dias) || 0
+        const total    = Number(item.total) || Number(item.importe) || 0
+        // Try all possible field names Gemini may use for the unit price
+        const rawPrecio = Number(item.precioKwDia) || Number(item.precioKw)
+                        || Number(item.precio)      || Number(item.precioUnitario) || 0
 
         let precio = 0
         if (rawPrecio > 0) {
-          // If value > 2 it was stored as annual (€/kW·año) → convert to daily
-          precio = rawPrecio > 2 ? rawPrecio / 365 : rawPrecio
-        } else if (kw > 0 && dias > 0 && total > 0) {
-          precio = total / (kw * dias)
+          // Direct price available — normalize annual→daily if needed
+          precio = normPowerPrice(rawPrecio)
+        } else if (kw > 0 && total > 0) {
+          // Derive: total / (kw × actualDias) — handles fractional dias
+          const actualDias = normDias(rawDias)
+          if (actualDias > 0) precio = normPowerPrice(total / (kw * actualDias))
         }
         if (precio > 0) { prices[i] = precio; found++ }
       }
       if (found > 0) {
-        console.log(`[economic-study] power prices from potencia[] of invoice ${inv.id} (${invoiceSortKey(inv)})`, prices)
+        console.log(`[economic-study] ✓ potencia[] → invoice ${inv.id} (${invoiceSortKey(inv)})`, prices)
         return { prices, sourceYear: invoiceYear(inv), sourceDate: invoiceSortKey(inv) }
       }
     }
 
-    // Source 2: rawLineItems fallback (sum potencia_peaje + potencia_cargo per period)
+    // ── Source 2: rawLineItems ───────────────────────────────────────────────
+    // Aggregate all potencia-category lines per period.
+    // For combined invoices (COX, Galp, etc.) there may be ONE line per period
+    // with the all-in price in precioUnitario.
+    // For split invoices (peaje + cargo separate) sum totals and average prices.
     const rawItems: any[] | undefined = eco.rawLineItems ?? ed.rawLineItems
     if (Array.isArray(rawItems) && rawItems.length > 0) {
-      const byPeriod: Record<string, { kw: number; dias: number; total: number }> = {}
+      type PRow = { kw: number; dias: number; total: number; precioUnitario: number; lineCount: number }
+      const byPeriod: Record<string, PRow> = {}
+
       for (const item of rawItems) {
         if (!POTENCIA_CATS.has(item.category)) continue
         const p = item.periodo as string
         if (!p || !PERIOD_KEYS.includes(p)) continue
-        if (!byPeriod[p]) byPeriod[p] = { kw: 0, dias: 0, total: 0 }
-        if (Number(item.kw)   > 0) byPeriod[p].kw   = Number(item.kw)
-        if (Number(item.dias) > 0) byPeriod[p].dias  = Number(item.dias)
-        byPeriod[p].total += Number(item.total) || 0
+        if (!byPeriod[p]) byPeriod[p] = { kw: 0, dias: 0, total: 0, precioUnitario: 0, lineCount: 0 }
+
+        const itemKw    = Number(item.kw)    || 0
+        const itemDias  = Number(item.dias)  || 0
+        const itemTotal = Number(item.total) || 0
+        const itemUnit  = Number(item.precioUnitario) || 0
+
+        if (itemKw > 0) byPeriod[p].kw = itemKw
+        // Normalize fractional dias
+        const actualDias = normDias(itemDias)
+        if (actualDias > 0) byPeriod[p].dias = actualDias
+        byPeriod[p].total += itemTotal
+        // Keep the first non-zero unit price (for consolidated lines)
+        if (itemUnit > 0 && byPeriod[p].precioUnitario === 0) byPeriod[p].precioUnitario = itemUnit
+        byPeriod[p].lineCount++
       }
+
       for (let i = 0; i < periodCount; i++) {
         const p = PERIOD_KEYS[i]
         const row = byPeriod[p]
-        if (!row || row.kw <= 0 || row.dias <= 0 || row.total <= 0) continue
-        prices[i] = row.total / (row.kw * row.dias)
-        found++
+        if (!row) continue
+
+        let precio = 0
+        // Priority A: direct unit price from line item (e.g. COX shows €/kW·día explicitly)
+        if (row.precioUnitario > 0) {
+          precio = normPowerPrice(row.precioUnitario)
+        }
+        // Priority B: total / (kw × dias) — works when dias is properly extracted
+        else if (row.kw > 0 && row.dias > 0 && row.total > 0) {
+          precio = normPowerPrice(row.total / (row.kw * row.dias))
+        }
+
+        if (precio > 0) { prices[i] = precio; found++ }
       }
+
       if (found > 0) {
-        console.log(`[economic-study] power prices from rawLineItems of invoice ${inv.id} (${invoiceSortKey(inv)})`, prices)
+        console.log(`[economic-study] ✓ rawLineItems → invoice ${inv.id} (${invoiceSortKey(inv)})`, prices)
         return { prices, sourceYear: invoiceYear(inv), sourceDate: invoiceSortKey(inv) }
       }
     }
+
+    console.log(`[economic-study] ✗ no potencia data in invoice ${inv.id} — potencia[]:`, eco.potencia, 'rawItems potencia count:', (eco.rawLineItems ?? []).filter((x: any) => POTENCIA_CATS.has(x.category)).length)
   }
 
-  console.warn('[economic-study] no power price data found in any invoice')
+  console.warn('[economic-study] ⚠ no power price data found in any invoice — will use BOE fallback')
   return empty
 }
 
