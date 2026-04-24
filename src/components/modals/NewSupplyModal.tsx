@@ -36,6 +36,13 @@ interface NewSupplyModalProps {
   preselectedClientId?: string
 }
 
+interface MonthlyInvoice {
+  period_start: string
+  period_end: string
+  total_amount: number | null
+  extracted_data: any
+}
+
 interface UploadedFile {
   id: string
   file: File
@@ -44,6 +51,7 @@ interface UploadedFile {
   analyzing?: boolean
   extractedData?: ExtractedInvoiceData
   error?: string
+  monthlyInvoices?: MonthlyInvoice[]  // for Excel with multiple months
 }
 
 interface ExtractedInvoiceData {
@@ -115,6 +123,7 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [submitStatus, setSubmitStatus] = useState<'idle' | 'success' | 'error'>('idle')
   const [sipsData, setSipsData] = useState<SipsData | null>(null)
   const [sipsLoading, setSipsLoading] = useState(false)
   const [sipsError, setSipsError] = useState('')
@@ -165,7 +174,7 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
       if (comRes.data) {
         setComercializadoras([
           { value: '', label: 'Sin asignar' },
-          ...comRes.data.map((c) => ({ value: c.id, label: c.name })),
+          ...comRes.data.map((c: { id: string; name: string }) => ({ value: c.id, label: c.name })),
         ])
       }
     }
@@ -297,9 +306,9 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
     // Validate and filter files
     const validFiles = files.filter((file) => {
       const ext = file.name.toLowerCase().split('.').pop()
-      const validExts = ['pdf', 'jpg', 'jpeg', 'png', 'zip']
+      const validExts = ['pdf', 'jpg', 'jpeg', 'png', 'zip', 'xlsx']
       if (!validExts.includes(ext || '')) {
-        setError(`Archivo ${file.name} no es válido. Solo PDF, imágenes (JPG, PNG) o ZIP.`)
+        setError(`Archivo ${file.name} no es válido. Solo PDF, imágenes (JPG, PNG), Excel (.xlsx) o ZIP.`)
         return false
       }
       if (file.size > 20 * 1024 * 1024) {
@@ -369,19 +378,17 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
 
     setUploadedFiles((prev) => [...prev, ...newFiles])
 
-    // ── Multi-page invoice support ──
-    // When multiple files are uploaded together they likely represent the same
-    // invoice spread across pages (e.g. front + detail scan). Send them ALL to
-    // Gemini in a single request so it can see the CUPS from page 2 while
-    // reading economics from page 1, etc.
-    //
-    // Single-file uploads use the same path (no extra_pages sent).
+    // ── Handle Excel files separately ──
+    // For .xlsx files, call parse-excel-invoices endpoint
+    // For other files, use multi-page invoice support with Gemini
 
-    try {
-      // Step 1: Read all new files as base64 in parallel
-      const filePages = await Promise.all(
-        newFiles.map(async (uploadedFile) => {
-          const fileType = uploadedFile.file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image'
+    const excelFiles = newFiles.filter(f => f.file.name.toLowerCase().endsWith('.xlsx'))
+    const otherFiles = newFiles.filter(f => !f.file.name.toLowerCase().endsWith('.xlsx'))
+
+    // Process Excel files
+    if (excelFiles.length > 0) {
+      for (const excelFile of excelFiles) {
+        try {
           const base64 = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader()
             reader.onload = () => {
@@ -389,78 +396,160 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
               resolve(result.split(',')[1])
             }
             reader.onerror = () => reject(new Error('Error leyendo archivo'))
-            reader.readAsDataURL(uploadedFile.file)
+            reader.readAsDataURL(excelFile.file)
           })
-          return { id: uploadedFile.id, base64, fileType, fileName: uploadedFile.file.name }
-        })
-      )
 
-      // Step 2: Send all pages in one request (primary + extra_pages)
-      const [primary, ...rest] = filePages
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 180000) // 3 min for multi-page
+          const response = await fetch('/api/parse-excel-invoices', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ file_base64: base64 }),
+          })
 
-      const response = await fetch('/api/analyze-invoice', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          file_base64: primary.base64,
-          file_type: primary.fileType,
-          file_name: primary.fileName,
-          ...(rest.length > 0 && {
-            extra_pages: rest.map(p => ({
-              file_base64: p.base64,
-              file_type: p.fileType,
-              file_name: p.fileName,
+          if (!response.ok) {
+            const errorText = await response.text().catch(() => 'Error del servidor')
+            throw new Error(`Error ${response.status}: ${errorText.substring(0, 200)}`)
+          }
+
+          const result = await response.json()
+          console.log('[Excel Parsing] Result:', result)
+
+          // Update file with monthly invoices
+          setUploadedFiles((prev) =>
+            prev.map((f) => {
+              if (f.id === excelFile.id) {
+                return {
+                  ...f,
+                  analyzing: false,
+                  monthlyInvoices: result.invoices,
+                  // Set extractedData to first month for review display
+                  extractedData: result.invoices[0]?.extracted_data ? {
+                    ...result.invoices[0].extracted_data,
+                    mode: 'gemini',
+                  } : undefined,
+                }
+              }
+              return f
+            })
+          )
+
+          // Auto-fill form with extracted data
+          if (result.cups || result.tariff || result.comercializadora) {
+            setForm((prev) => ({
+              ...prev,
+              cups: result.cups || prev.cups,
+              tariff: result.tariff || prev.tariff,
+              comercializadora_id: prev.comercializadora_id, // Will be matched after comercializadoras load
             }))
-          }),
-        }),
-        signal: controller.signal,
-      })
 
-      clearTimeout(timeout)
-
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => 'Error del servidor')
-        throw new Error(`Error ${response.status}: ${errorText.substring(0, 200)}`)
-      }
-
-      const result = (await response.json()) as ExtractedInvoiceData
-      console.log('[Invoice Analysis] Multi-page result (', filePages.length, 'pages ):', JSON.stringify(result))
-
-      // Step 3: Assign the combined result to the primary file, mark rest as analysed
-      setUploadedFiles((prev) =>
-        prev.map((f) => {
-          if (f.id === primary.id) {
-            return {
-              ...f,
-              analyzing: false,
-              extractedData: result,
-              error: result.mode === 'manual' && result.error ? result.error : undefined,
+            // Try to match comercializadora
+            if (result.comercializadora && comercializadoras.length > 0) {
+              const found = comercializadoras.find(
+                (c) => c.label.toLowerCase().includes(result.comercializadora?.toLowerCase() || '')
+              )
+              if (found) {
+                setForm((prev) => ({ ...prev, comercializadora_id: found.value }))
+              }
             }
           }
-          if (rest.some(r => r.id === f.id)) {
-            // Secondary pages: mark done but share the combined result
-            return { ...f, analyzing: false, extractedData: result }
-          }
-          return f
-        })
-      )
-    } catch (err: any) {
-      console.error('Analysis error:', err)
-      const errorMsg = err.name === 'AbortError'
-        ? 'Tiempo de espera agotado. El archivo puede ser demasiado grande.'
-        : err.message === 'Failed to fetch'
-          ? 'Error de conexion. Verifica tu conexion a internet e intenta de nuevo.'
-          : err.message || 'Error al analizar'
-      // Mark all new files as failed
-      setUploadedFiles((prev) =>
-        prev.map((f) =>
-          newFiles.some(nf => nf.id === f.id)
-            ? { ...f, analyzing: false, error: errorMsg }
-            : f
+        } catch (err: any) {
+          console.error('[Excel] Analysis error:', err)
+          const errorMsg = err.message || 'Error al analizar Excel'
+          setUploadedFiles((prev) =>
+            prev.map((f) =>
+              f.id === excelFile.id ? { ...f, analyzing: false, error: errorMsg } : f
+            )
+          )
+        }
+      }
+    }
+
+    // Process other files with Gemini (multi-page support)
+    if (otherFiles.length > 0) {
+      try {
+        // Step 1: Read all files as base64 in parallel
+        const filePages = await Promise.all(
+          otherFiles.map(async (uploadedFile) => {
+            const fileType = uploadedFile.file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image'
+            const base64 = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader()
+              reader.onload = () => {
+                const result = reader.result as string
+                resolve(result.split(',')[1])
+              }
+              reader.onerror = () => reject(new Error('Error leyendo archivo'))
+              reader.readAsDataURL(uploadedFile.file)
+            })
+            return { id: uploadedFile.id, base64, fileType, fileName: uploadedFile.file.name }
+          })
         )
-      )
+
+        // Step 2: Send all pages in one request (primary + extra_pages)
+        const [primary, ...rest] = filePages
+        const controller = new AbortController()
+        const timeout = setTimeout(() => controller.abort(), 180000) // 3 min for multi-page
+
+        const response = await fetch('/api/analyze-invoice', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            file_base64: primary.base64,
+            file_type: primary.fileType,
+            file_name: primary.fileName,
+            ...(rest.length > 0 && {
+              extra_pages: rest.map(p => ({
+                file_base64: p.base64,
+                file_type: p.fileType,
+                file_name: p.fileName,
+              }))
+            }),
+          }),
+          signal: controller.signal,
+        })
+
+        clearTimeout(timeout)
+
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => 'Error del servidor')
+          throw new Error(`Error ${response.status}: ${errorText.substring(0, 200)}`)
+        }
+
+        const result = (await response.json()) as ExtractedInvoiceData
+        console.log('[Invoice Analysis] Multi-page result (', filePages.length, 'pages ):', JSON.stringify(result))
+
+        // Step 3: Assign the combined result to the primary file, mark rest as analysed
+        setUploadedFiles((prev) =>
+          prev.map((f) => {
+            if (f.id === primary.id) {
+              return {
+                ...f,
+                analyzing: false,
+                extractedData: result,
+                error: result.mode === 'manual' && result.error ? result.error : undefined,
+              }
+            }
+            if (rest.some(r => r.id === f.id)) {
+              // Secondary pages: mark done but share the combined result
+              return { ...f, analyzing: false, extractedData: result }
+            }
+            return f
+          })
+        )
+      } catch (err: any) {
+        console.error('Analysis error:', err)
+        const errorMsg = err.name === 'AbortError'
+          ? 'Tiempo de espera agotado. El archivo puede ser demasiado grande.'
+          : err.message === 'Failed to fetch'
+            ? 'Error de conexion. Verifica tu conexion a internet e intenta de nuevo.'
+            : err.message || 'Error al analizar'
+        // Mark all other files as failed
+        setUploadedFiles((prev) =>
+          prev.map((f) =>
+            otherFiles.some(nf => nf.id === f.id)
+              ? { ...f, analyzing: false, error: errorMsg }
+              : f
+          )
+        )
+      }
     }
   }
 
@@ -491,8 +580,9 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
   const handleProceedToReview = () => {
     // Merge extracted data from ALL files: take the best value for each field
     // (e.g. CUPS from page 2, economics from page 1)
+    // Skip files with monthlyInvoices as they have their own structure
     const allExtracted = uploadedFiles
-      .filter((f) => f.extractedData?.mode === 'gemini' && !f.error)
+      .filter((f) => !f.monthlyInvoices && f.extractedData?.mode === 'gemini' && !f.error)
       .map((f) => f.extractedData!)
 
     if (allExtracted.length === 0) return
@@ -671,9 +761,28 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
         }
       }
 
+      // ── Insert monthly invoices from Excel ──
+      const xlsxMonthlyInserts = uploadedFiles
+        .filter(f => f.monthlyInvoices && f.monthlyInvoices.length > 0)
+        .flatMap(f => f.monthlyInvoices!.map(mi => ({
+          supply_id: targetSupplyId,
+          file_url: f.url || '',
+          file_type: 'excel' as any,
+          extracted_data: mi.extracted_data,
+          extraction_status: 'completed',
+          period_start: mi.period_start,
+          period_end: mi.period_end,
+          total_amount: mi.total_amount,
+        })))
+
+      if (xlsxMonthlyInserts.length > 0) {
+        const { error: xlsxError } = await supabase.from('invoices').insert(xlsxMonthlyInserts)
+        if (xlsxError) throw xlsxError
+      }
+
       // ── Attach invoices to targetSupplyId (new or existing) ──
       const invoiceInserts = uploadedFiles
-        .filter((f) => f.url)
+        .filter((f) => f.url && !f.monthlyInvoices)
         .map((f) => {
           const eco = f.extractedData?.economics
           // Prefer economics-derived dates (more precise) over billing_period string
@@ -711,11 +820,17 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
         await ensurePendingPrescoring(supabase, targetSupplyId, { userId: user?.id, updateNulls: true })
       }
 
+      setSubmitStatus('success')
       onCreated()
+      await new Promise(r => setTimeout(r, 1500))
       onClose()
+      setSubmitStatus('idle')
     } catch (err: any) {
       console.error('Error creating supply:', err)
       setError(err.message || 'Error al crear el suministro')
+      setSubmitStatus('error')
+      // Reset error state after 1 second
+      setTimeout(() => setSubmitStatus('idle'), 1000)
     } finally {
       setSaving(false)
     }
@@ -779,7 +894,7 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
                     <Upload className="w-8 h-8 text-brand mx-auto mb-3" />
                     <p className="text-sm font-medium text-ink">Arrastra facturas aquí</p>
                     <p className="text-xs text-ink-3 mt-1">
-                      PDF, imágenes (JPG, PNG) o ZIP
+                      PDF, imágenes (JPG, PNG), Excel (.xlsx) o ZIP
                     </p>
                   </div>
 
@@ -787,7 +902,7 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
                     ref={fileInputRef}
                     type="file"
                     multiple
-                    accept=".pdf,.jpg,.jpeg,.png,.zip"
+                    accept=".pdf,.jpg,.jpeg,.png,.zip,.xlsx"
                     onChange={handleFileInputChange}
                     className="hidden"
                   />
@@ -1269,14 +1384,52 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
 
                   {/* Step 2 Actions */}
                   <div className="flex gap-3 justify-end pt-4">
-                    <Button variant="secondary" type="button" onClick={() => setStep(1)}>
+                    <Button variant="secondary" type="button" onClick={() => setStep(1)} disabled={submitStatus === 'success'}>
                       Volver
                     </Button>
-                    <Button type="submit" loading={saving}>
-                      <Zap className="w-4 h-4" />
-                      Crear Suministro
+                    <Button
+                      type="submit"
+                      loading={saving}
+                      disabled={submitStatus === 'success'}
+                      className={
+                        submitStatus === 'success'
+                          ? 'bg-ok hover:bg-ok/90'
+                          : submitStatus === 'error'
+                          ? 'bg-err hover:bg-err/90'
+                          : ''
+                      }
+                    >
+                      {submitStatus === 'success' ? (
+                        <>
+                          <Check className="w-4 h-4" />
+                          ¡Creado!
+                        </>
+                      ) : (
+                        <>
+                          <Zap className="w-4 h-4" />
+                          Crear Suministro
+                        </>
+                      )}
                     </Button>
                   </div>
+
+                  {/* Success Banner */}
+                  {submitStatus === 'success' && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 10 }}
+                      className="mt-4 rounded-xl border border-ok/30 bg-ok/10 p-4 flex items-center gap-3"
+                    >
+                      <div className="w-10 h-10 rounded-full bg-ok/20 flex items-center justify-center flex-shrink-0">
+                        <Check className="w-6 h-6 text-ok" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold text-ok">Suministro creado correctamente</p>
+                        <p className="text-xs text-ok/70">Los datos se han guardado exitosamente</p>
+                      </div>
+                    </motion.div>
+                  )}
                 </form>
               )}
             </div>
