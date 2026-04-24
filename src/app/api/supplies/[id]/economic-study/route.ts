@@ -203,75 +203,138 @@ const POTENCIA_CATS = new Set([
   'potencia_peaje', 'potencia_cargo', 'potencia_comercializacion', 'potencia',
 ])
 
-/** Year of an invoice from its period dates, or null if unknown */
+/**
+ * Returns the billing year of an invoice.
+ * Priority:
+ *   1. Gemini-extracted end/start date from economics (DD/MM/YYYY or YYYY-MM-DD)
+ *   2. DB period_end / period_start fields (ISO or YYYY-MM-DD)
+ *   3. created_at (upload date — least reliable)
+ */
 function invoiceYear(inv: any): number | null {
-  const d = inv.period_end || inv.period_start || inv.created_at || ''
-  const y = parseInt(String(d).substring(0, 4))
-  return isNaN(y) || y < 2020 ? null : y
+  const ed = inv.extracted_data as any
+  const eco = ed?.economics
+
+  // 1. Gemini fechaFin / fechaInicio  (format: "DD/MM/YYYY" or "YYYY-MM-DD")
+  for (const key of ['fechaFin', 'fechaInicio']) {
+    const raw = eco?.[key]
+    if (!raw) continue
+    let y: number
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(raw)) {
+      y = parseInt(raw.substring(6, 10)) // DD/MM/YYYY → last 4 chars
+    } else {
+      y = parseInt(String(raw).substring(0, 4)) // YYYY-...
+    }
+    if (!isNaN(y) && y >= 2020 && y <= 2030) return y
+  }
+
+  // 2. DB date fields
+  for (const key of ['period_end', 'period_start']) {
+    const raw = (inv as any)[key]
+    if (!raw) continue
+    const y = parseInt(String(raw).substring(0, 4))
+    if (!isNaN(y) && y >= 2020 && y <= 2030) return y
+  }
+
+  // 3. created_at (last resort)
+  const raw = (inv as any).created_at
+  if (raw) {
+    const y = parseInt(String(raw).substring(0, 4))
+    if (!isNaN(y) && y >= 2020 && y <= 2030) return y
+  }
+  return null
 }
 
 /**
- * Weighted-average power price per period from invoices.
- *
- * preferYear: if provided and there are invoices from that year, ONLY those are used.
- * If no invoices match preferYear, falls back to all invoices.
- *
- * avgPrice[P] = Σ(totalCost_P) / Σ(kW_P × dias_P)
- *
- * Sources per invoice (in order):
- *   1. economics.potencia[]  — aggregated by Gemini (total or precioKwDia)
- *   2. rawLineItems          — potencia_peaje + potencia_cargo per period
+ * Returns the best sortable date string for an invoice (for ordering most-recent-first).
+ * Uses Gemini fechaFin > DB period_end > DB period_start > created_at.
  */
-function extractAvgPowerPricesFromAllInvoices(
+function invoiceSortKey(inv: any): string {
+  const ed = inv.extracted_data as any
+  const eco = ed?.economics
+
+  // Gemini fechaFin: convert DD/MM/YYYY → YYYY-MM-DD for lexicographic sort
+  const geminiEnd = eco?.fechaFin
+  if (geminiEnd) {
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(geminiEnd)) {
+      const [d, m, y] = geminiEnd.split('/')
+      return `${y}-${m}-${d}`
+    }
+    if (/^\d{4}-\d{2}-\d{2}/.test(geminiEnd)) return geminiEnd
+  }
+
+  // DB fields are already YYYY-MM-DD
+  return (inv as any).period_end || (inv as any).period_start || (inv as any).created_at || ''
+}
+
+/**
+ * Extract power prices (€/kW·día) DIRECTLY from the most recent invoice
+ * of the preferred year. No weighted averaging — returns the literal prices
+ * printed on that one invoice.
+ *
+ * Algorithm:
+ *   1. Filter to invoices of preferYear (all invoices if none match)
+ *   2. Sort by invoice date descending → pick most recent first
+ *   3. For each invoice (most-recent-first), try potencia[] then rawLineItems
+ *   4. Return first invoice that yields ≥1 period price
+ */
+function extractPowerPricesFromMostRecentInvoice(
   invoices: any[],
   periodCount: number,
   preferYear?: number,
-): number[] {
-  // Filter to preferred year if available
+): { prices: number[]; sourceYear: number | null; sourceDate: string } {
+  const empty = { prices: Array(periodCount).fill(0), sourceYear: null, sourceDate: '' }
+  if (!invoices?.length) return empty
+
+  // 1. Filter to preferred year; fall back to all if none match
   let subset = invoices
   if (preferYear) {
     const filtered = invoices.filter(inv => invoiceYear(inv) === preferYear)
     if (filtered.length > 0) subset = filtered
   }
 
-  const totalEur = Array(periodCount).fill(0)
-  const totalKwDias = Array(periodCount).fill(0)
+  // 2. Sort by invoice date descending
+  const sorted = [...subset].sort((a, b) =>
+    invoiceSortKey(b).localeCompare(invoiceSortKey(a))
+  )
 
-  for (const inv of subset) {
+  // 3. Try each invoice
+  for (const inv of sorted) {
     const ed = inv.extracted_data as any
     if (!ed) continue
     const eco = ed.economics || {}
+    const prices = Array(periodCount).fill(0)
+    let found = 0
 
-    // ── Source 1: potencia[] array ──────────────────────────────────────────
+    // Source 1: potencia[] aggregated by Gemini
     const potenciaArr: any[] | undefined = eco.potencia ?? ed.potencia
     if (Array.isArray(potenciaArr) && potenciaArr.length > 0) {
-      let got = false
       for (let i = 0; i < periodCount; i++) {
         const p = PERIOD_KEYS[i]
         const item = potenciaArr.find(
           (x: any) => x.periodo === p || x.periodo === `Periodo ${i + 1}`
         )
         if (!item) continue
-        const kw = Number(item.kw) || 0
-        const dias = Number(item.dias) || 0
+        const kw   = Number(item.kw)   || 0
+        const dias  = Number(item.dias)  || 0
         const total = Number(item.total) || Number(item.importe) || 0
-        // Normalize to €/kW·día: if stored value > 2 it was saved as annual (€/kW·year)
         const rawPrecio = Number(item.precioKwDia) || Number(item.precioKw) || 0
-        const precio = rawPrecio > 2 ? rawPrecio / 365 : rawPrecio
 
-        if (kw > 0 && dias > 0) {
-          const costForPeriod = total > 0 ? total : (precio > 0 ? kw * dias * precio : 0)
-          if (costForPeriod > 0) {
-            totalEur[i] += costForPeriod
-            totalKwDias[i] += kw * dias
-            got = true
-          }
+        let precio = 0
+        if (rawPrecio > 0) {
+          // If value > 2 it was stored as annual (€/kW·año) → convert to daily
+          precio = rawPrecio > 2 ? rawPrecio / 365 : rawPrecio
+        } else if (kw > 0 && dias > 0 && total > 0) {
+          precio = total / (kw * dias)
         }
+        if (precio > 0) { prices[i] = precio; found++ }
       }
-      if (got) continue  // skip rawLineItems for this invoice
+      if (found > 0) {
+        console.log(`[economic-study] power prices from potencia[] of invoice ${inv.id} (${invoiceSortKey(inv)})`, prices)
+        return { prices, sourceYear: invoiceYear(inv), sourceDate: invoiceSortKey(inv) }
+      }
     }
 
-    // ── Source 2: rawLineItems fallback ─────────────────────────────────────
+    // Source 2: rawLineItems fallback (sum potencia_peaje + potencia_cargo per period)
     const rawItems: any[] | undefined = eco.rawLineItems ?? ed.rawLineItems
     if (Array.isArray(rawItems) && rawItems.length > 0) {
       const byPeriod: Record<string, { kw: number; dias: number; total: number }> = {}
@@ -280,21 +343,26 @@ function extractAvgPowerPricesFromAllInvoices(
         const p = item.periodo as string
         if (!p || !PERIOD_KEYS.includes(p)) continue
         if (!byPeriod[p]) byPeriod[p] = { kw: 0, dias: 0, total: 0 }
-        if (Number(item.kw) > 0) byPeriod[p].kw = Number(item.kw)
-        if (Number(item.dias) > 0) byPeriod[p].dias = Number(item.dias)
+        if (Number(item.kw)   > 0) byPeriod[p].kw   = Number(item.kw)
+        if (Number(item.dias) > 0) byPeriod[p].dias  = Number(item.dias)
         byPeriod[p].total += Number(item.total) || 0
       }
       for (let i = 0; i < periodCount; i++) {
         const p = PERIOD_KEYS[i]
         const row = byPeriod[p]
         if (!row || row.kw <= 0 || row.dias <= 0 || row.total <= 0) continue
-        totalEur[i] += row.total
-        totalKwDias[i] += row.kw * row.dias
+        prices[i] = row.total / (row.kw * row.dias)
+        found++
+      }
+      if (found > 0) {
+        console.log(`[economic-study] power prices from rawLineItems of invoice ${inv.id} (${invoiceSortKey(inv)})`, prices)
+        return { prices, sourceYear: invoiceYear(inv), sourceDate: invoiceSortKey(inv) }
       }
     }
   }
 
-  return totalEur.map((eur, i) => totalKwDias[i] > 0 ? eur / totalKwDias[i] : 0)
+  console.warn('[economic-study] no power price data found in any invoice')
+  return empty
 }
 
 /**
@@ -510,13 +578,15 @@ export async function POST(
       powers = sipsPowers
     }
 
-    // Power prices ACTUAL: weighted average from invoices, using ONLY the most recent year.
-    // If client has 2025 + 2026 invoices → use ONLY 2026 invoices for actual prices.
-    // If only 2025 → use 2025. Falls back to BOE of matching year if no invoice data.
+    // Power prices ACTUAL: extract DIRECTLY from the most recent invoice.
+    // If client has 2025 + 2026 invoices → uses only the most-recent 2026 invoice.
+    // If only 2025 → uses the most-recent 2025 invoice.
+    // No weighted averaging — literal prices from that one invoice.
     const invoiceYears = invoices.map((inv: any) => invoiceYear(inv)).filter(Boolean) as number[]
     const preferYear = invoiceYears.length > 0 ? Math.max(...invoiceYears) : undefined
-    const avgPowerPricesActual = extractAvgPowerPricesFromAllInvoices(invoices, periodCount, preferYear)
-    const boeActualFallback = preferYear === 2026 ? boe2026 : boe2025
+    const { prices: avgPowerPricesActual, sourceYear: powerSourceYear } =
+      extractPowerPricesFromMostRecentInvoice(invoices, periodCount, preferYear)
+    const boeActualFallback = (powerSourceYear ?? preferYear ?? boeNewYear) === 2026 ? boe2026 : boe2025
 
     // Energy prices ACTUAL per period: from invoice
     const energyPricesActual = extractInvoiceEnergyPrices(invoices, periodCount)
