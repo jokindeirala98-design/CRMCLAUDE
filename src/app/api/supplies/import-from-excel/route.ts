@@ -31,6 +31,7 @@ import { createClient } from '@supabase/supabase-js'
 import ExcelJS from 'exceljs'
 import { fetchSipsForCups } from '@/lib/sips'
 import { normalizeTariff as normalizeTariffLib } from '@/lib/consumption-utils'
+import { ensurePendingPrescoring } from '@/lib/ensurePrescoring'
 
 export const maxDuration = 300
 
@@ -397,12 +398,13 @@ function buildAnnualConsumptionData(parsed: ParsedSupplyFile) {
   return { consumoPeriodos, totalKwh }
 }
 
-/** Procesa un fichero Excel: crea/actualiza suministro e inserta facturas */
+/** Procesa un fichero Excel: crea/actualiza suministro, inserta facturas y garantiza fila de prescoring */
 async function processFile(
   file: File,
   resolvedClientId: string,
   newClientName: string,
-  supabase: any
+  supabase: any,
+  userId?: string
 ): Promise<{ fileName: string; cups?: string; ok: boolean; invoicesCreated?: number; invoicesSkipped?: number; isNew?: boolean; tarifa?: string; supplyId?: string; error?: string }> {
   const fileName = file.name
   try {
@@ -627,6 +629,14 @@ async function processFile(
       }
     }
 
+    // ── Prescoring ───────────────────────────────────────────────────────────
+    // Guarantee a prescoring row exists (idempotent — skips if already present,
+    // patches null fields if updateNulls=true). Always runs, even if 0 invoices.
+    await ensurePendingPrescoring(supabase, supplyId, {
+      userId: userId || 'system',
+      updateNulls: true,   // enrich existing row with invoice / SIPS data
+    })
+
     return {
       fileName,
       cups: parsed.cups,
@@ -725,7 +735,7 @@ export async function POST(req: NextRequest) {
     for (let i = 0; i < files.length; i += BATCH_SIZE) {
       const batch = files.slice(i, i + BATCH_SIZE)
       const settled = await Promise.allSettled(
-        batch.map(file => processFile(file, finalClientId, newClientName, supabase))
+        batch.map(file => processFile(file, finalClientId, newClientName, supabase, user.id))
       )
       for (const r of settled) {
         results.push(
