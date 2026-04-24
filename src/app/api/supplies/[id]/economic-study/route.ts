@@ -129,21 +129,29 @@ const LOGO_ALIASES: Record<string, string> = {
   'totalenergies': 'totalenergies',
   'total_energies': 'totalenergies',
   'total': 'totalenergies',
-  // Naturgy variants
+  // Naturgy variants (including "Naturgy Iberia, S.A." → naturgy_iberia_s_a)
   'naturgy': 'naturgy',
   'naturgy_iberia': 'naturgy',
+  'naturgy_iberia_s_a': 'naturgy',
+  'naturgy_iberia_sa': 'naturgy',
+  'naturgy_s_a': 'naturgy',
+  'naturgy_sa': 'naturgy',
   // Galp
   'galp': 'galp',
   'galp_energia': 'galp',
+  'galp_energia_espana': 'galp',
+  'galp_energia_espana_s_a': 'galp',
   // Axpo
   'axpo': 'axpo',
   'axpo_iberia': 'axpo',
+  'axpo_iberia_s_l': 'axpo',
   // Swap Energía
   'swap_energia': 'swap_energia',
   'swap': 'swap_energia',
   // Tu Eléctrica
   'tu_electrica': 'tu_electrica',
   'tu_electrica_sl': 'tu_electrica',
+  'tu_electrica_s_l': 'tu_electrica',
   // Ekyner
   'ekyner': 'ekyner',
   // Visalia
@@ -175,21 +183,21 @@ async function tryLoadLogo(name: string): Promise<{ buffer: Buffer; ext: 'png' |
 
 /**
  * Detect the actual comercializadora name from invoice extracted data.
- * Scans all invoices and returns the most-frequent comercializadora name found.
+ * Returns the name from the MOST RECENT invoice (by billing date).
  */
 function detectComercializadoraFromInvoices(invoices: any[]): string | null {
-  const counts: Record<string, number> = {}
-  for (const inv of invoices) {
+  if (!invoices?.length) return null
+  const sorted = [...invoices].sort((a, b) =>
+    invoiceSortKey(b).localeCompare(invoiceSortKey(a))
+  )
+  for (const inv of sorted) {
     const ed = inv.extracted_data as any
     const name = ed?.economics?.comercializadora || ed?.comercializadora
     if (name && typeof name === 'string' && name.trim().length > 1) {
-      const n = name.trim()
-      counts[n] = (counts[n] || 0) + 1
+      return name.trim()
     }
   }
-  const entries = Object.entries(counts)
-  if (!entries.length) return null
-  return entries.sort((a, b) => b[1] - a[1])[0][0]
+  return null
 }
 
 
@@ -505,14 +513,44 @@ function extractPowerPricesFromMostRecentInvoice(
     return null
   }
 
-  // 3. Try invoices in order until one succeeds
+  // 3. Collect prices from ALL matching invoices, then return the MODE per period
+  // (most prevalent price wins; if tie, most recent wins)
+  const allPricesByPeriod: number[][] = Array.from({ length: periodCount }, () => [])
+  let firstSourceYear: number | null = null
+  let firstSourceDate = ''
+
   for (const inv of preferredFirst) {
     const result = tryInvoice(inv)
-    if (result) return { prices: result, sourceYear: invoiceYear(inv), sourceDate: invoiceSortKey(inv) }
+    if (!result) continue
+    if (!firstSourceYear) {
+      firstSourceYear = invoiceYear(inv)
+      firstSourceDate = invoiceSortKey(inv)
+    }
+    for (let i = 0; i < periodCount; i++) {
+      if (result[i] > 0) allPricesByPeriod[i].push(result[i])
+    }
   }
 
-  console.warn('[economic-study] ⚠ no power price data in any invoice — BOE fallback')
-  return empty
+  const hasAny = allPricesByPeriod.some(arr => arr.length > 0)
+  if (!hasAny) {
+    console.warn('[economic-study] ⚠ no power price data in any invoice — BOE fallback')
+    return empty
+  }
+
+  // Mode per period: round to 6 decimals for grouping, pick most frequent
+  const modalPrices = allPricesByPeriod.map(arr => {
+    if (!arr.length) return 0
+    const counts: Record<string, number> = {}
+    for (const p of arr) {
+      const key = p.toFixed(6)
+      counts[key] = (counts[key] || 0) + 1
+    }
+    const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]
+    return parseFloat(best)
+  })
+
+  console.log(`[economic-study] ✓ modal prices from ${allPricesByPeriod.map(a => a.length)} invoices per period`, modalPrices)
+  return { prices: modalPrices, sourceYear: firstSourceYear, sourceDate: firstSourceDate }
 }
 
 /**
@@ -897,12 +935,12 @@ export async function POST(
 
     // Diferencia total → L25 (fórmula); la etiqueta "DIFERENCIA TOTAL:" ya existe en la plantilla
     setF(ws, 'L25', '=I23+I24+I25+I26', '#,##0.00')
-    ws.getCell('L25').font = { bold: true, size: 11, color: { argb: 'FF1D4ED8' } }
+    ws.getCell('L25').font = { bold: true, size: 14, color: { argb: 'FF1D4ED8' } }
     ws.getCell('L25').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } }
 
     // Diferencia energía → G40 (la plantilla tiene la etiqueta "diferencia energía:" aquí)
     setF(ws, 'G40', '=F37-L37', '#,##0.00')
-    ws.getCell('G40').font = { bold: true, color: { argb: 'FF1D4ED8' } }
+    ws.getCell('G40').font = { bold: true, color: { argb: 'FF000000' } }
 
     // ── Estética y bordes ────────────────────────────────────────────────────
     // POTENCIA ACTUAL (A11:F19) — incluye fila cabecera + columna etiquetas
