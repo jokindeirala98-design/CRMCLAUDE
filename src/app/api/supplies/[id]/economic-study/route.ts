@@ -31,18 +31,82 @@ function set(ws: ExcelJS.Worksheet, cell: string, value: any) {
   ws.getCell(cell).value = value
 }
 
+/** Set an Excel formula in a cell */
+function setF(ws: ExcelJS.Worksheet, cell: string, formula: string, numFmt?: string) {
+  const c = ws.getCell(cell)
+  c.value = { formula } as any
+  if (numFmt) c.numFmt = numFmt
+}
+
 /** Monetary totals: round to 2 decimal places (cents) */
 function fmt2(n: number) { return Math.round(n * 100) / 100 }
 
 /**
  * Write a price (€/kWh or €/kW·día) to a cell with full 6-decimal precision.
- * Does NOT round — writes the exact number so BOE values like 0.081083 appear intact.
- * Forces the cell number format to show 6 decimal places regardless of template format.
  */
 function setPrice(ws: ExcelJS.Worksheet, cell: string, value: number) {
   const c = ws.getCell(cell)
-  c.value = value           // raw JS number, no rounding
-  c.numFmt = '0.000000'     // always 6 decimal places, overrides template format
+  c.value = value
+  c.numFmt = '0.000000'
+}
+
+// ── Border styles ─────────────────────────────────────────────────────────────
+const BORDER_OUTER: ExcelJS.Border = { style: 'medium', color: { argb: 'FF1E293B' } }
+const BORDER_INNER: ExcelJS.Border = { style: 'thin',   color: { argb: 'FFCBD5E1' } }
+const BORDER_NONE:  ExcelJS.Border = { style: 'thin',   color: { argb: 'FFFFFFFF' } }
+
+/**
+ * Apply thick outer + thin inner borders to a rectangular range.
+ * Also applies a subtle alternating row fill for readability.
+ */
+function styleTable(
+  ws: ExcelJS.Worksheet,
+  fromRow: number, toRow: number,
+  fromCol: number, toCol: number,
+  opts: { headerRow?: number; totalRow?: number; altFill?: boolean } = {},
+) {
+  const FILL_ALT: ExcelJS.Fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } }
+  const FILL_HDR: ExcelJS.Fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } }
+  const FILL_TOT: ExcelJS.Fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } }
+
+  for (let r = fromRow; r <= toRow; r++) {
+    for (let c = fromCol; c <= toCol; c++) {
+      const cell = ws.getCell(r, c)
+      const top    = r === fromRow ? BORDER_OUTER : BORDER_INNER
+      const bottom = r === toRow   ? BORDER_OUTER : BORDER_INNER
+      const left   = c === fromCol ? BORDER_OUTER : BORDER_INNER
+      const right  = c === toCol   ? BORDER_OUTER : BORDER_INNER
+      cell.border = { top, bottom, left, right }
+
+      if (r === opts.headerRow) {
+        cell.fill = FILL_HDR
+        cell.font = { bold: true, size: 9 }
+      } else if (r === opts.totalRow) {
+        cell.fill = FILL_TOT
+        cell.font = { bold: true }
+      } else if (opts.altFill && (r - fromRow) % 2 === 1) {
+        cell.fill = FILL_ALT
+      }
+    }
+  }
+}
+
+/** Style a standalone summary/highlight box */
+function styleBox(ws: ExcelJS.Worksheet, fromRow: number, toRow: number, fromCol: number, toCol: number, fillArgb = 'FFDBEAFE') {
+  const fill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fillArgb } }
+  for (let r = fromRow; r <= toRow; r++) {
+    for (let c = fromCol; c <= toCol; c++) {
+      const cell = ws.getCell(r, c)
+      cell.border = {
+        top:    r === fromRow ? BORDER_OUTER : BORDER_INNER,
+        bottom: r === toRow   ? BORDER_OUTER : BORDER_INNER,
+        left:   c === fromCol ? BORDER_OUTER : BORDER_INNER,
+        right:  c === toCol   ? BORDER_OUTER : BORDER_INNER,
+      }
+      cell.fill = fill
+      cell.font = { bold: true }
+    }
+  }
 }
 
 const PERIOD_KEYS = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6']
@@ -128,21 +192,7 @@ function detectComercializadoraFromInvoices(invoices: any[]): string | null {
   return entries.sort((a, b) => b[1] - a[1])[0][0]
 }
 
-// Border style for table cells
-const THIN_BORDER: ExcelJS.Border = { style: 'thin', color: { argb: 'FFB0B0B0' } }
-const THIN_ALL: Partial<ExcelJS.Borders> = {
-  top: THIN_BORDER, bottom: THIN_BORDER,
-  left: THIN_BORDER, right: THIN_BORDER,
-}
 
-function applyBorders(ws: ExcelJS.Worksheet, fromRow: number, toRow: number, fromCol: number, toCol: number) {
-  for (let r = fromRow; r <= toRow; r++) {
-    for (let c = fromCol; c <= toCol; c++) {
-      const cell = ws.getCell(r, c)
-      cell.border = THIN_ALL
-    }
-  }
-}
 
 function extractPowers(sipsData: any, periodCount: number): number[] {
   if (!sipsData) return Array(periodCount).fill(0)
@@ -761,121 +811,111 @@ export async function POST(
     insertLogo(logoActualResult, 1, 8)  // cols A area, row 8 (above A10 name)
     insertLogo(logoNuevaResult, 9, 8)  // cols I area, row 8 (above I10 name)
 
+    // Force recalculation when the file is opened in Excel/Numbers
+    wb.calcProperties = { fullCalcOnLoad: true } as any
+
     // ── POTENCIA ──────────────────────────────────────────────────────────────
     const DIAS = 365
     const POT_ROWS = [12, 13, 14, 15, 16, 17]
-    let totalPotenciaActual = 0, totalPotenciaNueva = 0, totalKwPot = 0
+    const lastPotRow = POT_ROWS[periodCount - 1]
 
     for (let i = 0; i < periodCount; i++) {
       const row = POT_ROWS[i]
       const kw = powers[i] || 0
 
-      // ACTUAL price: weighted avg from all invoices → fallback to BOE of matching year
       const boeA = avgPowerPricesActual[i] > 0
         ? avgPowerPricesActual[i]
         : (boeActualFallback[i]?.pricePerKwDay ?? 0)
-
-      // NUEVO price: BOE of the year matching the most recent invoice (2025 or 2026)
       const boeN = boeNuevo[i]?.pricePerKwDay ?? 0
 
-      const costeA = fmt2(kw * DIAS * boeA)
-      const costeN = fmt2(kw * DIAS * boeN)
-
-      // ACTUAL columns
+      // ACTUAL: B=kW, C=días, D=€/kW·día, E=coste/mes (fórmula), F=coste/año (fórmula)
       set(ws, `B${row}`, kw)
       set(ws, `C${row}`, DIAS)
-      setPrice(ws, `D${row}`, boeA)           // €/kW·día actual — full 6-decimal precision
-      set(ws, `E${row}`, fmt2(kw * boeA * DIAS / 12))
-      set(ws, `F${row}`, costeA)
+      setPrice(ws, `D${row}`, boeA)
+      setF(ws, `E${row}`, `=B${row}*C${row}*D${row}/12`, '#,##0.00')
+      setF(ws, `F${row}`, `=B${row}*C${row}*D${row}`,    '#,##0.00')
 
-      // NUEVO columns (BOE of boeNewYear)
+      // NUEVO: J=kW, K=días, L=€/kW·día, M=coste/mes (fórmula), N=coste/año (fórmula)
       set(ws, `J${row}`, kw)
       set(ws, `K${row}`, DIAS)
-      setPrice(ws, `L${row}`, boeN)           // €/kW·día nueva — full 6-decimal precision
-      set(ws, `M${row}`, fmt2(kw * boeN * DIAS / 12))
-      set(ws, `N${row}`, costeN)
-
-      totalPotenciaActual += costeA
-      totalPotenciaNueva += costeN
-      totalKwPot += kw
+      setPrice(ws, `L${row}`, boeN)
+      setF(ws, `M${row}`, `=J${row}*K${row}*L${row}/12`, '#,##0.00')
+      setF(ws, `N${row}`, `=J${row}*K${row}*L${row}`,    '#,##0.00')
     }
 
-    // Totales potencia
-    set(ws, 'B19', totalKwPot)
-    set(ws, 'F19', fmt2(totalPotenciaActual))
-    set(ws, 'J19', totalKwPot)
-    set(ws, 'N19', fmt2(totalPotenciaNueva))
+    // Totales potencia — fórmulas SUM
+    setF(ws, 'B19', `=SUM(B12:B${lastPotRow})`, '#,##0.00')
+    setF(ws, 'F19', `=SUM(F12:F${lastPotRow})`, '#,##0.00')
+    setF(ws, 'J19', `=SUM(J12:J${lastPotRow})`, '#,##0.00')
+    setF(ws, 'N19', `=SUM(N12:N${lastPotRow})`, '#,##0.00')
 
     // ── ENERGÍA ───────────────────────────────────────────────────────────────
     const ENE_ROWS = [30, 31, 32, 33, 34, 35]
-    let totalEnergiaActual = 0, totalEnergiaNueva = 0
+    const lastEneRow = ENE_ROWS[periodCount - 1]
 
+    // Cabecera totales kWh (hardcoded desde SIPS)
     set(ws, 'D29', totalKwh)
     set(ws, 'J29', totalKwh)
 
     for (let i = 0; i < periodCount; i++) {
       const row = ENE_ROWS[i]
       const kwh = consumption[i] || 0
-      const pct = totalKwh > 0 ? kwh / totalKwh : 0
-
-      // Energy price ACTUAL: use per-period invoice price, fallback to overall avg
       const precioA = energyPricesActual[i] > 0 ? energyPricesActual[i] : (kwh > 0 ? actualAvgPrice : 0)
       const precioN = precios_nuevos[i] || 0
-      const costeA = fmt2(kwh * precioA)
-      const costeN = fmt2(kwh * precioN)
 
-      // ACTUAL columns
+      // ACTUAL: C=periodo, D=kWh, E=€/kWh, F=coste (fórmula), G=% (fórmula)
       set(ws, `C${row}`, PERIOD_KEYS[i])
       set(ws, `D${row}`, kwh)
-      setPrice(ws, `E${row}`, precioA)        // €/kWh actual — full precision
-      set(ws, `F${row}`, costeA)
-      set(ws, `G${row}`, pct)
+      setPrice(ws, `E${row}`, precioA)
+      setF(ws, `F${row}`, `=D${row}*E${row}`,                    '#,##0.00')
+      setF(ws, `G${row}`, `=IF($D$37>0,D${row}/$D$37,0)`,        '0.0%')
 
-      // NUEVO columns  (I=periodo, J=kwh, K=precio★, L=coste, M=%)
+      // NUEVO: I=periodo, J=kWh, K=€/kWh, L=coste (fórmula), M=% (fórmula)
       set(ws, `I${row}`, PERIOD_KEYS[i])
       set(ws, `J${row}`, kwh)
-      setPrice(ws, `K${row}`, precioN)        // €/kWh nueva (entered by user) — green column
-      set(ws, `L${row}`, costeN)
-      set(ws, `M${row}`, pct)
-
-      totalEnergiaActual += costeA
-      totalEnergiaNueva += costeN
+      setPrice(ws, `K${row}`, precioN)
+      setF(ws, `L${row}`, `=J${row}*K${row}`,                    '#,##0.00')
+      setF(ws, `M${row}`, `=IF($J$37>0,J${row}/$J$37,0)`,        '0.0%')
     }
 
-    // Totales energía
-    const avgActual = totalKwh > 0 ? totalEnergiaActual / totalKwh : 0
-    const avgNueva = totalKwh > 0 ? totalEnergiaNueva / totalKwh : 0
-    set(ws, 'D37', totalKwh)
-    setPrice(ws, 'E37', avgActual)           // precio medio actual €/kWh — full precision
-    set(ws, 'F37', fmt2(totalEnergiaActual))
-    set(ws, 'J37', totalKwh)
-    setPrice(ws, 'K37', avgNueva)            // precio medio nueva €/kWh — full precision (K=precio, L=coste)
-    set(ws, 'L37', fmt2(totalEnergiaNueva))
-
-    // Diferencia energía (ahorro)
-    const difEnergia = fmt2(totalEnergiaActual - totalEnergiaNueva)
-    set(ws, 'G40', difEnergia)
+    // Totales energía — fórmulas SUM + precio medio derivado
+    setF(ws, 'D37', `=SUM(D30:D${lastEneRow})`, '#,##0')
+    setF(ws, 'E37', `=IF(D37>0,F37/D37,0)`,     '0.000000')
+    setF(ws, 'F37', `=SUM(F30:F${lastEneRow})`, '#,##0.00')
+    setF(ws, 'J37', `=SUM(J30:J${lastEneRow})`, '#,##0')
+    setF(ws, 'K37', `=IF(J37>0,L37/J37,0)`,     '0.000000')
+    setF(ws, 'L37', `=SUM(L30:L${lastEneRow})`, '#,##0.00')
 
     // ── Resumen ───────────────────────────────────────────────────────────────
-    const difPotencia = fmt2(totalPotenciaActual - totalPotenciaNueva)
-    const difTotal = fmt2(difEnergia + difPotencia + (ssaa || 0) + (excesos || 0))
+    // Celdas I23-I26: fórmulas que apuntan a los totales calculados
+    setF(ws, 'I23', '=F19-N19',  '#,##0.00')   // Ahorro potencia
+    setF(ws, 'I24', '=F37-L37',  '#,##0.00')   // Ahorro energía
+    set(ws,  'I25', fmt2(ssaa || 0))             // SSAA (introducido por admin)
+    ws.getCell('I25').numFmt = '#,##0.00'
+    set(ws,  'I26', fmt2(excesos || 0))          // Excesos (introducido por admin)
+    ws.getCell('I26').numFmt = '#,##0.00'
 
-    set(ws, 'I23', fmt2(difPotencia))          // Ahorro potencia
-    set(ws, 'I24', fmt2(difEnergia))            // Ahorro energía
-    set(ws, 'I25', fmt2(ssaa || 0))             // SSAA
-    set(ws, 'I26', fmt2(excesos || 0))          // Excesos
-    set(ws, 'M24', fmt2(difTotal))              // Total ahorro (K24:L24 = label "diferencia total:")
+    // Diferencia total → K25 (label) + L25 (fórmula)
+    set(ws, 'K25', 'DIFERENCIA TOTAL:')
+    ws.getCell('K25').font = { bold: true, size: 10 }
+    ws.getCell('K25').alignment = { horizontal: 'right', vertical: 'middle' }
+    setF(ws, 'L25', '=I23+I24+I25+I26', '#,##0.00')
+    ws.getCell('L25').font = { bold: true, size: 11, color: { argb: 'FF1D4ED8' } }
+    ws.getCell('L25').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } }
 
-    // ── Bordes ───────────────────────────────────────────────────────────────
-    // Potencia: columnas B-F (2..6) y J-N (10..14), filas 12-19
-    applyBorders(ws, 12, 19, 2, 6)
-    applyBorders(ws, 12, 19, 10, 14)
-    // Energía: columnas C-G (3..7) y I-M (9..13), filas 29-37
-    applyBorders(ws, 29, 37, 3, 7)
-    applyBorders(ws, 29, 37, 9, 13)
-    // Resumen: I23-I26 and M24
-    applyBorders(ws, 23, 26, 9, 9)
-    applyBorders(ws, 24, 24, 13, 13)
+    // ── Estética y bordes ────────────────────────────────────────────────────
+    // POTENCIA ACTUAL (B12:F19) — con fila de totales destacada
+    styleTable(ws, 12, 19, 2, 6,  { totalRow: 19, altFill: true })
+    // POTENCIA NUEVA (J12:N19)
+    styleTable(ws, 12, 19, 10, 14, { totalRow: 19, altFill: true })
+    // ENERGÍA ACTUAL (C29:G37)
+    styleTable(ws, 29, 37, 3, 7,  { totalRow: 37, altFill: true })
+    // ENERGÍA NUEVA (I29:M37)
+    styleTable(ws, 29, 37, 9, 13, { totalRow: 37, altFill: true })
+    // Resumen ahorro (I23:I26)
+    styleBox(ws, 23, 26, 9, 9, 'FFF0FDF4')
+    // Diferencia total (K25:L25)
+    styleBox(ws, 25, 25, 11, 12, 'FFDBEAFE')
 
     // ── Generar buffer ────────────────────────────────────────────────────────
     const tariffSlug = normalizeTariff(tariff).replace('.', '')
