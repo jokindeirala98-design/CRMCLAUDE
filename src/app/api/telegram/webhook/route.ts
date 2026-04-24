@@ -5,6 +5,9 @@ import {
 } from '@/lib/telegram'
 import { processTelegramInboxItem } from '@/lib/telegram-process'
 import { analyzeDocument } from '@/lib/gemini'
+import { normalizeCups } from '@/lib/utils/cups'
+import { fetchSipsForCups } from '@/lib/sips'
+import { normalizeTariff } from '@/lib/consumption-utils'
 
 /* ─── Types ────────────────────────────────────────────────────────────────── */
 interface TelegramUpdate {
@@ -275,8 +278,14 @@ async function handleMessage(msg: TelegramMessage) {
   const user = await getLinkedUser(chatId)
   if (!user) return sendMessage(chatId, '🔒 Vincula tu cuenta con /vincular')
 
-  // Detect structured data: CIF, NIF, NIE, IBAN, phone, email
+  // ── CUPS detection (must come before CIF/NIF — CUPS starts with "ES") ──────
   const cleanText = text.replace(/[\s.\-()]/g, '').toUpperCase()
+  const maybeCups = normalizeCups(cleanText)
+  if (maybeCups) {
+    return handleCupsText(chatId, maybeCups, user)
+  }
+
+  // Detect structured data: CIF, NIF, NIE, IBAN, phone, email
   const isCifPat = /^[A-HJNPQS-W][0-9]{7}[0-9A-J]$/i.test(cleanText)
   const isNifPat = /^[0-9]{8}[TRWAGMYFPDXBNJZSQVHLCKE]$/i.test(cleanText)
   const isNiePat = /^[XYZ][0-9]{7}[TRWAGMYFPDXBNJZSQVHLCKE]$/i.test(cleanText)
@@ -856,6 +865,189 @@ async function processAndNotify(
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
+/*  CUPS HANDLER — detect bare CUPS text and create/show supply              */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+async function handleCupsText(chatId: number, cups: string, user: { userId: string; userName: string }) {
+  await sendChatAction(chatId, 'typing')
+  const supabase = createBotSupabase()
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
+
+  // 1. Check if supply already exists
+  const { data: existing } = await supabase
+    .from('supplies')
+    .select('id, cups, tariff, type, status, client:clients(name)')
+    .eq('cups', cups)
+    .limit(1)
+    .maybeSingle()
+
+  if (existing) {
+    const clientName = (existing.client as any)?.name || 'Sin cliente'
+    return sendMessage(chatId,
+      `🔌 <b>Suministro ya registrado</b>\n\n` +
+      `👤 ${clientName}\n` +
+      `⚡ <code>${cups}</code>\n` +
+      `📊 Tarifa: ${existing.tariff || '-'} · ${existing.type?.toUpperCase() || '-'}\n` +
+      `📋 ${getStatusLabel(existing.status)}\n\n` +
+      `<a href="${appUrl}/supplies/${existing.id}">Ver en CRM →</a>`
+    )
+  }
+
+  // 2. Supply doesn't exist — check for active client
+  const convo = await getConvo(chatId)
+  const clientId = convo?.data?.clientModeId
+  const clientName = convo?.data?.clientModeName
+
+  if (!clientId) {
+    // Save CUPS and ask for client
+    await setConvo(chatId, 'await_cups_client', { cups })
+    return sendMessage(chatId,
+      `🔌 CUPS detectado: <code>${cups}</code>\n\n` +
+      `❓ ¿A qué cliente pertenece este suministro?\n` +
+      `Escribe el nombre o CIF del cliente:`
+    )
+  }
+
+  // 3. Active client found — create supply
+  await sendMessage(chatId,
+    `⏳ Creando suministro y consultando SIPS...\n` +
+    `👤 <b>${clientName}</b> · <code>${cups}</code>`
+  )
+  return createSupplyFromCups(chatId, cups, clientId, clientName!, user, appUrl, supabase)
+}
+
+async function createSupplyFromCups(
+  chatId: number,
+  cups: string,
+  clientId: string,
+  clientName: string,
+  user: { userId: string; userName: string },
+  appUrl: string,
+  supabase?: any,
+) {
+  if (!supabase) supabase = createBotSupabase()
+
+  // Detect supply type from CUPS pattern
+  const resolvedType: 'luz' | 'gas' = /^ES\d{4}1\d{11}/i.test(cups) ? 'gas' : 'luz'
+
+  // Fetch SIPS
+  const sipsData = await fetchSipsForCups(cups, resolvedType).catch((err) => {
+    console.warn(`[telegram/cups] SIPS fetch failed for ${cups}:`, err.message)
+    return null
+  })
+
+  let tariff = ''
+  let detectedType: 'luz' | 'gas' = resolvedType
+
+  if (sipsData?.tariff) {
+    tariff = normalizeTariff(sipsData.tariff) || sipsData.tariff
+    if (/^RL/i.test(tariff)) detectedType = 'gas'
+  }
+
+  // Build consumption_data blob
+  const consumptionData = sipsData ? {
+    source: 'greening_sips',
+    fetched_at: new Date().toISOString(),
+    total: sipsData.totalConsumption,
+    totalKwh: sipsData.totalConsumptionKwh,
+    sips_tariff: sipsData.tariff,
+    consumoPeriodos: sipsData.consumoPeriodos,
+    potenciaContratada: sipsData.potenciaContratada,
+    history: sipsData.consumptionHistory || [],
+    maximetroHistory: sipsData.maximetroHistory || [],
+    reactivaHistory: sipsData.reactivaHistory || [],
+    distribuidora: sipsData.distribuidora,
+    codigoPostal: sipsData.codigoPostal,
+    provincia: sipsData.provincia,
+    municipio: sipsData.municipio,
+    cnae: sipsData.cnae,
+    tension: sipsData.tension,
+    fechaAlta: sipsData.fechaAlta,
+    fechaUltimaLectura: sipsData.fechaUltimaLectura,
+  } : null
+
+  const addressHint = sipsData?.municipio
+    ? [sipsData.municipio, sipsData.provincia].filter(Boolean).join(', ')
+    : ''
+
+  // Create supply
+  const { data: newSupply, error: supplyErr } = await supabase
+    .from('supplies')
+    .insert({
+      client_id: clientId,
+      cups,
+      type: detectedType,
+      tariff: tariff || '',
+      address: addressHint,
+      status: 'estudio_en_curso',
+      consumption_data: consumptionData,
+    })
+    .select('id')
+    .single()
+
+  if (supplyErr) {
+    // Race condition: supply created between check and insert
+    if (supplyErr.code === '23505' || supplyErr.message?.includes('unique') || supplyErr.message?.includes('duplicate')) {
+      const { data: conflict } = await supabase.from('supplies').select('id').eq('cups', cups).limit(1).single()
+      return sendMessage(chatId,
+        `ℹ️ El suministro ya existía (creado mientras procesaba).\n\n` +
+        `<a href="${appUrl}/supplies/${conflict?.id}">Ver en CRM →</a>`
+      )
+    }
+    console.error('[telegram/cups] Insert error:', supplyErr)
+    return sendMessage(chatId, `❌ Error creando suministro: ${supplyErr.message}`)
+  }
+
+  const supplyId = newSupply!.id
+
+  // Build confirm message
+  let sipsLines = ''
+  if (sipsData) {
+    const kwh = sipsData.totalConsumptionKwh ? `${Math.round(sipsData.totalConsumptionKwh).toLocaleString('es-ES')} kWh/año` : null
+    const cp = sipsData.consumoPeriodos as any
+    const cpSum = cp ? (Number(cp.P1)||0)+(Number(cp.P2)||0)+(Number(cp.P3)||0)+(Number(cp.P4)||0)+(Number(cp.P5)||0)+(Number(cp.P6)||0) : 0
+    const bestKwh = cpSum > 0 ? `${Math.round(cpSum).toLocaleString('es-ES')} kWh/año` : kwh
+    sipsLines =
+      `\n📊 Tarifa: ${tariff || '-'}\n` +
+      `🏢 Distribuidora: ${sipsData.distribuidora || '-'}\n` +
+      (addressHint ? `📍 ${addressHint}\n` : '') +
+      (bestKwh ? `💡 Consumo anual: ${bestKwh}\n` : '')
+  } else {
+    sipsLines = `\n⚠️ Sin datos SIPS disponibles — se actualizarán con las facturas\n`
+  }
+
+  await sendMessage(chatId,
+    `🆕 <b>Suministro creado</b>\n\n` +
+    `👤 ${clientName}\n` +
+    `🔌 <code>${cups}</code>${sipsLines}\n` +
+    `📄 <i>Envíame facturas cuando las tengas para añadirlas a este suministro.</i>\n\n` +
+    `<a href="${appUrl}/supplies/${supplyId}">Ver en CRM →</a>`
+  )
+
+  // Fire-and-forget: auto power study
+  if (sipsData?.consumptionHistory?.length && sipsData?.potenciaContratada) {
+    fetch(`${appUrl}/api/power-study-auto`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cups,
+        clientName,
+        potenciaContratada: sipsData.potenciaContratada,
+        consumptionHistory: sipsData.consumptionHistory,
+        maximetroHistory: sipsData.maximetroHistory || [],
+      }),
+    }).then(async (r) => {
+      if (r.ok) {
+        const studyResult = await r.json()
+        await supabase.from('supplies')
+          .update({ power_study_result: studyResult, updated_at: new Date().toISOString() })
+          .eq('id', supplyId)
+        console.log(`[telegram/cups] Power study saved for ${supplyId}`)
+      }
+    }).catch((err) => console.warn('[telegram/cups] Power study error:', err.message))
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
 /*  CLIENT ACTIVATION BY NAME/ALIAS                                          */
 /* ═══════════════════════════════════════════════════════════════════════════ */
 async function handleClientActivation(chatId: number, text: string, user: { userId: string; userName: string }) {
@@ -1406,6 +1598,31 @@ async function handleCallback(cb: CallbackQuery) {
           return sendMessage(chatId, `✅ <b>${clientNameAssoc}</b>\n${docTypeLabel(assocDocType)} guardado correctamente.`)
         }
 
+      case 'cups_client':
+        {
+          // params: [clientId, encodedClientName, cups]
+          const [cupsClientId, encodedName, ...cupsParts] = params
+          const cupsClientName = decodeURIComponent(encodedName || '')
+          const cupsValue = cupsParts.join(':') // CUPS won't have ':' but join for safety
+          if (!cupsClientId || !cupsValue) return answerCallback(cb.id, 'Error: datos incompletos')
+          await answerCallback(cb.id, '⏳ Creando suministro...')
+
+          const user = await getLinkedUser(chatId)
+          if (!user) return sendMessage(chatId, '🔒 Vincula tu cuenta con /vincular')
+
+          const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
+          const supabase = createBotSupabase()
+
+          // Fetch full client name
+          const { data: cl } = await supabase.from('clients').select('name').eq('id', cupsClientId).single()
+          const fullName = cl?.name || cupsClientName
+
+          await setConvo(chatId, 'client_active', { clientModeId: cupsClientId, clientModeName: fullName })
+          await clearConvo(chatId)
+          await sendMessage(chatId, `⏳ Creando suministro para <b>${fullName}</b>...\n🔌 <code>${cupsValue}</code>`)
+          return createSupplyFromCups(chatId, cupsValue, cupsClientId, fullName, user, appUrl, supabase)
+        }
+
       case 'cancel':
         await clearConvo(chatId)
         return answerCallback(cb.id, '✅ Cancelado')
@@ -1428,6 +1645,41 @@ async function handleConvoStep(msg: TelegramMessage, convo: ConversationState) {
   if (text === '/cancelar' || text === '/cancel') {
     await clearConvo(chatId)
     return sendMessage(chatId, '✅ Cancelado.')
+  }
+
+  if (convo.step === 'await_cups_client') {
+    const cups = convo.data.cups as string
+    const supabase = createBotSupabase()
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
+
+    const linkedUser = await getLinkedUser(chatId)
+    if (!linkedUser) return sendMessage(chatId, '🔒 Vincula tu cuenta con /vincular')
+
+    const clients = await searchClients(supabase, text)
+
+    if (clients.length === 0) {
+      return sendMessage(chatId,
+        `❓ No encontré ningún cliente con "<b>${text}</b>".\n` +
+        `Inténtalo de nuevo o usa /buscar para ver clientes.`
+      )
+    }
+
+    if (clients.length === 1) {
+      const c = clients[0]
+      await setConvo(chatId, 'client_active', { clientModeId: c.id, clientModeName: c.name })
+      await sendMessage(chatId, `⏳ Creando suministro para <b>${c.name}</b>...\n🔌 <code>${cups}</code>`)
+      return createSupplyFromCups(chatId, cups, c.id, c.name, linkedUser, appUrl, supabase)
+    }
+
+    // Multiple clients — show buttons
+    const rows = clients.slice(0, 6).map((c: any) => [
+      button(`${c.name}${c.cif_nif ? ` (${c.cif_nif})` : ''}`, `cups_client:${c.id}:${encodeURIComponent(c.name.substring(0, 30))}:${cups}`)
+    ])
+    rows.push([button('❌ Cancelar', 'cancel')])
+    return sendMessage(chatId,
+      `🔍 Varios clientes coinciden con "<b>${text}</b>". ¿A cuál asigno el CUPS?`,
+      { replyMarkup: inlineKeyboard(rows) }
+    )
   }
 
   if (convo.step === 'await_supply_note') {

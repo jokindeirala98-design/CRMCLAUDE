@@ -53,6 +53,7 @@ export function GlobalSearch() {
   }, [pathname])
 
   // Paste from clipboard → open search with clipboard content
+  // Tries navigator.clipboard first; falls back to opening empty search
   const openWithClipboard = useCallback(async () => {
     try {
       const text = await navigator.clipboard.readText()
@@ -60,12 +61,34 @@ export function GlobalSearch() {
       if (cleaned.length >= 2) {
         setQuery(cleaned)
         setOpen(true)
+        return
       }
-    } catch {
-      // Clipboard permission denied or empty — just open empty search
-      setOpen(true)
-    }
+    } catch { /* permission denied or not supported */ }
+    setOpen(true)
   }, [])
+
+  // Native paste event — fires on Cmd+V without needing clipboard-read permission.
+  // This is the reliable path; the keydown handler is a fallback for browsers that
+  // fire keydown before the paste event.
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      if (open) return // search already open — let the input handle it
+      const tag = (e.target as HTMLElement).tagName
+      const isEditable = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+        || (e.target as HTMLElement).isContentEditable
+      if (isEditable) return // normal paste inside an input — don't intercept
+      const text = e.clipboardData?.getData('text/plain')?.trim().replace(/\s+/g, ' ').slice(0, 100) || ''
+      if (text.length >= 2) {
+        e.preventDefault()
+        setQuery(text)
+        setOpen(true)
+      } else {
+        setOpen(true)
+      }
+    }
+    window.addEventListener('paste', handlePaste)
+    return () => window.removeEventListener('paste', handlePaste)
+  }, [open])
 
   // Keyboard: type to search (invisible trigger) + Cmd+K + Cmd+V
   useEffect(() => {
@@ -77,19 +100,10 @@ export function GlobalSearch() {
         return
       }
 
-      // Cmd+V / Ctrl+V outside any input → search clipboard content
+      // Cmd+V / Ctrl+V — handled by the paste event listener above (more reliable).
+      // Only fall through here if the paste event didn't fire (rare edge case).
       if ((e.metaKey || e.ctrlKey) && e.key === 'v') {
-        const tag = (e.target as HTMLElement).tagName
-        const isEditable = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
-          || (e.target as HTMLElement).isContentEditable
-        // Only intercept when NOT in an editable field and search is closed
-        if (!isEditable && !open) {
-          e.preventDefault()
-          openWithClipboard()
-          return
-        }
-        // If search is already open, let the input handle the paste normally
-        return
+        return // paste event handles this
       }
 
       // If already open, let the input handle keys
