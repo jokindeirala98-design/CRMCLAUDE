@@ -47,6 +47,29 @@ function setPrice(ws: ExcelJS.Worksheet, cell: string, value: number) {
 
 const PERIOD_KEYS = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6']
 
+// ── Logo helpers (module-level) ────────────────────────────────────────────────
+const _cwd = process.cwd()
+
+function slugLogo(name: string) {
+  return name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+}
+
+async function tryLoadLogo(name: string): Promise<Buffer | null> {
+  const slug = slugLogo(name)
+  const candidates = [
+    path.join(_cwd, 'public', 'logos', `${slug}.png`),
+    path.join(_cwd, 'public', 'logos', `${slug}.jpg`),
+    path.join(_cwd, 'logos', `${slug}.png`),
+  ]
+  for (const p of candidates) {
+    if (fs.existsSync(p)) {
+      try { return fs.readFileSync(p) } catch { continue }
+    }
+  }
+  return null
+}
+
 // Border style for table cells
 const THIN_BORDER: ExcelJS.Border = { style: 'thin', color: { argb: 'FFB0B0B0' } }
 const THIN_ALL: Partial<ExcelJS.Borders> = {
@@ -118,45 +141,39 @@ function extractConsumption(sipsData: any, periodCount: number): number[] {
   return Array(periodCount).fill(0)
 }
 
+const POTENCIA_CATS = new Set([
+  'potencia_peaje', 'potencia_cargo', 'potencia_comercializacion', 'potencia',
+])
+
 /**
- * Extract invoice-level power data per period.
+ * Calculate WEIGHTED AVERAGE power price per period across ALL invoices.
  *
- * Tries three layers in order (most recent invoice first):
- *   1. extracted_data.economics.potencia[]  — standard Gemini output (precioKwDia field)
- *   2. extracted_data.potencia[]            — some older invoices store here directly
- *   3. rawLineItems with potencia categories — fallback: compute precioKwDia from total/kW/días
+ * avgPrice[P] = Σ(totalCost_P across all invoices) / Σ(kW_P × dias_P across all invoices)
  *
- * Returns { powers: kW[], prices: €/kW·día[] } indexed [0..periodCount-1]
+ * This mirrors how AnnualEconomics calculates the representative price from
+ * historical billing, rather than trusting a single invoice's price.
+ *
+ * Tries two sources per invoice in order:
+ *   1. economics.potencia[]  — aggregated per-period object from Gemini (precioKwDia or total)
+ *   2. rawLineItems          — individual lines (potencia_peaje + potencia_cargo per period)
  */
-function extractInvoicePowerData(
+function extractAvgPowerPricesFromAllInvoices(
   invoices: any[],
   periodCount: number,
-): { powers: number[]; prices: number[] } {
-  const powers = Array(periodCount).fill(0)
-  const prices = Array(periodCount).fill(0)
+): number[] {
+  // Accumulators: total cost and total kW×dias per period
+  const totalEur = Array(periodCount).fill(0)
+  const totalKwDias = Array(periodCount).fill(0)
 
-  if (!invoices?.length) return { powers, prices }
-
-  const sorted = [...invoices].sort((a, b) => {
-    const da = a.period_end || a.period_start || ''
-    const db = b.period_end || b.period_start || ''
-    return db.localeCompare(da)
-  })
-
-  const POTENCIA_CATS = new Set([
-    'potencia_peaje', 'potencia_cargo', 'potencia_comercializacion', 'potencia',
-  ])
-
-  for (const inv of sorted) {
+  for (const inv of invoices) {
     const ed = inv.extracted_data as any
     if (!ed) continue
+    const eco = ed.economics || {}
 
-    // ── Layer 1 & 2: potencia[] array (from economics or top-level) ──────────
-    const potenciaArr: any[] | undefined =
-      ed.economics?.potencia ?? ed.potencia
-
+    // ── Source 1: potencia[] array ──────────────────────────────────────────
+    const potenciaArr: any[] | undefined = eco.potencia ?? ed.potencia
     if (Array.isArray(potenciaArr) && potenciaArr.length > 0) {
-      let filled = 0
+      let got = false
       for (let i = 0; i < periodCount; i++) {
         const p = PERIOD_KEYS[i]
         const item = potenciaArr.find(
@@ -164,26 +181,25 @@ function extractInvoicePowerData(
         )
         if (!item) continue
         const kw = Number(item.kw) || 0
+        const dias = Number(item.dias) || 0
+        const total = Number(item.total) || 0
         const precio = Number(item.precioKwDia) || Number(item.precioKw) || 0
-        // Compute from total if precioKwDia missing
-        const computedPrecio = precio > 0
-          ? precio
-          : (kw > 0 && Number(item.dias) > 0
-              ? (Number(item.total) || 0) / (kw * Number(item.dias))
-              : 0)
-        if (kw > 0 && powers[i] === 0) powers[i] = kw
-        if (computedPrecio > 0 && prices[i] === 0) prices[i] = computedPrecio
-        filled++
+
+        if (kw > 0 && dias > 0) {
+          const costForPeriod = total > 0 ? total : (precio > 0 ? kw * dias * precio : 0)
+          if (costForPeriod > 0) {
+            totalEur[i] += costForPeriod
+            totalKwDias[i] += kw * dias
+            got = true
+          }
+        }
       }
-      if (filled > 0) break  // most recent invoice with data wins
+      if (got) continue  // skip rawLineItems for this invoice
     }
 
-    // ── Layer 3: rawLineItems fallback ────────────────────────────────────────
-    const rawItems: any[] | undefined =
-      ed.economics?.rawLineItems ?? ed.rawLineItems
-
+    // ── Source 2: rawLineItems fallback ─────────────────────────────────────
+    const rawItems: any[] | undefined = eco.rawLineItems ?? ed.rawLineItems
     if (Array.isArray(rawItems) && rawItems.length > 0) {
-      // Sum totals + pick kW + dias per period
       const byPeriod: Record<string, { kw: number; dias: number; total: number }> = {}
       for (const item of rawItems) {
         if (!POTENCIA_CATS.has(item.category)) continue
@@ -194,21 +210,54 @@ function extractInvoicePowerData(
         if (Number(item.dias) > 0) byPeriod[p].dias = Number(item.dias)
         byPeriod[p].total += Number(item.total) || 0
       }
-
-      let filled = 0
       for (let i = 0; i < periodCount; i++) {
         const p = PERIOD_KEYS[i]
         const row = byPeriod[p]
         if (!row || row.kw <= 0 || row.dias <= 0 || row.total <= 0) continue
-        if (powers[i] === 0) powers[i] = row.kw
-        if (prices[i] === 0) prices[i] = row.total / (row.kw * row.dias)
-        filled++
+        totalEur[i] += row.total
+        totalKwDias[i] += row.kw * row.dias
+      }
+    }
+  }
+
+  // Weighted averages
+  return totalEur.map((eur, i) => totalKwDias[i] > 0 ? eur / totalKwDias[i] : 0)
+}
+
+/**
+ * Extract kW powers from invoices (for fallback when SIPS not available).
+ * Returns the most recently billed kW per period.
+ */
+function extractInvoicePowerKw(invoices: any[], periodCount: number): number[] {
+  const powers = Array(periodCount).fill(0)
+  if (!invoices?.length) return powers
+
+  const sorted = [...invoices].sort((a, b) => {
+    const da = a.period_end || a.period_start || ''
+    const db = b.period_end || b.period_start || ''
+    return db.localeCompare(da)
+  })
+
+  for (const inv of sorted) {
+    const ed = inv.extracted_data as any
+    if (!ed) continue
+    const eco = ed.economics || {}
+
+    const potenciaArr: any[] | undefined = eco.potencia ?? ed.potencia
+    if (Array.isArray(potenciaArr) && potenciaArr.length > 0) {
+      let filled = 0
+      for (let i = 0; i < periodCount; i++) {
+        const p = PERIOD_KEYS[i]
+        const item = potenciaArr.find(
+          (x: any) => x.periodo === p || x.periodo === `Periodo ${i + 1}`
+        )
+        const kw = Number(item?.kw) || 0
+        if (kw > 0 && powers[i] === 0) { powers[i] = kw; filled++ }
       }
       if (filled > 0) break
     }
   }
-
-  return { powers, prices }
+  return powers
 }
 
 /**
@@ -327,6 +376,15 @@ export async function POST(
     const powerStudyResult = (supply as any).power_study_result as any
     const invoices = supply.invoices || []
 
+    // ── BOE year for "nuevo" column: 2026 if any invoice is from 2026, else 2025 ─
+    const latestInvoiceYear = invoices.reduce((maxY: number, inv: any) => {
+      const d = inv.period_end || inv.period_start || inv.created_at || ''
+      const y = parseInt(String(d).substring(0, 4))
+      return (!isNaN(y) && y > maxY) ? y : maxY
+    }, 2025)
+    const boeNewYear: 2025 | 2026 = latestInvoiceYear >= 2026 ? 2026 : 2025
+    const boeNuevo = getBOEPrices(tariff, boeNewYear)
+
     // Consumption always from SIPS (official distributor data)
     const consumption = extractConsumption(sipsData, periodCount)
     const totalKwh = consumption.reduce((a: number, b: number) => a + b, 0)
@@ -335,7 +393,6 @@ export async function POST(
     // Priority:
     //   1. power_study_result.potenciaContratada — set by power-study-auto after SIPS fetch
     //   2. consumption_data.potenciaContratada   — set by sync-supply-sips or post-import SIPS merge
-    const invoicePower = extractInvoicePowerData(invoices, periodCount) // used for PRICES only
     const sipsPowers = extractPowers(sipsData, periodCount)
 
     let powers: number[]
@@ -344,11 +401,13 @@ export async function POST(
       const studyPowers = PERIOD_KEYS.slice(0, periodCount).map(k => Number(pc[k] ?? 0))
       powers = studyPowers.some(v => v > 0) ? studyPowers : sipsPowers
     } else {
-      powers = sipsPowers // if no SIPS data yet, shows zeros (will fill after sync)
+      powers = sipsPowers
     }
 
-    // Power prices ACTUAL: from invoice
-    const powerPricesActual = invoicePower.prices
+    // Power prices ACTUAL: weighted average across ALL invoices (AnnualEconomics style)
+    // Falls back to BOE of the year matching the invoices if no invoice data available
+    const avgPowerPricesActual = extractAvgPowerPricesFromAllInvoices(invoices, periodCount)
+    const boeActualFallback = boeNewYear === 2026 ? boe2026 : boe2025
 
     // Energy prices ACTUAL per period: from invoice
     const energyPricesActual = extractInvoiceEnergyPrices(invoices, periodCount)
@@ -361,10 +420,16 @@ export async function POST(
     const cups = supply.cups || ''
     const tariffLabel = `TARIFA ${normalizeTariff(tariff)}`
 
+    // ── Logos de comercializadoras ────────────────────────────────────────────
+    const [logoActualBuf, logoNuevaBuf] = await Promise.all([
+      tryLoadLogo(comercializadoraActual),
+      tryLoadLogo(nueva_comercializadora),
+    ])
+
     // ── Abrir plantilla ───────────────────────────────────────────────────────
     // Vercel serverless: only files declared in outputFileTracingIncludes are bundled.
     // We check both root/templates/ (dev) and public/templates/ (Vercel fallback).
-    const cwd = process.cwd()
+    const cwd = _cwd
     const candidates = [
       path.join(cwd, 'templates', 'estudio-economico.xlsx'),
       path.join(cwd, 'public', 'templates', 'estudio-economico.xlsx'),
@@ -397,6 +462,21 @@ export async function POST(
     set(ws, 'A10', comercializadoraActual)
     set(ws, 'I10', nueva_comercializadora)
 
+    // ── Logos (insert after worksheet is loaded) ──────────────────────────────
+    const insertLogo = (buf: Buffer | null, colStart: number, rowStart: number) => {
+      if (!buf) return
+      try {
+        const imgId = wb.addImage({ buffer: buf as any, extension: 'png' })
+        ws.addImage(imgId, {
+          tl: { col: colStart - 1, row: rowStart - 1 } as any,
+          ext: { width: 140, height: 45 },
+          editAs: 'oneCell',
+        } as any)
+      } catch { /* logo insert not supported — skip */ }
+    }
+    insertLogo(logoActualBuf, 1, 8)    // cols A area, row 8 (above A10 name)
+    insertLogo(logoNuevaBuf, 9, 8)     // cols I area, row 8 (above I10 name)
+
     // ── POTENCIA ──────────────────────────────────────────────────────────────
     const DIAS = 365
     const POT_ROWS = [12, 13, 14, 15, 16, 17]
@@ -405,24 +485,29 @@ export async function POST(
     for (let i = 0; i < periodCount; i++) {
       const row = POT_ROWS[i]
       const kw = powers[i] || 0
-      // Actual: use invoice price per kW·day; fallback to BOE 2025
-      const boeA = powerPricesActual[i] > 0 ? powerPricesActual[i] : (boe2025[i]?.pricePerKwDay ?? 0)
-      // Nueva: always BOE 2026
-      const boeN = boe2026[i]?.pricePerKwDay ?? 0
+
+      // ACTUAL price: weighted avg from all invoices → fallback to BOE of matching year
+      const boeA = avgPowerPricesActual[i] > 0
+        ? avgPowerPricesActual[i]
+        : (boeActualFallback[i]?.pricePerKwDay ?? 0)
+
+      // NUEVO price: BOE of the year matching the most recent invoice (2025 or 2026)
+      const boeN = boeNuevo[i]?.pricePerKwDay ?? 0
+
       const costeA = fmt2(kw * DIAS * boeA)
       const costeN = fmt2(kw * DIAS * boeN)
 
       // ACTUAL columns
       set(ws, `B${row}`, kw)
       set(ws, `C${row}`, DIAS)
-      setPrice(ws, `D${row}`, boeA)           // €/kW·día actual — full precision
+      setPrice(ws, `D${row}`, boeA)           // €/kW·día actual — full 6-decimal precision
       set(ws, `E${row}`, fmt2(kw * boeA * DIAS / 12))
       set(ws, `F${row}`, costeA)
 
-      // NUEVO columns (BOE 2026)
+      // NUEVO columns (BOE of boeNewYear)
       set(ws, `J${row}`, kw)
       set(ws, `K${row}`, DIAS)
-      setPrice(ws, `L${row}`, boeN)           // €/kW·día nueva — full precision, e.g. 0.081083
+      setPrice(ws, `L${row}`, boeN)           // €/kW·día nueva — full 6-decimal precision
       set(ws, `M${row}`, fmt2(kw * boeN * DIAS / 12))
       set(ws, `N${row}`, costeN)
 

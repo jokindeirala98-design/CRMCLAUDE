@@ -287,7 +287,12 @@ REGLAS CRÍTICAS DE EXTRACCIÓN (V3.0) — APLICAN A FACTURAS DE LUZ Y GAS
 ════════════════════════════════════════════════════════════════════════════
 
 0. **CUPS (MANDATORIO — MÁXIMA PRIORIDAD):**
-   - El CUPS (Código Universal de Punto de Suministro) SIEMPRE empieza por "ES" seguido de 16 dígitos y 2 caracteres de control = 20 caracteres mínimo (puede tener 22 con sufijo).
+   - El CUPS (Código Universal de Punto de Suministro) SIEMPRE empieza por "ES".
+   - FORMATO EXACTO — hay dos variantes válidas:
+     * CORTO (20 chars): ES + 16 dígitos + 2 letras mayúsculas de control. Ejemplo: "ES0021000012345678AB"
+     * LARGO (22 chars): ES + 16 dígitos + 2 letras mayúsculas + 2 chars de sufijo alfanumérico. Ejemplo: "ES0021000006597248MV0F"
+   - ⚠️ CRÍTICO: Si ves un CUPS que termina en letras seguidas de más caracteres (p.ej. "MV0F", "AA1B"), DEBES incluir TODOS los caracteres hasta el final. NUNCA cortes el CUPS a mitad del sufijo.
+   - ⚠️ VERIFICACIÓN DE LONGITUD: Cuenta los caracteres del CUPS que has extraído. Si el resultado tiene 19 o 21 caracteres, es INCORRECTO (faltan caracteres). Vuelve a leer el documento y extrae el CUPS completo.
    - UBICACIÓN VISUAL — Escanea TODO el documento, no solo la cabecera. El CUPS puede aparecer en CUALQUIERA de estas zonas:
      * Cabecera/datos del suministro (zona superior)
      * Sección "DATOS DEL CONTRATO" o "INFORMACIÓN DEL CONTRATO" (frecuente en la parte inferior)
@@ -295,8 +300,6 @@ REGLAS CRÍTICAS DE EXTRACCIÓN (V3.0) — APLICAN A FACTURAS DE LUZ Y GAS
      * Pie de página o reverso de la factura
      * Junto al texto "Código unificado de punto de suministro", "CUPS", "Punto de suministro", "Contrato de acceso"
      * Debajo del nombre del titular, CIF o dirección de suministro
-   - FORMATO OBLIGATORIO: ES + 4 dígitos (distribuidora) + 12 dígitos (punto) + 2 alfanuméricos (control). Ejemplo: "ES0021000012345678AB".
-   - VALIDACIÓN: Si el código extraído NO tiene 20-22 caracteres o NO empieza por "ES" seguido de dígitos, re-examina TODO el documento.
    - ERRORES COMUNES OCR: No confundas "0" (cero) con "O" (letra), ni "1" con "l". Los 16 caracteres centrales son SIEMPRE DÍGITOS.
    - Si hay VARIOS CUPS en el documento (ej: factura resumen multi-punto), extrae el CUPS PRINCIPAL del punto de suministro facturado.
    - NUNCA inventes un CUPS. Si no lo encuentras claramente después de revisar TODO el documento, deja el campo vacío.
@@ -443,10 +446,26 @@ LUZ-1. **Campos derivados consumo[] y potencia[] (CASO A y CASO B):**
        precioKwh = TotalPeriodo / kWh.
      Si hay un precio fijo único, aplícalo a todos los periodos facturados.
 
-LUZ-2. **POTENCIA — kW contratados por periodo:**
+LUZ-2. **POTENCIA — kW contratados por periodo y precioKwDia:**
    Extrae kW contratados y coste total por periodo. Si potencia está fragmentada en
    "Término Potencia Tarifa Acceso" + "Término Cargos Potencia Acceso", súmalos en
    potencia[] con el total combinado. En rawLineItems emite ambas líneas por separado.
+
+   ⚠️ FORMATO ANUAL DE POTENCIA (MUY COMÚN en 3.0TD/6.1TD con facturas anuales o semestrales):
+   Algunas comercializadoras expresan la potencia como:
+     "P1  260,00 kW × 0,078882 €/kW × (30/365) días = 169,44 €"
+   En este formato:
+     - kw = 260.00  (los kW contratados)
+     - precioKwDia = 0.078882  (el valor €/kW directamente — NO lo dividas por 365)
+     - dias = 30  (el numerador del paréntesis, NO 365)
+     - total = 169.44
+   El campo precioKwDia siempre es el precio unitario €/kW que aparece explícitamente.
+   Fórmula de verificación: total ≈ kw × precioKwDia × dias  (con dias = el numerador)
+
+   CASO peajes + cargos separados:
+     Si potencia viene en dos líneas (peaje + cargo) con el mismo periodo, suma ambos totales
+     en potencia[] (precioKwDia = suma de ambos precioUnitario, total = suma de ambos totales).
+     En rawLineItems emite las dos líneas por separado.
 
 LUZ-3. **AGRUPACIÓN ESTRICTA Y NOMBRES CANÓNICOS (OBLIGATORIO):**
    Usa EXACTAMENTE estos nombres para agrupar conceptos similares en otrosConceptos:
@@ -679,10 +698,28 @@ E2. EXCESO DE POTENCIA — DETECCIÓN:
      cuarto-horario)", son el MISMO concepto expresado de dos maneras → emite SOLO UNO con
      el mayor importe (evita doble conteo).
 
-E3. TARIFA 2.0TD (doméstica, 1 o 2 periodos):
-   - 2.0TD estándar: UN solo periodo de potencia (P1). Potencia típica: 3,5 – 15 kW.
-   - 2.0DHA / 2.0A (discriminación horaria): P1 (punta) y P2 (valle). Potencia idéntica en ambos.
-   - Si ves dos precios de potencia pero el kW es el mismo → es 2.0DHA. OK.
+E3. TARIFA 2.0TD (doméstica — reforma tarifaria 2021, sustituye a 2.0A/2.0DHA/2.1A/2.1DHA):
+   - SIEMPRE tiene DOS periodos: P1 (punta, caro) y P2 (valle, barato). Nunca P3–P6.
+   - Potencia: P1 y P2 (mismo kW contratado en ambos es habitual en doméstico).
+   - Energía: P1 y P2.
+
+   NOMENCLATURA VARIABLE — según comercializadora pueden aparecer así:
+   ┌──────────────────────────────────────────────┬─────┐
+   │ En la factura                                │ → ? │
+   ├──────────────────────────────────────────────┼─────┤
+   │ "Horas NO promocionadas" / "No promocionadas"│ → P1│
+   │ "Horas promocionadas" / "Promocionadas"      │ → P2│
+   │ "Punta" / "Período punta" / "Hora punta"     │ → P1│
+   │ "Valle" / "Período valle" / "Hora valle"     │ → P2│
+   │ "P1" (explícito)                             │ → P1│
+   │ "P2" (explícito)                             │ → P2│
+   │ "Precio fijo de energía" (único precio flat) │ → P1│
+   └──────────────────────────────────────────────┴─────┘
+   REGLA: si ves UN SOLO precio de energía (factura 2.0TD básica) → ponlo en P1.
+          si ves DOS precios (DH o Plan X horas) → el caro = P1, el barato = P2.
+
+   Iberdrola "Plan Elige X horas": "Horas no promocionadas" = P1, "Horas promocionadas" = P2.
+   El periodo promocionado = las X horas baratas elegidas por el cliente = P2 (valle).
 
 E4. TARIFA 3.0TD (pequeña/mediana empresa):
    - 6 periodos de potencia y 6 de energía. kW contratado puede ser diferente por periodo.
@@ -1568,6 +1605,10 @@ Aunque la imagen sea borrosa, DEBES extraer todos los valores numéricos de las 
    { periodo:"P1", kw: X, precioKwDia: Y, dias: Z, importe: W }
    - Busca: "Potencia contratada", "Término de potencia", "kW contratados", "€/kW·día"
    - En 3.0TD los 6 períodos suelen tener la misma potencia (ej: 69 kW cada uno).
+   - ⚠️ FORMATO "(días/365)": Si ves "260 kW × 0,078882 €/kW × (30/365) días":
+       kw=260, precioKwDia=0.078882, dias=30 (el numerador, NO 365), importe=kw×precioKwDia×dias
+   - precioKwDia es SIEMPRE el valor €/kW explícito de la factura. Si peaje+cargo separados,
+     súmalos en potencia[] pero emíte cada uno en rawLineItems por separado.
 
 3c. otrosConceptos[] — TODOS los conceptos adicionales:
    - Impuesto eléctrico (7%), alquiler equipo, financiación, descuentos, etc.

@@ -175,7 +175,7 @@ export function EconomicStudyModal({
               {/* Info */}
               <div className="flex items-start gap-2 p-3 bg-info-container/30 rounded-xl border border-info/20 text-xs text-ink-3">
                 <Info className="w-3.5 h-3.5 text-info shrink-0 mt-0.5" />
-                <span>Los kW y consumos por período se toman de SIPS. Los precios de potencia NUEVO son BOE 2026. Solo necesitas indicar la comercializadora y el precio de energía por período.</span>
+                <span>Los kW y consumos por período se toman de SIPS. Los precios de potencia ACTUAL son la media ponderada de las facturas adjuntas; los de NUEVO son BOE del año de la factura más reciente (2025 ó 2026). Solo necesitas indicar la comercializadora y el precio de energía por período.</span>
               </div>
 
               {/* Comercializadora */}
