@@ -50,16 +50,53 @@ const PERIOD_KEYS = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6']
 // ── Logo helpers (module-level) ────────────────────────────────────────────────
 const _cwd = process.cwd()
 
+/** Normalise a comercializadora name to a filesystem-safe slug */
 function slugLogo(name: string) {
   return name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
 }
 
+/**
+ * Aliases: maps alternate spellings / CRM names → the canonical slug used as filename.
+ * Add more rows here whenever a new comercializadora is set up.
+ */
+const LOGO_ALIASES: Record<string, string> = {
+  // TotalEnergies variants
+  'totalenergies': 'totalenergies',
+  'total_energies': 'totalenergies',
+  'total': 'totalenergies',
+  // Naturgy variants
+  'naturgy': 'naturgy',
+  'naturgy_iberia': 'naturgy',
+  // Galp
+  'galp': 'galp',
+  'galp_energia': 'galp',
+  // Axpo
+  'axpo': 'axpo',
+  'axpo_iberia': 'axpo',
+  // Swap Energía
+  'swap_energia': 'swap_energia',
+  'swap': 'swap_energia',
+  // Tu Eléctrica
+  'tu_electrica': 'tu_electrica',
+  'tu_electrica_sl': 'tu_electrica',
+  // Ekyner
+  'ekyner': 'ekyner',
+  // Visalia
+  'visalia': 'visalia',
+  // Voltis (propio)
+  'voltis_energia': 'voltis_energia',
+  'voltis': 'voltis_energia',
+}
+
 async function tryLoadLogo(name: string): Promise<Buffer | null> {
-  const slug = slugLogo(name)
+  const raw = slugLogo(name)
+  const slug = LOGO_ALIASES[raw] ?? raw
+  const logoDir = path.join(_cwd, 'public', 'logos')
   const candidates = [
-    path.join(_cwd, 'public', 'logos', `${slug}.png`),
-    path.join(_cwd, 'public', 'logos', `${slug}.jpg`),
+    path.join(logoDir, `${slug}.png`),
+    path.join(logoDir, `${slug}.jpg`),
+    path.join(logoDir, `${slug}.jpeg`),
     path.join(_cwd, 'logos', `${slug}.png`),
   ]
   for (const p of candidates) {
