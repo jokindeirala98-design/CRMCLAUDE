@@ -835,19 +835,34 @@ export async function POST(
     set(ws, 'I10', nueva_comercializadora)
 
     // ── Logos (insert after worksheet is loaded) ──────────────────────────────
-    const insertLogo = (result: { buffer: Buffer; ext: 'png' | 'jpeg' } | null, colStart: number, rowStart: number) => {
-      if (!result) return
-      try {
-        const imgId = wb.addImage({ buffer: result.buffer as any, extension: result.ext })
-        ws.addImage(imgId, {
-          tl: { col: colStart - 1, row: rowStart - 1 } as any,
-          ext: { width: 140, height: 45 },
-          editAs: 'oneCell',
-        } as any)
-      } catch { /* logo insert not supported — skip */ }
+    // If a logo image exists → insert it. Otherwise → write company name in large bold text
+    // so that BOTH sides always show something visual (never blank).
+    const insertLogoOrText = (
+      result: { buffer: Buffer; ext: 'png' | 'jpeg' } | null,
+      name: string,
+      colStart: number,
+      rowStart: number,
+    ) => {
+      if (result) {
+        try {
+          const imgId = wb.addImage({ buffer: result.buffer as any, extension: result.ext })
+          ws.addImage(imgId, {
+            tl: { col: colStart - 1, row: rowStart - 1 } as any,
+            ext: { width: 140, height: 45 },
+            editAs: 'oneCell',
+          } as any)
+          return
+        } catch { /* fall through to text fallback */ }
+      }
+      // Text fallback: write company name prominently in the logo area cell
+      if (!name || name === 'Comercializadora actual') return
+      const cell = ws.getCell(rowStart - 1, colStart)  // row above the name row
+      cell.value = name
+      cell.font  = { bold: true, size: 13, color: { argb: 'FF1E3A5F' } }
+      cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: false }
     }
-    insertLogo(logoActualResult, 1, 8)  // cols A area, row 8 (above A10 name)
-    insertLogo(logoNuevaResult, 9, 8)  // cols I area, row 8 (above I10 name)
+    insertLogoOrText(logoActualResult, comercializadoraActual, 1, 8)   // actual: col A, row 8
+    insertLogoOrText(logoNuevaResult,  nueva_comercializadora, 9, 8)   // nueva:  col I, row 8
 
     // Force recalculation when the file is opened in Excel/Numbers
     wb.calcProperties = { fullCalcOnLoad: true } as any
@@ -935,8 +950,10 @@ export async function POST(
 
     // Diferencia total → L25 (fórmula); la etiqueta "DIFERENCIA TOTAL:" ya existe en la plantilla
     setF(ws, 'L25', '=I23+I24+I25+I26', '#,##0.00')
-    ws.getCell('L25').font = { bold: true, size: 14, color: { argb: 'FF1D4ED8' } }
-    ws.getCell('L25').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } }
+    ws.getCell('L25').font      = { bold: true, size: 18, color: { argb: 'FF1D4ED8' } }
+    ws.getCell('L25').fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } }
+    ws.getCell('L25').alignment = { horizontal: 'center', vertical: 'middle' }
+    ws.getRow(25).height = 30   // extra height so the big number fits
 
     // Diferencia energía → G40 (la plantilla tiene la etiqueta "diferencia energía:" aquí)
     setF(ws, 'G40', '=F37-L37', '#,##0.00')
