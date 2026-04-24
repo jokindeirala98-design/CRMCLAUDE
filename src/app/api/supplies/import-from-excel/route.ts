@@ -1,27 +1,27 @@
 /**
  * POST /api/supplies/import-from-excel
  *
- * Importa suministros e invoices desde los Excel de facturas en formato VOLTIS.
- * Cada Excel representa 1 suministro (CUPS) con varias columnas = varias facturas.
+ * Importa suministros e invoices desde Excel de facturas.
+ * Soporta dos formatos automáticamente:
  *
- * Formato Excel esperado (hoja "Facturas"):
+ * FORMATO A — Label-based (Excel real de facturas, ej. Iberdrola):
+ *   Col A: etiqueta ("CUPS", "Tarifa", "Potencia P1 (kW)", ...)
+ *   Col B+: datos (una columna por mes)
+ *
+ * FORMATO B — Fixed-position (plantilla VOLTIS interna):
  *   Fila 3:  CUPS
  *   Fila 4:  Titular
- *   Fila 5:  Compañía (comercializadora actual)
+ *   Fila 5:  Compañía
  *   Fila 6:  Tarifa
  *   Fila 7:  Nº Factura (por columna)
- *   Fila 8:  Fecha Inicio
- *   Fila 9:  Fecha Fin
- *   Fila 11: Días Facturados
- *   Filas 13-30: Potencia P1-P6 (kW, €/kW·día, €)
- *   Filas 32-49: Consumo P1-P6 (kWh, €/kWh, €)
- *   Fila 51: Total consumo kWh
- *   Fila 65: Total factura
+ *   Fila 8:  Fecha Inicio / Fila 9: Fecha Fin / Fila 11: Días
+ *   Filas 13-30: Potencia P1-P6 · Filas 32-49: Consumo P1-P6
+ *   Fila 51: Total consumo kWh · Fila 65: Total factura
  *
  * Body: multipart/form-data
- *   files: File[]   (uno o varios .xlsx)
- *   clientId: string (opcional, UUID del cliente preseleccionado)
- *   newClientName: string (opcional, nombre para crear nuevo cliente)
+ *   files: File[]           (uno o varios .xlsx)
+ *   clientId: string        (UUID del cliente preseleccionado, opcional)
+ *   newClientName: string   (nombre para crear/buscar cliente, opcional)
  *
  * Response: { results: ImportResult[] }
  */
@@ -34,7 +34,7 @@ import { normalizeTariff as normalizeTariffLib } from '@/lib/consumption-utils'
 
 export const maxDuration = 300
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
+// ── Shared helpers ─────────────────────────────────────────────────────────────
 
 function n(v: any): number { return Number(v ?? 0) || 0 }
 function s(v: any): string { return String(v ?? '').trim() }
@@ -52,6 +52,196 @@ function normalizeTariff(raw: string): string {
   }
   return map[t] || raw
 }
+
+// ── Label-based parser (Formato A) ────────────────────────────────────────────
+
+function normLabel(str: string): string {
+  if (!str) return ''
+  return str.toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[€]/g, 'eur')
+    .replace(/[()]/g, ' ')
+    .replace(/[\/\-\*]/g, ' ')
+    .replace(/\s+/g, ' ').trim()
+}
+
+function buildRowMap(ws: ExcelJS.Worksheet): Map<string, ExcelJS.Row> {
+  const map = new Map<string, ExcelJS.Row>()
+  ws.eachRow((row) => {
+    const raw = row.getCell(1).value
+    if (raw && typeof raw === 'string') {
+      const key = normLabel(raw)
+      if (!map.has(key)) map.set(key, row)
+    }
+  })
+  return map
+}
+
+function getRow(map: Map<string, ExcelJS.Row>, label: string): ExcelJS.Row | undefined {
+  return map.get(normLabel(label))
+}
+
+function cellNum(row: ExcelJS.Row | undefined, col: number): number {
+  if (!row) return 0
+  const v = row.getCell(col)?.value
+  if (v === null || v === undefined) return 0
+  if (typeof v === 'number') return v
+  if (typeof v === 'object' && 'result' in v) return Number((v as any).result) || 0
+  if (typeof v === 'string') return parseFloat(v.replace(',', '.')) || 0
+  return 0
+}
+
+function cellStr(row: ExcelJS.Row | undefined, col: number): string {
+  if (!row) return ''
+  const v = row.getCell(col)?.value
+  if (v === null || v === undefined) return ''
+  if (v instanceof Date) return isoDate(v)
+  if (typeof v === 'object' && 'result' in v) return String((v as any).result ?? '')
+  return String(v).trim()
+}
+
+function isoDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+}
+
+const MONTHS_MAP: Record<string, string> = {
+  enero:'01', january:'01', jan:'01', ene:'01',
+  febrero:'02', february:'02', feb:'02',
+  marzo:'03', march:'03', mar:'03',
+  abril:'04', april:'04', apr:'04',
+  mayo:'05', may:'05',
+  junio:'06', june:'06', jun:'06',
+  julio:'07', july:'07', jul:'07',
+  agosto:'08', august:'08', aug:'08',
+  septiembre:'09', september:'09', sep:'09', sept:'09',
+  octubre:'10', october:'10', oct:'10',
+  noviembre:'11', november:'11', nov:'11',
+  diciembre:'12', december:'12', dec:'12',
+}
+
+function parseIsoDate(raw: any): string | null {
+  if (!raw) return null
+  if (raw instanceof Date) return isoDate(raw)
+  const str = String(raw).trim()
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10)
+  const m1 = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/)
+  if (m1) {
+    const [, d, mo, y] = m1
+    return `${y.length === 2 ? '20'+y : y}-${mo.padStart(2,'0')}-${d.padStart(2,'0')}`
+  }
+  const m2 = str.match(/^([a-záéíóúüñ]+)\s+(\d{4})$/i)
+  if (m2) {
+    const mon = MONTHS_MAP[m2[1].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')]
+    if (mon) return `${m2[2]}-${mon}-01`
+  }
+  return null
+}
+
+function lastDayOfMonth(iso: string): string {
+  const [y, m] = iso.split('-').map(Number)
+  const last = new Date(y, m, 0)
+  return `${y}-${String(m).padStart(2,'0')}-${String(last.getDate()).padStart(2,'0')}`
+}
+
+function daysBetween(a: string, b: string): number {
+  return Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000) + 1
+}
+
+function detectMonthCols(ws: ExcelJS.Worksheet, rowMap: Map<string, ExcelJS.Row>): number[] {
+  const fechaRow = getRow(rowMap, 'Fecha Inicio')
+  if (fechaRow) {
+    const cols: number[] = []
+    fechaRow.eachCell({ includeEmpty: false }, (cell, colNum) => {
+      if (colNum <= 1) return
+      if (cell.value !== null && cell.value !== undefined && cell.value !== '') cols.push(colNum)
+    })
+    if (cols.length > 0) return cols
+  }
+  const firstRow = ws.getRow(1)
+  const cols: number[] = []
+  firstRow.eachCell({ includeEmpty: false }, (cell, colNum) => {
+    if (colNum <= 1) return
+    const str = String(cell.value ?? '').trim().toLowerCase()
+    if (Object.keys(MONTHS_MAP).some(m => str.startsWith(m)) || /\d{4}/.test(str)) cols.push(colNum)
+  })
+  return cols
+}
+
+/** Parse Excel in label-based format (real electricity invoices) */
+function parseLabelBased(ws: ExcelJS.Worksheet, fileName: string): ParsedSupplyFile {
+  const rowMap = buildRowMap(ws)
+
+  const cups = cellStr(getRow(rowMap, 'CUPS'), 2)
+  const rawTariff = cellStr(getRow(rowMap, 'Tarifa'), 2)
+  const tarifa = normalizeTariff(rawTariff || cellStr(getRow(rowMap, 'Tariff'), 2))
+  const comRow = getRow(rowMap, 'Compañia') ?? getRow(rowMap, 'Compania') ?? getRow(rowMap, 'Empresa') ?? getRow(rowMap, 'Comercializadora') ?? getRow(rowMap, 'Suministrador')
+  const compania = cellStr(comRow, 2)
+  const titular = cellStr(getRow(rowMap, 'Titular'), 2) || cellStr(getRow(rowMap, 'Nombre'), 2) || ''
+
+  const monthCols = detectMonthCols(ws, rowMap)
+  const invoices: ParsedInvoice[] = []
+
+  for (const col of monthCols) {
+    const rawStart = getRow(rowMap, 'Fecha Inicio')?.getCell(col).value
+    const rawEnd   = getRow(rowMap, 'Fecha Fin')?.getCell(col).value
+    let periodStart = parseIsoDate(rawStart)
+    let periodEnd   = parseIsoDate(rawEnd)
+    if (periodStart && !periodEnd) periodEnd = lastDayOfMonth(periodStart)
+    if (!periodStart) continue
+
+    const dias = daysBetween(periodStart, periodEnd!)
+
+    const potencia = []
+    for (let p = 1; p <= 6; p++) {
+      const pid = `P${p}`
+      const kw         = cellNum(getRow(rowMap, `Potencia ${pid} kw`), col) || cellNum(getRow(rowMap, `Potencia ${pid} (kW)`), col)
+      const precioKwDia= cellNum(getRow(rowMap, `Potencia ${pid} eur kw dia`), col) || cellNum(getRow(rowMap, `Potencia ${pid} (€/kW día)`), col)
+      const total      = cellNum(getRow(rowMap, `Potencia ${pid} eur`), col) || cellNum(getRow(rowMap, `Potencia ${pid} (€)`), col)
+      if (kw > 0 || total > 0) potencia.push({ periodo: pid, kw, precioKwDia, dias, total })
+    }
+
+    const consumo = []
+    for (let p = 1; p <= 6; p++) {
+      const pid   = `P${p}`
+      const kwh   = cellNum(getRow(rowMap, `Consumo ${pid} kwh`), col) || cellNum(getRow(rowMap, `Consumo ${pid} (kWh)`), col)
+      const precio= cellNum(getRow(rowMap, `Precio ${pid} eur kwh`), col) || cellNum(getRow(rowMap, `Precio ${pid} (€/kWh)`), col)
+      const total = kwh > 0 && precio > 0 ? Math.round(kwh * precio * 100) / 100 : 0
+      if (kwh > 0) consumo.push({ periodo: pid, kwh, precioKwh: precio, total })
+    }
+
+    const consumoTotalKwh    = cellNum(getRow(rowMap, 'TOTAL CONSUMO (kWh)'), col) || cellNum(getRow(rowMap, 'total consumo kwh'), col) || consumo.reduce((a, c) => a + c.kwh, 0)
+    const costeTotalConsumo  = cellNum(getRow(rowMap, 'TOTAL COSTE CONSUMO (€)'), col) || cellNum(getRow(rowMap, 'total coste consumo eur'), col) || consumo.reduce((a, c) => a + c.total, 0)
+    const costeTotalPotencia = cellNum(getRow(rowMap, 'TOTAL COSTE POTENCIA (€)'), col) || cellNum(getRow(rowMap, 'total coste potencia eur'), col) || potencia.reduce((a, p) => a + p.total, 0)
+    const totalFactura       = cellNum(getRow(rowMap, 'TOTAL FACTURA (€)'), col) || cellNum(getRow(rowMap, 'total factura eur'), col)
+
+    if (consumoTotalKwh === 0 && totalFactura === 0 && costeTotalConsumo === 0) continue
+
+    // Generate a pseudo-numFactura from the period
+    const numFactura = `${periodStart.slice(0,7)}`
+
+    invoices.push({
+      numFactura,
+      fechaInicio:  periodStart,
+      fechaFin:     periodEnd!,
+      fechaEmision: '',
+      dias,
+      potencia,
+      consumo,
+      consumoTotalKwh,
+      costeBrutoConsumo:  costeTotalConsumo,
+      descuentoEnergia:   0,
+      costeNetoConsumo:   costeTotalConsumo,
+      costeTotalConsumo,
+      costeTotalPotencia,
+      iva: 0, peajes: 0, impuestoElectrico: 0, alquiler: 0, otros: 0, ivaTotal: 0,
+      totalFactura,
+    })
+  }
+
+  return { fileName, cups, titular, compania, tarifa, invoices }
+}
+
+const CUPS_RE = /^ES[A-Z0-9]{18,20}$/i
 
 interface ParsedInvoice {
   numFactura: string
@@ -85,14 +275,33 @@ interface ParsedSupplyFile {
   invoices: ParsedInvoice[]
 }
 
-/** Parsea una hoja de Excel del formato VOLTIS de facturas */
+/** Parsea un Excel de facturas — detecta automáticamente el formato (label-based o fixed-position) */
 async function parseExcelFile(buffer: Buffer, fileName: string): Promise<ParsedSupplyFile> {
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.load(buffer as any)
 
   const ws = wb.getWorksheet('Facturas') || wb.worksheets[0]
-  if (!ws) throw new Error(`${fileName}: no se encontró la hoja "Facturas"`)
+  if (!ws) throw new Error(`${fileName}: no se encontró ninguna hoja de cálculo`)
 
+  // ── Auto-detect format ─────────────────────────────────────────────────────
+  // If cell A1 or any of rows 1-10 col A has the label "CUPS", use label-based parser.
+  // Otherwise fall back to fixed-position (VOLTIS internal template).
+  let hasLabelCUPS = false
+  for (let row = 1; row <= 20; row++) {
+    const cellVal = s(ws.getCell(row, 1).value)
+    if (normLabel(cellVal) === 'cups') { hasLabelCUPS = true; break }
+  }
+
+  // Also check: if B3 is a valid CUPS → fixed-position format
+  const b3 = s(ws.getCell(3, 2).value)
+  const b3IsCups = CUPS_RE.test(b3.replace(/\s+/g,''))
+
+  if (hasLabelCUPS && !b3IsCups) {
+    // Label-based format (real electricity invoice Excel)
+    return parseLabelBased(ws, fileName)
+  }
+
+  // ── Fixed-position parser (VOLTIS template) ───────────────────────────────
   const gc = (row: number, col: number): any => ws.getCell(row, col).value
 
   const cups    = s(gc(3, 2))

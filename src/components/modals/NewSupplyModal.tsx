@@ -413,6 +413,10 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
           const result = await response.json()
           console.log('[Excel Parsing] Result:', result)
 
+          if (!result.invoices || result.invoices.length === 0) {
+            throw new Error(result.error || 'El Excel no contiene datos de facturas reconocibles. Verifica el formato.')
+          }
+
           // Update file with monthly invoices
           setUploadedFiles((prev) =>
             prev.map((f) => {
@@ -609,9 +613,17 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
       .map((f) => f.extractedData!)
 
     const hasExcelFiles = uploadedFiles.some((f) => f.monthlyInvoices && f.monthlyInvoices.length > 0)
+    const hasExcelWithErrors = uploadedFiles.some((f) => f.file.name.toLowerCase().endsWith('.xlsx') && f.error)
 
     // Allow proceeding if we have PDF/image extracted data OR Excel monthly invoices
-    if (allExtracted.length === 0 && !hasExcelFiles) return
+    if (allExtracted.length === 0 && !hasExcelFiles) {
+      if (hasExcelWithErrors) {
+        setError('El archivo Excel tiene errores. Revisa el mensaje de error y vuelve a intentarlo.')
+      } else if (uploadedFiles.some((f) => f.file.name.toLowerCase().endsWith('.xlsx'))) {
+        setError('El Excel no contiene facturas reconocibles. Verifica que el formato sea correcto.')
+      }
+      return
+    }
 
     // If only Excel, still populate form from the Excel's extracted cups/tariff (done in handleFiles)
     // and go directly to step 2 without the PDF merge logic below
@@ -1007,7 +1019,15 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
                             </div>
                           )}
 
-                          {file.extractedData && !file.error && file.extractedData.mode === 'gemini' && (
+                          {/* Excel success indicator */}
+                          {!file.analyzing && !file.error && file.monthlyInvoices && file.monthlyInvoices.length > 0 && (
+                            <div className="flex items-center gap-2 text-xs text-ok">
+                              <Check className="w-3 h-3 flex-shrink-0" />
+                              {file.monthlyInvoices.length} meses importados · CUPS: {file.monthlyInvoices[0]?.extracted_data?.cups || '—'}
+                            </div>
+                          )}
+
+                          {file.extractedData && !file.error && !file.monthlyInvoices && file.extractedData.mode === 'gemini' && (
                             <div className="space-y-2">
                               <div className="flex items-center gap-2 text-xs text-ok mb-2">
                                 <Check className="w-3 h-3 flex-shrink-0" />
