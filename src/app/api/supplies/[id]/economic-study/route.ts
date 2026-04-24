@@ -89,22 +89,43 @@ const LOGO_ALIASES: Record<string, string> = {
   'voltis': 'voltis_energia',
 }
 
-async function tryLoadLogo(name: string): Promise<Buffer | null> {
+/** Returns { buffer, ext } so insertLogo can declare the correct image type to ExcelJS */
+async function tryLoadLogo(name: string): Promise<{ buffer: Buffer; ext: 'png' | 'jpeg' } | null> {
+  if (!name || name === 'Comercializadora actual') return null
   const raw = slugLogo(name)
   const slug = LOGO_ALIASES[raw] ?? raw
   const logoDir = path.join(_cwd, 'public', 'logos')
-  const candidates = [
-    path.join(logoDir, `${slug}.png`),
-    path.join(logoDir, `${slug}.jpg`),
-    path.join(logoDir, `${slug}.jpeg`),
-    path.join(_cwd, 'logos', `${slug}.png`),
+  const candidates: Array<{ p: string; ext: 'png' | 'jpeg' }> = [
+    { p: path.join(logoDir, `${slug}.png`),  ext: 'png' },
+    { p: path.join(logoDir, `${slug}.jpg`),  ext: 'jpeg' },
+    { p: path.join(logoDir, `${slug}.jpeg`), ext: 'jpeg' },
+    { p: path.join(_cwd, 'logos', `${slug}.png`), ext: 'png' },
   ]
-  for (const p of candidates) {
+  for (const { p, ext } of candidates) {
     if (fs.existsSync(p)) {
-      try { return fs.readFileSync(p) } catch { continue }
+      try { return { buffer: fs.readFileSync(p), ext } } catch { continue }
     }
   }
   return null
+}
+
+/**
+ * Detect the actual comercializadora name from invoice extracted data.
+ * Scans all invoices and returns the most-frequent comercializadora name found.
+ */
+function detectComercializadoraFromInvoices(invoices: any[]): string | null {
+  const counts: Record<string, number> = {}
+  for (const inv of invoices) {
+    const ed = inv.extracted_data as any
+    const name = ed?.economics?.comercializadora || ed?.comercializadora
+    if (name && typeof name === 'string' && name.trim().length > 1) {
+      const n = name.trim()
+      counts[n] = (counts[n] || 0) + 1
+    }
+  }
+  const entries = Object.entries(counts)
+  if (!entries.length) return null
+  return entries.sort((a, b) => b[1] - a[1])[0][0]
 }
 
 // Border style for table cells
@@ -454,13 +475,18 @@ export async function POST(
     // Fallback: overall average price if per-period not available
     const actualAvgPrice = avgPriceFromInvoices(invoices)
 
-    const comercializadoraActual = supply.comercializadora?.name || 'Comercializadora actual'
+    // Actual comercializadora: prefer CRM linked record, fallback to invoice extraction
+    const comercializadoraActual =
+      supply.comercializadora?.name ||
+      detectComercializadoraFromInvoices(invoices) ||
+      'Comercializadora actual'
+
     const clientName = supply.client?.name || supply.cups || 'Sin cliente'
     const cups = supply.cups || ''
     const tariffLabel = `TARIFA ${normalizeTariff(tariff)}`
 
     // ── Logos de comercializadoras ────────────────────────────────────────────
-    const [logoActualBuf, logoNuevaBuf] = await Promise.all([
+    const [logoActualResult, logoNuevaResult] = await Promise.all([
       tryLoadLogo(comercializadoraActual),
       tryLoadLogo(nueva_comercializadora),
     ])
@@ -502,10 +528,10 @@ export async function POST(
     set(ws, 'I10', nueva_comercializadora)
 
     // ── Logos (insert after worksheet is loaded) ──────────────────────────────
-    const insertLogo = (buf: Buffer | null, colStart: number, rowStart: number) => {
-      if (!buf) return
+    const insertLogo = (result: { buffer: Buffer; ext: 'png' | 'jpeg' } | null, colStart: number, rowStart: number) => {
+      if (!result) return
       try {
-        const imgId = wb.addImage({ buffer: buf as any, extension: 'png' })
+        const imgId = wb.addImage({ buffer: result.buffer as any, extension: result.ext })
         ws.addImage(imgId, {
           tl: { col: colStart - 1, row: rowStart - 1 } as any,
           ext: { width: 140, height: 45 },
@@ -513,8 +539,8 @@ export async function POST(
         } as any)
       } catch { /* logo insert not supported — skip */ }
     }
-    insertLogo(logoActualBuf, 1, 8)    // cols A area, row 8 (above A10 name)
-    insertLogo(logoNuevaBuf, 9, 8)     // cols I area, row 8 (above I10 name)
+    insertLogo(logoActualResult, 1, 8)  // cols A area, row 8 (above A10 name)
+    insertLogo(logoNuevaResult, 9, 8)  // cols I area, row 8 (above I10 name)
 
     // ── POTENCIA ──────────────────────────────────────────────────────────────
     const DIAS = 365
