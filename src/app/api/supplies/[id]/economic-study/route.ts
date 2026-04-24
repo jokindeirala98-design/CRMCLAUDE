@@ -923,10 +923,13 @@ export async function POST(
       setF(ws, `F${row}`, `=D${row}*E${row}`,                    '#,##0.00')
       setF(ws, `G${row}`, `=IF($D$37>0,D${row}/$D$37,0)`,        '0.0%')
 
-      // NUEVO: I=periodo, J=kWh, K=€/kWh, L=coste (fórmula), M=% (fórmula)
+      // NUEVO: I=periodo, J=kWh, K=€/kWh (admin), L=coste (fórmula), M=% (fórmula)
       set(ws, `I${row}`, PERIOD_KEYS[i])
       set(ws, `J${row}`, kwh)
       setPrice(ws, `K${row}`, precioN)
+      // Precio nuevo introducido por el admin → destacar en verde
+      ws.getCell(`K${row}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } }
+      ws.getCell(`K${row}`).font = { bold: true, color: { argb: 'FF065F46' } }
       setF(ws, `L${row}`, `=J${row}*K${row}`,                    '#,##0.00')
       setF(ws, `M${row}`, `=IF($J$37>0,J${row}/$J$37,0)`,        '0.0%')
     }
