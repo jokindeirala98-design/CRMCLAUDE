@@ -895,23 +895,24 @@ export async function POST(
     set(ws,  'I26', fmt2(excesos || 0))          // Excesos (introducido por admin)
     ws.getCell('I26').numFmt = '#,##0.00'
 
-    // Diferencia total → K25 (label) + L25 (fórmula)
-    set(ws, 'K25', 'DIFERENCIA TOTAL:')
-    ws.getCell('K25').font = { bold: true, size: 10 }
-    ws.getCell('K25').alignment = { horizontal: 'right', vertical: 'middle' }
+    // Diferencia total → L25 (fórmula); la etiqueta "DIFERENCIA TOTAL:" ya existe en la plantilla
     setF(ws, 'L25', '=I23+I24+I25+I26', '#,##0.00')
     ws.getCell('L25').font = { bold: true, size: 11, color: { argb: 'FF1D4ED8' } }
     ws.getCell('L25').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } }
 
+    // Diferencia energía → G40 (la plantilla tiene la etiqueta "diferencia energía:" aquí)
+    setF(ws, 'G40', '=F37-L37', '#,##0.00')
+    ws.getCell('G40').font = { bold: true, color: { argb: 'FF1D4ED8' } }
+
     // ── Estética y bordes ────────────────────────────────────────────────────
-    // POTENCIA ACTUAL (B12:F19) — con fila de totales destacada
-    styleTable(ws, 12, 19, 2, 6,  { totalRow: 19, altFill: true })
-    // POTENCIA NUEVA (J12:N19)
-    styleTable(ws, 12, 19, 10, 14, { totalRow: 19, altFill: true })
-    // ENERGÍA ACTUAL (C29:G37)
-    styleTable(ws, 29, 37, 3, 7,  { totalRow: 37, altFill: true })
-    // ENERGÍA NUEVA (I29:M37)
-    styleTable(ws, 29, 37, 9, 13, { totalRow: 37, altFill: true })
+    // POTENCIA ACTUAL (A11:F19) — incluye fila cabecera + columna etiquetas
+    styleTable(ws, 11, 19, 1, 6,  { totalRow: 19, altFill: true })
+    // POTENCIA NUEVA (I11:N19)
+    styleTable(ws, 11, 19, 9, 14, { totalRow: 19, altFill: true })
+    // ENERGÍA ACTUAL (B28:G37) — incluye fila cabecera + columna etiquetas
+    styleTable(ws, 28, 37, 2, 7,  { totalRow: 37, altFill: true })
+    // ENERGÍA NUEVA (H28:M37)
+    styleTable(ws, 28, 37, 8, 13, { totalRow: 37, altFill: true })
     // Resumen ahorro (I23:I26)
     styleBox(ws, 23, 26, 9, 9, 'FFF0FDF4')
     // Diferencia total (K25:L25)
