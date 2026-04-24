@@ -321,36 +321,72 @@ function extractInvoicePowerKw(invoices: any[], periodCount: number): number[] {
 }
 
 /**
- * Extract invoice-level energy prices per period.
- * Returns array indexed [0..periodCount-1], 0 if period has no data.
+ * Weighted-average energy price per period across ALL invoices.
+ * Mirrors AnnualEconomics: avgPrice[P] = Σ(total_P) / Σ(kwh_P)
+ *
+ * Priority per invoice per period:
+ *   1. item.total  (gross monetary amount — most reliable)
+ *   2. item.kwh × item.precioKwh  (Gemini-extracted, may be partial)
+ * Returns 0 for periods with no data.
  */
 function extractInvoiceEnergyPrices(invoices: any[], periodCount: number): number[] {
-  const prices = Array(periodCount).fill(0)
-  if (!invoices?.length) return prices
+  const totalEur = Array(periodCount).fill(0)
+  const totalKwh = Array(periodCount).fill(0)
 
-  const sorted = [...invoices].sort((a, b) => {
-    const da = a.period_end || a.period_start || ''
-    const db = b.period_end || b.period_start || ''
-    return db.localeCompare(da)
-  })
-
-  for (const inv of sorted) {
+  for (const inv of invoices) {
     const eco = inv.extracted_data?.economics
     if (!eco?.consumo?.length) continue
 
-    let filled = 0
+    // Discount factor (same as AnnualEconomics)
+    const descuentoEnergia = Number(eco.descuentoEnergia) || 0
+    const costeBruto = Number(eco.costeBrutoConsumo) || 0
+    const discountFactor = costeBruto > 0 && descuentoEnergia > 0
+      ? 1 - descuentoEnergia / costeBruto : 1
+
     for (let i = 0; i < periodCount; i++) {
       const p = PERIOD_KEYS[i]
       const item = eco.consumo.find((x: any) => x.periodo === p || x.periodo === `Periodo ${i + 1}`)
-      if (item && item.precioKwh > 0 && prices[i] === 0) {
-        prices[i] = Number(item.precioKwh)
-        filled++
+      if (!item) continue
+      const kwh = Number(item.kwh) || 0
+      if (kwh <= 0) continue
+
+      let eur = 0
+      if (Number(item.total) > 0) {
+        eur = Number(item.total) * discountFactor
+      } else if (Number(item.precioKwh) > 0) {
+        eur = kwh * Number(item.precioKwh) * discountFactor
+      }
+      if (eur > 0) {
+        totalEur[i] += eur
+        totalKwh[i] += kwh
       }
     }
-    if (filled > 0) break
   }
 
-  return prices
+  // Fallback: if no per-period data, try single-period flat price from most recent invoice
+  const hasAny = totalKwh.some(v => v > 0)
+  if (!hasAny) {
+    const sorted = [...invoices].sort((a, b) =>
+      (b.period_end || b.period_start || '').localeCompare(a.period_end || a.period_start || ''))
+    for (const inv of sorted) {
+      const eco = inv.extracted_data?.economics
+      if (!eco?.consumo?.length) continue
+      let filled = 0
+      for (let i = 0; i < periodCount; i++) {
+        const p = PERIOD_KEYS[i]
+        const item = eco.consumo.find((x: any) => x.periodo === p || x.periodo === `Periodo ${i + 1}`)
+        if (item && Number(item.precioKwh) > 0) {
+          totalEur[i] = Number(item.precioKwh)  // store price directly
+          totalKwh[i] = 1                         // sentinel so map below returns price as-is
+          filled++
+        }
+      }
+      if (filled > 0) break
+    }
+    return totalEur  // already the per-period price when sentinel=1
+  }
+
+  return totalEur.map((eur, i) => totalKwh[i] > 0 ? eur / totalKwh[i] : 0)
 }
 
 function avgPriceFromInvoices(invoices: any[]): number {
@@ -436,13 +472,17 @@ export async function POST(
     const powerStudyResult = (supply as any).power_study_result as any
     const invoices = supply.invoices || []
 
-    // ── BOE year for "nuevo" column: 2026 if any invoice is from 2026, else 2025 ─
-    const latestInvoiceYear = invoices.reduce((maxY: number, inv: any) => {
+    // ── BOE year for "nuevo" column: year with the MAJORITY of invoices ──────────
+    // Use 2026 only if more than half the invoices are from 2026.
+    // This way a client with 11 invoices from 2025 + 1 from Jan 2026 stays on 2025 BOE.
+    const yearCounts: Record<number, number> = {}
+    for (const inv of invoices) {
       const d = inv.period_end || inv.period_start || inv.created_at || ''
       const y = parseInt(String(d).substring(0, 4))
-      return (!isNaN(y) && y > maxY) ? y : maxY
-    }, 2025)
-    const boeNewYear: 2025 | 2026 = latestInvoiceYear >= 2026 ? 2026 : 2025
+      if (!isNaN(y) && y >= 2024) yearCounts[y] = (yearCounts[y] || 0) + 1
+    }
+    const count2026 = yearCounts[2026] || 0
+    const boeNewYear: 2025 | 2026 = count2026 > (invoices.length / 2) ? 2026 : 2025
     const boeNuevo = getBOEPrices(tariff, boeNewYear)
 
     // Consumption always from SIPS (official distributor data)
@@ -612,11 +652,12 @@ export async function POST(
       set(ws, `F${row}`, costeA)
       set(ws, `G${row}`, pct)
 
-      // NUEVO columns
+      // NUEVO columns  (I=periodo, J=kwh, K=precio★, L=coste, M=%)
       set(ws, `I${row}`, PERIOD_KEYS[i])
       set(ws, `J${row}`, kwh)
-      setPrice(ws, `L${row}`, precioN)        // €/kWh nueva (entered by user) — full precision
-      set(ws, `M${row}`, costeN)
+      setPrice(ws, `K${row}`, precioN)        // €/kWh nueva (entered by user) — green column
+      set(ws, `L${row}`, costeN)
+      set(ws, `M${row}`, pct)
 
       totalEnergiaActual += costeA
       totalEnergiaNueva += costeN
@@ -629,8 +670,8 @@ export async function POST(
     setPrice(ws, 'E37', avgActual)           // precio medio actual €/kWh — full precision
     set(ws, 'F37', fmt2(totalEnergiaActual))
     set(ws, 'J37', totalKwh)
-    setPrice(ws, 'L37', avgNueva)            // precio medio nueva €/kWh — full precision
-    set(ws, 'M37', fmt2(totalEnergiaNueva))
+    setPrice(ws, 'K37', avgNueva)            // precio medio nueva €/kWh — full precision (K=precio, L=coste)
+    set(ws, 'L37', fmt2(totalEnergiaNueva))
 
     // Diferencia energía (ahorro)
     const difEnergia = fmt2(totalEnergiaActual - totalEnergiaNueva)
