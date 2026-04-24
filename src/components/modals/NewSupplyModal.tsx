@@ -585,7 +585,17 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
       .filter((f) => !f.monthlyInvoices && f.extractedData?.mode === 'gemini' && !f.error)
       .map((f) => f.extractedData!)
 
-    if (allExtracted.length === 0) return
+    const hasExcelFiles = uploadedFiles.some((f) => f.monthlyInvoices && f.monthlyInvoices.length > 0)
+
+    // Allow proceeding if we have PDF/image extracted data OR Excel monthly invoices
+    if (allExtracted.length === 0 && !hasExcelFiles) return
+
+    // If only Excel, still populate form from the Excel's extracted cups/tariff (done in handleFiles)
+    // and go directly to step 2 without the PDF merge logic below
+    if (allExtracted.length === 0 && hasExcelFiles) {
+      setStep(2)
+      return
+    }
 
     // Build merged data: for each field, take first non-null value across all pages
     const merged: typeof allExtracted[0] = { ...allExtracted[0] }
@@ -674,8 +684,8 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
       const supabase = createClient()
 
       const normalizedCups = normalizeCups(form.cups) || null
-      const hasInvoicesToAdd = uploadedFiles.some((f) => f.url)
-      const hasExtractedData = uploadedFiles.some((f) => f.extractedData?.mode === 'gemini' && !f.error)
+      const hasInvoicesToAdd = uploadedFiles.some((f) => f.url) || uploadedFiles.some((f) => f.monthlyInvoices && f.monthlyInvoices.length > 0)
+      const hasExtractedData = uploadedFiles.some((f) => f.extractedData?.mode === 'gemini' && !f.error) || uploadedFiles.some((f) => f.monthlyInvoices && f.monthlyInvoices.length > 0)
 
       // ── Authoritative duplicate CUPS check (always query DB, regardless of UI state) ──
       let targetSupplyId: string | null = null
