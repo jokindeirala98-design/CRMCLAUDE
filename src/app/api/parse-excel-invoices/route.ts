@@ -1,347 +1,286 @@
 import { NextRequest, NextResponse } from 'next/server'
 import ExcelJS from 'exceljs'
 
-/**
- * Normalize a label for fuzzy matching:
- * - lowercase
- * - remove accents
- * - remove parentheses and content inside
- * - trim whitespace
- */
+// ── Label normaliser ──────────────────────────────────────────────────────────
+// Keeps parentheses content (normalised) so rows with the same prefix but
+// different units are still distinguishable.
+// e.g.  "Potencia P1 (kW)"       → "potencia p1 kw"
+//       "Potencia P1 (€/kW día)" → "potencia p1 eur kw dia"
+//       "Potencia P1 (€)"        → "potencia p1 eur"
 function normLabel(s: string): string {
   if (!s) return ''
   return s
     .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '') // Remove accents
-    .replace(/\([^)]*\)/g, '') // Remove (content)
-    .trim()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // strip accents
+    .replace(/[€]/g, 'eur')                           // € → eur
+    .replace(/[()]/g, ' ')                             // open parens without removing content
+    .replace(/[\/\-\*]/g, ' ')                         // separators → space
     .replace(/\s+/g, ' ')
+    .trim()
 }
 
-/**
- * Find a row by fuzzy matching on the label
- */
-function findRowByLabel(worksheet: ExcelJS.Worksheet, targetLabel: string): ExcelJS.Row | null {
-  const normalized = normLabel(targetLabel)
-  for (let rowNum = 1; rowNum <= worksheet.rowCount; rowNum++) {
-    const row = worksheet.getRow(rowNum)
-    const cellValue = row.getCell(1)?.value
-    if (cellValue && typeof cellValue === 'string') {
-      if (normLabel(cellValue) === normalized) {
-        return row
-      }
+// ── Row lookup ────────────────────────────────────────────────────────────────
+// Build a cache of { normalisedLabel → row } for the whole sheet once.
+function buildRowMap(ws: ExcelJS.Worksheet): Map<string, ExcelJS.Row> {
+  const map = new Map<string, ExcelJS.Row>()
+  ws.eachRow((row, _n) => {
+    const raw = row.getCell(1).value
+    if (raw && typeof raw === 'string') {
+      const key = normLabel(raw)
+      if (!map.has(key)) map.set(key, row)   // first match wins
     }
-  }
-  return null
+  })
+  return map
 }
 
-/**
- * Parse a date string in various formats
- * Returns YYYY-MM-DD or null if unparseable
- */
-function parseDate(input: string | null | undefined): string | null {
-  if (!input) return null
-  const s = String(input).trim()
+function getRow(map: Map<string, ExcelJS.Row>, label: string): ExcelJS.Row | undefined {
+  return map.get(normLabel(label))
+}
 
-  // Already ISO: YYYY-MM-DD
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+// ── Cell value helpers ────────────────────────────────────────────────────────
+// ExcelJS may return numbers, strings, Date objects, or formula objects.
+function cellNum(row: ExcelJS.Row | undefined, col: number): number {
+  if (!row) return 0
+  const cell = row.getCell(col)
+  const v = cell?.value
+  if (v === null || v === undefined) return 0
+  if (typeof v === 'number') return v
+  if (typeof v === 'object' && 'result' in v) return Number((v as any).result) || 0
+  if (typeof v === 'string') return parseFloat(v.replace(',', '.')) || 0
+  return 0
+}
 
+function cellStr(row: ExcelJS.Row | undefined, col: number): string {
+  if (!row) return ''
+  const cell = row.getCell(col)
+  const v = cell?.value
+  if (v === null || v === undefined) return ''
+  if (v instanceof Date) return isoDate(v)
+  if (typeof v === 'object' && 'result' in v) return String((v as any).result ?? '')
+  return String(v).trim()
+}
+
+// ── Date helpers ──────────────────────────────────────────────────────────────
+function isoDate(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${dd}`
+}
+
+const MONTHS: Record<string, string> = {
+  enero:'01', january:'01', jan:'01', ene:'01',
+  febrero:'02', february:'02', feb:'02',
+  marzo:'03', march:'03', mar:'03',
+  abril:'04', april:'04', apr:'04',
+  mayo:'05', may:'05',
+  junio:'06', june:'06', jun:'06',
+  julio:'07', july:'07', jul:'07',
+  agosto:'08', august:'08', aug:'08',
+  septiembre:'09', september:'09', sep:'09', sept:'09',
+  octubre:'10', october:'10', oct:'10',
+  noviembre:'11', november:'11', nov:'11',
+  diciembre:'12', december:'12', dec:'12',
+}
+
+function parseDate(raw: any): string | null {
+  if (!raw) return null
+  // ExcelJS Date object
+  if (raw instanceof Date) return isoDate(raw)
+  const s = String(raw).trim()
+  // YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10)
   // DD/MM/YYYY or DD-MM-YYYY
   const m1 = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/)
   if (m1) {
-    const day = m1[1].padStart(2, '0')
-    const month = m1[2].padStart(2, '0')
-    const year = m1[3].length === 2 ? `20${m1[3]}` : m1[3]
-    return `${year}-${month}-${day}`
+    const [, d, mo, y] = m1
+    return `${y.length === 2 ? '20' + y : y}-${mo.padStart(2,'0')}-${d.padStart(2,'0')}`
   }
-
-  // Try to parse as month name (enero 2025, etc.)
-  const monthMatch = s.match(/^(\w+)\s+(\d{4})$/i)
-  if (monthMatch) {
-    const monthName = monthMatch[1].toLowerCase()
-    const year = monthMatch[2]
-    const months: Record<string, string> = {
-      enero: '01', january: '01', jan: '01',
-      febrero: '02', february: '02', feb: '02',
-      marzo: '03', march: '03', mar: '03',
-      abril: '04', april: '04', apr: '04',
-      mayo: '05', may: '05',
-      junio: '06', june: '06', jun: '06',
-      julio: '07', july: '07', jul: '07',
-      agosto: '08', august: '08', aug: '08',
-      septiembre: '09', september: '09', sep: '09', sept: '09',
-      octubre: '10', october: '10', oct: '10',
-      noviembre: '11', november: '11', nov: '11',
-      diciembre: '12', december: '12', dec: '12'
-    }
-    const monthNum = months[monthName]
-    if (monthNum) {
-      // First day of month
-      return `${year}-${monthNum}-01`
-    }
+  // "Enero 2025" / "enero 2025"
+  const m2 = s.match(/^([a-záéíóúüñ]+)\s+(\d{4})$/i)
+  if (m2) {
+    const mon = MONTHS[m2[1].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')]
+    if (mon) return `${m2[2]}-${mon}-01`
   }
-
   return null
 }
 
-/**
- * Get the last day of a given YYYY-MM-DD month
- */
-function getLastDayOfMonth(dateStr: string): string {
-  const d = new Date(dateStr)
-  const nextMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0)
-  const day = String(nextMonth.getDate()).padStart(2, '0')
-  const month = String(nextMonth.getMonth() + 1).padStart(2, '0')
-  const year = nextMonth.getFullYear()
-  return `${year}-${month}-${day}`
+function lastDayOfMonth(iso: string): string {
+  const [y, m] = iso.split('-').map(Number)
+  const last = new Date(y, m, 0)
+  return `${y}-${String(m).padStart(2,'0')}-${String(last.getDate()).padStart(2,'0')}`
 }
 
-/**
- * Calculate days between two YYYY-MM-DD dates
- */
-function daysBetween(start: string, end: string): number {
-  const d1 = new Date(start)
-  const d2 = new Date(end)
-  const ms = d2.getTime() - d1.getTime()
-  return Math.ceil(ms / (1000 * 60 * 60 * 24)) + 1 // inclusive
+function daysBetween(a: string, b: string): number {
+  return Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000) + 1
 }
 
-/**
- * Normalize tariff: 6.2/6.3/6.4 → 6.1; 3.0 → 3.0; 2.0 → 2.0; else as-is
- */
-function normalizeTariff(t: string): string {
+// ── Tariff normaliser ─────────────────────────────────────────────────────────
+function normTariff(t: string): string {
   if (!t) return ''
-  const normalized = t.trim().replace(/\s+/g, '')
-  if (['6.2', '6.3', '6.4'].some(v => normalized.includes(v))) return '6.1'
-  if (normalized.includes('3.0')) return '3.0'
-  if (normalized.includes('2.0')) return '2.0'
+  const s = t.trim().replace(/\s/g,'')
+  if (/6\.[234]/.test(s)) return '6.1'
+  if (s.includes('6.1')) return '6.1'
+  if (s.includes('3.0')) return '3.0'
+  if (s.includes('2.0')) return '2.0'
   return t.trim()
 }
 
-/**
- * Get numeric value from cell, handling formulas and null
- */
-function getCellValue(cell: ExcelJS.Cell | null | undefined): number | null {
-  if (!cell) return null
-  const val = cell.value
-  if (typeof val === 'number') return val
-  if (typeof val === 'string') {
-    const parsed = parseFloat(val)
-    return isNaN(parsed) ? null : parsed
+// ── Month column detection ────────────────────────────────────────────────────
+// Find the column index for each month based on the header row.
+// Returns [colIndex, ...] for columns that have date headers.
+function detectMonthCols(ws: ExcelJS.Worksheet, rowMap: Map<string, ExcelJS.Row>): number[] {
+  // Strategy 1: look for a "Concepto / Periodo" or similar header row, use month-named columns
+  // Strategy 2: look at "Fecha Inicio" row and grab all non-empty columns after col 1
+  const fechaRow = getRow(rowMap, 'Fecha Inicio')
+  if (fechaRow) {
+    const cols: number[] = []
+    fechaRow.eachCell({ includeEmpty: false }, (cell, colNum) => {
+      if (colNum <= 1) return
+      const v = cell.value
+      if (v !== null && v !== undefined && v !== '') cols.push(colNum)
+    })
+    if (cols.length > 0) return cols
   }
-  return null
+  // Fallback: scan first row for month headers
+  const firstRow = ws.getRow(1)
+  const cols: number[] = []
+  firstRow.eachCell({ includeEmpty: false }, (cell, colNum) => {
+    if (colNum <= 1) return
+    const s = String(cell.value ?? '').trim().toLowerCase()
+    if (Object.keys(MONTHS).some(m => s.startsWith(m)) || /\d{4}/.test(s)) {
+      cols.push(colNum)
+    }
+  })
+  return cols
 }
 
+// ── Main handler ──────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json()
-    const { file_base64 } = body
+    const { file_base64 } = await req.json()
+    if (!file_base64) return NextResponse.json({ error: 'Missing file_base64' }, { status: 400 })
 
-    if (!file_base64) {
-      return NextResponse.json(
-        { error: 'Missing file_base64' },
-        { status: 400 }
-      )
-    }
-
-    // Decode base64 to buffer
-    const rawBuf = Buffer.from(file_base64, 'base64')
-
-    // Parse Excel — ExcelJS accepts ArrayBuffer | Buffer; cast via any to sidestep TS version mismatch
     const wb = new ExcelJS.Workbook()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await wb.xlsx.load(rawBuf as any)
+    await wb.xlsx.load(Buffer.from(file_base64, 'base64') as any)
 
     const ws = wb.worksheets[0]
-    if (!ws) {
-      return NextResponse.json(
-        { error: 'No worksheet found in Excel' },
-        { status: 400 }
-      )
+    if (!ws) return NextResponse.json({ error: 'No worksheet found' }, { status: 400 })
+
+    const rowMap = buildRowMap(ws)
+
+    // ── Global fields ─────────────────────────────────────────────────────────
+    const cups         = cellStr(getRow(rowMap, 'CUPS'), 2)
+    const rawTariff    = cellStr(getRow(rowMap, 'Tarifa'), 2)
+    // Comercializadora: try multiple label variants
+    const comRow       = getRow(rowMap, 'Compañia')
+                      ?? getRow(rowMap, 'Compania')
+                      ?? getRow(rowMap, 'Empresa')
+                      ?? getRow(rowMap, 'Comercializadora')
+                      ?? getRow(rowMap, 'Suministrador')
+    const comercializadora = cellStr(comRow, 2)
+    const tariff       = normTariff(rawTariff)
+
+    // ── Month columns ─────────────────────────────────────────────────────────
+    const monthCols = detectMonthCols(ws, rowMap)
+    if (monthCols.length === 0) {
+      return NextResponse.json({ error: 'No month columns detected' }, { status: 400 })
     }
 
-    // Extract CUPS, Tariff, Comercializadora (expected to be same in all months)
-    const cupsRow = findRowByLabel(ws, 'CUPS')
-    const tarifaRow = findRowByLabel(ws, 'Tarifa')
-    const comercializadoraRow = findRowByLabel(ws, 'Compañia')
+    // ── Per-month invoices ────────────────────────────────────────────────────
+    const invoices: any[] = []
 
-    const cups = cupsRow ? (cupsRow.getCell(2)?.value as string | null) : ''
-    const rawTariff = tarifaRow ? (tarifaRow.getCell(2)?.value as string | null) : ''
-    const comercializadora = comercializadoraRow ? (comercializadoraRow.getCell(2)?.value as string | null) : ''
+    for (const col of monthCols) {
+      // Dates
+      const rawStart = getRow(rowMap, 'Fecha Inicio')?.getCell(col).value
+      const rawEnd   = getRow(rowMap, 'Fecha Fin')?.getCell(col).value
+      let periodStart = parseDate(rawStart)
+      let periodEnd   = parseDate(rawEnd)
+      if (periodStart && !periodEnd) periodEnd = lastDayOfMonth(periodStart)
+      if (!periodStart) continue   // skip columns with no date
 
-    const tariff = normalizeTariff(rawTariff || '')
+      const dias = daysBetween(periodStart, periodEnd!)
 
-    if (!cups) {
-      return NextResponse.json(
-        { error: 'CUPS not found in Excel' },
-        { status: 400 }
-      )
-    }
-
-    // Detect month columns: look for row with "Fecha Inicio" to find month headers
-    // Month headers usually are in the same row as the first data, or we scan headers
-    // For now, we detect by checking which columns have non-null values in key rows
-    const monthColumns: number[] = []
-
-    // Scan from column B onwards
-    for (let col = 2; col <= ws.columnCount; col++) {
-      // Check if this column has data in any of our key rows
-      const hasData = [
-        findRowByLabel(ws, 'Fecha Inicio'),
-        findRowByLabel(ws, 'TOTAL CONSUMO (kWh)'),
-        findRowByLabel(ws, 'TOTAL FACTURA (€)'),
-      ].some(row => {
-        if (!row) return false
-        const cell = row.getCell(col)
-        return cell && cell.value !== null && cell.value !== ''
-      })
-
-      if (hasData) {
-        monthColumns.push(col)
-      }
-    }
-
-    if (monthColumns.length === 0) {
-      return NextResponse.json(
-        { error: 'No month columns detected in Excel' },
-        { status: 400 }
-      )
-    }
-
-    // For each month column, build an invoice object
-    const invoices: Array<{
-      period_start: string
-      period_end: string
-      total_amount: number | null
-      extracted_data: any
-    }> = []
-
-    for (const monthCol of monthColumns) {
-      // Get period dates
-      const fechaInicioRow = findRowByLabel(ws, 'Fecha Inicio')
-      const fechaFinRow = findRowByLabel(ws, 'Fecha Fin')
-
-      const fechaInicio = fechaInicioRow ? (fechaInicioRow.getCell(monthCol)?.value as string | null) : null
-      const fechaFin = fechaFinRow ? (fechaFinRow.getCell(monthCol)?.value as string | null) : null
-
-      const periodStart = parseDate(fechaInicio)
-      let periodEnd = parseDate(fechaFin)
-
-      // If we have start but no end, use end of that month
-      if (periodStart && !periodEnd) {
-        periodEnd = getLastDayOfMonth(periodStart)
-      }
-
-      // Skip if no dates
-      if (!periodStart || !periodEnd) continue
-
-      // Extract economics data
-      const potencias: Array<{ periodo: string; kw: number; precioKwDia: number; dias: number; total: number }> = []
-      const consumos: Array<{ periodo: string; kwh: number; precioKwh: number; total: number }> = []
-
-      // Potencia P1..P6
+      // Potencias P1-P6
+      const potencia = []
       for (let p = 1; p <= 6; p++) {
-        const periodo = `P${p}`
-        const kwRow = findRowByLabel(ws, `Potencia ${periodo} (kW)`)
-        const precioRow = findRowByLabel(ws, `Potencia ${periodo} (€/kW día)`)
-        const totalRow = findRowByLabel(ws, `Potencia ${periodo} (€)`)
-
-        const kw = getCellValue(kwRow?.getCell(monthCol)) || 0
-        const precioKwDia = getCellValue(precioRow?.getCell(monthCol)) || 0
-        const dias = daysBetween(periodStart, periodEnd)
-        const total = getCellValue(totalRow?.getCell(monthCol)) || 0
-
-        if (kw > 0 || total > 0) {
-          potencias.push({ periodo, kw, precioKwDia, dias, total })
-        }
+        const pid  = `P${p}`
+        const kw         = cellNum(getRow(rowMap, `Potencia ${pid} kw`), col)
+                        || cellNum(getRow(rowMap, `Potencia ${pid} (kW)`), col)
+        const precioKwDia= cellNum(getRow(rowMap, `Potencia ${pid} eur kw dia`), col)
+                        || cellNum(getRow(rowMap, `Potencia ${pid} (€/kW día)`), col)
+        const total      = cellNum(getRow(rowMap, `Potencia ${pid} eur`), col)
+                        || cellNum(getRow(rowMap, `Potencia ${pid} (€)`), col)
+        if (kw > 0 || total > 0) potencia.push({ periodo: pid, kw, precioKwDia, dias, total })
       }
 
-      // Consumo P1..P6
+      // Consumos P1-P6
+      const consumo = []
       for (let p = 1; p <= 6; p++) {
-        const periodo = `P${p}`
-        const kwhRow = findRowByLabel(ws, `Consumo ${periodo} (kWh)`)
-        const precioRow = findRowByLabel(ws, `Precio ${periodo} (€/kWh)`)
-        const totalRow = findRowByLabel(ws, `Consumo ${periodo} (€)`)
-
-        const kwh = getCellValue(kwhRow?.getCell(monthCol)) || 0
-        const precioKwh = getCellValue(precioRow?.getCell(monthCol)) || 0
-        const total = getCellValue(totalRow?.getCell(monthCol)) || 0
-
-        if (kwh > 0 || total > 0) {
-          consumos.push({ periodo, kwh, precioKwh, total })
-        }
+        const pid    = `P${p}`
+        const kwh    = cellNum(getRow(rowMap, `Consumo ${pid} kwh`), col)
+                    || cellNum(getRow(rowMap, `Consumo ${pid} (kWh)`), col)
+        const precio = cellNum(getRow(rowMap, `Precio ${pid} eur kwh`), col)
+                    || cellNum(getRow(rowMap, `Precio ${pid} (€/kWh)`), col)
+        const total  = kwh > 0 && precio > 0 ? Math.round(kwh * precio * 100) / 100 : 0
+        if (kwh > 0) consumo.push({ periodo: pid, kwh, precioKwh: precio, total })
       }
 
-      // Get totals
-      const consumoTotalRow = findRowByLabel(ws, 'TOTAL CONSUMO (kWh)')
-      const costeTotalConsumoRow = findRowByLabel(ws, 'TOTAL COSTE CONSUMO (€)')
-      const costeTotalPotenciaRow = findRowByLabel(ws, 'TOTAL COSTE POTENCIA (€)')
-      const totalFacturaRow = findRowByLabel(ws, 'TOTAL FACTURA (€)')
+      // Totals
+      const consumoTotalKwh    = cellNum(getRow(rowMap, 'TOTAL CONSUMO (kWh)'), col)
+                              || cellNum(getRow(rowMap, 'total consumo kwh'), col)
+                              || consumo.reduce((s, c) => s + c.kwh, 0)
+      const costeTotalConsumo  = cellNum(getRow(rowMap, 'TOTAL COSTE CONSUMO (€)'), col)
+                              || cellNum(getRow(rowMap, 'total coste consumo eur'), col)
+                              || consumo.reduce((s, c) => s + c.total, 0)
+      const costeTotalPotencia = cellNum(getRow(rowMap, 'TOTAL COSTE POTENCIA (€)'), col)
+                              || cellNum(getRow(rowMap, 'total coste potencia eur'), col)
+                              || potencia.reduce((s, p) => s + p.total, 0)
+      const totalFactura       = cellNum(getRow(rowMap, 'TOTAL FACTURA (€)'), col)
+                              || cellNum(getRow(rowMap, 'total factura eur'), col)
 
-      const consumoTotalKwh = getCellValue(consumoTotalRow?.getCell(monthCol)) || 0
-      const costeTotalConsumo = getCellValue(costeTotalConsumoRow?.getCell(monthCol)) || 0
-      const costeTotalPotencia = getCellValue(costeTotalPotenciaRow?.getCell(monthCol)) || 0
-      const totalFactura = getCellValue(totalFacturaRow?.getCell(monthCol)) || 0
+      // Skip month if all zeros
+      if (consumoTotalKwh === 0 && costeTotalConsumo === 0 && costeTotalPotencia === 0 && totalFactura === 0) continue
 
-      // Build billing period string
-      const billingPeriod = fechaInicio && typeof fechaInicio === 'string' && fechaInicio.match(/^[a-zA-Z]+\s+\d{4}$/i)
-        ? fechaInicio.toLowerCase()
-        : (() => {
-            try {
-              const d = new Date(periodStart)
-              return d.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }).toLowerCase()
-            } catch {
-              return periodStart
-            }
-          })()
-
-      // Skip if all zeros
-      if (consumoTotalKwh === 0 && costeTotalConsumo === 0 && costeTotalPotencia === 0 && totalFactura === 0) {
-        continue
-      }
-
-      const economics = {
-        fechaInicio: periodStart,
-        fechaFin: periodEnd,
-        comercializadora: comercializadora || '',
-        cups: cups || '',
-        tarifa: tariff,
-        potencia: potencias,
-        consumo: consumos,
-        consumoTotalKwh,
-        costeTotalConsumo,
-        costeTotalPotencia,
-        totalFactura,
-      }
+      // Human-readable billing period label
+      const billingPeriod = (() => {
+        try { return new Date(periodStart!).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }).toLowerCase() }
+        catch { return periodStart! }
+      })()
 
       invoices.push({
         period_start: periodStart,
-        period_end: periodEnd,
+        period_end:   periodEnd,
         total_amount: totalFactura || null,
         extracted_data: {
           mode: 'gemini',
           cups,
-          comercializadora: comercializadora || '',
-          tariff: tariff,
+          comercializadora,
+          tariff,
           billing_period: billingPeriod,
-          total_amount: totalFactura ? totalFactura.toString() : '',
-          economics,
+          total_amount: totalFactura ? String(totalFactura) : '',
+          economics: {
+            fechaInicio: periodStart,
+            fechaFin:    periodEnd,
+            comercializadora,
+            cups,
+            tarifa: tariff,
+            potencia,
+            consumo,
+            consumoTotalKwh,
+            costeTotalConsumo,
+            costeTotalPotencia,
+            totalFactura,
+          },
         },
       })
     }
 
-    return NextResponse.json({
-      cups,
-      tariff,
-      comercializadora: comercializadora || '',
-      invoices,
-    })
-  } catch (error: any) {
-    console.error('[parse-excel-invoices] Error:', error)
-    return NextResponse.json(
-      { error: error.message || 'Error parsing Excel' },
-      { status: 500 }
-    )
+    return NextResponse.json({ cups, tariff, comercializadora, invoices })
+
+  } catch (err: any) {
+    console.error('[parse-excel-invoices]', err)
+    return NextResponse.json({ error: err.message || 'Error parsing Excel' }, { status: 500 })
   }
 }

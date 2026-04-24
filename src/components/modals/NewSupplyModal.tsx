@@ -438,7 +438,7 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
               ...prev,
               cups: result.cups || prev.cups,
               tariff: result.tariff || prev.tariff,
-              comercializadora_id: prev.comercializadora_id, // Will be matched after comercializadoras load
+              comercializadora_id: prev.comercializadora_id,
             }))
 
             // Try to match comercializadora
@@ -449,6 +449,29 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
               if (found) {
                 setForm((prev) => ({ ...prev, comercializadora_id: found.value }))
               }
+            }
+
+            // Auto-detect client: look up CUPS in DB → pre-fill client_id if found
+            if (result.cups && result.cups.length >= 18) {
+              try {
+                const supabase = createClient()
+                const { data: existing } = await supabase
+                  .from('supplies')
+                  .select('id, client_id, client:clients(name)')
+                  .eq('cups', result.cups)
+                  .limit(1)
+                  .single()
+                if (existing?.client_id) {
+                  setForm((prev) => ({ ...prev, client_id: existing.client_id }))
+                } else {
+                  // CUPS not in DB yet → suggest auto-detect mode
+                  setForm((prev) => ({ ...prev, client_id: prev.client_id || '__auto__' }))
+                }
+              } catch { /* no match — leave client blank */ }
+
+              // Also trigger SIPS and duplicate check
+              fetchSipsData(result.cups)
+              checkCupsDuplicate(result.cups)
             }
           }
         } catch (err: any) {
@@ -672,8 +695,10 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    // Allow '__auto__' through — we'll resolve the client from CUPS below
     if (!form.client_id) {
-      setError('Selecciona un cliente')
+      setError('Selecciona un cliente o elige "Detectar automáticamente"')
       return
     }
 
@@ -690,6 +715,7 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
       // ── Authoritative duplicate CUPS check (always query DB, regardless of UI state) ──
       let targetSupplyId: string | null = null
       let isExistingSupply = false
+      let resolvedClientId = form.client_id === '__auto__' ? '' : form.client_id
 
       if (normalizedCups) {
         const { data: existingSupplies } = await supabase
@@ -703,8 +729,9 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
             // Merge: attach uploaded invoices to the existing supply
             targetSupplyId = existingSupplies[0].id
             isExistingSupply = true
+            // Auto-resolve client from existing supply
+            if (!resolvedClientId) resolvedClientId = existingSupplies[0].client_id
           } else {
-            // Hard block: CUPS already exists and nothing to merge
             setError('Este CUPS ya está registrado en otro suministro. Abre ese suministro para modificarlo.')
             setSaving(false)
             return
@@ -712,14 +739,34 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
         }
       }
 
+      // If client still not resolved and user chose auto, try name-match against loaded clients
+      if (!resolvedClientId && form.client_id === '__auto__') {
+        const holderName = uploadedFiles.find(f => f.extractedData?.holder_name)?.extractedData?.holder_name || ''
+        if (holderName && clients.length > 0) {
+          const hn = holderName.toLowerCase()
+          const matched = clients.find(c => c.name.toLowerCase().includes(hn) || hn.includes(c.name.toLowerCase()))
+          if (matched) resolvedClientId = matched.id
+        }
+        if (!resolvedClientId) {
+          setError('No se pudo detectar el cliente automáticamente. Por favor, selecciónalo manualmente.')
+          setSaving(false)
+          return
+        }
+      }
+
       // ── Create new supply only if CUPS is not a duplicate ──
       if (!isExistingSupply) {
+        if (!resolvedClientId) {
+          setError('Selecciona un cliente')
+          setSaving(false)
+          return
+        }
         const initialStatus = hasExtractedData ? 'estudio_en_curso' : 'primer_contacto'
 
         const { data: supplyData, error: supplyError } = await supabase
           .from('supplies')
           .insert({
-            client_id: form.client_id,
+            client_id: resolvedClientId,
             cups: normalizedCups,
             type: form.type,
             tariff: form.tariff,
@@ -1037,14 +1084,33 @@ export function NewSupplyModal({ open, onClose, onCreated, preselectedClientId }
                 // Step 2: Review & Create
                 <form onSubmit={handleSubmit} className="space-y-4">
                   {!preselectedClientId && (
-                    <SearchableClientSelector
-                      label="Cliente *"
-                      required
-                      value={form.client_id}
-                      onChange={(clientId) => setForm((p) => ({ ...p, client_id: clientId }))}
-                      clients={clients}
-                      placeholder="Buscar cliente..."
-                    />
+                    <div className="space-y-1.5">
+                      <SearchableClientSelector
+                        label="Cliente *"
+                        required
+                        value={form.client_id === '__auto__' ? '' : form.client_id}
+                        onChange={(clientId) => setForm((p) => ({ ...p, client_id: clientId }))}
+                        clients={clients}
+                        placeholder="Buscar cliente..."
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setForm((p) => ({ ...p, client_id: '__auto__' }))}
+                        className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-lg transition-all ${
+                          form.client_id === '__auto__'
+                            ? 'bg-brand/10 text-brand font-semibold border border-brand/30'
+                            : 'text-ink-3 hover:text-brand hover:bg-brand/5'
+                        }`}
+                      >
+                        <Check className={`w-3 h-3 ${form.client_id === '__auto__' ? 'opacity-100' : 'opacity-0'}`} />
+                        Detectar automáticamente por CUPS
+                      </button>
+                      {form.client_id === '__auto__' && (
+                        <p className="text-xs text-ink-3 pl-1">
+                          Se asignará al cliente del suministro existente con ese CUPS, o deberás seleccionarlo manualmente si es nuevo.
+                        </p>
+                      )}
+                    </div>
                   )}
 
                   <Input
