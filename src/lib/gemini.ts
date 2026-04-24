@@ -451,20 +451,37 @@ LUZ-2. **POTENCIA — kW contratados por periodo y precioKwDia:**
    "Término Potencia Tarifa Acceso" + "Término Cargos Potencia Acceso", súmalos en
    potencia[] con el total combinado. En rawLineItems emite ambas líneas por separado.
 
-   ⚠️ FORMATO ANUAL DE POTENCIA (MUY COMÚN en 3.0TD/6.1TD con facturas anuales o semestrales):
-   Algunas comercializadoras expresan la potencia como:
-     "P1  260,00 kW × 0,078882 €/kW × (30/365) días = 169,44 €"
-   En este formato:
-     - kw = 260.00  (los kW contratados)
-     - precioKwDia = 0.078882  (el valor €/kW directamente — NO lo dividas por 365)
-     - dias = 30  (el numerador del paréntesis, NO 365)
-     - total = 169.44
-   El campo precioKwDia siempre es el precio unitario €/kW que aparece explícitamente.
-   Fórmula de verificación: total ≈ kw × precioKwDia × dias  (con dias = el numerador)
+   ⚠️ PRECIO DE POTENCIA: el campo precioKwDia SIEMPRE debe expresarse en €/kW·DÍA.
+   Hay tres formatos posibles — detéctalos por el valor numérico y la unidad:
+
+   FORMATO A — Precio diario explícito (más común, valor pequeño < 1):
+     "P1  260 kW × 0,078882 €/kW·día × 30 días = 615,28 €"
+     "P1  260 kW × 0,078882 €/kW × (30/365) días = 615,28 €"
+     → precioKwDia = 0.078882  (ya es diario — úsalo directamente)
+     → dias = 30
+     → verificación: 260 × 0.078882 × 30 = 615.28 ✓
+     Nota: en la notación (30/365) el precio sigue siendo diario; días = el numerador (30).
+
+   FORMATO B — Precio anual explícito (valor grande > 5, unidad €/kW·año o €/kW/año):
+     "P1  260 kW × 28,79 €/kW·año × (30/365) = 614,96 €"
+     "P1  260 kW × 28,79 €/kW/año × 30 días"
+     → precioKwDia = 28.79 / 365 = 0.078877  (DIVIDE por 365 para convertir a diario)
+     → dias = 30
+     → verificación: 260 × (28.79/365) × 30 = 614.96 ✓
+
+   FORMATO C — Sin precio unitario, solo total:
+     → precioKwDia = total / (kw × dias)
+
+   REGLA DE ORO para distinguir A de B:
+     - Si el precio tiene unidad €/kW·día o €/kW·dia → formato A (diario, no dividas)
+     - Si el precio tiene unidad €/kW·año, €/kW/año, €/kW·year → formato B (anual, divide /365)
+     - Si no hay unidad pero el valor es < 2 → probablemente diario (formato A)
+     - Si no hay unidad pero el valor es > 5 → probablemente anual (formato B, divide /365)
+     - SIEMPRE verifica: total ≈ kw × precioKwDia × dias (donde precioKwDia ya es diario)
 
    CASO peajes + cargos separados:
      Si potencia viene en dos líneas (peaje + cargo) con el mismo periodo, suma ambos totales
-     en potencia[] (precioKwDia = suma de ambos precioUnitario, total = suma de ambos totales).
+     en potencia[] (precioKwDia = suma de ambos precioUnitario_diario, total = suma de totales).
      En rawLineItems emite las dos líneas por separado.
 
 LUZ-3. **AGRUPACIÓN ESTRICTA Y NOMBRES CANÓNICOS (OBLIGATORIO):**
@@ -1605,10 +1622,12 @@ Aunque la imagen sea borrosa, DEBES extraer todos los valores numéricos de las 
    { periodo:"P1", kw: X, precioKwDia: Y, dias: Z, importe: W }
    - Busca: "Potencia contratada", "Término de potencia", "kW contratados", "€/kW·día"
    - En 3.0TD los 6 períodos suelen tener la misma potencia (ej: 69 kW cada uno).
-   - ⚠️ FORMATO "(días/365)": Si ves "260 kW × 0,078882 €/kW × (30/365) días":
-       kw=260, precioKwDia=0.078882, dias=30 (el numerador, NO 365), importe=kw×precioKwDia×dias
-   - precioKwDia es SIEMPRE el valor €/kW explícito de la factura. Si peaje+cargo separados,
-     súmalos en potencia[] pero emíte cada uno en rawLineItems por separado.
+   - precioKwDia es SIEMPRE en €/kW·DÍA. Tres formatos posibles:
+       · Diario (valor < 2, unidad €/kW·día): úsalo directamente. importe = kw × precio × dias
+       · Anual  (valor > 5, unidad €/kW·año): divide entre 365. precioKwDia = precio_anual/365
+       · Notación (días/365): "260kW × 0,078882€/kW × (30/365)días" → precio diario, dias=30
+     Verifica siempre: importe ≈ kw × precioKwDia × dias
+   - Si peaje+cargo separados, suma en potencia[] pero emíte cada uno en rawLineItems.
 
 3c. otrosConceptos[] — TODOS los conceptos adicionales:
    - Impuesto eléctrico (7%), alquiler equipo, financiación, descuentos, etc.

@@ -182,8 +182,10 @@ function extractAvgPowerPricesFromAllInvoices(
         if (!item) continue
         const kw = Number(item.kw) || 0
         const dias = Number(item.dias) || 0
-        const total = Number(item.total) || 0
-        const precio = Number(item.precioKwDia) || Number(item.precioKw) || 0
+        const total = Number(item.total) || Number(item.importe) || 0
+        // Normalize price to €/kW·día: if stored price > 2 it was likely saved as annual
+        const rawPrecio = Number(item.precioKwDia) || Number(item.precioKw) || 0
+        const precio = rawPrecio > 2 ? rawPrecio / 365 : rawPrecio
 
         if (kw > 0 && dias > 0) {
           const costForPeriod = total > 0 ? total : (precio > 0 ? kw * dias * precio : 0)
