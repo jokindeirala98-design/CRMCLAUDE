@@ -1,8 +1,8 @@
 /**
  * POST /api/comparativa-2td
  *
- * Generates an .xlsx comparison file for a 2.0TD supply vs. a Voltis tariff.
- * Returns the file as an attachment for browser download.
+ * Generates .xlsx in the EXACT template format (A1:R33 layout, merged cells,
+ * Excel formulas in specific cells) matching the TIENDA client template.
  *
  * Body (JSON):
  * {
@@ -14,7 +14,7 @@
  *   consumoP3:          number   // kWh valle
  *   potenciaP1:         number   // kW contracted punta
  *   potenciaP2:         number   // kW contracted valle
- *   currentEnergyPrice: number   // current avg €/kWh
+ *   currentEnergyPrice: number   // current avg €/kWh (flat, all periods)
  *   currentPowerP1:     number   // current €/kW·día period 1
  *   currentPowerP2:     number   // current €/kW·día period 2
  * }
@@ -22,10 +22,14 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import ExcelJS from 'exceljs'
-import { VOLTIS_TARIFFS_2TD, compute2TDSavings, IVA, type VoltisKey2TD } from '@/lib/voltis-tariffs-2td'
+import { VOLTIS_TARIFFS_2TD, compute2TDSavings, type VoltisKey2TD } from '@/lib/voltis-tariffs-2td'
+
+// ─── Column index constants (1-based) ────────────────────────────────────────
+const A = 1, B = 2, C = 3, D = 4, E = 5, F = 6, G = 7, H = 8, I = 9,
+      J = 10, K = 11, L = 12, M = 13, N = 14, O = 15, P = 16, Q = 17, R = 18
 
 // ─── Brand colors (ARGB, no #) ───────────────────────────────────────────────
-const C = {
+const CLR = {
   ink:        'FF2D3A33',
   ink3:       'FF5A6B5F',
   ink4:       'FF8A9A8E',
@@ -36,81 +40,80 @@ const C = {
   salvia:     'FF6B8068',
   salviaDark: 'FF5A6E58',
   salviaSoft: 'FFE0E8DC',
-  durazno:    'FFE8B89A',
-  duraznoSoft:'FFF5DCC9',
   volt:       'FFC7F24A',
+  voltDark:   'FF8BAA30',
   white:      'FFFFFFFF',
-  green:      'FF4A7C59',
+  green:      'FF2D6A4F',
+  greenSoft:  'FFD8F3DC',
   red:        'FFC0392B',
   redSoft:    'FFFCE8E6',
-  greenSoft:  'FFE8F5E9',
 }
 
-function cell(ws: ExcelJS.Worksheet, row: number, col: number): ExcelJS.Cell {
-  return ws.getCell(row, col)
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+type Opts = {
+  bold?: boolean; italic?: boolean; size?: number; color?: string
+  bg?: string; align?: ExcelJS.Alignment['horizontal']
+  border?: boolean; wrap?: boolean; numFmt?: string
 }
 
-function setCell(
-  ws: ExcelJS.Worksheet,
-  row: number,
-  col: number,
-  value: ExcelJS.CellValue,
-  opts: {
-    bold?: boolean; italic?: boolean; size?: number; color?: string
-    bg?: string; align?: ExcelJS.Alignment['horizontal']
-    border?: boolean; borderColor?: string; wrap?: boolean; numFmt?: string
-  } = {},
-) {
-  const c = cell(ws, row, col)
+function sc(ws: ExcelJS.Worksheet, row: number, col: number, value: ExcelJS.CellValue, opts: Opts = {}) {
+  const c = ws.getCell(row, col)
   c.value = value
   c.font = {
-    name: 'Arial', size: opts.size || 11, bold: opts.bold,
-    italic: opts.italic, color: opts.color ? { argb: opts.color } : { argb: C.ink },
+    name: 'Arial', bold: !!opts.bold, italic: !!opts.italic,
+    size: opts.size ?? 11,
+    color: { argb: opts.color ?? CLR.ink },
   }
   if (opts.bg) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: opts.bg } }
-  if (opts.align) c.alignment = { horizontal: opts.align, vertical: 'middle', wrapText: opts.wrap }
-  else c.alignment = { vertical: 'middle', wrapText: opts.wrap }
+  c.alignment = { horizontal: opts.align ?? 'left', vertical: 'middle', wrapText: !!opts.wrap }
   if (opts.border) {
-    const bc = { style: 'thin' as ExcelJS.BorderStyle, color: { argb: opts.borderColor || C.line2 } }
-    c.border = { top: bc, bottom: bc, left: bc, right: bc }
+    const b = { style: 'thin' as ExcelJS.BorderStyle, color: { argb: CLR.line2 } }
+    c.border = { top: b, bottom: b, left: b, right: b }
   }
   if (opts.numFmt) c.numFmt = opts.numFmt
   return c
 }
 
-function mergeSet(
-  ws: ExcelJS.Worksheet,
-  r1: number, c1: number, r2: number, c2: number,
-  value: ExcelJS.CellValue,
-  opts: Parameters<typeof setCell>[4] = {},
-) {
+function mc(ws: ExcelJS.Worksheet, r1: number, c1: number, r2: number, c2: number,
+            value: ExcelJS.CellValue, opts: Opts = {}) {
   ws.mergeCells(r1, c1, r2, c2)
-  setCell(ws, r1, c1, value, opts)
+  sc(ws, r1, c1, value, opts)
 }
 
-function euro(n: number): string {
-  return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
+/** Formula cell — formula string WITHOUT leading '=' */
+function fc(ws: ExcelJS.Worksheet, row: number, col: number,
+            formula: string, result: number, opts: Opts = {}) {
+  const c = ws.getCell(row, col)
+  c.value = { formula, result } as ExcelJS.CellFormulaValue
+  c.font = {
+    name: 'Arial', bold: !!opts.bold, italic: !!opts.italic,
+    size: opts.size ?? 11,
+    color: { argb: opts.color ?? CLR.ink },
+  }
+  if (opts.bg) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: opts.bg } }
+  c.alignment = { horizontal: opts.align ?? 'center', vertical: 'middle' }
+  if (opts.border) {
+    const b = { style: 'thin' as ExcelJS.BorderStyle, color: { argb: CLR.line2 } }
+    c.border = { top: b, bottom: b, left: b, right: b }
+  }
+  if (opts.numFmt) c.numFmt = opts.numFmt
+  return c
 }
 
-function pct(n: number): string {
-  return n.toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' %'
-}
+// ─── Route handler ────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
     const {
-      titular,
-      cups,
+      titular = 'Cliente',
+      cups = '',
       tariffKey,
-      consumoP1,
-      consumoP2,
-      consumoP3,
-      potenciaP1,
-      potenciaP2,
-      currentEnergyPrice,
-      currentPowerP1,
-      currentPowerP2,
+      consumoP1 = 0, consumoP2 = 0, consumoP3 = 0,
+      potenciaP1 = 0, potenciaP2 = 0,
+      currentEnergyPrice = 0,
+      currentPowerP1 = 0, currentPowerP2 = 0,
     } = body as {
       titular: string; cups: string; tariffKey: VoltisKey2TD
       consumoP1: number; consumoP2: number; consumoP3: number
@@ -122,263 +125,289 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid tariffKey' }, { status: 400 })
     }
 
-    const tariff = VOLTIS_TARIFFS_2TD[tariffKey]
-    const consumo  = { P1: consumoP1, P2: consumoP2, P3: consumoP3 }
+    const tariff  = VOLTIS_TARIFFS_2TD[tariffKey]
+    const consumo = { P1: consumoP1, P2: consumoP2, P3: consumoP3 }
     const potencia = { P1: potenciaP1, P2: potenciaP2 }
+    const totalKwh = consumoP1 + consumoP2 + consumoP3
 
-    const result = compute2TDSavings(
-      consumo, potencia,
-      currentEnergyPrice, currentPowerP1, currentPowerP2,
-      tariffKey,
-    )
+    compute2TDSavings(consumo, potencia, currentEnergyPrice, currentPowerP1, currentPowerP2, tariffKey)
 
-    // ── Build workbook ────────────────────────────────────────────────────────
+    // ── Pre-compute formula result values ──────────────────────────────────────
+    // POTENCIA section
+    const H7  = potenciaP1 * currentPowerP1 * 365
+    const I7  = potenciaP2 * currentPowerP2 * 365
+    const K7  = (H7 + I7) * 1.21
+    const H14 = potenciaP1 * tariff.power.P1 * 365
+    const I14 = potenciaP2 * tariff.power.P2 * 365
+    const K14 = (H14 + I14) * 1.21
+    const N10 = K7 - K14
+    const M10 = N10 / 12
+
+    // ENERGIA section
+    const J27 = consumoP1 * currentEnergyPrice
+    const K27 = consumoP2 * currentEnergyPrice
+    const L27 = consumoP3 * currentEnergyPrice
+    const N26 = (J27 + K27 + L27) * 1.21
+    const J33 = consumoP1 * tariff.energy.P1
+    const K33 = consumoP2 * tariff.energy.P2
+    const L33 = consumoP3 * tariff.energy.P3
+    const N33 = (J33 + K33 + L33) * 1.21
+    const Q30 = N26 - N33
+    const P30 = Q30 / 12
+
+    // TOTAL AHORRO
+    const Q16 = M10 + P30
+    const R16 = N10 + Q30
+
+    const powColor  = N10 >= 0 ? CLR.green    : CLR.red
+    const powBg     = N10 >= 0 ? CLR.greenSoft : CLR.redSoft
+    const eneColor  = Q30 >= 0 ? CLR.green    : CLR.red
+    const eneBg     = Q30 >= 0 ? CLR.greenSoft : CLR.redSoft
+    const totColor  = R16 >= 0 ? CLR.voltDark : CLR.red
+
+    // ── Workbook ───────────────────────────────────────────────────────────────
     const wb = new ExcelJS.Workbook()
     wb.creator = 'Voltis CRM'
     wb.created = new Date()
 
     const ws = wb.addWorksheet('Comparativa 2.0TD', {
-      pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
-      properties: { tabColor: { argb: C.salvia } },
+      pageSetup: { paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+      properties: { tabColor: { argb: CLR.salvia } },
     })
 
-    // Column widths
-    ws.getColumn(1).width = 3    // gutter
-    ws.getColumn(2).width = 22   // label
-    ws.getColumn(3).width = 14   // P1 / actual
-    ws.getColumn(4).width = 14   // P2 / nuevo
-    ws.getColumn(5).width = 14   // P3 / diff
-    ws.getColumn(6).width = 16   // total / summary
-    ws.getColumn(7).width = 3    // right gutter
+    // ── Column widths (from template) ─────────────────────────────────────────
+    ws.getColumn(A).width = 10
+    ws.getColumn(B).width = 12
+    ws.getColumn(C).width = 15      // template: 15
+    ws.getColumn(D).width = 13      // template: 13
+    ws.getColumn(E).width = 12
+    ws.getColumn(F).width = 13.16   // template: 13.16
+    ws.getColumn(G).width = 12
+    ws.getColumn(H).width = 12
+    ws.getColumn(I).width = 12.5    // template: 12.5
+    ws.getColumn(J).width = 12
+    ws.getColumn(K).width = 12
+    ws.getColumn(L).width = 12
+    ws.getColumn(M).width = 14.5    // template: 14.5
+    ws.getColumn(N).width = 14.33   // template: 14.33
+    ws.getColumn(O).width = 12.33   // template: 12.33
+    ws.getColumn(P).width = 14.5    // template: 14.5
+    ws.getColumn(Q).width = 17.5    // template: 17.5
+    ws.getColumn(R).width = 16.33   // template: 16.33
 
-    // ── Header ────────────────────────────────────────────────────────────────
-    ws.getRow(1).height = 8
-    ws.mergeCells('B2:F2')
-    setCell(ws, 2, 2, 'COMPARATIVA TARIFAS 2.0TD — VOLTIS', {
-      bold: true, size: 14, color: C.white, bg: C.salviaDark,
-      align: 'center', border: false,
+    // ══════════════════════════════════════════════════════════════════════════
+    // CLIENT HEADER — columns Q-R rows 1-2 (empty in template, safe to use)
+    // ══════════════════════════════════════════════════════════════════════════
+    sc(ws, 1, Q, titular.toUpperCase(), { bold: true, size: 11, color: CLR.white, bg: CLR.salviaDark, align: 'center' })
+    sc(ws, 2, Q, cups, { size: 9, color: CLR.ink4, italic: true, align: 'center', bg: CLR.crema })
+    sc(ws, 1, R, tariff.name.toUpperCase(), { bold: true, size: 10, color: CLR.salviaDark, bg: CLR.salviaSoft, align: 'center' })
+    sc(ws, 2, R, 'TARIFA VOLTIS', { bold: true, size: 9, color: CLR.ink3, bg: CLR.salviaSoft, align: 'center' })
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // POTENCIAS SECTION (rows 1–16)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // A1:D3 — Section title
+    mc(ws, 1, A, 3, D, 'CALCULADORA DIFERENCIA POTENCIAS 2.0TD', {
+      bold: true, size: 12, color: CLR.white, bg: CLR.salviaDark, align: 'center', wrap: true,
     })
-    ws.getRow(2).height = 32
 
-    ws.mergeCells('B3:F3')
-    setCell(ws, 3, 2, titular.toUpperCase(), {
-      bold: true, size: 11, color: C.white, bg: C.salvia,
-      align: 'center',
+    // Row 3: other charges labels
+    sc(ws, 3, Q, 'OTROS CARGOS:', { bold: true, size: 10, color: CLR.ink3, align: 'right' })
+    sc(ws, 3, R, 'ALQUILER DE EQUIPOS', { bold: true, size: 10, color: CLR.ink, align: 'center', bg: CLR.crema, border: true })
+
+    // Row 4: column section headers
+    sc(ws, 4, H, 'ANUALMENTE',    { bold: true, size: 10, color: CLR.ink3, align: 'center' })
+    sc(ws, 4, K, 'IVA INCL.',     { bold: true, size: 10, color: CLR.ink3, align: 'center' })
+    sc(ws, 4, R, 'IMP. ELÉCTRICO',{ bold: true, size: 10, color: CLR.ink3, align: 'center' })
+
+    // Row 5: ACTUAL label
+    sc(ws, 5, A, 'ACTUAL', { bold: true, size: 12, color: CLR.white, bg: CLR.ink3, align: 'center' })
+
+    // Row 6: period column headers
+    ;[B, C, E, F, H, I].forEach(col => {
+      const label = [B, E, H].includes(col) ? 'p1' : 'p3'
+      sc(ws, 6, col, label, { bold: true, size: 14, color: CLR.ink, align: 'center' })
     })
-    ws.getRow(3).height = 22
+    sc(ws, 6, K, 'TOTAL:', { bold: true, size: 14, color: CLR.salviaDark, align: 'center' })
 
-    ws.mergeCells('B4:F4')
-    setCell(ws, 4, 2, cups, {
-      size: 9, color: C.ink3, bg: C.crema, align: 'center', italic: true,
+    // Row 7: ACTUAL — kW | current price | annual (formula) | total IVA (formula)
+    sc(ws, 7, B, potenciaP1,    { bold: true, size: 12, color: CLR.ink, align: 'center', numFmt: '#,##0.000' })
+    sc(ws, 7, C, potenciaP2,    { bold: true, size: 12, color: CLR.ink, align: 'center', numFmt: '#,##0.000' })
+    sc(ws, 7, E, currentPowerP1,{ bold: true, size: 12, color: CLR.ink, align: 'center', numFmt: '#,##0.000000' })
+    sc(ws, 7, F, currentPowerP2,{ bold: true, size: 12, color: CLR.ink, align: 'center', numFmt: '#,##0.000000' })
+    fc(ws, 7, H, 'B7*E7*J15',     H7,  { bold: true, size: 12, color: CLR.ink, numFmt: '#,##0.00' })
+    fc(ws, 7, I, 'C7*F7*J15',     I7,  { bold: true, size: 12, color: CLR.ink, numFmt: '#,##0.00' })
+    fc(ws, 7, K, '(H7+I7)*1.21',  K7,  { bold: true, size: 12, color: CLR.ink, numFmt: '#,##0.00', bg: CLR.crema, border: true })
+
+    // M7:N7 — "POR POTENCIA:" header (merged)
+    mc(ws, 7, M, 7, N, 'POR POTENCIA:', { bold: true, size: 12, color: CLR.salviaDark, align: 'center', bg: CLR.salviaSoft })
+
+    // Row 8: MENSUAL / ANUAL sub-headers
+    sc(ws, 8, M, 'MENSUAL', { bold: true, size: 11, color: CLR.ink3, align: 'center' })
+    sc(ws, 8, N, 'ANUAL',   { bold: true, size: 11, color: CLR.ink3, align: 'center' })
+
+    // Row 9: DIFERENCIA labels
+    sc(ws, 9, M, 'DIFERENCIA', { bold: true, size: 14, color: CLR.salviaDark, align: 'center' })
+    sc(ws, 9, N, 'DIFERENCIA', { bold: true, size: 14, color: CLR.salviaDark, align: 'center' })
+
+    // Row 10: Power savings (formulas)
+    fc(ws, 10, M, 'N10/12',   M10, { bold: true, size: 12, color: powColor, numFmt: '#,##0.00 €', bg: powBg, border: true })
+    fc(ws, 10, N, 'K7-K14',   N10, { bold: true, size: 12, color: powColor, numFmt: '#,##0.00 €', bg: powBg, border: true })
+
+    // Row 11: NUEVO section headers
+    sc(ws, 11, H, 'ANUALMENTE', { bold: true, size: 10, color: CLR.ink3, align: 'center' })
+    sc(ws, 11, K, 'IVA INCL.',  { bold: true, size: 10, color: CLR.ink3, align: 'center' })
+
+    // Row 12: NUEVO label
+    sc(ws, 12, A, 'NUEVO', { bold: true, size: 12, color: CLR.white, bg: CLR.salvia, align: 'center' })
+
+    // Row 13: period column headers (same as row 6)
+    ;[B, C, E, F, H, I].forEach(col => {
+      const label = [B, E, H].includes(col) ? 'p1' : 'p3'
+      sc(ws, 13, col, label, { bold: true, size: 14, color: CLR.salviaDark, align: 'center' })
     })
-    ws.getRow(4).height = 18
+    sc(ws, 13, K, 'TOTAL:', { bold: true, size: 14, color: CLR.salviaDark, align: 'center' })
 
-    ws.getRow(5).height = 6
+    // Row 14: NUEVO — kW | Voltis price | annual (formula) | total IVA (formula)
+    sc(ws, 14, B, potenciaP1,        { bold: true, size: 12, color: CLR.salviaDark, align: 'center', numFmt: '#,##0.000' })
+    sc(ws, 14, C, potenciaP2,        { bold: true, size: 12, color: CLR.salviaDark, align: 'center', numFmt: '#,##0.000' })
+    sc(ws, 14, E, tariff.power.P1,   { bold: true, size: 12, color: CLR.salviaDark, align: 'center', numFmt: '#,##0.000000', bg: CLR.salviaSoft })
+    sc(ws, 14, F, tariff.power.P2,   { bold: true, size: 12, color: CLR.salviaDark, align: 'center', numFmt: '#,##0.000000', bg: CLR.salviaSoft })
+    fc(ws, 14, H, 'B14*E14*J15',    H14, { bold: true, size: 12, color: CLR.salviaDark, numFmt: '#,##0.00' })
+    fc(ws, 14, I, 'C14*F14*J15',    I14, { bold: true, size: 12, color: CLR.salviaDark, numFmt: '#,##0.00' })
+    fc(ws, 14, K, '(H14+I14)*1.21', K14, { bold: true, size: 12, color: CLR.salviaDark, numFmt: '#,##0.00', bg: CLR.salviaSoft, border: true })
 
-    // Tariff badge
-    ws.mergeCells('B6:F6')
-    setCell(ws, 6, 2, `NUEVA TARIFA: ${tariff.name.toUpperCase()}`, {
-      bold: true, size: 12, color: C.salviaDark, bg: C.salviaSoft, align: 'center',
+    // Q14:R14 — "TOTAL AHORRO ESTIMADO:" (merged)
+    mc(ws, 14, Q, 14, R, 'TOTAL AHORRO ESTIMADO:', { bold: true, size: 14, color: CLR.white, bg: CLR.salviaDark, align: 'center' })
+
+    // Row 15: J15 = 365 days (used in power formulas) + MENSUAL/ANUAL labels
+    sc(ws, 15, J, 365, { size: 11, color: CLR.ink4, align: 'center', numFmt: '#,##0' })
+    sc(ws, 15, Q, 'MENSUAL', { bold: true, size: 12, color: CLR.ink, align: 'center', bg: CLR.crema })
+    sc(ws, 15, R, 'ANUAL',   { bold: true, size: 12, color: CLR.ink, align: 'center', bg: CLR.crema })
+
+    // Row 16: Total savings (formulas referencing both sections)
+    fc(ws, 16, Q, 'M10+P30', Q16, { bold: true, size: 16, color: totColor, numFmt: '#,##0.00 €', bg: CLR.volt, border: true })
+    fc(ws, 16, R, 'N10+Q30', R16, { bold: true, size: 16, color: totColor, numFmt: '#,##0.00 €', bg: CLR.volt, border: true })
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENERGIA SECTION (rows 18–33)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // A18:D20 — Section title (merged, 3 rows)
+    mc(ws, 18, A, 20, D, 'CALCULADORA DIFERENCIA ENERGIA 2.0TD', {
+      bold: true, size: 12, color: CLR.white, bg: CLR.salviaDark, align: 'center', wrap: true,
     })
-    ws.getRow(6).height = 26
 
-    ws.getRow(7).height = 10
+    // Row 22: B22:C22 — "CONSUMO ANUAL KWH" header
+    mc(ws, 22, B, 22, C, 'CONSUMO ANUAL KWH', { bold: true, size: 12, color: CLR.white, bg: CLR.salvia, align: 'center' })
 
-    // ── Section: Potencia ─────────────────────────────────────────────────────
-    ws.mergeCells('B8:F8')
-    setCell(ws, 8, 2, 'TÉRMINO DE POTENCIA', {
-      bold: true, size: 11, color: C.white, bg: C.ink3, align: 'center',
-    })
-    ws.getRow(8).height = 20
+    // Row 23: B23:C23 — total kWh value
+    mc(ws, 23, B, 23, C, totalKwh, { bold: true, size: 12, color: CLR.ink, align: 'center', numFmt: '#,##0', bg: CLR.crema, border: true })
+    sc(ws, 23, N, 'IVA INCL.', { size: 10, color: CLR.ink3, align: 'center' })
 
-    // Sub-header
-    const potHdr = ['', 'CONCEPTO', 'PUNTA (P1)', 'VALLE (P2)', 'ANUAL IVA INCL.']
-    potHdr.forEach((v, i) => {
-      if (i === 0) return
-      setCell(ws, 9, i + 1, v, {
-        bold: true, size: 9, color: C.ink3, bg: C.line, align: 'center', border: true,
-      })
-    })
-    ws.getRow(9).height = 16
+    // Row 24: section header labels
+    sc(ws, 24, J, 'ESTA FACTURA:', { bold: true, size: 10, color: CLR.ink3, align: 'center' })
 
-    // Potencia contratada
-    setCell(ws, 10, 2, 'Potencia contratada (kW)', { size: 10, color: C.ink })
-    setCell(ws, 10, 3, potencia.P1, { size: 10, color: C.ink, align: 'center', numFmt: '#,##0.00' })
-    setCell(ws, 10, 4, potencia.P2, { size: 10, color: C.ink, align: 'center', numFmt: '#,##0.00' })
-    ws.getRow(10).height = 16
+    // Row 25: sub-labels
+    sc(ws, 25, A, 'CONSUMO',       { bold: true, size: 12, color: CLR.ink,  align: 'center' })
+    sc(ws, 25, F, 'Precio actual:', { size: 12,   color: CLR.ink3, align: 'center' })
+    sc(ws, 25, N, 'TOTAL:',        { bold: true, size: 14, color: CLR.salviaDark, align: 'center' })
 
-    // Tarifa actual — potencia
-    setCell(ws, 11, 2, 'Precio actual (€/kW·día)', { size: 10, color: C.ink3, italic: true })
-    setCell(ws, 11, 3, currentPowerP1, { size: 10, color: C.ink3, italic: true, align: 'center', numFmt: '#,##0.000000' })
-    setCell(ws, 11, 4, currentPowerP2, { size: 10, color: C.ink3, italic: true, align: 'center', numFmt: '#,##0.000000' })
-    const curPowTotal = result.current.power
-    setCell(ws, 11, 6, curPowTotal, {
-      size: 10, color: C.ink, bg: C.paper, align: 'center', numFmt: '#,##0.00', border: true,
-    })
-    ws.getRow(11).height = 16
+    // Row 26: period headers for "current" costs + N26 total formula
+    sc(ws, 26, J, 'P1', { bold: true, size: 14, color: CLR.ink, align: 'center' })
+    sc(ws, 26, K, 'P2', { bold: true, size: 14, color: CLR.ink, align: 'center' })
+    sc(ws, 26, L, 'P3', { bold: true, size: 14, color: CLR.ink, align: 'center' })
+    fc(ws, 26, N, '(J27+K27+L27)*1.21', N26, { bold: true, size: 12, color: CLR.ink, numFmt: '#,##0.00 €', bg: CLR.crema, border: true })
 
-    // Tarifa Voltis — potencia
-    setCell(ws, 12, 2, `Precio Voltis ${tariff.name} (€/kW·día)`, { size: 10, color: C.salviaDark, bold: true })
-    setCell(ws, 12, 3, tariff.power.P1, { size: 10, color: C.salviaDark, bold: true, align: 'center', numFmt: '#,##0.000000' })
-    setCell(ws, 12, 4, tariff.power.P2, { size: 10, color: C.salviaDark, bold: true, align: 'center', numFmt: '#,##0.000000' })
-    const newPowTotal = result.nuevo.power
-    setCell(ws, 12, 6, newPowTotal, {
-      size: 10, color: C.salviaDark, bg: C.salviaSoft, align: 'center', numFmt: '#,##0.00', border: true, bold: true,
-    })
-    ws.getRow(12).height = 16
+    // Row 27: consumption & price period headers + formula costs + P27:Q27 merged header
+    sc(ws, 27, B, 'P1', { bold: true, size: 14, color: CLR.ink, align: 'center' })
+    sc(ws, 27, C, 'P2', { bold: true, size: 14, color: CLR.ink, align: 'center' })
+    sc(ws, 27, D, 'P3', { bold: true, size: 14, color: CLR.ink, align: 'center' })
+    sc(ws, 27, F, 'P1', { bold: true, size: 14, color: CLR.ink, align: 'center' })
+    sc(ws, 27, G, 'P2', { bold: true, size: 14, color: CLR.ink, align: 'center' })
+    sc(ws, 27, H, 'P3', { bold: true, size: 14, color: CLR.ink, align: 'center' })
+    fc(ws, 27, J, 'B28*F28', J27, { bold: true, size: 12, color: CLR.ink, numFmt: '#,##0.00' })
+    fc(ws, 27, K, 'C28*G28', K27, { bold: true, size: 12, color: CLR.ink, numFmt: '#,##0.00' })
+    fc(ws, 27, L, 'D28*H28', L27, { bold: true, size: 12, color: CLR.ink, numFmt: '#,##0.00' })
+    mc(ws, 27, P, 27, Q, 'POR ENERGIA:', { bold: true, size: 12, color: CLR.salviaDark, align: 'center', bg: CLR.salviaSoft })
 
-    // Diferencia potencia
-    const powDiffAnnual  = result.savings.power
-    const powDiffColor   = powDiffAnnual >= 0 ? C.green : C.red
-    const powDiffBg      = powDiffAnnual >= 0 ? C.greenSoft : C.redSoft
-    setCell(ws, 13, 2, 'Diferencia potencia (anual)', { size: 10, bold: true, color: powDiffColor })
-    setCell(ws, 13, 6, powDiffAnnual, {
-      size: 11, bold: true, color: powDiffColor, bg: powDiffBg,
-      align: 'center', numFmt: '#,##0.00', border: true,
-    })
-    ws.getRow(13).height = 18
+    // Row 28: kWh values + current energy prices (same flat rate for all 3)
+    sc(ws, 28, B, consumoP1,         { bold: true, size: 11, color: CLR.ink, align: 'center', numFmt: '#,##0' })
+    sc(ws, 28, C, consumoP2,         { bold: true, size: 11, color: CLR.ink, align: 'center', numFmt: '#,##0' })
+    sc(ws, 28, D, consumoP3,         { bold: true, size: 11, color: CLR.ink, align: 'center', numFmt: '#,##0' })
+    sc(ws, 28, F, currentEnergyPrice,{ bold: true, size: 12, color: CLR.ink, align: 'center', numFmt: '#,##0.0000' })
+    sc(ws, 28, G, currentEnergyPrice,{ bold: true, size: 12, color: CLR.ink, align: 'center', numFmt: '#,##0.0000' })
+    sc(ws, 28, H, currentEnergyPrice,{ bold: true, size: 12, color: CLR.ink, align: 'center', numFmt: '#,##0.0000' })
+    sc(ws, 28, P, 'MENSUAL', { bold: true, size: 11, color: CLR.ink3, align: 'center' })
+    sc(ws, 28, Q, 'ANUAL',   { bold: true, size: 11, color: CLR.ink3, align: 'center' })
 
-    ws.getRow(14).height = 8
+    // Row 29: DIFERENCIA labels
+    sc(ws, 29, P, 'DIFERENCIA', { bold: true, size: 14, color: CLR.salviaDark, align: 'center' })
+    sc(ws, 29, Q, 'DIFERENCIA', { bold: true, size: 14, color: CLR.salviaDark, align: 'center' })
 
-    // ── Section: Energía ──────────────────────────────────────────────────────
-    ws.mergeCells('B15:F15')
-    setCell(ws, 15, 2, 'TÉRMINO DE ENERGÍA', {
-      bold: true, size: 11, color: C.white, bg: C.ink3, align: 'center',
-    })
-    ws.getRow(15).height = 20
+    // Row 30: "Precio Nuevo:" + NUEVA FACTURA header + energy savings (formulas)
+    sc(ws, 30, F, 'Precio Nuevo:', { bold: true, size: 12, color: CLR.salviaDark, align: 'center' })
+    sc(ws, 30, J, 'NUEVA FACTURA:', { bold: true, size: 10, color: CLR.salviaDark, align: 'center' })
+    sc(ws, 30, N, 'IVA INCL.', { size: 10, color: CLR.ink3, align: 'center' })
+    fc(ws, 30, P, 'Q30/12',   P30, { bold: true, size: 12, color: eneColor, numFmt: '#,##0.00 €', bg: eneBg, border: true })
+    fc(ws, 30, Q, 'N26-N33',  Q30, { bold: true, size: 12, color: eneColor, numFmt: '#,##0.00 €', bg: eneBg, border: true })
 
-    // Sub-header
-    const eneHdr = ['', 'CONCEPTO', 'PUNTA (P1)', 'LLANO (P2)', 'VALLE (P3)', 'ANUAL IVA INCL.']
-    eneHdr.forEach((v, i) => {
-      if (i === 0) return
-      setCell(ws, 16, i + 1, v, {
-        bold: true, size: 9, color: C.ink3, bg: C.line, align: 'center', border: true,
-      })
-    })
-    ws.getRow(16).height = 16
+    // Row 32: Voltis period price headers
+    sc(ws, 32, F, 'P1', { bold: true, size: 14, color: CLR.salviaDark, align: 'center' })
+    sc(ws, 32, G, 'P2', { bold: true, size: 14, color: CLR.salviaDark, align: 'center' })
+    sc(ws, 32, H, 'P3', { bold: true, size: 14, color: CLR.salviaDark, align: 'center' })
+    sc(ws, 32, J, 'P1', { bold: true, size: 14, color: CLR.salviaDark, align: 'center' })
+    sc(ws, 32, K, 'P2', { bold: true, size: 14, color: CLR.salviaDark, align: 'center' })
+    sc(ws, 32, L, 'P3', { bold: true, size: 14, color: CLR.salviaDark, align: 'center' })
+    sc(ws, 32, N, 'TOTAL:', { bold: true, size: 14, color: CLR.salviaDark, align: 'center' })
 
-    // Consumo SIPS
-    setCell(ws, 17, 2, 'Consumo anual SIPS (kWh)', { size: 10, color: C.ink })
-    setCell(ws, 17, 3, consumo.P1, { size: 10, color: C.ink, align: 'center', numFmt: '#,##0' })
-    setCell(ws, 17, 4, consumo.P2, { size: 10, color: C.ink, align: 'center', numFmt: '#,##0' })
-    setCell(ws, 17, 5, consumo.P3, { size: 10, color: C.ink, align: 'center', numFmt: '#,##0' })
-    setCell(ws, 17, 6, consumo.P1 + consumo.P2 + consumo.P3, {
-      size: 10, color: C.ink, bg: C.paper, align: 'center', numFmt: '#,##0', border: true,
-    })
-    ws.getRow(17).height = 16
+    // Row 33: Voltis energy prices + formula costs per period + total IVA
+    sc(ws, 33, F, tariff.energy.P1, { bold: true, size: 12, color: CLR.salviaDark, align: 'center', numFmt: '#,##0.0000', bg: CLR.salviaSoft })
+    sc(ws, 33, G, tariff.energy.P2, { bold: true, size: 12, color: CLR.salviaDark, align: 'center', numFmt: '#,##0.0000', bg: CLR.salviaSoft })
+    sc(ws, 33, H, tariff.energy.P3, { bold: true, size: 12, color: CLR.salviaDark, align: 'center', numFmt: '#,##0.0000', bg: CLR.salviaSoft })
+    fc(ws, 33, J, '$B$28*F33',       J33, { bold: true, size: 12, color: CLR.salviaDark, numFmt: '#,##0.00' })
+    fc(ws, 33, K, '$C$28*G33',       K33, { bold: true, size: 12, color: CLR.salviaDark, numFmt: '#,##0.00' })
+    fc(ws, 33, L, '$D$28*H33',       L33, { bold: true, size: 12, color: CLR.salviaDark, numFmt: '#,##0.00' })
+    fc(ws, 33, N, 'SUM(J33:L33)*1.21', N33, { bold: true, size: 12, color: CLR.salviaDark, numFmt: '#,##0.00 €', bg: CLR.salviaSoft, border: true })
 
-    // Precio actual energía
-    setCell(ws, 18, 2, 'Precio actual (€/kWh) — media facturada', { size: 10, color: C.ink3, italic: true })
-    setCell(ws, 18, 3, currentEnergyPrice, { size: 10, color: C.ink3, italic: true, align: 'center', numFmt: '#,##0.0000' })
-    setCell(ws, 18, 4, currentEnergyPrice, { size: 10, color: C.ink3, italic: true, align: 'center', numFmt: '#,##0.0000' })
-    setCell(ws, 18, 5, currentEnergyPrice, { size: 10, color: C.ink3, italic: true, align: 'center', numFmt: '#,##0.0000' })
-    setCell(ws, 18, 6, result.current.energy, {
-      size: 10, color: C.ink, bg: C.paper, align: 'center', numFmt: '#,##0.00', border: true,
-    })
-    ws.getRow(18).height = 16
-
-    // Precio Voltis energía
-    setCell(ws, 19, 2, `Precio Voltis ${tariff.name} (€/kWh)`, { size: 10, color: C.salviaDark, bold: true })
-    setCell(ws, 19, 3, tariff.energy.P1, { size: 10, color: C.salviaDark, bold: true, align: 'center', numFmt: '#,##0.0000' })
-    setCell(ws, 19, 4, tariff.energy.P2, { size: 10, color: C.salviaDark, bold: true, align: 'center', numFmt: '#,##0.0000' })
-    setCell(ws, 19, 5, tariff.energy.P3, { size: 10, color: C.salviaDark, bold: true, align: 'center', numFmt: '#,##0.0000' })
-    setCell(ws, 19, 6, result.nuevo.energy, {
-      size: 10, color: C.salviaDark, bg: C.salviaSoft, align: 'center', numFmt: '#,##0.00', border: true, bold: true,
-    })
-    ws.getRow(19).height = 16
-
-    // Diferencia energía
-    const eneDiffAnnual = result.savings.energy
-    const eneDiffColor  = eneDiffAnnual >= 0 ? C.green : C.red
-    const eneDiffBg     = eneDiffAnnual >= 0 ? C.greenSoft : C.redSoft
-    setCell(ws, 20, 2, 'Diferencia energía (anual)', { size: 10, bold: true, color: eneDiffColor })
-    setCell(ws, 20, 6, eneDiffAnnual, {
-      size: 11, bold: true, color: eneDiffColor, bg: eneDiffBg,
-      align: 'center', numFmt: '#,##0.00', border: true,
-    })
-    ws.getRow(20).height = 18
-
-    ws.getRow(21).height = 10
-
-    // ── Summary: Total Saving ─────────────────────────────────────────────────
-    ws.mergeCells('B22:E22')
-    setCell(ws, 22, 2, 'AHORRO TOTAL ESTIMADO ANUAL (IVA INCL.)', {
-      bold: true, size: 12, color: C.white, bg: C.salviaDark, align: 'center',
-    })
-    const totalColor  = result.savings.totalAnnual >= 0 ? C.green : C.red
-    const totalBg     = result.savings.totalAnnual >= 0 ? C.greenSoft : C.redSoft
-    setCell(ws, 22, 6, result.savings.totalAnnual, {
-      bold: true, size: 13, color: totalColor, bg: totalBg,
-      align: 'center', numFmt: '#,##0.00', border: true,
-    })
-    ws.getRow(22).height = 26
-
-    ws.mergeCells('B23:E23')
-    setCell(ws, 23, 2, 'AHORRO MENSUAL ESTIMADO (IVA INCL.)', {
-      bold: true, size: 10, color: C.ink3, bg: C.salviaSoft, align: 'center',
-    })
-    setCell(ws, 23, 6, result.savings.totalMonthly, {
-      bold: true, size: 11, color: totalColor, bg: totalBg,
-      align: 'center', numFmt: '#,##0.00', border: true,
-    })
+    // ── Row heights (from template) ───────────────────────────────────────────
+    ws.getRow(1).height  = 28
+    ws.getRow(2).height  = 18
+    ws.getRow(3).height  = 20
+    ws.getRow(4).height  = 18
+    ws.getRow(5).height  = 22
+    ws.getRow(6).height  = 24
+    ws.getRow(7).height  = 22
+    ws.getRow(8).height  = 18
+    ws.getRow(9).height  = 24
+    ws.getRow(10).height = 24
+    ws.getRow(11).height = 18
+    ws.getRow(12).height = 22
+    ws.getRow(13).height = 24
+    ws.getRow(14).height = 22
+    ws.getRow(15).height = 18
+    ws.getRow(16).height = 30
+    ws.getRow(17).height = 12   // spacer
+    ws.getRow(18).height = 22
+    ws.getRow(19).height = 22
+    ws.getRow(20).height = 22
+    ws.getRow(21).height = 12   // spacer
+    ws.getRow(22).height = 22
     ws.getRow(23).height = 22
-
-    ws.getRow(24).height = 10
-
-    // ── Detailed cost breakdown ───────────────────────────────────────────────
-    ws.mergeCells('B25:F25')
-    setCell(ws, 25, 2, 'DESGLOSE DE COSTES ANUALES (IVA INCL.)', {
-      bold: true, size: 10, color: C.ink, bg: C.line, align: 'center',
-    })
-    ws.getRow(25).height = 18
-
-    const detailRows: [string, number, number, number][] = [
-      ['Potencia P1 (punta)', result.current.powerP1, result.nuevo.powerP1, result.current.powerP1 - result.nuevo.powerP1],
-      ['Potencia P2 (valle)', result.current.powerP2, result.nuevo.powerP2, result.current.powerP2 - result.nuevo.powerP2],
-      ['Energía P1 (punta)',  result.current.energyP1, result.nuevo.energyP1, result.current.energyP1 - result.nuevo.energyP1],
-      ['Energía P2 (llano)',  result.current.energyP2, result.nuevo.energyP2, result.current.energyP2 - result.nuevo.energyP2],
-      ['Energía P3 (valle)',  result.current.energyP3, result.nuevo.energyP3, result.current.energyP3 - result.nuevo.energyP3],
-    ]
-
-    // Detail header
-    setCell(ws, 26, 2, 'Concepto',       { bold: true, size: 9, color: C.ink3, align: 'center', bg: C.crema, border: true })
-    setCell(ws, 26, 3, 'Factura actual', { bold: true, size: 9, color: C.ink3, align: 'center', bg: C.crema, border: true })
-    setCell(ws, 26, 4, 'Tarifa Voltis',  { bold: true, size: 9, color: C.salviaDark, align: 'center', bg: C.crema, border: true })
-    setCell(ws, 26, 5, 'Diferencia',     { bold: true, size: 9, color: C.ink3, align: 'center', bg: C.crema, border: true })
-    ws.getRow(26).height = 16
-
-    detailRows.forEach(([label, cur, nw, diff], idx) => {
-      const r = 27 + idx
-      const dColor = diff >= 0 ? C.green : C.red
-      setCell(ws, r, 2, label, { size: 9, color: C.ink })
-      setCell(ws, r, 3, cur,   { size: 9, color: C.ink3,     align: 'center', numFmt: '#,##0.00', border: true })
-      setCell(ws, r, 4, nw,    { size: 9, color: C.salviaDark, align: 'center', numFmt: '#,##0.00', border: true })
-      setCell(ws, r, 5, diff,  { size: 9, color: dColor,     align: 'center', numFmt: '#,##0.00', border: true })
-      ws.getRow(r).height = 14
-    })
-
-    // Total row
-    const totR = 32
-    setCell(ws, totR, 2, 'TOTAL', { bold: true, size: 10, color: C.ink })
-    setCell(ws, totR, 3, result.current.total, { bold: true, size: 10, color: C.ink,       bg: C.crema, align: 'center', numFmt: '#,##0.00', border: true })
-    setCell(ws, totR, 4, result.nuevo.total,   { bold: true, size: 10, color: C.salviaDark, bg: C.salviaSoft, align: 'center', numFmt: '#,##0.00', border: true })
-    setCell(ws, totR, 5, result.savings.totalAnnual, {
-      bold: true, size: 10, color: totalColor, bg: totalBg, align: 'center', numFmt: '#,##0.00', border: true,
-    })
-    ws.getRow(totR).height = 18
-
-    ws.getRow(33).height = 10
-
-    // ── Footer ────────────────────────────────────────────────────────────────
-    ws.mergeCells('B34:F34')
-    setCell(ws, 34, 2, 'Generado por Voltis CRM · Comparativa indicativa basada en consumo SIPS y precios medios facturados · IVA 21% incluido', {
-      size: 8, color: C.ink4, italic: true, align: 'center', bg: C.paper,
-    })
-    ws.getRow(34).height = 14
+    ws.getRow(24).height = 18
+    ws.getRow(25).height = 22
+    ws.getRow(26).height = 24
+    ws.getRow(27).height = 24
+    ws.getRow(28).height = 22
+    ws.getRow(29).height = 24
+    ws.getRow(30).height = 22
+    ws.getRow(31).height = 12   // spacer
+    ws.getRow(32).height = 24
+    ws.getRow(33).height = 22
 
     // ── Serialize and return ──────────────────────────────────────────────────
     const buffer = Buffer.from(await wb.xlsx.writeBuffer())
-
     const filename = `Comparativa_2TD_${tariff.shortName}_${(titular || 'cliente').replace(/\s+/g, '_')}.xlsx`
 
     return new NextResponse(buffer, {
