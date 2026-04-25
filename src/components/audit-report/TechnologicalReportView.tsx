@@ -1,31 +1,82 @@
 'use client'
 
 import {
-  Zap, Flame, BarChart3, Printer, Edit3, Save, Globe, ShieldCheck, Cpu,
-  CheckCircle2, ArrowLeft, Activity, LayoutGrid
+  Flame, Printer, Edit3, Save,
+  CheckCircle2, ArrowLeft, Activity, LayoutGrid, Zap
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import type { ConsumptionSnapshot, AuditReport } from '@/types/database'
 import {
   formatKWh, formatNumber, rowTotal, classifyRows, totalConsumption, periodTotals,
-  PERIOD_COLORS
 } from '@/lib/consumption-utils'
 
-// ─── Futuristic Color Palette ─────────────────────────────────────────────────
-const ACCENT = '#6366F1'   // indigo-500
-const ACCENT_LIGHT = '#818CF8'
-const DARK = '#0F172A'
-const SURFACE = '#F8FAFC'
-const MUTED = '#94A3B8'
-const BORDER = 'rgba(148,163,184,0.12)'
+// ─── Voltis Design Tokens (themeSalvia) ───────────────────────────────────────
+const ACCENT       = '#6B8068'   // verde salvia — reemplaza el indigo genérico
+const ACCENT_SOFT  = '#E0E8DC'   // fondo acento suave
+const RULE_COLOR   = '#E8B89A'   // durazno — divisor portada
+const DARK         = '#2D3A33'   // texto principal
+const TEXT_SOFT    = '#4F5C53'   // texto secundario
+const SURFACE      = '#F4EEE2'   // canvas / fondo exterior
+const PAPER        = '#FBF7EE'   // fondo de páginas
+const MUTED        = '#8A8170'   // labels y fechas
+const BORDER       = '#E5DCC9'   // bordes y separadores
 
-const GAS_COLORS = ['#10B981', '#059669', '#34D399', '#6EE7B7']
+const KPI_HI_BG    = 'linear-gradient(135deg, #6B8068 0%, #5A6E58 100%)'
+const KPI_HI_FG    = '#FBF9F2'
+const KPI_HI_MUTED = '#C5D2C1'
+const KPI_HI_ACCENT = '#E8B89A'  // unidad en KPI destacado
+
+const TABLE_HEAD_BG  = '#ECEEDF'
+const TABLE_FOOT_BG  = '#E4EBDC'
+const ROW_ALT        = '#F4EEE2'
+
+const INSIGHT_BG  = '#F8E9D5'
+const INSIGHT_BD  = '#F0D4B5'
+const INSIGHT_FG  = '#7A5230'
+
+// Colores pastel para períodos (themeSalvia)
+const RPT_PERIOD_COLORS = [
+  '#A8B5C9',  // P1 — azul polvo
+  '#E8B89A',  // P2 — durazno
+  '#A8C0A0',  // P3 — verde menta
+  '#E8D1A0',  // P4 — mantequilla
+  '#B8A8C5',  // P5 — lavanda
+  '#6B8068',  // P6 — salvia (dominante alumbrado)
+]
+
+const GAS_COLORS = ['#A8C0A0', '#6B8068', '#C8D8C0', '#4F7A5A']
+
 const PERIOD_NAMES: Record<string, string> = {
   P1: 'Punta', P2: 'Llano', P3: 'Valle', P4: 'P4', P5: 'P5', P6: 'Supervalle'
 }
 
+// ─── Tag de tarifa por color ──────────────────────────────────────────────────
+function tariffTagStyle(tariff: string) {
+  const t = (tariff || '').toUpperCase()
+  if (t.startsWith('2.'))  return { bg: '#E0E8DC', fg: '#4A5E47' }
+  if (t.startsWith('3.'))  return { bg: '#F5DCC9', fg: '#9C5B36' }
+  if (t.startsWith('6.'))  return { bg: '#E8E0F0', fg: '#6B5A82' }
+  if (t.startsWith('RL'))  return { bg: '#E6F4E8', fg: '#2E6B42' }
+  return { bg: ACCENT_SOFT, fg: ACCENT }
+}
+
+// ─── Voltis Wordmark (SVG inline) ─────────────────────────────────────────────
+function VoltisLogo({ color = ACCENT, height = 22 }: { color?: string; height?: number }) {
+  const w = height * 3.6
+  return (
+    <svg viewBox="0 0 360 100" width={w} height={height} style={{ display: 'block' }} aria-label="Voltis energía">
+      <text x="0" y="68" fill={color}
+        fontFamily='"Inter Tight","Inter",-apple-system,sans-serif'
+        fontSize="78" fontWeight="600" letterSpacing="-3">Voltis</text>
+      <text x="232" y="92" fill={color}
+        fontFamily='"Inter Tight","Inter",-apple-system,sans-serif'
+        fontSize="22" fontWeight="400" letterSpacing="0.5">energía</text>
+    </svg>
+  )
+}
+
 // ─── SVG Donut Chart ──────────────────────────────────────────────────────────
-function DonutChart({ data, colors, size = 220, strokeWidth = 36, centerLabel, centerSub }: {
+function DonutChart({ data, colors, size = 220, strokeWidth = 34, centerLabel, centerSub }: {
   data: { label: string; value: number }[]
   colors: string[]
   size?: number
@@ -43,8 +94,7 @@ function DonutChart({ data, colors, size = 220, strokeWidth = 36, centerLabel, c
 
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-      {/* Background ring */}
-      <circle cx={cx} cy={cy} r={radius} fill="none" stroke="#E2E8F0" strokeWidth={strokeWidth} opacity={0.3} />
+      <circle cx={cx} cy={cy} r={radius} fill="none" stroke={BORDER} strokeWidth={strokeWidth} />
       {data.filter(d => d.value > 0).map((d, i) => {
         const pct = d.value / total
         const dash = circumference * pct
@@ -62,83 +112,81 @@ function DonutChart({ data, colors, size = 220, strokeWidth = 36, centerLabel, c
             strokeDashoffset={-offset}
             strokeLinecap="round"
             transform={`rotate(-90 ${cx} ${cy})`}
-            style={{ transition: 'stroke-dasharray 0.5s ease-out' }}
+            style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' } as any}
           />
         )
       })}
       {centerLabel && (
         <>
-          <text x={cx} y={cy - 6} textAnchor="middle" style={{ fill: DARK, fontSize: 18, fontWeight: 800 }}>{centerLabel}</text>
-          {centerSub && <text x={cx} y={cy + 14} textAnchor="middle" style={{ fill: MUTED, fontSize: 10, fontWeight: 600 }}>{centerSub}</text>}
+          <text x={cx} y={cy - 6} textAnchor="middle" style={{ fill: DARK, fontSize: 16, fontWeight: 700 }}>{centerLabel}</text>
+          {centerSub && <text x={cx} y={cy + 13} textAnchor="middle" style={{ fill: MUTED, fontSize: 10 }}>{centerSub}</text>}
         </>
       )}
     </svg>
   )
 }
 
-// ─── Futuristic Section Title ─────────────────────────────────────────────────
+// ─── Section Title ────────────────────────────────────────────────────────────
 function SectionTitle({ num, title, subtitle, color = ACCENT }: { num: string; title: string; subtitle?: string; color?: string }) {
   return (
     <div className="flex items-start gap-5 mb-10" style={{ breakInside: 'avoid', breakAfter: 'avoid' }}>
       <div style={{
-        width: 4, backgroundColor: color, borderRadius: 4,
-        alignSelf: 'stretch', minHeight: 44, flexShrink: 0,
+        width: 3, backgroundColor: color, borderRadius: 2,
+        alignSelf: 'stretch', minHeight: 48, flexShrink: 0,
         WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact',
-        boxShadow: `0 0 12px ${color}40`
       }} />
       <div className="flex-1 pb-4" style={{ borderBottom: `1px solid ${BORDER}` }}>
-        <div className="flex items-baseline gap-3">
-          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.2em', color, fontFamily: 'monospace' }}>
-            {num}
-          </span>
-          <h2 style={{ fontSize: 22, fontWeight: 700, color: DARK, lineHeight: 1.3 }}>{title}</h2>
+        <div style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 600, letterSpacing: '0.22em', color, textTransform: 'uppercase', marginBottom: 4 }}>
+          {num}
         </div>
-        {subtitle && <p style={{ fontSize: 13, color: MUTED, marginTop: 4 }}>{subtitle}</p>}
+        <h2 style={{ fontSize: 22, fontWeight: 600, color: DARK, lineHeight: 1.2, letterSpacing: '-0.01em' }}>{title}</h2>
+        {subtitle && <p style={{ fontSize: 12, color: MUTED, marginTop: 5 }}>{subtitle}</p>}
       </div>
     </div>
   )
 }
 
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
-function KPICard({ label, value, unit, icon: Icon, highlight, color }: {
-  label: string; value: string | number; unit?: string; icon?: any; highlight?: boolean; color?: string
+function KPICard({ label, value, unit, icon: Icon, highlight }: {
+  label: string; value: string | number; unit?: string; icon?: any; highlight?: boolean
 }) {
   if (highlight) {
     return (
-      <div className="rounded-3xl p-7 text-center flex flex-col items-center gap-2 relative overflow-hidden"
-        style={{ background: `linear-gradient(135deg, ${DARK} 0%, #1E293B 100%)`, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-        <div className="absolute top-0 right-0 w-32 h-32 rounded-full opacity-10" style={{ background: ACCENT, filter: 'blur(40px)' }} />
-        {Icon && <Icon style={{ width: 24, height: 24, color: ACCENT_LIGHT, marginBottom: 4 }} />}
-        <div style={{ fontSize: 36, fontWeight: 800, color: 'white', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
-        {unit && <div style={{ fontSize: 11, color: ACCENT_LIGHT, fontWeight: 600, letterSpacing: '0.05em' }}>{unit}</div>}
-        <div style={{ fontSize: 11, color: '#CBD5E1', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{label}</div>
+      <div className="rounded-[20px] p-7 text-center flex flex-col items-center gap-2"
+        style={{ background: KPI_HI_BG, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+        {Icon && <Icon style={{ width: 22, height: 22, color: KPI_HI_ACCENT, marginBottom: 4 }} />}
+        <div style={{ fontSize: 34, fontWeight: 600, color: KPI_HI_FG, lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{value}</div>
+        {unit && <div style={{ fontFamily: 'monospace', fontSize: 10, color: KPI_HI_ACCENT, letterSpacing: '0.05em' }}>{unit}</div>}
+        <div style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700, color: KPI_HI_MUTED, textTransform: 'uppercase', letterSpacing: '0.14em', marginTop: 4 }}>{label}</div>
       </div>
     )
   }
   return (
-    <div className="rounded-3xl border p-7 text-center flex flex-col items-center gap-2 bg-white" style={{ borderColor: BORDER }}>
-      {Icon && <Icon style={{ width: 22, height: 22, color: color || ACCENT, marginBottom: 4 }} />}
-      <div style={{ fontSize: 32, fontWeight: 800, color: DARK, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
-      {unit && <div style={{ fontSize: 11, color: MUTED, marginTop: 2 }}>{unit}</div>}
-      <div style={{ fontSize: 11, color: '#64748B', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{label}</div>
+    <div className="rounded-[20px] p-7 text-center flex flex-col items-center gap-2"
+      style={{ background: SURFACE, border: `1px solid ${BORDER}` }}>
+      {Icon && <Icon style={{ width: 22, height: 22, color: ACCENT, marginBottom: 4 }} />}
+      <div style={{ fontSize: 32, fontWeight: 600, color: DARK, lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{value}</div>
+      {unit && <div style={{ fontFamily: 'monospace', fontSize: 10, color: MUTED, marginTop: 2 }}>{unit}</div>}
+      <div style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.14em', marginTop: 4 }}>{label}</div>
     </div>
   )
 }
 
-// ─── Data Table (reusable) ────────────────────────────────────────────────────
+// ─── Data Table ───────────────────────────────────────────────────────────────
 function DataTable({ headers, rows: tableRows, footer }: {
   headers: { label: string; align?: 'left' | 'right' | 'center'; width?: number }[]
   rows: (string | number | React.ReactNode)[][]
   footer?: (string | number | React.ReactNode)[]
 }) {
   return (
-    <div className="overflow-hidden rounded-2xl" style={{ border: `1px solid ${BORDER}`, breakInside: 'avoid' }}>
-      <table className="w-full" style={{ fontSize: 13 }}>
+    <div style={{ border: `1px solid ${BORDER}`, borderRadius: 14, overflow: 'hidden', breakInside: 'avoid', background: PAPER }}>
+      <table className="w-full" style={{ fontSize: 12, borderCollapse: 'collapse' }}>
         <thead>
-          <tr style={{ background: 'linear-gradient(135deg, #F8FAFC 0%, #F1F5F9 100%)', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+          <tr style={{ background: TABLE_HEAD_BG, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
             {headers.map((h, i) => (
-              <th key={i} className={`px-5 py-3.5 ${h.align === 'right' ? 'text-right' : h.align === 'center' ? 'text-center' : 'text-left'}`}
-                style={{ color: '#475569', fontWeight: 700, fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', minWidth: h.width }}>
+              <th key={i}
+                className={h.align === 'right' ? 'text-right' : h.align === 'center' ? 'text-center' : 'text-left'}
+                style={{ padding: '11px 16px', fontFamily: 'monospace', fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: TEXT_SOFT, minWidth: h.width }}>
                 {h.label}
               </th>
             ))}
@@ -146,10 +194,11 @@ function DataTable({ headers, rows: tableRows, footer }: {
         </thead>
         <tbody>
           {tableRows.map((row, i) => (
-            <tr key={i} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#FAFBFC', borderTop: `1px solid ${BORDER}` }}>
+            <tr key={i} style={{ backgroundColor: i % 2 === 0 ? PAPER : ROW_ALT, borderTop: `1px solid ${BORDER}`, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
               {row.map((cell, j) => (
-                <td key={j} className={`px-5 py-3 ${headers[j]?.align === 'right' ? 'text-right' : headers[j]?.align === 'center' ? 'text-center' : 'text-left'}`}
-                  style={{ fontVariantNumeric: 'tabular-nums' }}>
+                <td key={j}
+                  className={headers[j]?.align === 'right' ? 'text-right' : headers[j]?.align === 'center' ? 'text-center' : 'text-left'}
+                  style={{ padding: '10px 16px', fontVariantNumeric: 'tabular-nums' }}>
                   {cell}
                 </td>
               ))}
@@ -158,10 +207,11 @@ function DataTable({ headers, rows: tableRows, footer }: {
         </tbody>
         {footer && (
           <tfoot>
-            <tr style={{ background: `linear-gradient(135deg, ${ACCENT}08 0%, ${ACCENT}12 100%)`, borderTop: `2px solid ${ACCENT}30`, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+            <tr style={{ background: TABLE_FOOT_BG, borderTop: `2px solid ${ACCENT}`, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
               {footer.map((cell, j) => (
-                <td key={j} className={`px-5 py-3.5 ${headers[j]?.align === 'right' ? 'text-right' : headers[j]?.align === 'center' ? 'text-center' : 'text-left'}`}
-                  style={{ fontWeight: 800, color: ACCENT, fontVariantNumeric: 'tabular-nums' }}>
+                <td key={j}
+                  className={headers[j]?.align === 'right' ? 'text-right' : headers[j]?.align === 'center' ? 'text-center' : 'text-left'}
+                  style={{ padding: '11px 16px', fontWeight: 800, color: ACCENT, fontVariantNumeric: 'tabular-nums' }}>
                   {cell}
                 </td>
               ))}
@@ -175,28 +225,24 @@ function DataTable({ headers, rows: tableRows, footer }: {
 
 // ─── Supply Card ──────────────────────────────────────────────────────────────
 function SupplyCard({ row, index }: { row: ConsumptionSnapshot; index: number }) {
-  const isGas = row.supply_type === 'gas' || (row.tariff || '').toUpperCase().startsWith('RL')
   const total = rowTotal(row)
+  const { bg, fg } = tariffTagStyle(row.tariff || '')
   return (
-    <div className="border rounded-2xl p-4 bg-white relative overflow-hidden" style={{ borderColor: BORDER, breakInside: 'avoid' }}>
-      <div className="absolute top-0 right-0 w-16 h-16 rounded-full opacity-5"
-        style={{ background: isGas ? '#F97316' : ACCENT, transform: 'translate(30%,-30%)' }} />
-      <div className="flex items-start justify-between mb-2">
-        <span className={`inline-flex items-center text-[10px] font-bold px-2.5 py-1 rounded-lg border ${
-          isGas
-            ? 'bg-warn-container/40 text-warn border-warn/30'
-            : 'bg-info-container/40 text-info border-info/30'
-        }`} style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+    <div style={{ border: `1px solid ${BORDER}`, borderRadius: 14, padding: '14px 16px', background: PAPER, breakInside: 'avoid', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+      <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
+        <span style={{ fontFamily: 'monospace', fontSize: 9, fontWeight: 700, padding: '3px 9px', borderRadius: 8, background: bg, color: fg, letterSpacing: '0.05em', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
           {row.tariff || '—'}
         </span>
-        <span style={{ fontSize: 10, color: MUTED, fontFamily: 'monospace', fontWeight: 700 }}>#{String(index + 1).padStart(2, '0')}</span>
+        <span style={{ fontFamily: 'monospace', fontSize: 10, color: MUTED, fontWeight: 600 }}>
+          #{String(index + 1).padStart(2, '0')}
+        </span>
       </div>
-      {row.name && <p style={{ fontSize: 12, fontWeight: 700, color: DARK, marginBottom: 2, lineHeight: 1.3 }}>{row.name}</p>}
-      <p style={{ fontSize: 11, color: '#64748B', marginBottom: 2, lineHeight: 1.4 }}>{row.address || '—'}</p>
-      <p style={{ fontSize: 10, color: MUTED, fontFamily: 'monospace', letterSpacing: '0.02em', marginBottom: 8 }}>{row.cups || '—'}</p>
-      <div className="flex items-baseline gap-1.5 pt-2" style={{ borderTop: `1px solid ${BORDER}` }}>
-        <span style={{ fontSize: 16, fontWeight: 800, color: DARK, fontVariantNumeric: 'tabular-nums' }}>{formatNumber(total)}</span>
-        <span style={{ fontSize: 10, color: MUTED, fontWeight: 600 }}>kWh/año</span>
+      {row.name && <p style={{ fontSize: 12, fontWeight: 600, color: DARK, marginBottom: 2, lineHeight: 1.3 }}>{row.name}</p>}
+      <p style={{ fontSize: 11, color: TEXT_SOFT, marginBottom: 2, lineHeight: 1.4 }}>{row.address || '—'}</p>
+      <p style={{ fontFamily: 'monospace', fontSize: 10, color: MUTED, letterSpacing: '0.02em', marginBottom: 10 }}>{row.cups || '—'}</p>
+      <div className="flex items-baseline gap-1.5" style={{ paddingTop: 10, borderTop: `1px dashed ${BORDER}` }}>
+        <span style={{ fontSize: 16, fontWeight: 600, color: DARK, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.01em' }}>{formatNumber(total)}</span>
+        <span style={{ fontFamily: 'monospace', fontSize: 9, color: MUTED, fontWeight: 600 }}>kWh/año</span>
       </div>
     </div>
   )
@@ -216,33 +262,31 @@ function BarChartSVG({ data, colors, width = 600, height = 220 }: {
 
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ display: 'block', margin: '0 auto' }}>
-      {/* Grid lines */}
       {[0, 0.25, 0.5, 0.75, 1].map(pct => {
         const y = 10 + chartH * (1 - pct)
         return (
           <g key={pct}>
-            <line x1={startX} y1={y} x2={width - 10} y2={y} stroke="#E2E8F0" strokeDasharray="4 4" />
-            <text x={startX - 8} y={y + 4} textAnchor="end" style={{ fontSize: 10, fill: MUTED }}>
+            <line x1={startX} y1={y} x2={width - 10} y2={y} stroke={BORDER} strokeDasharray="4 4" />
+            <text x={startX - 8} y={y + 4} textAnchor="end" style={{ fontFamily: 'monospace', fontSize: 9, fill: MUTED }}>
               {max >= 1000 ? `${Math.round(max * pct / 1000)}k` : Math.round(max * pct)}
             </text>
           </g>
         )
       })}
-      {/* Bars */}
       {data.map((d, i) => {
         const barH = d.value > 0 ? Math.max(4, (d.value / max) * chartH) : 0
         const x = startX + 10 + i * ((width - startX - 20) / data.length) + ((width - startX - 20) / data.length - barWidth) / 2
         const y = 10 + chartH - barH
         return (
           <g key={d.label}>
-            <rect x={x} y={y} width={barWidth} height={barH} rx={6} fill={colors[i % colors.length]}
-              style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.08))' }} />
+            <rect x={x} y={y} width={barWidth} height={barH} rx={5} fill={colors[i % colors.length]}
+              style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' } as any} />
             {d.value > 0 && (
-              <text x={x + barWidth / 2} y={y - 6} textAnchor="middle" style={{ fontSize: 9, fontWeight: 700, fill: '#475569' }}>
+              <text x={x + barWidth / 2} y={y - 5} textAnchor="middle" style={{ fontFamily: 'monospace', fontSize: 9, fontWeight: 700, fill: TEXT_SOFT }}>
                 {d.value >= 1000 ? `${(d.value / 1000).toFixed(0)}k` : formatNumber(d.value)}
               </text>
             )}
-            <text x={x + barWidth / 2} y={height - 8} textAnchor="middle" style={{ fontSize: 11, fontWeight: 700, fill: '#475569' }}>
+            <text x={x + barWidth / 2} y={height - 8} textAnchor="middle" style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 600, fill: TEXT_SOFT }}>
               {d.label}
             </text>
           </g>
@@ -252,7 +296,7 @@ function BarChartSVG({ data, colors, width = 600, height = 220 }: {
   )
 }
 
-// ─── Percentage helpers ───────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function fmtPct(n: number, total: number): string {
   if (!total || !n) return '0,0 %'
   return ((n / total) * 100).toFixed(1).replace('.', ',') + ' %'
@@ -261,14 +305,16 @@ function fmtPct(n: number, total: number): string {
 function pctColor(n: number, total: number): string {
   if (!total || !n) return MUTED
   const pct = (n / total) * 100
-  if (pct >= 40) return '#DC2626'
-  if (pct >= 20) return '#D97706'
-  return '#059669'
+  if (pct >= 40) return '#C46850'  // pctHi  salvia-warm
+  if (pct >= 20) return '#C99450'  // pctMid
+  return '#6B8068'                  // pctLo = accent
 }
 
-// ─── Period dot ───────────────────────────────────────────────────────────────
 function PeriodDot({ color }: { color: string }) {
-  return <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }} />
+  return (
+    <span className="inline-block rounded-full shrink-0"
+      style={{ width: 9, height: 9, backgroundColor: color, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }} />
+  )
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -307,10 +353,9 @@ export function TechnologicalReportView({
 
   const reportRows = report?.rows_snapshot ? (report.rows_snapshot as ConsumptionSnapshot[]) : rows
   const classified = classifyRows(reportRows)
-  const totals = periodTotals(classified.electricity)
   const grandTotal = totalConsumption(reportRows)
-  const elecTotal = totalConsumption(classified.electricity)
-  const gasTotal = totalConsumption(classified.gas)
+  const elecTotal  = totalConsumption(classified.electricity)
+  const gasTotal   = totalConsumption(classified.gas)
   const generatedAt = report?.created_at ? new Date(report.created_at) : new Date()
   const dateStr = generatedAt.toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' })
 
@@ -353,11 +398,43 @@ export function TechnologicalReportView({
     return ['P1', 'P2', 'P3']
   }
 
+  // ─── Resumen ejecutivo — cálculos dinámicos ───────────────────────────────
+  const elecSumsGlobal = sumPeriods(classified.electricity)
+  const elecTotalPeriods = ['p1','p2','p3','p4','p5','p6'].reduce((s, p) => s + (elecSumsGlobal as any)[p], 0)
+
+  // Período dominante (el que más % tiene)
+  const periodKeys = ['p1','p2','p3','p4','p5','p6'] as const
+  const dominantPeriodKey = periodKeys.reduce((a, b) => (elecSumsGlobal as any)[a] > (elecSumsGlobal as any)[b] ? a : b)
+  const dominantPeriodPct = elecTotalPeriods > 0
+    ? (((elecSumsGlobal as any)[dominantPeriodKey] / elecTotalPeriods) * 100).toFixed(1).replace('.', ',')
+    : '—'
+  const dominantPeriodLabel = dominantPeriodKey.toUpperCase()
+
+  // Tarifa dominante (mayor kWh)
+  const dominantTariff = sortedTariffs.length > 0
+    ? sortedTariffs.reduce((a, b) => {
+        const getT = (t: string) => tariffGroups[t].reduce((s, r) => s + rowTotal(r), 0)
+        return getT(a) > getT(b) ? a : b
+      })
+    : null
+  const dominantTariffPct = dominantTariff && grandTotal > 0
+    ? fmtPct(tariffGroups[dominantTariff].reduce((s, r) => s + rowTotal(r), 0), grandTotal)
+    : '—'
+  const dominantTariffCount = dominantTariff ? tariffGroups[dominantTariff].length : 0
+
+  // Suministro principal
+  const mainSupply = reportRows.length > 0
+    ? [...reportRows].sort((a, b) => rowTotal(b) - rowTotal(a))[0]
+    : null
+  const mainSupplyKwh = mainSupply ? formatNumber(rowTotal(mainSupply)) : '—'
+  const mainSupplyPct = mainSupply && grandTotal > 0 ? fmtPct(rowTotal(mainSupply), grandTotal) : '—'
+
   return (
-    <div className="min-h-screen" style={{ background: 'linear-gradient(180deg, #F1F5F9 0%, #E2E8F0 100%)' }}>
-      {/* ═══ Toolbar ═══ */}
-      <div className="no-print sticky top-0 z-50 backdrop-blur-xl border-b shadow-sm"
-        style={{ background: 'rgba(255,255,255,0.85)', borderColor: BORDER }}>
+    <div className="min-h-screen" style={{ background: SURFACE }}>
+
+      {/* ═══ Toolbar (no-print) ═══ */}
+      <div className="no-print sticky top-0 z-50 backdrop-blur-xl border-b"
+        style={{ background: `rgba(251,247,238,0.92)`, borderColor: BORDER, boxShadow: '0 1px 8px rgba(60,70,60,0.08)' }}>
         <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             {onBackToTable && (
@@ -365,19 +442,19 @@ export function TechnologicalReportView({
                 <ArrowLeft className="w-4 h-4 mr-1" /> Tabla
               </Button>
             )}
-            <div className="h-4 w-[1px] bg-slate-200 hidden sm:block" />
-            <span className="text-sm font-bold tracking-tight truncate max-w-[240px] sm:max-w-none" style={{ color: DARK }}>
+            <div className="h-4 w-[1px]" style={{ background: BORDER }} />
+            <span className="text-sm font-semibold tracking-tight truncate max-w-[240px] sm:max-w-none" style={{ color: DARK }}>
               {report?.title || 'Informe de Auditoría Energética'}
             </span>
           </div>
           <div className="flex items-center gap-2">
             {saved && (
               <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full"
-                style={{ background: '#ECFDF5', color: '#059669' }}>
+                style={{ background: ACCENT_SOFT, color: ACCENT }}>
                 <CheckCircle2 className="w-3 h-3" /> Guardado
               </span>
             )}
-            <div className="flex rounded-xl p-1 shadow-inner" style={{ background: '#F1F5F9' }}>
+            <div className="flex rounded-xl p-1" style={{ background: SURFACE }}>
               <Button size="sm" variant={isEditing ? 'primary' : 'ghost'}
                 onClick={() => isEditing ? onSave() : setIsEditing(true)} loading={saving}
                 className="rounded-lg h-8 px-3">
@@ -393,84 +470,119 @@ export function TechnologicalReportView({
 
       {/* ═══ Report Document ═══ */}
       <div className="max-w-5xl mx-auto px-4 py-10">
-        <div id="audit-report" className="bg-white overflow-hidden relative"
-          style={{ borderRadius: 32, boxShadow: '0 25px 100px -12px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.03)' }}>
+        <div id="audit-report" style={{
+          background: PAPER,
+          borderRadius: 14,
+          overflow: 'hidden',
+          boxShadow: '0 18px 48px -16px rgba(60,70,60,0.18)',
+          WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact',
+        }}>
 
           {/* ════ COVER PAGE ════ */}
-          <div className="relative overflow-hidden" style={{ minHeight: '70vh', pageBreakAfter: 'always', breakAfter: 'page' }}>
-            {/* Background decoration */}
-            <div className="absolute inset-0 pointer-events-none" style={{
-              background: `radial-gradient(ellipse at 70% 20%, ${ACCENT}08 0%, transparent 50%), radial-gradient(ellipse at 30% 80%, ${ACCENT}05 0%, transparent 50%)`
-            }} />
-            <div className="absolute top-8 right-8 opacity-[0.03]">
-              <Cpu style={{ width: 320, height: 320 }} strokeWidth={0.3} />
-            </div>
+          <div style={{ minHeight: '70vh', pageBreakAfter: 'always', breakAfter: 'page', background: PAPER }}>
 
             {/* Top bar */}
-            <div className="flex items-center justify-between px-12 pt-10 pb-4 relative z-10" style={{ borderBottom: `1px solid ${BORDER}` }}>
-              <div className="flex items-center gap-2">
-                <Zap style={{ width: 14, height: 14, color: ACCENT }} />
-                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.15em', textTransform: 'uppercase', color: ACCENT }}>
-                  Auditoría Energética {client?.type === 'ayuntamiento' ? 'Municipal' : 'Corporativa'}
-                </span>
-              </div>
-              <span style={{ fontSize: 11, color: MUTED }}>{dateStr}</span>
+            <div className="flex items-center justify-between px-12 pt-10 pb-5" style={{ borderBottom: `1px solid ${BORDER}` }}>
+              <VoltisLogo color={ACCENT} height={20} />
+              <span style={{ fontFamily: 'monospace', fontSize: 11, color: MUTED }}>{dateStr}</span>
             </div>
 
             {/* Cover content */}
-            <div className="flex flex-col items-center justify-center text-center px-12 pt-20 pb-16 relative z-10">
-              <div className="w-24 h-24 rounded-[28px] flex items-center justify-center mb-10 shadow-lg"
-                style={{ background: `linear-gradient(135deg, ${ACCENT} 0%, #4F46E5 100%)`, boxShadow: `0 20px 60px ${ACCENT}30`, transform: 'rotate(3deg)', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                <Zap style={{ width: 44, height: 44, color: 'white' }} />
+            <div className="flex flex-col items-center text-center px-12 pt-16 pb-16">
+              {/* Mark */}
+              <div className="flex items-center justify-center mb-10"
+                style={{ width: 88, height: 88, borderRadius: 24, background: ACCENT_SOFT, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                <VoltisLogo color={ACCENT} height={18} />
               </div>
 
-              <p style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.3em', textTransform: 'uppercase', color: ACCENT, marginBottom: 20 }}>
-                ESTUDIO TÉCNICO ENERGÉTICO
+              <p style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 600, letterSpacing: '0.32em', textTransform: 'uppercase', color: ACCENT, marginBottom: 18 }}>
+                Auditoría Energética {client?.type === 'ayuntamiento' ? 'Municipal' : 'Corporativa'}
               </p>
-              <h1 style={{ fontSize: 46, fontWeight: 800, color: DARK, lineHeight: 1.1, marginBottom: 8, letterSpacing: '-0.02em' }}>
+              <h1 style={{ fontSize: 46, fontWeight: 600, color: DARK, lineHeight: 1.05, letterSpacing: '-0.025em' }}>
                 {client?.name}
               </h1>
-              <div className="w-16 h-1 rounded-full mx-auto my-8" style={{ backgroundColor: `${ACCENT}30` }} />
-              <p style={{ fontSize: 14, color: '#64748B', maxWidth: 480, lineHeight: 1.7 }}>
+              {/* Divider durazno */}
+              <div style={{ width: 64, height: 3, borderRadius: 2, background: RULE_COLOR, margin: '24px auto', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }} />
+              <p style={{ fontSize: 13, color: TEXT_SOFT, maxWidth: 480, lineHeight: 1.7 }}>
                 Análisis exhaustivo de la red de suministros {client?.type === 'ayuntamiento' ? 'municipales' : 'corporativos'} para la optimización de potencias y consumos energéticos.
               </p>
 
               {/* Stats grid */}
-              <div className="grid grid-cols-4 gap-5 w-full max-w-3xl mt-16 p-8 rounded-3xl relative"
-                style={{ background: `linear-gradient(135deg, ${SURFACE} 0%, white 100%)`, border: `1px solid ${BORDER}` }}>
+              <div className="grid grid-cols-4 w-full max-w-3xl mt-14"
+                style={{ background: SURFACE, borderRadius: 20, padding: '22px 8px', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
                 {[
                   { value: reportRows.length, label: 'Suministros' },
                   { value: formatKWh(grandTotal).split(' ')[0], label: formatKWh(grandTotal).split(' ')[1] + '/Año' },
                   { value: classified.electricity.length, label: 'Eléctricos' },
                   { value: classified.gas.length, label: 'Gas' },
                 ].map((stat, i) => (
-                  <div key={i} className="text-center space-y-1.5" style={{ borderLeft: i > 0 ? `1px solid ${BORDER}` : 'none' }}>
-                    <p style={{ fontSize: 32, fontWeight: 800, color: ACCENT, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{stat.value}</p>
-                    <p style={{ fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.15em' }}>{stat.label}</p>
+                  <div key={i} className="text-center" style={{ borderLeft: i > 0 ? `1px solid ${BORDER}` : 'none', padding: '0 14px' }}>
+                    <p style={{ fontSize: 30, fontWeight: 600, color: ACCENT, lineHeight: 1, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{stat.value}</p>
+                    <p style={{ fontFamily: 'monospace', fontSize: 9, fontWeight: 600, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.18em', marginTop: 8 }}>{stat.label}</p>
                   </div>
                 ))}
               </div>
 
-              <div className="flex items-center justify-center gap-6 mt-12" style={{ fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.15em' }}>
-                <span className="flex items-center gap-1.5"><Globe className="w-3.5 h-3.5" /> Red de Suministros</span>
-                <div className="w-1 h-1 rounded-full" style={{ background: MUTED }} />
-                <span className="flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5" /> Voltis CRM</span>
+              <div className="flex items-center justify-center gap-6 mt-10" style={{ fontFamily: 'monospace', fontSize: 9, fontWeight: 600, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.18em' }}>
+                <span>Red de Suministros</span>
+                <span style={{ width: 3, height: 3, borderRadius: '50%', background: MUTED, display: 'inline-block' }} />
+                <span>Voltis · Soluciones Energéticas</span>
               </div>
             </div>
           </div>
 
-          <div className="px-12 py-16 space-y-0">
+          {/* ═══ Cuerpo del informe ═══ */}
+          <div className="px-12 py-16 space-y-0" style={{ background: PAPER }}>
+
+            {/* ════ SECTION 00: Resumen ejecutivo (dinámico) ════ */}
+            <div style={{ paddingTop: '14mm', breakInside: 'avoid', breakAfter: 'avoid' }}>
+              <SectionTitle num="00" title="Resumen ejecutivo" subtitle="Cuatro datos clave para una lectura rápida" />
+              <div className="grid grid-cols-2 gap-3 mb-10">
+                {[
+                  {
+                    eyebrow: 'Período dominante',
+                    value: `${dominantPeriodLabel} · ${dominantPeriodPct}%`,
+                    caption: `El período con mayor consumo es ${dominantPeriodLabel} (${PERIOD_NAMES[dominantPeriodLabel] || ''}). Revisar si la tarificación en este tramo es la óptima.`,
+                  },
+                  {
+                    eyebrow: 'Tarifa dominante',
+                    value: dominantTariff ? `${dominantTariff} · ${dominantTariffPct}` : '—',
+                    caption: dominantTariff
+                      ? `${dominantTariffCount} de los ${reportRows.length} suministros son ${dominantTariff} y representan el bloque de mayor consumo.`
+                      : 'Sin datos suficientes.',
+                  },
+                  {
+                    eyebrow: 'Suministro principal',
+                    value: `${mainSupplyKwh} kWh`,
+                    caption: mainSupply
+                      ? `Un único punto (${mainSupply.cups || mainSupply.name || '—'}) acumula el ${mainSupplyPct} del consumo total — candidato prioritario para revisión.`
+                      : 'Sin datos.',
+                  },
+                  {
+                    eyebrow: 'Total suministros',
+                    value: `${reportRows.length}`,
+                    caption: `${classified.electricity.length} eléctrico${classified.electricity.length !== 1 ? 's' : ''}${classified.gas.length > 0 ? ` · ${classified.gas.length} gas` : ''} · ${formatNumber(grandTotal)} kWh/año totales.`,
+                  },
+                ].map((card, i) => (
+                  <div key={i} style={{ background: PAPER, border: `1px solid ${BORDER}`, borderRadius: 14, padding: '18px 20px', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                    <div style={{ fontFamily: 'monospace', fontSize: 9, fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase', color: ACCENT, marginBottom: 6 }}>{card.eyebrow}</div>
+                    <div style={{ fontSize: 22, fontWeight: 600, color: DARK, letterSpacing: '-0.01em', marginBottom: 6 }}>{card.value}</div>
+                    <div style={{ fontSize: 12, color: TEXT_SOFT, lineHeight: 1.55 }}>{card.caption}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
 
             {/* ════ SECTION: Relación de Suministros ════ */}
-            <div style={{ paddingTop: '18mm' }}>
+            <div style={{ paddingTop: '10mm' }}>
               <SectionTitle num={nextNum()} title="Relación de Suministros" subtitle={`${reportRows.length} suministros en total`} />
 
               {classified.electricity.length > 0 && (
                 <div className="mb-8">
                   <div className="flex items-center gap-2 mb-4">
-                    <Zap style={{ width: 14, height: 14, color: ACCENT }} />
-                    <span style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Electricidad</span>
-                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold" style={{ background: `${ACCENT}15`, color: ACCENT }}>{classified.electricity.length}</span>
+                    <Zap style={{ width: 13, height: 13, color: ACCENT }} />
+                    <span style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700, color: TEXT_SOFT, textTransform: 'uppercase', letterSpacing: '0.14em' }}>Electricidad</span>
+                    <span style={{ background: ACCENT_SOFT, color: ACCENT, padding: '2px 9px', borderRadius: 9999, fontSize: 9, fontFamily: 'monospace', fontWeight: 700 }}>{classified.electricity.length}</span>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     {classified.electricity.map((row, i) => <SupplyCard key={row.id} row={row} index={i} />)}
@@ -481,9 +593,9 @@ export function TechnologicalReportView({
               {classified.gas.length > 0 && (
                 <div style={{ breakInside: 'avoid' }}>
                   <div className="flex items-center gap-2 mb-4">
-                    <Flame style={{ width: 14, height: 14, color: '#F97316' }} />
-                    <span style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Gas</span>
-                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold" style={{ background: '#FFF7ED', color: '#EA580C' }}>{classified.gas.length}</span>
+                    <Flame style={{ width: 13, height: 13, color: GAS_COLORS[0] }} />
+                    <span style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700, color: TEXT_SOFT, textTransform: 'uppercase', letterSpacing: '0.14em' }}>Gas</span>
+                    <span style={{ background: '#E6F4E8', color: GAS_COLORS[1], padding: '2px 9px', borderRadius: 9999, fontSize: 9, fontFamily: 'monospace', fontWeight: 700 }}>{classified.gas.length}</span>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     {classified.gas.map((row, i) => <SupplyCard key={row.id} row={row} index={i} />)}
@@ -492,55 +604,53 @@ export function TechnologicalReportView({
               )}
             </div>
 
-            {/* ════ SECTION: Consumo Acumulado Total (KPI) ════ */}
-            <div className="page-break" style={{ pageBreakBefore: 'always', breakBefore: 'page', paddingTop: '18mm' }}>
+            {/* ════ SECTION: Consumo Acumulado Total ════ */}
+            <div style={{ pageBreakBefore: 'always', breakBefore: 'page', paddingTop: '18mm' }}>
               <SectionTitle num={nextNum()} title="Consumo Acumulado Total" subtitle="Resumen global de todos los suministros del proyecto" />
 
-              <div className="grid grid-cols-2 gap-5 mb-8" style={{ breakInside: 'avoid' }}>
+              <div className="grid grid-cols-2 gap-5 mb-6" style={{ breakInside: 'avoid' }}>
                 <KPICard label="Total suministros" value={reportRows.length} unit="puntos de suministro" icon={LayoutGrid} />
                 <KPICard label="Consumo anual total" value={formatNumber(grandTotal)} unit="kWh/año" icon={Activity} highlight />
               </div>
 
-              {(classified.electricity.length > 0 || classified.gas.length > 0) && (
-                <div className="space-y-3" style={{ breakInside: 'avoid' }}>
-                  {classified.electricity.length > 0 && (
-                    <div className="rounded-2xl border px-6 py-5 flex items-center justify-between"
-                      style={{ background: `linear-gradient(135deg, ${ACCENT}06 0%, white 100%)`, borderColor: `${ACCENT}15`, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                      <div className="flex items-center gap-3">
-                        <Zap style={{ width: 20, height: 20, color: ACCENT }} />
-                        <div>
-                          <p style={{ fontSize: 12, color: '#475569', fontWeight: 600 }}>Suministros eléctricos</p>
-                          <p style={{ fontSize: 15, fontWeight: 800, color: DARK, marginTop: 2 }}>{classified.electricity.length} suministros</p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p style={{ fontSize: 22, fontWeight: 800, color: ACCENT, fontVariantNumeric: 'tabular-nums' }}>{formatNumber(elecTotal)}</p>
-                        <p style={{ fontSize: 11, color: MUTED }}>kWh/año</p>
+              <div className="space-y-3" style={{ breakInside: 'avoid' }}>
+                {classified.electricity.length > 0 && (
+                  <div className="flex items-center justify-between px-6 py-5"
+                    style={{ background: 'linear-gradient(135deg, #ECEEDF 0%, #FBF7EE 100%)', border: `1px solid ${BORDER}`, borderRadius: 14, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                    <div className="flex items-center gap-3">
+                      <Zap style={{ width: 18, height: 18, color: ACCENT }} />
+                      <div>
+                        <p style={{ fontSize: 11, color: TEXT_SOFT, fontWeight: 600 }}>Suministros eléctricos</p>
+                        <p style={{ fontSize: 14, fontWeight: 600, color: DARK, marginTop: 2 }}>{classified.electricity.length} suministros</p>
                       </div>
                     </div>
-                  )}
-                  {classified.gas.length > 0 && (
-                    <div className="rounded-2xl border px-6 py-5 flex items-center justify-between"
-                      style={{ background: 'linear-gradient(135deg, #F0FDF4 0%, white 100%)', borderColor: '#BBF7D0', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                      <div className="flex items-center gap-3">
-                        <Flame style={{ width: 20, height: 20, color: '#10B981' }} />
-                        <div>
-                          <p style={{ fontSize: 12, color: '#475569', fontWeight: 600 }}>Suministros de gas</p>
-                          <p style={{ fontSize: 15, fontWeight: 800, color: DARK, marginTop: 2 }}>{classified.gas.length} suministros</p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p style={{ fontSize: 22, fontWeight: 800, color: '#10B981', fontVariantNumeric: 'tabular-nums' }}>{formatNumber(gasTotal)}</p>
-                        <p style={{ fontSize: 11, color: MUTED }}>kWh/año</p>
+                    <div className="text-right">
+                      <p style={{ fontSize: 20, fontWeight: 600, color: ACCENT, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.01em' }}>{formatNumber(elecTotal)}</p>
+                      <p style={{ fontFamily: 'monospace', fontSize: 10, color: MUTED }}>kWh/año</p>
+                    </div>
+                  </div>
+                )}
+                {classified.gas.length > 0 && (
+                  <div className="flex items-center justify-between px-6 py-5"
+                    style={{ background: 'linear-gradient(135deg, #E6F4E8 0%, #FBF7EE 100%)', border: `1px solid #A8C0A0`, borderRadius: 14, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                    <div className="flex items-center gap-3">
+                      <Flame style={{ width: 18, height: 18, color: GAS_COLORS[1] }} />
+                      <div>
+                        <p style={{ fontSize: 11, color: TEXT_SOFT, fontWeight: 600 }}>Suministros de gas</p>
+                        <p style={{ fontSize: 14, fontWeight: 600, color: DARK, marginTop: 2 }}>{classified.gas.length} suministros</p>
                       </div>
                     </div>
-                  )}
-                </div>
-              )}
+                    <div className="text-right">
+                      <p style={{ fontSize: 20, fontWeight: 600, color: GAS_COLORS[1], fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.01em' }}>{formatNumber(gasTotal)}</p>
+                      <p style={{ fontFamily: 'monospace', fontSize: 10, color: MUTED }}>kWh/año</p>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* ════ SECTION: Resumen por Tarifa ════ */}
-            <div className="page-break" style={{ breakInside: 'avoid', paddingTop: '18mm' }}>
+            <div style={{ breakInside: 'avoid', paddingTop: '18mm' }}>
               <SectionTitle num={nextNum()} title="Resumen por Tarifa" subtitle="Distribución de suministros y consumos agrupados por tipo tarifario" />
               <DataTable
                 headers={[
@@ -552,10 +662,11 @@ export function TechnologicalReportView({
                 rows={sortedTariffs.map(tarifa => {
                   const grpRows = tariffGroups[tarifa]
                   const grpTotal = grpRows.reduce((s, r) => s + rowTotal(r), 0)
+                  const { bg, fg } = tariffTagStyle(tarifa)
                   return [
-                    <span key="t" style={{ fontWeight: 700, color: ACCENT }}>{tarifa}</span>,
-                    <span key="c" style={{ color: '#475569' }}>{grpRows.length}</span>,
-                    <span key="v" style={{ fontWeight: 700, color: DARK }}>{formatNumber(grpTotal)}</span>,
+                    <span key="t" style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: bg, color: fg, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>{tarifa}</span>,
+                    <span key="c" style={{ color: TEXT_SOFT }}>{grpRows.length}</span>,
+                    <span key="v" style={{ fontWeight: 600, color: DARK }}>{formatNumber(grpTotal)}</span>,
                     <span key="p" style={{ fontWeight: 700, color: pctColor(grpTotal, grandTotal) }}>{fmtPct(grpTotal, grandTotal)}</span>,
                   ]
                 })}
@@ -574,7 +685,7 @@ export function TechnologicalReportView({
               const chartData = tableData.filter(d => d.val > 0).map(d => ({ label: d.p, value: d.val }))
 
               return (
-                <div className="page-break" style={{ pageBreakBefore: 'always', breakBefore: 'page', paddingTop: '18mm' }}>
+                <div style={{ pageBreakBefore: 'always', breakBefore: 'page', paddingTop: '18mm' }}>
                   <SectionTitle num={nextNum()} title="Consumo Total por Periodos — Electricidad"
                     subtitle={`Agregado de ${classified.electricity.length} suministros eléctricos`} />
 
@@ -586,11 +697,11 @@ export function TechnologicalReportView({
                     ]}
                     rows={tableData.map((row, i) => [
                       <span key="p" className="inline-flex items-center gap-2.5">
-                        <PeriodDot color={PERIOD_COLORS[i]} />
-                        <span style={{ fontWeight: 700, color: DARK }}>{row.p}</span>
-                        <span style={{ fontSize: 12, color: MUTED }}>{PERIOD_NAMES[row.p]}</span>
+                        <PeriodDot color={RPT_PERIOD_COLORS[i]} />
+                        <span style={{ fontWeight: 600, color: DARK }}>{row.p}</span>
+                        <span style={{ fontSize: 11, color: MUTED }}>{PERIOD_NAMES[row.p]}</span>
                       </span>,
-                      <span key="v" style={{ fontWeight: 700, color: DARK }}>{row.val > 0 ? formatNumber(row.val) : '—'}</span>,
+                      <span key="v" style={{ fontWeight: 600, color: DARK }}>{row.val > 0 ? formatNumber(row.val) : '—'}</span>,
                       <span key="pct" style={{ fontWeight: 700, color: row.val > 0 ? pctColor(row.val, periodTotal) : MUTED }}>{row.val > 0 ? fmtPct(row.val, periodTotal) : '—'}</span>,
                     ])}
                     footer={['TOTAL', formatNumber(periodTotal), '100,0 %']}
@@ -598,27 +709,27 @@ export function TechnologicalReportView({
 
                   <div className="grid grid-cols-2 gap-8 mt-10" style={{ breakInside: 'avoid' }}>
                     <div className="flex flex-col items-center">
-                      <p style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 16, textAlign: 'center' }}>Distribución porcentual</p>
-                      <DonutChart data={chartData} colors={PERIOD_COLORS} centerLabel={formatNumber(periodTotal)} centerSub="kWh total" />
-                      <div className="mt-6 flex flex-wrap justify-center gap-2">
+                      <p style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 600, color: TEXT_SOFT, marginBottom: 16, textAlign: 'center', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Distribución porcentual</p>
+                      <DonutChart data={chartData} colors={RPT_PERIOD_COLORS} centerLabel={formatNumber(periodTotal)} centerSub="kWh total" />
+                      <div className="mt-5 flex flex-wrap justify-center gap-2">
                         {allPeriods.map((p, i) => (
-                          <div key={p} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-bold"
-                            style={{ background: `${PERIOD_COLORS[i]}10`, color: PERIOD_COLORS[i], border: `1px solid ${PERIOD_COLORS[i]}20` }}>
-                            <PeriodDot color={PERIOD_COLORS[i]} /> {p} — {PERIOD_NAMES[p]}
+                          <div key={p} className="inline-flex items-center gap-1.5"
+                            style={{ background: PAPER, border: `1px solid ${BORDER}`, borderRadius: 9999, padding: '4px 9px', fontFamily: 'monospace', fontSize: 9, fontWeight: 600, color: TEXT_SOFT }}>
+                            <PeriodDot color={RPT_PERIOD_COLORS[i]} /> {p}
                           </div>
                         ))}
                       </div>
                     </div>
                     <div className="flex flex-col items-center">
-                      <p style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 16, textAlign: 'center' }}>Consumo por periodo (kWh)</p>
-                      <BarChartSVG data={chartData} colors={PERIOD_COLORS} width={340} height={240} />
+                      <p style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 600, color: TEXT_SOFT, marginBottom: 16, textAlign: 'center', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Consumo por periodo (kWh)</p>
+                      <BarChartSVG data={chartData} colors={RPT_PERIOD_COLORS} width={340} height={240} />
                     </div>
                   </div>
                 </div>
               )
             })()}
 
-            {/* ════ SECTION: Detail per tariff (2.0TD, 3.0TD, 6.1TD) ════ */}
+            {/* ════ SECTION: Detalle por tarifa (2.0TD, 3.0TD, 6.1TD) ════ */}
             {(['2.0TD', '3.0TD', '6.1TD'] as const).map(tarifaLabel => {
               const tarifaRows = tarifaLabel === '2.0TD' ? classified.td20
                 : tarifaLabel === '3.0TD' ? classified.td30
@@ -633,11 +744,13 @@ export function TechnologicalReportView({
 
               const tableData = periods.map(p => ({ p, val: (sums as any)[p.toLowerCase()] || 0 }))
               const chartData = tableData.filter(d => d.val > 0).map(d => ({ label: d.p, value: d.val }))
+              const { fg: tagFg } = tariffTagStyle(tarifaLabel)
 
               return (
-                <div key={tarifaLabel} className="page-break" style={{ pageBreakBefore: 'always', breakBefore: 'page', paddingTop: '18mm' }}>
+                <div key={tarifaLabel} style={{ pageBreakBefore: 'always', breakBefore: 'page', paddingTop: '18mm' }}>
                   <SectionTitle num={nextNum()} title={`Consumos ${tarifaLabel}`}
-                    subtitle={`${tarifaRows.length} suministros · ${formatNumber(totalCon)} kWh totales`} />
+                    subtitle={`${tarifaRows.length} suministros · ${formatNumber(totalCon)} kWh totales`}
+                    color={tagFg} />
 
                   <DataTable
                     headers={[
@@ -647,11 +760,11 @@ export function TechnologicalReportView({
                     ]}
                     rows={tableData.map((row, i) => [
                       <span key="p" className="inline-flex items-center gap-2.5">
-                        <PeriodDot color={PERIOD_COLORS[i]} />
-                        <span style={{ fontWeight: 700, color: DARK }}>{row.p}</span>
-                        <span style={{ fontSize: 12, color: MUTED }}>{PERIOD_NAMES[row.p]}</span>
+                        <PeriodDot color={RPT_PERIOD_COLORS[i]} />
+                        <span style={{ fontWeight: 600, color: DARK }}>{row.p}</span>
+                        <span style={{ fontSize: 11, color: MUTED }}>{PERIOD_NAMES[row.p]}</span>
                       </span>,
-                      <span key="v" style={{ fontWeight: 700, color: DARK }}>{row.val > 0 ? formatNumber(row.val) : '—'}</span>,
+                      <span key="v" style={{ fontWeight: 600, color: DARK }}>{row.val > 0 ? formatNumber(row.val) : '—'}</span>,
                       <span key="pct" style={{ fontWeight: 700, color: row.val > 0 ? pctColor(row.val, periodTotal) : MUTED }}>{row.val > 0 ? fmtPct(row.val, periodTotal) : '—'}</span>,
                     ])}
                     footer={['TOTAL', formatNumber(periodTotal), '100,0 %']}
@@ -659,13 +772,13 @@ export function TechnologicalReportView({
 
                   <div className="flex justify-center mt-10" style={{ breakInside: 'avoid' }}>
                     <div className="flex flex-col items-center">
-                      <p style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 16 }}>Distribución porcentual</p>
-                      <DonutChart data={chartData} colors={PERIOD_COLORS} centerLabel={formatNumber(periodTotal)} centerSub="kWh" />
-                      <div className="mt-6 flex flex-wrap justify-center gap-2">
+                      <p style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 600, color: TEXT_SOFT, marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Distribución porcentual</p>
+                      <DonutChart data={chartData} colors={RPT_PERIOD_COLORS} centerLabel={formatNumber(periodTotal)} centerSub="kWh" />
+                      <div className="mt-5 flex flex-wrap justify-center gap-2">
                         {periods.map((p, i) => (
-                          <div key={p} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-bold"
-                            style={{ background: `${PERIOD_COLORS[i]}10`, color: PERIOD_COLORS[i], border: `1px solid ${PERIOD_COLORS[i]}20` }}>
-                            <PeriodDot color={PERIOD_COLORS[i]} /> {p} — {PERIOD_NAMES[p]}
+                          <div key={p} className="inline-flex items-center gap-1.5"
+                            style={{ background: PAPER, border: `1px solid ${BORDER}`, borderRadius: 9999, padding: '4px 9px', fontFamily: 'monospace', fontSize: 9, fontWeight: 600, color: TEXT_SOFT }}>
+                            <PeriodDot color={RPT_PERIOD_COLORS[i]} /> {p}
                           </div>
                         ))}
                       </div>
@@ -677,10 +790,10 @@ export function TechnologicalReportView({
 
             {/* ════ SECTION: Gas ════ */}
             {classified.gas.length > 0 && (
-              <div className="page-break" style={{ pageBreakBefore: 'always', breakBefore: 'page', paddingTop: '18mm' }}>
+              <div style={{ pageBreakBefore: 'always', breakBefore: 'page', paddingTop: '18mm' }}>
                 <SectionTitle num={nextNum()} title="Suministros de Gas"
                   subtitle={`${classified.gas.length} suministros · ${formatNumber(gasTotal)} kWh totales`}
-                  color="#10B981" />
+                  color={GAS_COLORS[1]} />
 
                 <DataTable
                   headers={[
@@ -695,10 +808,10 @@ export function TechnologicalReportView({
                     return [
                       <span key="rl" className="inline-flex items-center gap-2.5">
                         <PeriodDot color={GAS_COLORS[i % GAS_COLORS.length]} />
-                        <span style={{ fontWeight: 700, color: GAS_COLORS[i % GAS_COLORS.length] }}>{rl}</span>
+                        <span style={{ fontWeight: 600, color: DARK }}>{rl}</span>
                       </span>,
                       <span key="c" style={{ color: DARK }}>{grp.length}</span>,
-                      <span key="v" style={{ fontWeight: 700, color: DARK }}>{formatNumber(grpTotal)}</span>,
+                      <span key="v" style={{ fontWeight: 600, color: DARK }}>{formatNumber(grpTotal)}</span>,
                       <span key="pct" style={{ fontWeight: 700, color: pctColor(grpTotal, gasTotal) }}>{fmtPct(grpTotal, gasTotal)}</span>,
                     ]
                   })}
@@ -722,21 +835,24 @@ export function TechnologicalReportView({
             )}
 
             {/* ════ SECTION: Informe Breve ════ */}
-            <div className="page-break" style={{ pageBreakBefore: 'always', breakBefore: 'page', paddingTop: '18mm' }}>
+            <div style={{ pageBreakBefore: 'always', breakBefore: 'page', paddingTop: '18mm' }}>
               <SectionTitle num={nextNum()} title="Informe Breve"
-                subtitle="Resumen ejecutivo y conclusiones del estudio energético" color="#7C3AED" />
+                subtitle="Resumen ejecutivo y conclusiones del estudio energético" />
 
-              <div className="rounded-3xl border p-8 min-h-[200px]" style={{ borderColor: BORDER, background: `linear-gradient(135deg, #FAF5FF05 0%, white 100%)` }}>
+              <div style={{ border: `1px solid ${BORDER}`, borderRadius: 14, padding: '32px 36px', minHeight: 200, background: PAPER }}>
+                <div style={{ fontFamily: 'monospace', fontSize: 9, fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase', color: MUTED, marginBottom: 18 }}>
+                  Texto editable
+                </div>
                 {isEditing ? (
                   <textarea
                     value={informeBreve}
                     onChange={(e) => setInformeBreve(e.target.value)}
-                    className="w-full h-64 bg-white border rounded-2xl p-5 text-sm outline-none resize-y leading-relaxed"
-                    style={{ borderColor: `${ACCENT}30`, color: '#334155' }}
+                    className="w-full h-64 border rounded-[12px] p-5 text-sm outline-none resize-y leading-relaxed"
+                    style={{ borderColor: BORDER, color: TEXT_SOFT, background: SURFACE, fontFamily: 'inherit' }}
                     placeholder="Redacta aquí el informe breve o pega el texto desde otro documento..."
                   />
                 ) : (
-                  <div style={{ fontSize: 14, color: '#475569', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
+                  <div style={{ fontSize: 13.5, color: TEXT_SOFT, lineHeight: 1.85, whiteSpace: 'pre-wrap' }}>
                     {informeBreve || (
                       <p style={{ color: MUTED, fontStyle: 'italic' }}>
                         Pulsa &ldquo;Editar&rdquo; para redactar o pegar el informe breve aquí.
@@ -750,19 +866,20 @@ export function TechnologicalReportView({
             {/* ════ FOOTER ════ */}
             <div style={{ pageBreakBefore: 'always', breakBefore: 'page', minHeight: '40vh' }}
               className="flex flex-col items-center justify-center text-center py-24 px-12">
-              <div className="w-20 h-20 rounded-[24px] flex items-center justify-center mb-8"
-                style={{ background: `linear-gradient(135deg, ${DARK} 0%, #1E293B 100%)`, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                <Zap style={{ width: 36, height: 36, color: ACCENT_LIGHT }} />
+              <div className="flex items-center justify-center mb-6"
+                style={{ width: 56, height: 56, borderRadius: 16, background: ACCENT_SOFT, border: `1px solid ${BORDER}`, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                <VoltisLogo color={ACCENT} height={16} />
               </div>
-              <p style={{ fontSize: 20, fontWeight: 800, color: DARK, letterSpacing: '-0.01em' }}>VOLTIS SOLUCIONES SL</p>
-              <p style={{ fontSize: 13, color: MUTED, marginTop: 6 }}>Auditoría y Optimización Energética</p>
-              <div className="w-12 h-[2px] rounded-full mx-auto my-8" style={{ backgroundColor: `${ACCENT}30` }} />
-              <p style={{ fontSize: 11, color: MUTED }}>
+              <p style={{ fontSize: 18, fontWeight: 600, color: DARK, letterSpacing: '0.02em' }}>VOLTIS SOLUCIONES SL</p>
+              <p style={{ fontSize: 12, color: MUTED, marginTop: 6 }}>Auditoría y optimización energética</p>
+              <div style={{ width: 40, height: 2, borderRadius: 2, background: ACCENT, opacity: 0.4, margin: '22px auto', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }} />
+              <p style={{ fontFamily: 'monospace', fontSize: 10, color: MUTED }}>
                 Documento generado automáticamente por Voltis CRM · {dateStr}
               </p>
             </div>
-          </div>
-        </div>
+
+          </div>{/* end body */}
+        </div>{/* end audit-report */}
       </div>
     </div>
   )
