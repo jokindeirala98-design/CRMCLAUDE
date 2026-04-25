@@ -1585,11 +1585,14 @@ function extractCurrentPowerPrices(invoices: InvoiceRow[]): { P1: number; P2: nu
     const prices: Record<string, number> = {}
     for (const item of potArr) {
       const p = String(item.periodo || '')
-      if (!['P1', 'P2'].includes(p)) continue
+      if (!['P1', 'P2', 'P3'].includes(p)) continue
       const price = Number(item.precioKwDia) || Number(item.precioKw) || Number(item.precioUnitario) || 0
       if (price > 0 && price < 1) prices[p] = price
     }
-    if (prices.P1 || prices.P2) return { P1: prices.P1 || 0, P2: prices.P2 || 0 }
+    if (prices.P1 || prices.P2 || prices.P3) {
+      // Algunas 2.0TD registran la potencia valle en P3 en lugar de P2
+      return { P1: prices.P1 || 0, P2: prices.P2 > 0 ? prices.P2 : (prices.P3 || 0) }
+    }
   }
   return { P1: 0, P2: 0 }
 }
@@ -2152,8 +2155,13 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
     const consumoP1 = consumoPeriodos.P1 || 0
     const consumoP2 = consumoPeriodos.P2 || 0
     const consumoP3 = consumoPeriodos.P3 || 0
-    const potP1 = potenciaContratada.P1 || 0
-    const potP2 = potenciaContratada.P2 || 0
+    // Algunas 2.0TD en SIPS vienen con potencia en P1 y P3 (valle en P3 en vez de P2).
+    // Si P2=0 y P3>0, usamos P3 como segundo período de potencia (valle).
+    const rawPotP1 = potenciaContratada.P1 || 0
+    const rawPotP2 = potenciaContratada.P2 || 0
+    const rawPotP3 = (potenciaContratada as any).P3 || 0
+    const potP1 = rawPotP1
+    const potP2 = rawPotP2 > 0 ? rawPotP2 : rawPotP3
     if (!consumoP1 && !consumoP2 && !consumoP3) return null
 
     const currentEnergyPrice = summaryStats.precioPromedio
