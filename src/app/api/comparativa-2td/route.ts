@@ -30,18 +30,18 @@ const A = 1, B = 2, C = 3, D = 4, E = 5, F = 6, G = 7, H = 8, I = 9,
 
 // ─── Template colors (ARGB, no #) — matches original TIENDA template ─────────
 const CLR = {
-  ink:        'FF1F2937',   // near-black text
-  ink3:       'FF4B5563',   // secondary text
-  ink4:       'FF9CA3AF',   // tertiary text
-  crema:      'FFFFFEF7',   // very light cream bg
+  ink:        'FF000000',   // black text
+  ink3:       'FF404040',   // dark gray secondary text
+  ink4:       'FF808080',   // medium gray tertiary text
+  crema:      'FFFFFFFF',   // white for data cells
   paper:      'FFFFFFFF',   // white
   line:       'FFD1D5DB',   // light border
-  line2:      'FFB8B8B8',   // medium gray border (thin lines)
-  salvia:     'FF548235',   // medium forest green
-  salviaDark: 'FF375623',   // dark forest green (main headers)
-  salviaSoft: 'FFE2EFDA',   // pale green (new tariff rows)
-  volt:       'FFFFC000',   // amber/gold (total savings highlight)
-  voltDark:   'FF7F5F00',   // dark amber (text on amber bg)
+  line2:      'FF000000',   // BLACK borders (as in original template)
+  salvia:     'FF31849B',   // medium teal (NUEVO label)
+  salviaDark: 'FF17375E',   // dark navy (main section headers)
+  salviaSoft: 'FFB7DEE8',   // light cyan (POR POTENCIA, DIFERENCIA bg)
+  volt:       'FFC6EFCE',   // light green (total savings highlight)
+  voltDark:   'FF375623',   // dark green (text on savings cells)
   white:      'FFFFFFFF',
   green:      'FF375623',   // positive savings text
   greenSoft:  'FFC6EFCE',   // positive savings bg
@@ -163,7 +163,7 @@ export async function POST(req: NextRequest) {
     const powBg     = N10 >= 0 ? CLR.greenSoft : CLR.redSoft
     const eneColor  = Q30 >= 0 ? CLR.green    : CLR.red
     const eneBg     = Q30 >= 0 ? CLR.greenSoft : CLR.redSoft
-    const totColor  = R16 >= 0 ? CLR.voltDark : CLR.red
+    const totColor  = R16 >= 0 ? CLR.voltDark  : CLR.red   // dark green on light green bg
 
     // ── Workbook ───────────────────────────────────────────────────────────────
     const wb = new ExcelJS.Workbook()
