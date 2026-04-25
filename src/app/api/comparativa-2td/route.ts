@@ -189,19 +189,36 @@ export async function POST(req: NextRequest) {
     ws.getColumn(K).width = 12
     ws.getColumn(L).width = 12
     ws.getColumn(M).width = 14.5    // template: 14.5
-    ws.getColumn(N).width = 14.33   // template: 14.33
-    ws.getColumn(O).width = 12.33   // template: 12.33
-    ws.getColumn(P).width = 14.5    // template: 14.5
-    ws.getColumn(Q).width = 17.5    // template: 17.5
-    ws.getColumn(R).width = 16.33   // template: 16.33
+    ws.getColumn(N).width = 13      // logo block col 1
+    ws.getColumn(O).width = 13      // logo block col 2
+    ws.getColumn(P).width = 13      // logo block col 3
+    ws.getColumn(Q).width = 20      // client name (wider for long names)
+    ws.getColumn(R).width = 18      // client name col 2
 
     // ══════════════════════════════════════════════════════════════════════════
-    // CLIENT HEADER — columns Q-R rows 1-2 (empty in template, safe to use)
+    // VOLTIS LOGO + DATOS CLIENTE — columnas N-R, filas 1-3
     // ══════════════════════════════════════════════════════════════════════════
-    sc(ws, 1, Q, titular.toUpperCase(), { bold: true, size: 11, color: CLR.white, bg: CLR.salviaDark, align: 'center' })
-    sc(ws, 2, Q, cups, { size: 9, color: CLR.ink4, italic: true, align: 'center', bg: CLR.crema })
-    sc(ws, 1, R, tariff.name.toUpperCase(), { bold: true, size: 10, color: CLR.salviaDark, bg: CLR.salviaSoft, align: 'center' })
-    sc(ws, 2, R, 'TARIFA VOLTIS', { bold: true, size: 9, color: CLR.ink3, bg: CLR.salviaSoft, align: 'center' })
+
+    // Bloque logo izquierdo: N1:P3
+    mc(ws, 1, N, 1, P, 'VOLTIS', {
+      bold: true, size: 20, color: CLR.white, bg: CLR.salviaDark, align: 'center',
+    })
+    mc(ws, 2, N, 2, P, 'energía', {
+      italic: true, size: 14, color: CLR.salvia, bg: CLR.salviaSoft, align: 'center',
+    })
+    mc(ws, 3, N, 3, P, tariff.name.toUpperCase(), {
+      bold: true, size: 9, color: CLR.ink3, bg: CLR.salviaSoft, align: 'center',
+    })
+
+    // Nombre del cliente — Q1:R1 fusionado, siempre arriba
+    mc(ws, 1, Q, 1, R, titular.toUpperCase(), {
+      bold: true, size: 12, color: CLR.white, bg: CLR.salviaDark, align: 'center', wrap: true,
+    })
+
+    // CUPS — Q2:R2 fusionado, debajo del nombre
+    mc(ws, 2, Q, 2, R, cups, {
+      italic: true, size: 9, color: CLR.ink4, bg: CLR.crema, align: 'center',
+    })
 
     // ══════════════════════════════════════════════════════════════════════════
     // POTENCIAS SECTION (rows 1–16)
