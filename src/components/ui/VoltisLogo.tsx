@@ -1,7 +1,7 @@
 import React from 'react'
 
 interface VoltisLogoProps {
-  /** Height in pixels (width scales proportionally, ~3.6:1 ratio) */
+  /** Height in pixels (width scales proportionally, ~2:1 ratio) */
   height?: number
   /** Main wordmark color. Defaults to brand dark green. */
   color?: string
@@ -12,8 +12,8 @@ interface VoltisLogoProps {
 
 /**
  * Voltis Energía brand wordmark as inline SVG.
- * Aspect ratio ≈ 360 × 100 (3.6 : 1).
- * Colors aligned with themeSalvia design system.
+ * Layout: "Voltis" grande arriba, "energía" centrado debajo.
+ * Aspect ratio ≈ 2 : 1.
  */
 export function VoltisLogo({
   height = 40,
@@ -21,36 +21,40 @@ export function VoltisLogo({
   subtitleColor = '#6B8068',
   className,
 }: VoltisLogoProps) {
-  const w = Math.round(3.6 * height)
+  const w = Math.round(2 * height)
   return (
     <svg
       width={w}
       height={height}
-      viewBox="0 0 360 100"
+      viewBox="0 0 240 120"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
       aria-label="Voltis Energía"
       role="img"
       style={{ display: 'block' }}
     >
-      {/* "Voltis" wordmark */}
+      {/* "Voltis" wordmark — centrado horizontalmente */}
       <text
-        x="0" y="72"
+        x="120"
+        y="74"
+        textAnchor="middle"
         fontFamily='"Inter Tight", "Inter", -apple-system, sans-serif'
         fontWeight="700"
-        fontSize="80"
-        letterSpacing="-3"
+        fontSize="76"
+        letterSpacing="-2"
         fill={color}
       >
         Voltis
       </text>
-      {/* "energía" subtitle */}
+      {/* "energía" subtitle — centrado debajo de Voltis */}
       <text
-        x="234" y="96"
+        x="120"
+        y="112"
+        textAnchor="middle"
         fontFamily='"Inter Tight", "Inter", -apple-system, sans-serif'
         fontWeight="400"
-        fontSize="22"
-        letterSpacing="0.5"
+        fontSize="26"
+        letterSpacing="2"
         fill={subtitleColor}
       >
         energía

@@ -137,21 +137,73 @@ export default function AuditReportPage() {
   }
 
   const handlePrint = () => {
-    const style = document.createElement('style')
-    style.id = '__print_report'
-    style.textContent = `
-      @media print {
-        body * { visibility: hidden !important; }
-        #audit-report, #audit-report * { visibility: visible !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-        #audit-report { position: absolute; left: 0; top: 0; width: 100% !important; background: white !important; }
-        .no-print { display: none !important; }
-        .page-break { page-break-before: always; break-before: page; padding-top: 15mm; }
-        @page { margin: 15mm 15mm; size: A4 portrait; }
+    const reportEl = document.getElementById('audit-report')
+    if (!reportEl) return
+
+    // Recopilar todas las hojas de estilo (Tailwind, etc.)
+    const styleLinks: string[] = []
+    const styleBlocks: string[] = []
+    Array.from(document.styleSheets).forEach(ss => {
+      try {
+        if (ss.href) {
+          styleLinks.push(`<link rel="stylesheet" href="${ss.href}">`)
+        } else {
+          const rules = Array.from(ss.cssRules).map(r => r.cssText).join('\n')
+          if (rules) styleBlocks.push(`<style>${rules}</style>`)
+        }
+      } catch {
+        if (ss.href) styleLinks.push(`<link rel="stylesheet" href="${ss.href}">`)
       }
-    `
-    document.head.appendChild(style)
-    window.print()
-    document.head.removeChild(style)
+    })
+
+    const clientName = client?.name || 'cliente'
+    const reportHtml = reportEl.outerHTML
+
+    const printWindow = window.open('', '_blank', 'width=900,height=700')
+    if (!printWindow) return
+
+    printWindow.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Estudio de suministros (${clientName})</title>
+  ${styleLinks.join('\n')}
+  ${styleBlocks.join('\n')}
+  <style>
+    *, *::before, *::after {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    @page { margin: 10mm 8mm; size: A4 portrait; }
+    html, body { margin: 0; padding: 0; background: #F4EEE2; }
+    /* Quitar overflow hidden y sombras del contenedor raíz */
+    #audit-report {
+      overflow: visible !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+    }
+  </style>
+</head>
+<body>
+  ${reportHtml}
+</body>
+</html>`)
+    printWindow.document.close()
+
+    // Esperar a que carguen fuentes/estilos y luego imprimir
+    const doPrint = () => {
+      setTimeout(() => {
+        printWindow.focus()
+        printWindow.print()
+        printWindow.close()
+      }, 600)
+    }
+
+    if (printWindow.document.readyState === 'complete') {
+      doPrint()
+    } else {
+      printWindow.onload = doPrint
+    }
   }
 
   if (loading) {

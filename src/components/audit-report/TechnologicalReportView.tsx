@@ -62,16 +62,18 @@ function tariffTagStyle(tariff: string) {
 }
 
 // ─── Voltis Wordmark (SVG inline) ─────────────────────────────────────────────
-function VoltisLogo({ color = ACCENT, height = 22 }: { color?: string; height?: number }) {
-  const w = height * 3.6
+// Layout: "Voltis" grande arriba, "energía" centrado debajo. Ratio ≈ 2:1.
+function VoltisLogo({ color = ACCENT, subtitleColor, height = 22 }: { color?: string; subtitleColor?: string; height?: number }) {
+  const subColor = subtitleColor ?? color
+  const w = Math.round(height * 2)
   return (
-    <svg viewBox="0 0 360 100" width={w} height={height} style={{ display: 'block' }} aria-label="Voltis energía">
-      <text x="0" y="68" fill={color}
+    <svg viewBox="0 0 240 120" width={w} height={height} style={{ display: 'block' }} aria-label="Voltis energía">
+      <text x="120" y="74" textAnchor="middle" fill={color}
         fontFamily='"Inter Tight","Inter",-apple-system,sans-serif'
-        fontSize="78" fontWeight="600" letterSpacing="-3">Voltis</text>
-      <text x="232" y="92" fill={color}
+        fontSize="76" fontWeight="700" letterSpacing="-2">Voltis</text>
+      <text x="120" y="112" textAnchor="middle" fill={subColor}
         fontFamily='"Inter Tight","Inter",-apple-system,sans-serif'
-        fontSize="22" fontWeight="400" letterSpacing="0.5">energía</text>
+        fontSize="26" fontWeight="400" letterSpacing="2">energía</text>
     </svg>
   )
 }
@@ -619,16 +621,16 @@ export function TechnologicalReportView({
 
             {/* Top bar */}
             <div className="flex items-center justify-between px-12 pt-10 pb-5" style={{ borderBottom: `1px solid ${BORDER}` }}>
-              <VoltisLogo color={ACCENT} height={20} />
+              <VoltisLogo color={ACCENT} height={28} />
               <span style={{ fontFamily: 'monospace', fontSize: 11, color: MUTED }}>{dateStr}</span>
             </div>
 
             {/* Cover content */}
             <div className="flex flex-col items-center text-center px-12 pt-16 pb-16">
-              {/* Mark */}
+              {/* Mark — logo apilado grande en el cuadro de portada */}
               <div className="flex items-center justify-center mb-10"
-                style={{ width: 88, height: 88, borderRadius: 24, background: ACCENT_SOFT, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                <VoltisLogo color={ACCENT} height={18} />
+                style={{ width: 120, height: 120, borderRadius: 28, background: ACCENT_SOFT, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                <VoltisLogo color={ACCENT} height={52} />
               </div>
 
               <p style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 600, letterSpacing: '0.32em', textTransform: 'uppercase', color: ACCENT, marginBottom: 18 }}>
@@ -1054,8 +1056,8 @@ export function TechnologicalReportView({
             <div style={{ pageBreakBefore: 'always', breakBefore: 'page', minHeight: '40vh' }}
               className="flex flex-col items-center justify-center text-center py-24 px-12">
               <div className="flex items-center justify-center mb-6"
-                style={{ width: 56, height: 56, borderRadius: 16, background: ACCENT_SOFT, border: `1px solid ${BORDER}`, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                <VoltisLogo color={ACCENT} height={16} />
+                style={{ width: 80, height: 80, borderRadius: 20, background: ACCENT_SOFT, border: `1px solid ${BORDER}`, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                <VoltisLogo color={ACCENT} height={36} />
               </div>
               <p style={{ fontSize: 18, fontWeight: 600, color: DARK, letterSpacing: '0.02em' }}>VOLTIS SOLUCIONES SL</p>
               <p style={{ fontSize: 12, color: MUTED, marginTop: 6 }}>Auditoría y optimización energética</p>
