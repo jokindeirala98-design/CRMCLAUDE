@@ -11,16 +11,16 @@ const config: Config = {
       colors: {
         // ─── Editorial + Instrumento — Voltis v2 ───────────────────────
 
-        // Raw neutrals (warm)
-        bg: '#FAFAF7',
-        'bg-2': '#F3F2EC',
-        ink: '#141413',
-        'ink-2': '#3B3B38',
-        'ink-3': '#6C6C66',
-        'ink-4': '#A6A59D',
-        line: '#E6E4DB',
-        'line-2': '#D2D0C4',
-        card: '#FFFFFF',
+        // Raw neutrals — warm crema palette (themeSalvia)
+        bg: '#F4EEE2',       // crema canvas — fondo global
+        'bg-2': '#EDE8DC',   // crema medio — sidebar, secciones
+        ink: '#2D3A33',      // verde oscuro cálido — texto principal
+        'ink-2': '#3D4E44',
+        'ink-3': '#5A6B5F',
+        'ink-4': '#8A9A8E',
+        line: '#E5DCC9',     // borde crema-durazno
+        'line-2': '#D9D0BA',
+        card: '#FBF7EE',     // papel crema — fondo de cards
 
         // Brand
         brand: '#1F3A2E',

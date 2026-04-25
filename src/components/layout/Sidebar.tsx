@@ -171,7 +171,7 @@ export function Sidebar() {
       </nav>
 
       {/* Bottom section */}
-      <div className="px-3 pb-4 space-y-1 border-t border-[#E5DCC9] pt-3">
+      <div className="px-3 pb-4 space-y-1 border-t border-line pt-3">
         <Link
           href="/settings"
           className={cn(
@@ -187,7 +187,7 @@ export function Sidebar() {
 
         {/* User card */}
         <div className={cn(
-          'flex items-center gap-3 px-3 py-2.5 rounded-lg bg-[#F4EEE2]',
+          'flex items-center gap-3 px-3 py-2.5 rounded-lg bg-bg',
           collapsed && 'justify-center'
         )}>
           <div className="w-7 h-7 rounded-full bg-brand flex items-center justify-center flex-shrink-0">
@@ -223,7 +223,7 @@ export function Sidebar() {
     <motion.aside
       animate={{ width: collapsed ? 64 : 240 }}
       transition={{ type: 'spring', damping: 28, stiffness: 220 }}
-      className="hidden lg:flex flex-col h-screen bg-[#FBF7EE] border-r border-[#E5DCC9] sticky top-0 overflow-hidden"
+      className="hidden lg:flex flex-col h-screen bg-card border-r border-line sticky top-0 overflow-hidden"
     >
       {sidebarContent}
     </motion.aside>

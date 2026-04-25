@@ -11,16 +11,16 @@
 /* ─── CSS Variables ──────────────────────────────────────────────────── */
 @layer base {
   :root {
-    /* Raw palette */
-    --color-bg:        #FAFAF7;
-    --color-bg-2:      #F3F2EC;
-    --color-ink:       #141413;
-    --color-ink-2:     #3B3B38;
-    --color-ink-3:     #6C6C66;
-    --color-ink-4:     #A6A59D;
-    --color-line:      #E6E4DB;
-    --color-line-2:    #D2D0C4;
-    --color-card:      #FFFFFF;
+    /* Raw palette — warm crema (themeSalvia) */
+    --color-bg:        #F4EEE2;
+    --color-bg-2:      #EDE8DC;
+    --color-ink:       #2D3A33;
+    --color-ink-2:     #3D4E44;
+    --color-ink-3:     #5A6B5F;
+    --color-ink-4:     #8A9A8E;
+    --color-line:      #E5DCC9;
+    --color-line-2:    #D9D0BA;
+    --color-card:      #FBF7EE;
 
     /* Brand */
     --color-brand:     #1F3A2E;
@@ -65,8 +65,7 @@
   }
 
   body {
-    background-color: #F4EEE2;
-    color: #2D3A33;
+    @apply bg-bg text-ink;
   }
 
   /* Minimal scrollbar */
