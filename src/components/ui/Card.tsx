@@ -13,7 +13,7 @@ export function Card({ children, className, accent, onClick, ...rest }: CardProp
       {...rest}
       onClick={onClick}
       className={cn(
-        'bg-card rounded-xl border border-line p-5 transition-all duration-150',
+        'bg-[#FBF7EE] rounded-xl border border-[#E5DCC9] p-5 transition-all duration-150',
         accent && 'border-l-2 border-l-brand',
         onClick && 'cursor-pointer hover:border-line-2 hover:shadow-ambient-sm',
         className

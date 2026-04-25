@@ -65,7 +65,8 @@
   }
 
   body {
-    @apply bg-bg text-ink;
+    background-color: #F4EEE2;
+    color: #2D3A33;
   }
 
   /* Minimal scrollbar */
