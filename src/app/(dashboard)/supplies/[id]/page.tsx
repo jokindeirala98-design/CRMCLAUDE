@@ -2600,7 +2600,6 @@ export default function SupplyDetailPage() {
             const cd = supply.consumption_data as any
             if (!cd) return []
             const keys = ['P1','P2','P3','P4','P5','P6']
-            // Primary: consumoPeriodos object
             if (cd.consumoPeriodos && typeof cd.consumoPeriodos === 'object' && !Array.isArray(cd.consumoPeriodos)) {
               const vals = keys.map(k => Number(cd.consumoPeriodos[k] ?? 0))
               if (vals.some(v => v > 0)) return vals
@@ -2617,7 +2616,6 @@ export default function SupplyDetailPage() {
             const cd = supply.consumption_data as any
             if (!cd) return []
             const keys = ['P1','P2','P3','P4','P5','P6']
-            // Primary: potenciaContratada object
             if (cd.potenciaContratada && typeof cd.potenciaContratada === 'object' && !Array.isArray(cd.potenciaContratada)) {
               const vals = keys.map(k => Number(cd.potenciaContratada[k] ?? 0))
               if (vals.some(v => v > 0)) return vals
@@ -2629,6 +2627,45 @@ export default function SupplyDetailPage() {
               if (v !== undefined) powers.push(Number(v))
             }
             return powers
+          })()}
+          currentAvgEnergyPrice={(() => {
+            // Average €/kWh from all processed invoices
+            const invs: any[] = supply.invoices || []
+            let totalKwh = 0, totalEur = 0
+            for (const inv of invs) {
+              const eco = inv.extracted_data?.economics || {}
+              const kwh = Number(eco.consumoTotalKwh) || 0
+              const eur = Number(eco.costeTotalConsumo) || Number(eco.costeNetoConsumo) || 0
+              if (kwh > 0 && eur > 0) { totalKwh += kwh; totalEur += eur }
+            }
+            return totalKwh > 0 ? totalEur / totalKwh : 0
+          })()}
+          currentPowerPriceP1={(() => {
+            // Most recent invoice with P1 potencia price
+            const invs: any[] = [...(supply.invoices || [])].sort((a: any, b: any) => {
+              const d = (i: any) => i.extracted_data?.billing_period_end || i.extracted_data?.fecha_fin || ''
+              return d(b).localeCompare(d(a))
+            })
+            for (const inv of invs) {
+              const potArr = inv.extracted_data?.economics?.potencia || []
+              const p1 = potArr.find((x: any) => x.periodo === 'P1')
+              const price = Number(p1?.precioKwDia) || Number(p1?.precioKw) || 0
+              if (price > 0 && price < 1) return price
+            }
+            return 0
+          })()}
+          currentPowerPriceP2={(() => {
+            const invs: any[] = [...(supply.invoices || [])].sort((a: any, b: any) => {
+              const d = (i: any) => i.extracted_data?.billing_period_end || i.extracted_data?.fecha_fin || ''
+              return d(b).localeCompare(d(a))
+            })
+            for (const inv of invs) {
+              const potArr = inv.extracted_data?.economics?.potencia || []
+              const p2 = potArr.find((x: any) => x.periodo === 'P2')
+              const price = Number(p2?.precioKwDia) || Number(p2?.precioKw) || 0
+              if (price > 0 && price < 1) return price
+            }
+            return 0
           })()}
           onClose={() => setEconomicStudyOpen(false)}
         />
