@@ -1106,6 +1106,462 @@ function AuditMatrixTable<T extends { mes: string; periods: Record<string, unkno
   )
 }
 
+// ─── PDF Generators (themeSalvia — cream/paper, salvia green, no dark mode) ──
+
+const MONTHS_SHORT = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
+
+function _pdfFmt(v: number, dec = 2): string {
+  return v.toLocaleString('es-ES', { minimumFractionDigits: dec, maximumFractionDigits: dec })
+}
+
+function _buildLineSVG(points: { x: number; y: number }[], accent: string, accentDark: string, monthLabels: string[]): string {
+  const W = 750, H = 280
+  const pad = { top: 20, right: 20, left: 60, bottom: 40 }
+  const plotH = H - pad.top - pad.bottom
+
+  const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
+  const last = points[points.length - 1], first = points[0]
+  const fillD = `${pathD} L${last.x.toFixed(1)},${(pad.top + plotH).toFixed(1)} L${first.x.toFixed(1)},${(pad.top + plotH).toFixed(1)} Z`
+
+  const gridLines = [0, 0.25, 0.5, 0.75, 1].map(t => {
+    const y = pad.top + (1 - t) * plotH
+    return `<line x1="${pad.left}" y1="${y.toFixed(1)}" x2="${W - pad.right}" y2="${y.toFixed(1)}" stroke="rgba(45,58,51,0.07)" stroke-width="1"/>`
+  }).join('')
+
+  const labelIdxs = [0, Math.floor((points.length - 1) / 2), points.length - 1]
+  const xLabels = labelIdxs.map(i => {
+    if (!points[i] || !monthLabels[i]) return ''
+    return `<text x="${points[i].x.toFixed(1)}" y="${(H - 6).toFixed(0)}" fill="#8A9A8E" font-size="9" text-anchor="middle">${monthLabels[i]}</text>`
+  }).join('')
+
+  const circles = points.map(p =>
+    `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="5" fill="${accent}" stroke="${accentDark}" stroke-width="2"/>`
+  ).join('')
+
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="max-width:100%;height:auto;display:block">
+  <defs>
+    <linearGradient id="lg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="${accent}" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="${accent}" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  ${gridLines}
+  <path d="${fillD}" fill="url(#lg)"/>
+  <path d="${pathD}" stroke="${accent}" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  ${circles}
+  ${xLabels}
+</svg>`
+}
+
+function _buildDonutSVG(segments: { label: string; value: number; color: string }[]): string {
+  const total = segments.reduce((s, p) => s + p.value, 0)
+  if (total <= 0) return '<svg width="200" height="200"><text x="100" y="105" text-anchor="middle" fill="#8A9A8E" font-size="11">Sin datos</text></svg>'
+  const cx = 100, cy = 100, ri = 50, ro = 90
+  let angle = -Math.PI / 2
+  const slices: { path: string; color: string; label: string; pct: string }[] = []
+
+  for (const seg of segments) {
+    if (seg.value <= 0) continue
+    const sweep = (seg.value / total) * 2 * Math.PI
+    if (sweep < 0.017) { angle += sweep; continue }
+    const x1 = cx + ro * Math.cos(angle), y1 = cy + ro * Math.sin(angle)
+    const x2 = cx + ro * Math.cos(angle + sweep), y2 = cy + ro * Math.sin(angle + sweep)
+    const ix1 = cx + ri * Math.cos(angle), iy1 = cy + ri * Math.sin(angle)
+    const ix2 = cx + ri * Math.cos(angle + sweep), iy2 = cy + ri * Math.sin(angle + sweep)
+    const lg = sweep > Math.PI ? 1 : 0
+    const path = `M${x1.toFixed(1)},${y1.toFixed(1)} A${ro},${ro} 0 ${lg},1 ${x2.toFixed(1)},${y2.toFixed(1)} L${ix2.toFixed(1)},${iy2.toFixed(1)} A${ri},${ri} 0 ${lg},0 ${ix1.toFixed(1)},${iy1.toFixed(1)} Z`
+    slices.push({ path, color: seg.color, label: seg.label, pct: (seg.value / total * 100).toFixed(1) })
+    angle += sweep
+  }
+
+  const paths = slices.map(s => `<path d="${s.path}" fill="${s.color}"/>`).join('')
+  const legend = slices.map((s, i) =>
+    `<g transform="translate(0,${i * 22})">
+      <rect width="10" height="10" fill="${s.color}" rx="2"/>
+      <text x="15" y="9" font-size="10" fill="#5A6B5F">${s.label}: ${s.pct}%</text>
+    </g>`
+  ).join('')
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 200" style="max-width:100%;height:auto;display:block">
+  ${paths}
+  <text x="${cx}" y="${cy - 6}" text-anchor="middle" font-size="9" fill="#8A9A8E">TOTAL</text>
+  <text x="${cx}" y="${cy + 10}" text-anchor="middle" font-size="13" fill="#2D3A33" font-weight="900">${_pdfFmt(total)}</text>
+  <text x="${cx}" y="${cy + 22}" text-anchor="middle" font-size="9" fill="#8A9A8E">EUR</text>
+  <g transform="translate(215, ${Math.max(4, (200 - slices.length * 22) / 2)})">${legend}</g>
+</svg>`
+}
+
+function _pdfCss(accent: string): string {
+  return `
+@page { size: A4; margin: 0; }
+@media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, -apple-system, sans-serif; background: #F4EEE2; color: #2D3A33; }
+.page { width: 210mm; min-height: 297mm; padding: 14mm 15mm; page-break-after: always; background: #F4EEE2; display: flex; flex-direction: column; }
+.page:last-child { page-break-after: auto; }
+.cover { justify-content: center; align-items: center; text-align: center; gap: 12px; }
+.logo { font-size: 64px; font-weight: 900; color: ${accent}; letter-spacing: -2px; }
+.logo-sub { font-size: 12px; letter-spacing: 0.4em; color: #8A9A8E; text-transform: uppercase; margin-top: 4px; }
+.divider { width: 80px; height: 4px; background: ${accent}; border-radius: 9999px; margin: 20px auto; }
+.cover-name { font-size: 32px; font-weight: 900; color: #2D3A33; margin-bottom: 20px; }
+.cups-badge { display: inline-flex; align-items: center; gap: 10px; padding: 9px 22px; border-radius: 9999px; border: 1px solid #E5DCC9; background: #FBF7EE; margin-bottom: 10px; font-size: 11px; }
+.cups-label { color: #8A9A8E; letter-spacing: 0.2em; font-weight: 700; }
+.cups-value { color: #2D3A33; font-weight: 700; font-family: monospace; }
+.tarifa-tag { font-size: 11px; color: ${accent}; letter-spacing: 0.3em; font-weight: 700; text-transform: uppercase; }
+.audit-tag { font-size: 10px; color: #8A9A8E; letter-spacing: 0.3em; margin-top: 28px; text-transform: uppercase; }
+.eye { font-size: 11px; font-weight: 700; color: ${accent}; letter-spacing: 0.4em; text-transform: uppercase; margin-bottom: 5px; }
+.hdg { font-size: 26px; font-weight: 900; color: #2D3A33; letter-spacing: -0.02em; margin-bottom: 20px; }
+.kpi { background: #FBF7EE; border: 1px solid rgba(107,128,104,0.18); border-radius: 20px; padding: 26px 32px; text-align: center; }
+.kpi-lbl { font-size: 10px; font-weight: 700; color: #8A9A8E; letter-spacing: 0.3em; text-transform: uppercase; margin-bottom: 8px; }
+.kpi-val { font-size: 44px; font-weight: 900; color: #2D3A33; line-height: 1; }
+.kpi-val-sm { font-size: 30px; }
+.kpi-unit { font-size: 12px; color: ${accent}; font-weight: 700; letter-spacing: 0.1em; margin-top: 5px; }
+.kpi-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+.period-block { background: #E0E8DC; border-radius: 14px; padding: 16px 20px; margin-top: 16px; display: flex; flex-wrap: wrap; gap: 20px; align-items: center; justify-content: center; }
+.period-item { text-align: center; }
+.period-lbl { font-size: 9px; font-weight: 700; color: #5A6B5F; letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 3px; }
+.period-val { font-size: 13px; font-weight: 900; color: #2D3A33; }
+.card { background: #FBF7EE; border: 1px solid #E5DCC9; border-radius: 14px; overflow: hidden; margin-top: 16px; }
+.card-hd { font-size: 10px; font-weight: 700; color: ${accent}; letter-spacing: 0.3em; text-transform: uppercase; padding: 13px 18px 10px; border-bottom: 1px solid #E5DCC9; }
+table { width: 100%; border-collapse: collapse; font-size: 10px; }
+th { font-size: 8.5px; font-weight: 700; color: #8A9A8E; text-transform: uppercase; letter-spacing: 0.07em; padding: 7px 9px; border-bottom: 2px solid #E5DCC9; text-align: right; white-space: nowrap; }
+th:first-child { text-align: left; }
+td { font-size: 10px; color: #2D3A33; padding: 7px 9px; border-bottom: 1px solid rgba(229,220,201,0.35); text-align: right; }
+td:first-child { font-weight: 600; text-align: left; color: #3D4E44; }
+.t3 { color: #ef4444 !important; font-weight: 800 !important; background: rgba(239,68,68,0.05) !important; }
+.est { color: #ca8a04 !important; }
+.tot td { background: rgba(107,128,104,0.09); border-top: 2px solid #E5DCC9; font-weight: 900; color: ${accent}; font-size: 10.5px; }
+.gas-tot td { background: rgba(249,115,22,0.07); border-top: 2px solid rgba(249,115,22,0.25); font-weight: 900; color: #f97316; }
+.excess-box { background: #FFF9ED; border: 1px solid rgba(245,158,11,0.28); border-radius: 14px; padding: 16px 18px; margin-top: 16px; }
+.excess-hd { font-size: 10px; font-weight: 700; color: #d97706; letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 10px; }
+.closing { justify-content: center; align-items: center; text-align: center; background: #FBF7EE; position: relative; }
+.closing-box { background: #F4EEE2; border: 1px solid #E5DCC9; border-radius: 24px; padding: 44px 60px; }
+.closing-logo { font-size: 52px; font-weight: 900; color: ${accent}; letter-spacing: -2px; }
+.closing-contact { font-size: 13px; color: #5A6B5F; margin-top: 22px; line-height: 2.1; }
+.closing-footer { font-size: 9px; color: #8A9A8E; letter-spacing: 0.2em; text-transform: uppercase; position: absolute; bottom: 14mm; left: 0; right: 0; text-align: center; }
+`
+}
+
+function openElectricityPDF(params: {
+  cups: string; tarifa: string; titular: string
+  activePeriods: string[]
+  chartData: { monthIndex: number; totalFactura: number }[]
+  tableData: { mes: string; kwhByPeriod: Record<string, number>; pricesByPeriod: Record<string, number>; periodSpend: Record<string, { eur: number; isEstimated: boolean }>; totalKwh: number; avgPrice: number; totalFactura: number }[]
+  summaryStats: { global: number; kwh: number; precioPromedio: number; docsCount: number }
+  pieData: { label: string; value: number; color: string }[]
+  averagePriceStats: { period: string; avgPrice: number }[]
+  hasExcesses: boolean
+  excessData: { name: string; excessAmount: number }[]
+  totalExcessAmount: number
+}) {
+  const { cups, tarifa, titular, activePeriods, chartData, tableData, summaryStats, pieData, averagePriceStats, hasExcesses, excessData, totalExcessAmount } = params
+  const ACCENT = '#6B8068', ACCENT_D = '#5A6E58'
+
+  // Line chart coords
+  const W = 750, H = 280, pad = { top: 20, right: 20, left: 60, bottom: 40 }
+  const plotW = W - pad.left - pad.right, plotH = H - pad.top - pad.bottom
+  const vals = chartData.map(d => d.totalFactura)
+  const maxVal = Math.max(...vals.filter(v => v > 0), 1) * 1.15
+  const pts = chartData.map((d, i) => ({
+    x: pad.left + (i / Math.max(chartData.length - 1, 1)) * plotW,
+    y: pad.top + plotH - (d.totalFactura / maxVal) * plotH,
+  }))
+  const monthLabels = chartData.map(d => MONTHS_SHORT[d.monthIndex] || '')
+  const lineSVG = _buildLineSVG(pts, ACCENT, ACCENT_D, monthLabels)
+
+  // Donut with salvia palette overrides
+  const pieSalvia = [
+    { ...pieData[0], color: '#6B8068' },
+    { ...pieData[1], color: '#A8B5C9' },
+    { ...pieData[2], color: '#10b981' },
+    { ...pieData[3], color: '#E8B89A' },
+  ].filter(Boolean).filter(p => p?.value > 0)
+  const donutSVG = _buildDonutSVG(pieSalvia)
+
+  // Top-3 highlights
+  const top3Kwh = new Set([...tableData].sort((a, b) => b.totalKwh - a.totalKwh).slice(0, 3).map(r => r.mes))
+  const top3Price = new Set([...tableData].sort((a, b) => b.avgPrice - a.avgPrice).slice(0, 3).map(r => r.mes))
+  const top3Eur = new Set([...tableData].sort((a, b) => b.totalFactura - a.totalFactura).slice(0, 3).map(r => r.mes))
+
+  // Period totals
+  const kwhTot: Record<string, number> = {}, eurTot: Record<string, number> = {}
+  activePeriods.forEach(p => {
+    kwhTot[p] = tableData.reduce((s, r) => s + (r.kwhByPeriod[p] || 0), 0)
+    eurTot[p] = tableData.reduce((s, r) => s + (r.periodSpend[p]?.eur || 0), 0)
+  })
+  const grandKwh = tableData.reduce((s, r) => s + r.totalKwh, 0)
+  const grandEur = tableData.reduce((s, r) => s + r.totalFactura, 0)
+
+  // ── Pages ─────────────────────────────────────────────────────────────────
+
+  const page1 = `<div class="page cover">
+  <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+    <div class="logo">VOLTIS</div>
+    <div class="logo-sub">Anual Economics</div>
+    <div class="divider"></div>
+    <div class="cover-name">${titular}</div>
+    <div class="cups-badge"><span class="cups-label">CUPS</span><span style="color:#E5DCC9">·</span><span class="cups-value">${cups}</span></div>
+    <div class="tarifa-tag">TARIFA ${tarifa}</div>
+    <div class="audit-tag">INFORME DE AUDITORÍA ENERGÉTICA</div>
+  </div>
+</div>`
+
+  const periodBlock = averagePriceStats.filter(s => s.avgPrice > 0).map(s =>
+    `<div class="period-item"><div class="period-lbl">${s.period}</div><div class="period-val">${_pdfFmt(s.avgPrice, 4)} €/kWh</div></div>`
+  ).join('')
+
+  const page2 = `<div class="page">
+  <div class="eye">MÉTRICAS AUDITADAS</div>
+  <div class="hdg">RESULTADOS ANUALES</div>
+  <div class="kpi"><div class="kpi-lbl">Facturación Global</div><div class="kpi-val">${_pdfFmt(summaryStats.global)}</div><div class="kpi-unit">EUR</div></div>
+  <div class="kpi" style="margin-top:12px"><div class="kpi-lbl">Energía Total Consumida</div><div class="kpi-val">${Math.round(summaryStats.kwh).toLocaleString('es-ES')}</div><div class="kpi-unit">kWh</div></div>
+  <div class="kpi-row">
+    <div class="kpi"><div class="kpi-lbl">Precio Promedio</div><div class="kpi-val kpi-val-sm">${_pdfFmt(summaryStats.precioPromedio, 4)}</div><div class="kpi-unit">EUR/kWh</div></div>
+    <div class="kpi"><div class="kpi-lbl">Documentos Procesados</div><div class="kpi-val kpi-val-sm">${summaryStats.docsCount}</div><div class="kpi-unit">FACTURAS</div></div>
+  </div>
+  ${periodBlock ? `<div class="period-block"><div class="period-item" style="margin-right:16px"><div class="period-lbl" style="font-size:9px">PRECIO MEDIO POR PERIODO</div></div>${periodBlock}</div>` : ''}
+</div>`
+
+  const desgloseLegend = pieSalvia.map(p => {
+    const tot = pieSalvia.reduce((s, x) => s + (x?.value || 0), 0)
+    const pct = tot > 0 ? (((p?.value || 0) / tot) * 100).toFixed(1) : '0.0'
+    return `<div style="display:flex;align-items:center;gap:9px;margin-bottom:10px">
+      <div style="width:11px;height:11px;border-radius:3px;background:${p?.color};flex-shrink:0"></div>
+      <div><div style="font-size:10px;font-weight:700;color:#2D3A33">${p?.label}</div>
+      <div style="font-size:9px;color:#8A9A8E">${_pdfFmt(p?.value || 0)} € · ${pct}%</div></div>
+    </div>`
+  }).join('')
+
+  const page3 = `<div class="page">
+  <div class="eye">ANÁLISIS TEMPORAL + BIO-ESTRUCTURA</div>
+  <div class="hdg">EVOLUCIÓN DEL GASTO</div>
+  <div class="card"><div class="card-hd">EVOLUCIÓN GASTO MENSUAL (€)</div><div style="padding:16px">${lineSVG}</div></div>
+  <div style="margin-top:14px;display:grid;grid-template-columns:280px 1fr;gap:14px;align-items:start">
+    <div class="card"><div class="card-hd">DISTRIBUCIÓN</div><div style="padding:14px">${donutSVG}</div></div>
+    <div class="card" style="align-self:stretch;padding:16px"><div style="font-size:10px;font-weight:700;color:#8A9A8E;letter-spacing:0.2em;margin-bottom:14px">DESGLOSE POR CATEGORÍA</div>${desgloseLegend}</div>
+  </div>
+</div>`
+
+  const kwhRows = tableData.map(r => {
+    const c = top3Kwh.has(r.mes) ? ' class="t3"' : ''
+    const cells = activePeriods.map(p => {
+      const v = r.kwhByPeriod[p] || 0
+      return `<td${c}>${v > 0 ? Math.round(v).toLocaleString('es-ES') : '—'}</td>`
+    }).join('')
+    return `<tr><td${c}>${r.mes}</td>${cells}<td${c} style="font-weight:800">${Math.round(r.totalKwh).toLocaleString('es-ES')}</td></tr>`
+  }).join('')
+
+  const page4 = `<div class="page">
+  <div class="eye">MATRIZ ENERGÉTICA</div>
+  <div class="hdg">CONSUMO POR PERIODO (kWh)</div>
+  <div class="card"><table>
+    <thead><tr><th style="text-align:left">MES</th>${activePeriods.map(p => `<th>${p}</th>`).join('')}<th>TOTAL kWh</th></tr></thead>
+    <tbody>${kwhRows}</tbody>
+    <tfoot><tr class="tot"><td>TOTAL</td>${activePeriods.map(p => `<td>${Math.round(kwhTot[p] || 0).toLocaleString('es-ES')}</td>`).join('')}<td>${Math.round(grandKwh).toLocaleString('es-ES')}</td></tr></tfoot>
+  </table></div>
+  <p style="font-size:9px;color:#8A9A8E;margin-top:8px">★ Top 3 meses con mayor consumo total destacados en rojo</p>
+</div>`
+
+  const priceRows = tableData.map(r => {
+    const c = top3Price.has(r.mes) ? ' class="t3"' : ''
+    const cells = activePeriods.map(p => {
+      const v = r.pricesByPeriod[p] || 0
+      const hasK = (r.kwhByPeriod[p] || 0) > 0
+      return `<td${c}>${hasK && v > 0 ? _pdfFmt(v, 4) : '—'}</td>`
+    }).join('')
+    return `<tr><td${c}>${r.mes}</td>${cells}<td${c} style="font-weight:800">${r.avgPrice > 0 ? _pdfFmt(r.avgPrice, 4) : '—'}</td></tr>`
+  }).join('')
+
+  const page5 = `<div class="page">
+  <div class="eye">MATRIZ DE COSTE</div>
+  <div class="hdg">PRECIO UNITARIO POR PERIODO (€/kWh)</div>
+  <div class="card"><table>
+    <thead><tr><th style="text-align:left">MES</th>${activePeriods.map(p => `<th>${p}</th>`).join('')}<th>PRECIO MEDIO</th></tr></thead>
+    <tbody>${priceRows}</tbody>
+  </table></div>
+  <p style="font-size:9px;color:#8A9A8E;margin-top:8px">Precios netos (con descuento aplicado) · 4 decimales · — = sin consumo en ese periodo</p>
+</div>`
+
+  const eurRows = tableData.map(r => {
+    const c = top3Eur.has(r.mes) ? ' class="t3"' : ''
+    const cells = activePeriods.map(p => {
+      const ps = r.periodSpend[p]
+      if (!ps || ps.eur <= 0) return '<td>—</td>'
+      return `<td class="${top3Eur.has(r.mes) ? 't3' : ''} ${ps.isEstimated ? 'est' : ''}">${_pdfFmt(ps.eur)}</td>`
+    }).join('')
+    return `<tr><td${c}>${r.mes}</td>${cells}<td${c} style="font-weight:800">${_pdfFmt(r.totalFactura)}</td></tr>`
+  }).join('')
+
+  const excessHTML = hasExcesses ? `
+  <div class="excess-box">
+    <div class="excess-hd">⚡ SEGUIMIENTO DE EXCESOS DE POTENCIA</div>
+    <table>
+      <thead><tr><th style="text-align:left">MES</th><th>IMPORTE EXCESO</th></tr></thead>
+      <tbody>${excessData.map(r => `<tr><td>${r.name}</td><td style="color:#d97706;font-weight:700">${_pdfFmt(r.excessAmount)} €</td></tr>`).join('')}</tbody>
+      <tfoot><tr><td style="font-weight:900;color:#d97706">TOTAL EXCESOS</td><td style="font-weight:900;color:#d97706;text-align:right">${_pdfFmt(totalExcessAmount)} €</td></tr></tfoot>
+    </table>
+    <p style="font-size:9px;color:#8A9A8E;margin-top:8px">⚠ Se recomienda revisar la potencia contratada — los excesos generan penalizaciones en factura</p>
+  </div>` : ''
+
+  const page6 = `<div class="page">
+  <div class="eye">MATRIZ ECONÓMICA INTEGRAL</div>
+  <div class="hdg">COSTE POR PERIODO (€)</div>
+  <div class="card"><table>
+    <thead><tr><th style="text-align:left">MES</th>${activePeriods.map(p => `<th>${p}</th>`).join('')}<th>TOTAL €</th></tr></thead>
+    <tbody>${eurRows}</tbody>
+    <tfoot><tr class="tot"><td>TOTAL</td>${activePeriods.map(p => `<td>${_pdfFmt(eurTot[p] || 0)}</td>`).join('')}<td>${_pdfFmt(grandEur)}</td></tr></tfoot>
+  </table></div>
+  <p style="font-size:9px;color:#ca8a04;margin-top:8px">Valores en amarillo = estimados (kWh × precio medio, sin precio unitario disponible)</p>
+  ${excessHTML}
+</div>`
+
+  const page7 = `<div class="page closing">
+  <div class="closing-box">
+    <div class="closing-logo">VOLTIS</div>
+    <div class="closing-contact">
+      <div>admin@voltisenergia.com</div>
+      <div>747 47 43 60</div>
+      <div>www.voltisenergia.com</div>
+    </div>
+  </div>
+  <div class="closing-footer">VOLTIS · INFORME ECONÓMICO ANUAL</div>
+</div>`
+
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
+<title>Anual Economics — ${titular}</title>
+<style>${_pdfCss(ACCENT)}</style></head><body>
+${page1}${page2}${page3}${page4}${page5}${page6}${page7}
+</body></html>`
+
+  const w = window.open('', '_blank')
+  if (!w) { alert('Activa las ventanas emergentes para generar el PDF'); return }
+  w.document.open(); w.document.write(html); w.document.close()
+  setTimeout(() => w.print(), 800)
+}
+
+function openGasPDF(params: {
+  supplyName: string; tariff: string
+  tableData: { mes: string; kwh: number; precioKwh: number; precioEstimated: boolean; terminoFijo: number; impuesto: number; alquiler: number; total: number; monthIndex: number }[]
+  summaryStats: { totalKwh: number; totalEur: number; avgPrice: number; adjustedCount: number }
+  pieData: { label: string; value: number; color: string }[]
+}) {
+  const { supplyName, tariff, tableData, summaryStats, pieData } = params
+  const ACCENT = '#f97316', ACCENT_D = '#ea580c'
+
+  // Line chart from monthly totals
+  const W = 750, H = 280, pad = { top: 20, right: 20, left: 60, bottom: 40 }
+  const plotW = W - pad.left - pad.right, plotH = H - pad.top - pad.bottom
+  const byMonth: Record<number, number> = {}
+  tableData.forEach(r => { byMonth[r.monthIndex] = (byMonth[r.monthIndex] || 0) + r.total })
+  const allPts = Array.from({ length: 12 }, (_, i) => ({ monthIndex: i, val: byMonth[i] || 0 }))
+  const maxVal = Math.max(...allPts.map(p => p.val), 1) * 1.15
+  const pts = allPts.map((d, i) => ({
+    x: pad.left + (i / 11) * plotW,
+    y: pad.top + plotH - (d.val / maxVal) * plotH,
+  }))
+  const monthLabels = allPts.map(d => MONTHS_SHORT[d.monthIndex] || '')
+  const lineSVG = _buildLineSVG(pts, ACCENT, ACCENT_D, monthLabels)
+  const donutSVG = _buildDonutSVG(pieData.filter(p => p.value > 0))
+
+  const page1 = `<div class="page cover">
+  <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+    <div class="logo" style="color:#f97316">VOLTIS</div>
+    <div class="logo-sub">INFORME DE GAS</div>
+    <div class="divider" style="background:#f97316"></div>
+    <div class="cover-name">${supplyName}</div>
+    <div class="tarifa-tag" style="color:#f97316">TARIFA ${tariff}</div>
+    <div class="audit-tag">INFORME DE AUDITORÍA ENERGÉTICA — GAS NATURAL</div>
+  </div>
+</div>`
+
+  const page2 = `<div class="page">
+  <div class="eye" style="color:#f97316">MÉTRICAS AUDITADAS — GAS</div>
+  <div class="hdg">RESULTADOS ANUALES</div>
+  <div class="kpi"><div class="kpi-lbl">Consumo Total Gas</div><div class="kpi-val">${Math.round(summaryStats.totalKwh).toLocaleString('es-ES')}</div><div class="kpi-unit" style="color:#f97316">kWh</div></div>
+  <div class="kpi" style="margin-top:12px"><div class="kpi-lbl">Facturación Global</div><div class="kpi-val">${_pdfFmt(summaryStats.totalEur)}</div><div class="kpi-unit" style="color:#f97316">EUR</div></div>
+  <div class="kpi-row">
+    <div class="kpi"><div class="kpi-lbl">Precio Medio</div><div class="kpi-val kpi-val-sm">${_pdfFmt(summaryStats.avgPrice, 4)}</div><div class="kpi-unit" style="color:#f97316">EUR/kWh</div></div>
+    <div class="kpi"><div class="kpi-lbl">Facturas con Ajuste</div><div class="kpi-val kpi-val-sm">${summaryStats.adjustedCount}</div><div class="kpi-unit" style="color:#f97316">DOCS</div></div>
+  </div>
+</div>`
+
+  const desgloseLegend = pieData.filter(p => p.value > 0).map(p => {
+    const tot = pieData.reduce((s, x) => s + x.value, 0)
+    const pct = tot > 0 ? ((p.value / tot) * 100).toFixed(1) : '0.0'
+    return `<div style="display:flex;align-items:center;gap:9px;margin-bottom:10px">
+      <div style="width:11px;height:11px;border-radius:3px;background:${p.color};flex-shrink:0"></div>
+      <div><div style="font-size:10px;font-weight:700;color:#2D3A33">${p.label}</div>
+      <div style="font-size:9px;color:#8A9A8E">${_pdfFmt(p.value)} € · ${pct}%</div></div>
+    </div>`
+  }).join('')
+
+  const page3 = `<div class="page">
+  <div class="eye" style="color:#f97316">ANÁLISIS TEMPORAL</div>
+  <div class="hdg">EVOLUCIÓN DEL CONSUMO</div>
+  <div class="card"><div class="card-hd" style="color:#f97316">EVOLUCIÓN GASTO MENSUAL (€)</div><div style="padding:16px">${lineSVG}</div></div>
+  <div style="margin-top:14px;display:grid;grid-template-columns:280px 1fr;gap:14px;align-items:start">
+    <div class="card"><div class="card-hd" style="color:#f97316">DISTRIBUCIÓN</div><div style="padding:14px">${donutSVG}</div></div>
+    <div class="card" style="align-self:stretch;padding:16px"><div style="font-size:10px;font-weight:700;color:#8A9A8E;letter-spacing:0.2em;margin-bottom:14px">DESGLOSE POR CATEGORÍA</div>${desgloseLegend}</div>
+  </div>
+</div>`
+
+  const gasRows = tableData.map(r =>
+    `<tr>
+      <td>${r.mes}</td>
+      <td class="${r.precioEstimated ? 'est' : ''}">${Math.round(r.kwh).toLocaleString('es-ES')}</td>
+      <td class="${r.precioEstimated ? 'est' : ''}">${_pdfFmt(r.precioKwh, 4)}</td>
+      <td>${r.terminoFijo > 0 ? _pdfFmt(r.terminoFijo) : '—'}</td>
+      <td>${r.impuesto > 0 ? _pdfFmt(r.impuesto) : '—'}</td>
+      <td>${r.alquiler > 0 ? _pdfFmt(r.alquiler) : '—'}</td>
+      <td style="font-weight:800">${_pdfFmt(r.total)}</td>
+    </tr>`
+  ).join('')
+
+  const page4 = `<div class="page">
+  <div class="eye" style="color:#f97316">DETALLE FACTURAS GAS</div>
+  <div class="hdg">TABLA DETALLADA</div>
+  <div class="card"><table>
+    <thead><tr>
+      <th style="text-align:left">MES</th>
+      <th>kWh</th><th>€/kWh</th><th>T.Fijo</th><th>Imp.Hidroc.</th><th>Alquiler</th><th>TOTAL €</th>
+    </tr></thead>
+    <tbody>${gasRows}</tbody>
+    <tfoot><tr class="gas-tot">
+      <td>TOTAL</td>
+      <td>${Math.round(summaryStats.totalKwh).toLocaleString('es-ES')}</td>
+      <td>${_pdfFmt(summaryStats.avgPrice, 4)}</td>
+      <td>—</td><td>—</td><td>—</td>
+      <td>${_pdfFmt(summaryStats.totalEur)}</td>
+    </tr></tfoot>
+  </table></div>
+  <p style="font-size:9px;color:#ca8a04;margin-top:8px">Valores en amarillo = precio estimado</p>
+</div>`
+
+  const page5 = `<div class="page closing" style="background:#FBF7EE">
+  <div class="closing-box">
+    <div class="closing-logo" style="color:#f97316">VOLTIS</div>
+    <div class="closing-contact">
+      <div>admin@voltisenergia.com</div>
+      <div>747 47 43 60</div>
+      <div>www.voltisenergia.com</div>
+    </div>
+  </div>
+  <div class="closing-footer">VOLTIS · INFORME GAS NATURAL</div>
+</div>`
+
+  const css = _pdfCss(ACCENT)
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
+<title>Informe Gas — ${supplyName}</title>
+<style>${css}</style></head><body>
+${page1}${page2}${page3}${page4}${page5}
+</body></html>`
+
+  const w = window.open('', '_blank')
+  if (!w) { alert('Activa las ventanas emergentes para generar el PDF'); return }
+  w.document.open(); w.document.write(html); w.document.close()
+  setTimeout(() => w.print(), 800)
+}
+
 // ─── Gas Report View ────────────────────────────────────────────────────────
 
 function GasReportView({ invoices, supplyName, onBack }: {
@@ -1288,6 +1744,17 @@ function GasReportView({ invoices, supplyName, onBack }: {
               </tfoot>
             </table>
           </div>
+        </div>
+
+        {/* PDF Button — Gas */}
+        <div className="flex flex-col items-center gap-3 py-12">
+          <button
+            onClick={() => openGasPDF({ supplyName: supplyName || 'SUMINISTRO', tariff: summaryStats.tariff, tableData, summaryStats, pieData })}
+            className="flex items-center gap-2 px-10 py-4 rounded-full text-sm font-black tracking-widest uppercase transition hover:scale-105"
+            style={{ background: 'linear-gradient(135deg, #ea580c, #f97316)', boxShadow: '0 20px 40px -10px rgba(249,115,22,0.3)', color: '#FBF7EE' }}>
+            <Download className="w-4 h-4" /> GENERAR PDF
+          </button>
+          <p className="text-[#8A9A8E] text-xs text-center max-w-xs">Se abrirá en nueva pestaña — selecciona «Guardar como PDF» en el diálogo de impresión</p>
         </div>
       </div>
     </div>
@@ -1838,13 +2305,14 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
             <Mascot className="w-48 md:w-64 drop-shadow-2xl relative z-10" />
           </motion.div>
           <div className="relative z-10 flex flex-col items-center gap-3">
-            <button onClick={() => window.print()}
+            <button
+              onClick={() => openElectricityPDF({ cups, tarifa, titular, activePeriods, chartData, tableData, summaryStats, pieData, averagePriceStats, hasExcesses, excessData, totalExcessAmount })}
               className="flex items-center gap-2 px-10 py-4 rounded-full text-sm font-black tracking-widest uppercase transition hover:scale-105"
               style={{ background: 'linear-gradient(135deg, #6B8068, #5A6E58)', boxShadow: '0 20px 40px -10px rgba(107,128,104,0.3)', color: '#FBF7EE' }}>
               <Download className="w-4 h-4" /> GENERAR PDF
             </button>
             <p className="text-[#8A9A8E] text-xs text-center max-w-xs">
-              Activa «Background graphics» en el diálogo de impresión
+              Se abrirá en nueva pestaña — selecciona «Guardar como PDF» en el diálogo de impresión
             </p>
           </div>
         </motion.div>
