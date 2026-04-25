@@ -5,3 +5,10 @@ out/
 .env*.local
 *.tsbuildinfo
 next-env.d.ts
+
+# macOS metadata
+.DS_Store
+**/.DS_Store
+
+# Claude Code worktrees (temporary branches created by Claude)
+.claude/worktrees/

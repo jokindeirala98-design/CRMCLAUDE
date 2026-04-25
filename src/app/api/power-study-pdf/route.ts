@@ -103,8 +103,10 @@ function generateHTML(study: PowerStudyResult): string {
   }).join('')
 
   // SVG charts — generated server-side, always chronological
-  const consumoSVG = buildConsumptionSVG(study.meses)
-  const maximetroSVG = hasMax ? buildMaximetroSVG(study.meses, pc as Record<string, number> | undefined) : ''
+  // Use reduced height so two charts + header + period analysis fit inside A4 landscape (733px content height)
+  const chartH = hasMax ? 230 : 320
+  const consumoSVG = buildConsumptionSVG(study.meses, 1000, chartH)
+  const maximetroSVG = hasMax ? buildMaximetroSVG(study.meses, pc as Record<string, number> | undefined, 1000, chartH) : ''
 
   // Period analysis cards
   const periodCards = hasMax && adj.some(a => a.cont > 0) ? adj.map(a => {
@@ -146,9 +148,9 @@ function generateHTML(study: PowerStudyResult): string {
   thead { display: table-header-group; }
   .sep { width: 4px; min-width: 4px; background: #F0F0F0 !important; border: none !important; padding: 0; }
   .page-break { page-break-before: always; break-before: page; }
-  .chart-box { border: 1px solid #E5E7EB; border-radius: 8px; padding: 10px; margin-bottom: 16px; background: #fff !important; text-align: center; break-inside: avoid; page-break-inside: avoid; }
-  .chart-box svg { width: 100%; height: auto; max-height: 300px; }
-  .period-analysis { border: 1px solid #E5E7EB; border-radius: 8px; padding: 10px 12px; margin-top: 12px; background: #fff !important; break-inside: avoid; page-break-inside: avoid; }
+  .chart-box { border: 1px solid #E5E7EB; border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; background: #fff !important; text-align: center; break-inside: avoid; page-break-inside: avoid; }
+  .chart-box svg { width: 100%; height: auto; display: block; }
+  .period-analysis { border: 1px solid #E5E7EB; border-radius: 8px; padding: 8px 12px; margin-top: 8px; background: #fff !important; break-inside: avoid; page-break-inside: avoid; }
   @media print { .header, .kpi-grid, .chart-box, .period-analysis { break-inside: avoid !important; page-break-inside: avoid !important; } }
 </style>
 </head>

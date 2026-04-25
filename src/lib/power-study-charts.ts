@@ -41,7 +41,7 @@ export function buildConsumptionSVG(rawMeses: PowerStudyResult['meses'], width =
   const m = { top: 30, right: 20, bottom: 80, left: 64 }
   const cW = W - m.left - m.right, cH = H - m.top - m.bottom
 
-  if (!rawMeses?.length) return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="${W/2}" y="${H/2}" text-anchor="middle" font-size="13" fill="#9CA3AF">Sin datos de consumo</text></svg>`
+  if (!rawMeses?.length) return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><text x="${W/2}" y="${H/2}" text-anchor="middle" font-size="13" fill="#9CA3AF">Sin datos de consumo</text></svg>`
 
   const meses = sortChrono(rawMeses)
   const activePeriods = PERIODS.filter(p => meses.some(mes => (mes.consumo?.[p] ?? 0) > 0))
@@ -95,7 +95,7 @@ export function buildConsumptionSVG(rawMeses: PowerStudyResult['meses'], width =
     lx += 42
   }
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" style="background:#fff">
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="background:#fff">
     <text x="${W/2}" y="18" text-anchor="middle" font-size="13" font-weight="bold" fill="#111827" font-family="${SVG_FONT}">CONSUMO MENSUAL (kWh)</text>
     ${grid}${paths}${dataLabels}
     <line x1="${m.left}" y1="${m.top}" x2="${m.left}" y2="${m.top+cH}" stroke="#9CA3AF"/>
@@ -112,11 +112,11 @@ export function buildMaximetroSVG(rawMeses: PowerStudyResult['meses'], potenciaC
   const m = { top: 30, right: 60, bottom: 80, left: 64 }
   const cW = W - m.left - m.right, cH = H - m.top - m.bottom
 
-  if (!rawMeses?.length) return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="${W/2}" y="${H/2}" text-anchor="middle" font-size="13" fill="#9CA3AF">Sin datos de maxímetro</text></svg>`
+  if (!rawMeses?.length) return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><text x="${W/2}" y="${H/2}" text-anchor="middle" font-size="13" fill="#9CA3AF">Sin datos de maxímetro</text></svg>`
 
   const meses = sortChrono(rawMeses)
   const activePeriods = PERIODS.filter(p => meses.some(mes => (mes.maximetro?.[p] ?? 0) > 0))
-  if (!activePeriods.length) return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="${W/2}" y="${H/2}" text-anchor="middle" font-size="13" fill="#9CA3AF">Sin datos de maxímetro</text></svg>`
+  if (!activePeriods.length) return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><text x="${W/2}" y="${H/2}" text-anchor="middle" font-size="13" fill="#9CA3AF">Sin datos de maxímetro</text></svg>`
 
   const allMax = meses.flatMap(mes => activePeriods.map(p => mes.maximetro?.[p] ?? 0))
   const contrMax = activePeriods.map(p => potenciaContratada?.[p] ?? 0)
@@ -184,7 +184,7 @@ export function buildMaximetroSVG(rawMeses: PowerStudyResult['meses'], potenciaC
     legend += `<text x="${lx+20}" y="${H-13}" font-size="10" fill="#374151" font-family="${SVG_FONT}">Contratada</text>`
   }
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" style="background:#fff">
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="background:#fff">
     <text x="${W/2}" y="18" text-anchor="middle" font-size="13" font-weight="bold" fill="#111827" font-family="${SVG_FONT}">MAXÍMETROS MENSUALES (kW)</text>
     ${grid}${refLines}${bars}${maxLabels}
     <line x1="${m.left}" y1="${m.top}" x2="${m.left}" y2="${m.top+cH}" stroke="#9CA3AF"/>
