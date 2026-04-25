@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Loader2, ArrowLeft } from 'lucide-react'
@@ -54,6 +54,15 @@ export default function AuditReportPage() {
   }, [id])
 
   useEffect(() => { fetchData() }, [fetchData])
+
+  // ─── Pantalla completa: Escape ────────────────────────────────────────────────
+  const exitReport = useCallback(() => setView('table'), [])
+  useEffect(() => {
+    if (view !== 'report') return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') exitReport() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [view, exitReport])
 
   const [syncError, setSyncError] = useState<string | null>(null)
   const [syncingSupplyId, setSyncingSupplyId] = useState<string | null>(null)
@@ -216,20 +225,44 @@ export default function AuditReportPage() {
 
   if (view === 'report' && report) {
     return (
-      <TechnologicalReportView 
-        rows={rows}
-        client={client}
-        report={report}
-        informeBreve={informeBreve}
-        setInformeBreve={setInformeBreve}
-        isEditing={isEditing}
-        setIsEditing={setIsEditing}
-        onSave={saveReport}
-        saving={saving}
-        saved={saved}
-        onPrint={handlePrint}
-        onBackToTable={() => setView('table')}
-      />
+      <div
+        style={{ position: 'fixed', inset: 0, zIndex: 9999, overflowY: 'auto', background: '#F4EEE2' }}
+        onDoubleClick={(e) => {
+          // Solo salir si el doble clic es en el fondo (fuera del papel blanco)
+          const paper = document.getElementById('audit-report')
+          if (paper && paper.contains(e.target as Node)) return
+          exitReport()
+        }}
+      >
+        {/* Hint flotante */}
+        <div
+          className="no-print"
+          style={{
+            position: 'fixed', bottom: 20, right: 24, zIndex: 10000,
+            background: 'rgba(45,58,51,0.72)', backdropFilter: 'blur(8px)',
+            color: '#E0E8DC', borderRadius: 10, padding: '6px 14px',
+            fontSize: 11, fontFamily: 'monospace', fontWeight: 600,
+            letterSpacing: '0.06em', pointerEvents: 'none', userSelect: 'none',
+          }}
+        >
+          ESC · doble clic fuera para volver
+        </div>
+
+        <TechnologicalReportView
+          rows={rows}
+          client={client}
+          report={report}
+          informeBreve={informeBreve}
+          setInformeBreve={setInformeBreve}
+          isEditing={isEditing}
+          setIsEditing={setIsEditing}
+          onSave={saveReport}
+          saving={saving}
+          saved={saved}
+          onPrint={handlePrint}
+          onBackToTable={exitReport}
+        />
+      </div>
     )
   }
 
