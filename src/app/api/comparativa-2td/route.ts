@@ -224,14 +224,14 @@ export async function POST(req: NextRequest) {
     // POTENCIAS SECTION (rows 1–16)
     // ══════════════════════════════════════════════════════════════════════════
 
-    // A1:D3 — Section title
-    mc(ws, 1, A, 3, D, 'CALCULADORA DIFERENCIA POTENCIAS 2.0TD', {
-      bold: true, size: 12, color: CLR.white, bg: CLR.salviaDark, align: 'center', wrap: true,
+    // A1:D1 — Section title (1 fila, antes eran 3)
+    mc(ws, 1, A, 1, D, 'CALCULADORA DIFERENCIA POTENCIAS 2.0TD', {
+      bold: true, size: 10, color: CLR.white, bg: CLR.salviaDark, align: 'center', wrap: true,
     })
 
     // Row 3: other charges labels
-    sc(ws, 3, Q, 'OTROS CARGOS:', { bold: true, size: 10, color: CLR.ink3, align: 'right' })
-    sc(ws, 3, R, 'ALQUILER DE EQUIPOS', { bold: true, size: 10, color: CLR.ink, align: 'center', bg: CLR.crema })
+    sc(ws, 3, Q, 'OTROS CARGOS:', { bold: true, size: 9, color: CLR.ink3, align: 'right' })
+    sc(ws, 3, R, 'ALQUILER DE EQUIPOS', { bold: true, size: 9, color: CLR.ink, align: 'center', bg: CLR.crema, wrap: true })
 
     // Row 4: column section headers
     sc(ws, 4, H, 'ANUALMENTE',    { bold: true, size: 10, color: CLR.ink3, align: 'center' })
@@ -311,9 +311,9 @@ export async function POST(req: NextRequest) {
     // ENERGIA SECTION (rows 18–33)
     // ══════════════════════════════════════════════════════════════════════════
 
-    // A18:D20 — Section title (merged, 3 rows)
-    mc(ws, 18, A, 20, D, 'CALCULADORA DIFERENCIA ENERGIA 2.0TD', {
-      bold: true, size: 12, color: CLR.white, bg: CLR.salviaDark, align: 'center', wrap: true,
+    // A18:D18 — Section title (1 fila, antes eran 3)
+    mc(ws, 18, A, 18, D, 'CALCULADORA DIFERENCIA ENERGIA 2.0TD', {
+      bold: true, size: 10, color: CLR.white, bg: CLR.salviaDark, align: 'center', wrap: true,
     })
 
     // Row 22: B22:C22 — "CONSUMO ANUAL KWH" header
@@ -389,8 +389,8 @@ export async function POST(req: NextRequest) {
     fc(ws, 33, N, 'SUM(J33:L33)*1.21', N33, { bold: true, size: 12, color: CLR.salviaDark, numFmt: '#,##0.00 €', bg: CLR.salviaSoft })
 
     // ── Row heights (from template) ───────────────────────────────────────────
-    ws.getRow(1).height  = 28
-    ws.getRow(2).height  = 18
+    ws.getRow(1).height  = 22   // título sección potencias (1 fila)
+    ws.getRow(2).height  = 14   // espacio libre
     ws.getRow(3).height  = 20
     ws.getRow(4).height  = 18
     ws.getRow(5).height  = 22
@@ -406,9 +406,9 @@ export async function POST(req: NextRequest) {
     ws.getRow(15).height = 18
     ws.getRow(16).height = 30
     ws.getRow(17).height = 12   // spacer
-    ws.getRow(18).height = 22
-    ws.getRow(19).height = 22
-    ws.getRow(20).height = 22
+    ws.getRow(18).height = 22   // título sección energía (1 fila)
+    ws.getRow(19).height = 10   // espacio libre
+    ws.getRow(20).height = 10   // espacio libre
     ws.getRow(21).height = 12   // spacer
     ws.getRow(22).height = 22
     ws.getRow(23).height = 22
