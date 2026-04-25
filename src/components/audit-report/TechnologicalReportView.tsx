@@ -317,6 +317,101 @@ function PeriodDot({ color }: { color: string }) {
   )
 }
 
+// ─── Generador automático de Informe Breve ────────────────────────────────────
+function buildInformeBreve({
+  clientName,
+  clientType,
+  reportRows,
+  classified,
+  grandTotal,
+  elecTotal,
+  gasTotal,
+  tariffGroups,
+  sortedTariffs,
+  elecSums,
+  elecTotalPeriods,
+}: {
+  clientName: string
+  clientType?: string
+  reportRows: ConsumptionSnapshot[]
+  classified: ReturnType<typeof classifyRows>
+  grandTotal: number
+  elecTotal: number
+  gasTotal: number
+  tariffGroups: Record<string, ConsumptionSnapshot[]>
+  sortedTariffs: string[]
+  elecSums: { p1: number; p2: number; p3: number; p4: number; p5: number; p6: number }
+  elecTotalPeriods: number
+}): string {
+  const isAyto = (clientType || '').toLowerCase() === 'ayuntamiento'
+  const entidad = isAyto ? 'municipio' : 'empresa'
+  const suministros = isAyto ? 'suministros municipales' : 'suministros corporativos'
+
+  const fmt = (n: number) => formatNumber(Math.round(n))
+  const pct = (n: number, t: number) => t > 0 ? ((n / t) * 100).toFixed(1).replace('.', ',') + ' %' : '—'
+
+  const lines: string[] = []
+
+  // ── Párrafo 1: Introducción ──
+  const hasGas = classified.gas.length > 0
+  const gasStr = hasGas
+    ? ` y ${classified.gas.length} suministro${classified.gas.length > 1 ? 's' : ''} de gas natural (${fmt(gasTotal)} kWh/año)`
+    : ''
+  lines.push(
+    `Tras el análisis de la red de ${suministros} de ${clientName}, se han estudiado ${reportRows.length} puntos de suministro con un consumo total de ${fmt(grandTotal)} kWh/año. El ${entidad} dispone de ${classified.electricity.length} suministro${classified.electricity.length > 1 ? 's' : ''} eléctrico${classified.electricity.length > 1 ? 's' : ''} (${fmt(elecTotal)} kWh/año)${gasStr}.`
+  )
+
+  // ── Párrafo 2: Distribución por tarifa ──
+  if (sortedTariffs.length > 0) {
+    const tarifasSummary = sortedTariffs.map(t => {
+      const total = tariffGroups[t].reduce((s, r) => s + rowTotal(r), 0)
+      return `${t} con ${tariffGroups[t].length} suministro${tariffGroups[t].length > 1 ? 's' : ''} (${pct(total, grandTotal)} del consumo total)`
+    }).join(', ')
+    lines.push(`En cuanto a la estructura tarifaria, el ${entidad} opera con las siguientes modalidades: ${tarifasSummary}.`)
+  }
+
+  // ── Párrafo 3: Análisis de períodos ──
+  if (elecTotalPeriods > 0) {
+    const p6Pct = (elecSums.p6 / elecTotalPeriods) * 100
+    const p1Pct = (elecSums.p1 / elecTotalPeriods) * 100
+    const dominantKey = (['p6','p3','p2','p1','p4','p5'] as const).reduce((a, b) =>
+      (elecSums as any)[a] > (elecSums as any)[b] ? a : b
+    )
+    const dominantPct = ((elecSums as any)[dominantKey] / elecTotalPeriods * 100).toFixed(1).replace('.', ',')
+    const periodLabel = dominantKey.toUpperCase()
+    const periodName: Record<string, string> = { P1: 'Punta', P2: 'Llano', P3: 'Valle', P4: 'P4', P5: 'P5', P6: 'Supervalle nocturno' }
+
+    if (p6Pct >= 30) {
+      lines.push(
+        `El dato más destacado del análisis es la concentración del ${pct(elecSums.p6, elecTotalPeriods)} del consumo eléctrico en el período P6 (Supervalle, horario nocturno). Este patrón es característico del alumbrado público y apunta a una oportunidad de optimización tarifaria significativa: negociar condiciones específicas para el consumo nocturno puede generar ahorros relevantes en la factura energética anual.`
+      )
+    } else {
+      lines.push(
+        `El período de mayor consumo es ${periodLabel} (${periodName[periodLabel] || periodLabel}), que acumula el ${dominantPct} % del total eléctrico (${fmt((elecSums as any)[dominantKey])} kWh/año). ${p1Pct >= 25 ? 'La concentración en punta horaria (P1) sugiere revisar si las potencias contratadas están bien dimensionadas para evitar excesos de maxímetro.' : 'La distribución entre períodos muestra un perfil equilibrado que conviene contrastar con las potencias contratadas en cada tarifa.'}`
+      )
+    }
+  }
+
+  // ── Párrafo 4: Suministro principal ──
+  const mainSupply = [...reportRows].sort((a, b) => rowTotal(b) - rowTotal(a))[0]
+  if (mainSupply) {
+    const mTotal = rowTotal(mainSupply)
+    const mPct = pct(mTotal, grandTotal)
+    const mId = mainSupply.name || mainSupply.cups || '—'
+    const mTariff = mainSupply.tariff ? ` (${mainSupply.tariff})` : ''
+    lines.push(
+      `El suministro de mayor consumo individual es ${mId}${mTariff}, con ${fmt(mTotal)} kWh/año, lo que representa el ${mPct} del gasto energético total del ${entidad}. Este punto es el candidato prioritario para una auditoría específica de potencias y un análisis de optimización de contrato.`
+    )
+  }
+
+  // ── Párrafo 5: Conclusión ──
+  lines.push(
+    `Voltis Energía pone a disposición de ${clientName} su equipo de consultoría para implementar las medidas de optimización identificadas. Las acciones propuestas pueden generar un ahorro estimado de entre el 8 % y el 15 % en la factura energética anual, sin necesidad de modificar las instalaciones existentes.`
+  )
+
+  return lines.join('\n\n')
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -401,6 +496,25 @@ export function TechnologicalReportView({
   // ─── Resumen ejecutivo — cálculos dinámicos ───────────────────────────────
   const elecSumsGlobal = sumPeriods(classified.electricity)
   const elecTotalPeriods = ['p1','p2','p3','p4','p5','p6'].reduce((s, p) => s + (elecSumsGlobal as any)[p], 0)
+
+  // ─── Generador de informe breve ──────────────────────────────────────────
+  function handleGenerateInforme() {
+    const generated = buildInformeBreve({
+      clientName: client?.name || 'el cliente',
+      clientType: client?.type,
+      reportRows,
+      classified,
+      grandTotal,
+      elecTotal,
+      gasTotal,
+      tariffGroups,
+      sortedTariffs,
+      elecSums: elecSumsGlobal,
+      elecTotalPeriods,
+    })
+    setInformeBreve(generated)
+    setIsEditing(true)
+  }
 
   // Período dominante (el que más % tiene)
   const periodKeys = ['p1','p2','p3','p4','p5','p6'] as const
@@ -836,29 +950,80 @@ export function TechnologicalReportView({
 
             {/* ════ SECTION: Informe Breve ════ */}
             <div style={{ pageBreakBefore: 'always', breakBefore: 'page', paddingTop: '18mm' }}>
-              <SectionTitle num={nextNum()} title="Informe Breve"
-                subtitle="Resumen ejecutivo y conclusiones del estudio energético" />
+              <div className="flex items-end justify-between mb-10" style={{ breakInside: 'avoid', breakAfter: 'avoid' }}>
+                {/* Reutilizamos el layout del SectionTitle pero con botón a la derecha */}
+                <div className="flex items-start gap-5 flex-1">
+                  <div style={{ width: 3, backgroundColor: ACCENT, borderRadius: 2, alignSelf: 'stretch', minHeight: 48, flexShrink: 0, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }} />
+                  <div className="flex-1 pb-4" style={{ borderBottom: `1px solid ${BORDER}` }}>
+                    <div style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 600, letterSpacing: '0.22em', color: ACCENT, textTransform: 'uppercase', marginBottom: 4 }}>
+                      {nextNum()}
+                    </div>
+                    <h2 style={{ fontSize: 22, fontWeight: 600, color: DARK, lineHeight: 1.2, letterSpacing: '-0.01em' }}>Informe Breve</h2>
+                    <p style={{ fontSize: 12, color: MUTED, marginTop: 5 }}>Resumen ejecutivo y conclusiones del estudio energético</p>
+                  </div>
+                </div>
+                {/* Botón Generar — solo visible en pantalla */}
+                <button
+                  className="no-print"
+                  onClick={handleGenerateInforme}
+                  style={{
+                    marginLeft: 16,
+                    marginBottom: 14,
+                    padding: '8px 16px',
+                    borderRadius: 10,
+                    border: `1px solid ${ACCENT}`,
+                    background: ACCENT_SOFT,
+                    color: ACCENT,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                  }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+                  </svg>
+                  Generar automáticamente
+                </button>
+              </div>
 
               <div style={{ border: `1px solid ${BORDER}`, borderRadius: 14, padding: '32px 36px', minHeight: 200, background: PAPER }}>
-                <div style={{ fontFamily: 'monospace', fontSize: 9, fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase', color: MUTED, marginBottom: 18 }}>
-                  Texto editable
-                </div>
-                {isEditing ? (
-                  <textarea
-                    value={informeBreve}
-                    onChange={(e) => setInformeBreve(e.target.value)}
-                    className="w-full h-64 border rounded-[12px] p-5 text-sm outline-none resize-y leading-relaxed"
-                    style={{ borderColor: BORDER, color: TEXT_SOFT, background: SURFACE, fontFamily: 'inherit' }}
-                    placeholder="Redacta aquí el informe breve o pega el texto desde otro documento..."
-                  />
-                ) : (
-                  <div style={{ fontSize: 13.5, color: TEXT_SOFT, lineHeight: 1.85, whiteSpace: 'pre-wrap' }}>
-                    {informeBreve || (
-                      <p style={{ color: MUTED, fontStyle: 'italic' }}>
-                        Pulsa &ldquo;Editar&rdquo; para redactar o pegar el informe breve aquí.
+                {!informeBreve && !isEditing && (
+                  /* Estado vacío — invitación a generar */
+                  <div className="flex flex-col items-center justify-center text-center" style={{ minHeight: 180, gap: 16 }}>
+                    <div style={{ width: 48, height: 48, borderRadius: 14, background: ACCENT_SOFT, display: 'flex', alignItems: 'center', justifyContent: 'center', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={ACCENT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+                      </svg>
+                    </div>
+                    <div>
+                      <p style={{ fontSize: 13, fontWeight: 600, color: DARK, marginBottom: 6 }}>Sin texto todavía</p>
+                      <p style={{ fontSize: 12, color: MUTED, lineHeight: 1.6, maxWidth: 400 }}>
+                        Pulsa <strong style={{ color: ACCENT }}>"Generar automáticamente"</strong> para crear un resumen ejecutivo basado en los datos del informe, o usa <strong style={{ color: TEXT_SOFT }}>"Editar"</strong> en la barra superior para redactarlo manualmente.
                       </p>
-                    )}
+                    </div>
                   </div>
+                )}
+
+                {(informeBreve || isEditing) && (
+                  <>
+                    {isEditing ? (
+                      <textarea
+                        value={informeBreve}
+                        onChange={(e) => setInformeBreve(e.target.value)}
+                        className="w-full border rounded-[12px] p-5 text-sm outline-none resize-y leading-relaxed"
+                        style={{ minHeight: 280, borderColor: BORDER, color: TEXT_SOFT, background: SURFACE, fontFamily: 'inherit', fontSize: 13.5 }}
+                        placeholder="Redacta aquí el informe breve o pega el texto desde otro documento..."
+                      />
+                    ) : (
+                      <div style={{ fontSize: 13.5, color: TEXT_SOFT, lineHeight: 1.85, whiteSpace: 'pre-wrap' }}>
+                        {informeBreve}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
