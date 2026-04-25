@@ -6,8 +6,9 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   ArrowLeft, FileText, Zap, TrendingUp, CheckCircle2,
   RefreshCw, Loader2, AlertCircle, Download, Euro,
-  DollarSign, Activity, X, Trash2, Flame,
+  DollarSign, Activity, X, Trash2, Flame, Sparkles, ChevronDown,
 } from 'lucide-react'
+import { VOLTIS_TARIFFS_2TD, compute2TDSavings, type VoltisKey2TD } from '@/lib/voltis-tariffs-2td'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -94,6 +95,12 @@ interface Props {
   onInvoicesUpdated: () => void
   /** Authoritative supply type from the supply record (overrides invoice extracted_data) */
   supplyType?: 'luz' | 'gas' | 'telefonia' | string
+  /** From SIPS: contracted power per period (kW) */
+  potenciaContratada?: Record<string, number>
+  /** From SIPS: annual consumption per period (kWh) */
+  consumoPeriodos?: Record<string, number>
+  /** Client/supply name for display */
+  clientName?: string
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -1562,6 +1569,175 @@ ${page1}${page2}${page3}${page4}${page5}
   setTimeout(() => w.print(), 800)
 }
 
+// ─── Helpers: 2.0TD Comparison ───────────────────────────────────────────────
+
+/** Extract current power €/kW·día prices from the most recent invoice with potencia data */
+function extractCurrentPowerPrices(invoices: InvoiceRow[]): { P1: number; P2: number } {
+  const sorted = [...invoices].sort((a, b) => {
+    const d = (inv: InvoiceRow) => (inv.extracted_data as any)?.billing_period_end
+      || (inv.extracted_data as any)?.fecha_fin || (inv.extracted_data as any)?.invoice_date || ''
+    return d(b).localeCompare(d(a))
+  })
+  for (const inv of sorted) {
+    const ed = inv.extracted_data as any
+    const potArr: any[] = ed?.economics?.potencia || ed?.potencia || []
+    if (!Array.isArray(potArr) || !potArr.length) continue
+    const prices: Record<string, number> = {}
+    for (const item of potArr) {
+      const p = String(item.periodo || '')
+      if (!['P1', 'P2'].includes(p)) continue
+      const price = Number(item.precioKwDia) || Number(item.precioKw) || Number(item.precioUnitario) || 0
+      if (price > 0 && price < 1) prices[p] = price
+    }
+    if (prices.P1 || prices.P2) return { P1: prices.P1 || 0, P2: prices.P2 || 0 }
+  }
+  return { P1: 0, P2: 0 }
+}
+
+/** Build the 2.0TD comparison PDF (client-side HTML/print) */
+function open2TDComparisonPDF(params: {
+  titular: string; cups: string; tariffKey: VoltisKey2TD
+  consumo: { P1: number; P2: number; P3: number }
+  potencia: { P1: number; P2: number }
+  currentEnergyPrice: number; currentPowerP1: number; currentPowerP2: number
+}) {
+  const { titular, cups, tariffKey, consumo, potencia, currentEnergyPrice, currentPowerP1, currentPowerP2 } = params
+  const tariff = VOLTIS_TARIFFS_2TD[tariffKey]
+  const result = compute2TDSavings(consumo, potencia, currentEnergyPrice, currentPowerP1, currentPowerP2, tariffKey)
+  const fmt = (v: number, dec = 2) => v.toLocaleString('es-ES', { minimumFractionDigits: dec, maximumFractionDigits: dec })
+  const fmtSign = (v: number) => (v >= 0 ? '+' : '') + fmt(v)
+  const savColor = result.savings.totalAnnual >= 0 ? '#3D7A4B' : '#C0392B'
+  const savBg    = result.savings.totalAnnual >= 0 ? '#E8F5E9' : '#FDECEA'
+
+  const css = `
+    * { margin:0; padding:0; box-sizing:border-box; font-family:'Arial',sans-serif; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    @page { size:A4; margin:0; }
+    body { background:#F4EEE2; color:#2D3A33; }
+    .page { width:210mm; min-height:297mm; padding:16mm 14mm; page-break-after:always; display:flex; flex-direction:column; background:#F4EEE2; }
+    .cover { align-items:center; justify-content:center; gap:12px; background:#F4EEE2; }
+    .logo { font-size:54px; font-weight:900; letter-spacing:0.08em; color:#6B8068; }
+    .logo-sub { font-size:13px; letter-spacing:0.4em; color:#8A9A8E; font-weight:700; }
+    .divider { width:60px; height:3px; background:#6B8068; border-radius:99px; margin:6px 0; }
+    .cover-name { font-size:22px; font-weight:800; color:#2D3A33; margin-top:8px; text-align:center; }
+    .tariff-badge { display:inline-block; padding:7px 22px; border-radius:99px; background:#E0E8DC; color:#5A6E58; font-size:12px; font-weight:800; letter-spacing:0.15em; }
+    .cups-badge { font-size:10px; color:#8A9A8E; font-family:monospace; margin-top:4px; }
+    .sec-title { font-size:9px; font-weight:800; letter-spacing:0.3em; color:#8A9A8E; margin-bottom:8px; }
+    .section-hd { font-size:13px; font-weight:800; color:#2D3A33; margin-bottom:12px; padding-bottom:6px; border-bottom:2px solid #E5DCC9; }
+    .card { background:#FBF7EE; border-radius:10px; border:1px solid #E5DCC9; padding:14px 16px; margin-bottom:12px; }
+    .card-title { font-size:9px; font-weight:700; letter-spacing:0.2em; color:#5A6B5F; margin-bottom:8px; }
+    table { width:100%; border-collapse:collapse; font-size:10px; }
+    th { background:#EDE8DC; color:#5A6B5F; font-weight:700; padding:7px 10px; text-align:center; border:1px solid #D9D0BA; }
+    th:first-child { text-align:left; }
+    td { padding:6px 10px; border:1px solid #E5DCC9; text-align:center; }
+    td:first-child { text-align:left; font-weight:600; }
+    tr:nth-child(even) td { background:#F4EEE2; }
+    .row-actual td { color:#5A6B5F; }
+    .row-nuevo td { color:#5A6E58; font-weight:700; background:#E0E8DC !important; }
+    .row-diff td { font-weight:800; }
+    .sum-box { background:#FBF7EE; border-radius:12px; border:2px solid #D9D0BA; padding:18px 22px; margin-top:14px; display:flex; justify-content:space-between; align-items:center; }
+    .sum-lbl { font-size:10px; font-weight:700; letter-spacing:0.15em; color:#5A6B5F; }
+    .sum-val { font-size:28px; font-weight:900; }
+    .sum-monthly { font-size:12px; color:#8A9A8E; margin-top:2px; }
+    .footer-bar { margin-top:auto; padding-top:12px; border-top:1px solid #E5DCC9; font-size:8px; color:#8A9A8E; display:flex; justify-content:space-between; }
+  `
+
+  const page1 = `<div class="page cover">
+  <div class="logo">VOLTIS</div>
+  <div class="logo-sub">COMPARATIVA TARIFAS 2.0TD</div>
+  <div class="divider"></div>
+  <div class="cover-name">${titular}</div>
+  <div class="tariff-badge">${tariff.name.toUpperCase()}</div>
+  <div class="cups-badge">${cups}</div>
+</div>`
+
+  const totalKwh = consumo.P1 + consumo.P2 + consumo.P3
+
+  const page2 = `<div class="page">
+  <div class="sec-title">COMPARATIVA TARIFAS 2.0TD</div>
+  <div class="section-hd">TÉRMINO DE POTENCIA</div>
+  <div class="card">
+    <div class="card-title">POTENCIA CONTRATADA: P1 ${fmt(potencia.P1, 2)} kW · P2 ${fmt(potencia.P2, 2)} kW</div>
+    <table>
+      <thead><tr><th>Concepto</th><th>Punta (P1)</th><th>Valle (P2)</th><th>Total anual IVA</th></tr></thead>
+      <tbody>
+        <tr class="row-actual">
+          <td>Precio actual (€/kW·día)</td>
+          <td>${fmt(currentPowerP1, 6)}</td>
+          <td>${fmt(currentPowerP2, 6)}</td>
+          <td>${fmt(result.current.power)} €</td>
+        </tr>
+        <tr class="row-nuevo">
+          <td>Voltis ${tariff.name} (€/kW·día)</td>
+          <td>${fmt(tariff.power.P1, 6)}</td>
+          <td>${fmt(tariff.power.P2, 6)}</td>
+          <td>${fmt(result.nuevo.power)} €</td>
+        </tr>
+        <tr class="row-diff">
+          <td>Diferencia</td>
+          <td>—</td><td>—</td>
+          <td style="color:${result.savings.power >= 0 ? '#3D7A4B' : '#C0392B'}">${fmtSign(result.savings.power)} €</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section-hd">TÉRMINO DE ENERGÍA</div>
+  <div class="card">
+    <div class="card-title">CONSUMO SIPS: ${Math.round(totalKwh).toLocaleString('es-ES')} kWh · P1 ${Math.round(consumo.P1).toLocaleString('es-ES')} · P2 ${Math.round(consumo.P2).toLocaleString('es-ES')} · P3 ${Math.round(consumo.P3).toLocaleString('es-ES')}</div>
+    <table>
+      <thead><tr><th>Concepto</th><th>Punta (P1)</th><th>Llano (P2)</th><th>Valle (P3)</th><th>Total anual IVA</th></tr></thead>
+      <tbody>
+        <tr class="row-actual">
+          <td>Precio actual (€/kWh)</td>
+          <td>${fmt(currentEnergyPrice, 4)}</td>
+          <td>${fmt(currentEnergyPrice, 4)}</td>
+          <td>${fmt(currentEnergyPrice, 4)}</td>
+          <td>${fmt(result.current.energy)} €</td>
+        </tr>
+        <tr class="row-nuevo">
+          <td>Voltis ${tariff.name} (€/kWh)</td>
+          <td>${fmt(tariff.energy.P1, 4)}</td>
+          <td>${fmt(tariff.energy.P2, 4)}</td>
+          <td>${fmt(tariff.energy.P3, 4)}</td>
+          <td>${fmt(result.nuevo.energy)} €</td>
+        </tr>
+        <tr class="row-diff">
+          <td>Diferencia energía</td>
+          <td>—</td><td>—</td><td>—</td>
+          <td style="color:${result.savings.energy >= 0 ? '#3D7A4B' : '#C0392B'}">${fmtSign(result.savings.energy)} €</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="sum-box">
+    <div>
+      <div class="sum-lbl">AHORRO TOTAL ESTIMADO ANUAL (IVA INCL.)</div>
+      <div class="sum-monthly" style="color:${savColor}">Mensual estimado: ${fmtSign(result.savings.totalMonthly)} €/mes</div>
+    </div>
+    <div class="sum-val" style="color:${savColor};background:${savBg};padding:10px 18px;border-radius:10px">
+      ${fmtSign(result.savings.totalAnnual)} €
+    </div>
+  </div>
+
+  <div class="footer-bar">
+    <span>Generado por Voltis CRM · Datos SIPS + precios medios facturados · IVA 21% incluido</span>
+    <span>${tariff.name} — ${cups}</span>
+  </div>
+</div>`
+
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
+<title>Comparativa 2.0TD — ${titular}</title>
+<style>${css}</style></head><body>
+${page1}${page2}
+</body></html>`
+
+  const w = window.open('', '_blank')
+  if (!w) { alert('Activa las ventanas emergentes para generar el PDF'); return }
+  w.document.open(); w.document.write(html); w.document.close()
+  setTimeout(() => w.print(), 800)
+}
+
 // ─── Gas Report View ────────────────────────────────────────────────────────
 
 function GasReportView({ invoices, supplyName, onBack }: {
@@ -1763,11 +1939,13 @@ function GasReportView({ invoices, supplyName, onBack }: {
 
 // ─── Report View ─────────────────────────────────────────────────────────────
 
-function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
+function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaContratada, consumoPeriodos }: {
   invoices: InvoiceRow[]
   supplyName?: string
   onBack: () => void
   onInvoicesUpdated: () => void
+  potenciaContratada?: Record<string, number>
+  consumoPeriodos?: Record<string, number>
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [selectedMonths, setSelectedMonths] = useState<Set<number>>(new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]))
@@ -1775,6 +1953,8 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
   const [selectedBillId, setSelectedBillId] = useState<string | null>(null)         // Modal 1: Bill breakdown (Matrix 3)
   const [selectedPriceBillId, setSelectedPriceBillId] = useState<string | null>(null) // Modal 2: Price calc (Matrix 2)
   const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set())
+  const [show2TDModal, setShow2TDModal] = useState(false)
+  const [downloading2TD, setDownloading2TD] = useState<VoltisKey2TD | null>(null)
   const toggleReveal = (id: string) => setRevealedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
 
   const isAnnual = selectedMonths.size === 12
@@ -1963,6 +2143,36 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
     })
     return totals
   }, [tableData, activePeriods])
+
+  // ── 2.0TD Comparison data ───────────────────────────────────────────────────
+  const is2TD = is2TDTariff(tarifa !== '—' ? tarifa : null)
+
+  const comp2TDData = useMemo(() => {
+    if (!is2TD || !consumoPeriodos || !potenciaContratada) return null
+    const consumoP1 = consumoPeriodos.P1 || 0
+    const consumoP2 = consumoPeriodos.P2 || 0
+    const consumoP3 = consumoPeriodos.P3 || 0
+    const potP1 = potenciaContratada.P1 || 0
+    const potP2 = potenciaContratada.P2 || 0
+    if (!consumoP1 && !consumoP2 && !consumoP3) return null
+
+    const currentEnergyPrice = summaryStats.precioPromedio
+    const { P1: currentPowerP1, P2: currentPowerP2 } = extractCurrentPowerPrices(validInvoices)
+
+    const consumo  = { P1: consumoP1, P2: consumoP2, P3: consumoP3 }
+    const potencia = { P1: potP1,     P2: potP2 }
+
+    const results = (Object.keys(VOLTIS_TARIFFS_2TD) as VoltisKey2TD[]).map(key => ({
+      key,
+      tariff: VOLTIS_TARIFFS_2TD[key],
+      result: compute2TDSavings(consumo, potencia, currentEnergyPrice, currentPowerP1, currentPowerP2, key),
+    }))
+
+    // Sort by best saving (highest first)
+    results.sort((a, b) => b.result.savings.totalAnnual - a.result.savings.totalAnnual)
+
+    return { results, consumo, potencia, currentEnergyPrice, currentPowerP1, currentPowerP2 }
+  }, [is2TD, consumoPeriodos, potenciaContratada, summaryStats.precioPromedio, validInvoices])
 
   // ESC key to exit fullscreen report
   useEffect(() => {
@@ -2304,13 +2514,21 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
           <motion.div animate={{ y: [0, -8, 0] }} transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}>
             <Mascot className="w-48 md:w-64 drop-shadow-2xl relative z-10" />
           </motion.div>
-          <div className="relative z-10 flex flex-col items-center gap-3">
+          <div className="relative z-10 flex flex-col items-center gap-4">
             <button
               onClick={() => openElectricityPDF({ cups, tarifa, titular, activePeriods, chartData, tableData, summaryStats, pieData, averagePriceStats, hasExcesses, excessData, totalExcessAmount })}
               className="flex items-center gap-2 px-10 py-4 rounded-full text-sm font-black tracking-widest uppercase transition hover:scale-105"
               style={{ background: 'linear-gradient(135deg, #6B8068, #5A6E58)', boxShadow: '0 20px 40px -10px rgba(107,128,104,0.3)', color: '#FBF7EE' }}>
               <Download className="w-4 h-4" /> GENERAR PDF
             </button>
+            {is2TD && comp2TDData && (
+              <button
+                onClick={() => setShow2TDModal(true)}
+                className="flex items-center gap-2 px-8 py-3 rounded-full text-sm font-black tracking-widest uppercase transition hover:scale-105"
+                style={{ background: 'linear-gradient(135deg, #C7F24A, #a8d940)', boxShadow: '0 12px 30px -8px rgba(199,242,74,0.4)', color: '#2D3A33' }}>
+                <Sparkles className="w-4 h-4" /> COMPARATIVA VOLTIS 2.0TD
+              </button>
+            )}
             <p className="text-[#8A9A8E] text-xs text-center max-w-xs">
               Se abrirá en nueva pestaña — selecciona «Guardar como PDF» en el diálogo de impresión
             </p>
@@ -2486,6 +2704,156 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
         )}
       </AnimatePresence>
 
+      {/* ═══════════ MODAL 4: Comparativa Voltis 2.0TD ═══════════ */}
+      <AnimatePresence>
+        {show2TDModal && comp2TDData && (
+          <motion.div key="m4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm no-print"
+            onClick={() => setShow2TDModal(false)}>
+            <motion.div initial={{ scale: 0.94, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.94, y: 20 }}
+              className="relative w-full max-w-2xl mx-4 rounded-2xl overflow-hidden shadow-2xl"
+              style={{ background: '#FBF7EE', border: '1px solid #D9D0BA', maxHeight: '90vh', overflowY: 'auto' }}
+              onClick={e => e.stopPropagation()}>
+
+              {/* Header */}
+              <div className="px-7 py-5 flex items-center justify-between" style={{ background: 'linear-gradient(135deg, #5A6E58, #6B8068)', borderBottom: '1px solid #4A5E47' }}>
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Sparkles className="w-4 h-4" style={{ color: '#C7F24A' }} />
+                    <span className="text-xs font-black tracking-[0.3em] uppercase" style={{ color: '#C7F24A' }}>Comparativa Voltis 2.0TD</span>
+                  </div>
+                  <p className="text-sm font-bold" style={{ color: '#FBF7EE' }}>{titular}</p>
+                  <p className="text-xs font-mono mt-0.5" style={{ color: 'rgba(251,247,238,0.6)' }}>{cups}</p>
+                </div>
+                <button onClick={() => setShow2TDModal(false)} className="p-2 rounded-full transition hover:opacity-70" style={{ color: '#FBF7EE' }}>
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Intro */}
+              <div className="px-7 py-4" style={{ borderBottom: '1px solid #E5DCC9', background: '#F4EEE2' }}>
+                <p className="text-xs" style={{ color: '#5A6B5F' }}>
+                  Comparativa basada en consumo SIPS ({Math.round(comp2TDData.consumo.P1 + comp2TDData.consumo.P2 + comp2TDData.consumo.P3).toLocaleString('es-ES')} kWh/año)
+                  y precios medios facturados ({comp2TDData.currentEnergyPrice.toLocaleString('es-ES', { minimumFractionDigits: 4, maximumFractionDigits: 4 })} €/kWh). IVA 21% incluido.
+                </p>
+              </div>
+
+              {/* Tariff Cards */}
+              <div className="px-7 py-5 flex flex-col gap-3">
+                {comp2TDData.results.map((item, idx) => {
+                  const isBest = idx === 0
+                  const saving = item.result.savings.totalAnnual
+                  const savColor = saving >= 0 ? '#3D7A4B' : '#C0392B'
+                  const savBg    = saving >= 0 ? '#E8F5E9' : '#FDECEA'
+
+                  return (
+                    <div key={item.key} className="rounded-xl p-4"
+                      style={{ background: isBest ? '#E0E8DC' : '#F4EEE2', border: isBest ? '2px solid #6B8068' : '1px solid #E5DCC9' }}>
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            {isBest && (
+                              <span className="text-[10px] font-black px-2 py-0.5 rounded-full" style={{ background: '#C7F24A', color: '#2D3A33' }}>
+                                MEJOR OPCIÓN
+                              </span>
+                            )}
+                            <span className="text-xs font-black tracking-[0.15em]" style={{ color: '#5A6E58' }}>{item.tariff.name.toUpperCase()}</span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 mt-2">
+                            <div>
+                              <p className="text-[10px]" style={{ color: '#8A9A8E' }}>Energía P1/P2/P3</p>
+                              <p className="text-xs font-mono font-bold" style={{ color: '#2D3A33' }}>
+                                {item.tariff.energy.P1.toFixed(3)} / {item.tariff.energy.P2.toFixed(3)} / {item.tariff.energy.P3.toFixed(3)} €/kWh
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-[10px]" style={{ color: '#8A9A8E' }}>Potencia P1/P2</p>
+                              <p className="text-xs font-mono font-bold" style={{ color: '#2D3A33' }}>
+                                {item.tariff.power.P1.toFixed(4)} / {item.tariff.power.P2.toFixed(4)} €/kW·día
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Saving pill */}
+                        <div className="text-right flex-shrink-0">
+                          <div className="rounded-lg px-3 py-2" style={{ background: savBg }}>
+                            <p className="text-[10px] font-bold" style={{ color: savColor }}>AHORRO ANUAL</p>
+                            <p className="text-xl font-black" style={{ color: savColor }}>
+                              {saving >= 0 ? '+' : ''}{saving.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} €
+                            </p>
+                            <p className="text-[10px]" style={{ color: savColor }}>
+                              {(saving / 12 >= 0 ? '+' : '')}{(saving / 12).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} €/mes
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Download buttons */}
+                      <div className="flex gap-2 mt-3 pt-3" style={{ borderTop: '1px solid #D9D0BA' }}>
+                        <button
+                          onClick={() => open2TDComparisonPDF({ titular, cups, tariffKey: item.key, consumo: comp2TDData.consumo, potencia: comp2TDData.potencia, currentEnergyPrice: comp2TDData.currentEnergyPrice, currentPowerP1: comp2TDData.currentPowerP1, currentPowerP2: comp2TDData.currentPowerP2 })}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition hover:opacity-80"
+                          style={{ background: '#6B8068', color: '#FBF7EE' }}>
+                          <FileText className="w-3.5 h-3.5" /> PDF
+                        </button>
+                        <button
+                          onClick={async () => {
+                            setDownloading2TD(item.key)
+                            try {
+                              const res = await fetch('/api/comparativa-2td', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                  titular, cups, tariffKey: item.key,
+                                  consumoP1: comp2TDData.consumo.P1,
+                                  consumoP2: comp2TDData.consumo.P2,
+                                  consumoP3: comp2TDData.consumo.P3,
+                                  potenciaP1: comp2TDData.potencia.P1,
+                                  potenciaP2: comp2TDData.potencia.P2,
+                                  currentEnergyPrice: comp2TDData.currentEnergyPrice,
+                                  currentPowerP1: comp2TDData.currentPowerP1,
+                                  currentPowerP2: comp2TDData.currentPowerP2,
+                                }),
+                              })
+                              if (!res.ok) throw new Error('Error generando Excel')
+                              const blob = await res.blob()
+                              const url = URL.createObjectURL(blob)
+                              const a = document.createElement('a')
+                              a.href = url
+                              a.download = `Comparativa_2TD_${item.tariff.shortName}_${titular.replace(/\s+/g, '_')}.xlsx`
+                              a.click()
+                              URL.revokeObjectURL(url)
+                            } catch (err) {
+                              alert('Error al generar Excel. Inténtalo de nuevo.')
+                            } finally {
+                              setDownloading2TD(null)
+                            }
+                          }}
+                          disabled={downloading2TD === item.key}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition hover:opacity-80 disabled:opacity-50"
+                          style={{ background: '#E0E8DC', color: '#5A6E58', border: '1px solid #C8D8C4' }}>
+                          {downloading2TD === item.key
+                            ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generando...</>
+                            : <><Download className="w-3.5 h-3.5" /> Excel</>}
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Footer note */}
+              <div className="px-7 py-4" style={{ borderTop: '1px solid #E5DCC9', background: '#F4EEE2' }}>
+                <p className="text-[10px] text-center" style={{ color: '#8A9A8E' }}>
+                  Ahorro estimado. No incluye alquiler de equipos ni otros cargos fijos. Potencia contratada de SIPS.
+                </p>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* ═══════════ PRINT STYLES ═══════════ */}
       <style>{`
         @media print {
@@ -2616,7 +2984,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated, supplyType: propSupplyType }: Props) {
+export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated, supplyType: propSupplyType, potenciaContratada, consumoPeriodos, clientName }: Props) {
   const [view, setView] = useState<'tabla' | 'informe'>('tabla')
   const [busyRescan, setBusyRescan] = useState<string | null>(null)
   const [busyDelete, setBusyDelete] = useState<string | null>(null)
@@ -2735,7 +3103,7 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
     if (isGas) {
       return <GasReportView invoices={invoices} supplyName={supplyName} onBack={() => setView('tabla')} />
     }
-    return <ReportView invoices={invoices} supplyName={supplyName} onBack={() => setView('tabla')} onInvoicesUpdated={onInvoicesUpdated} />
+    return <ReportView invoices={invoices} supplyName={supplyName || clientName} onBack={() => setView('tabla')} onInvoicesUpdated={onInvoicesUpdated} potenciaContratada={potenciaContratada} consumoPeriodos={consumoPeriodos} />
   }
 
   return (

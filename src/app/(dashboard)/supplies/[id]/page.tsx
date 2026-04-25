@@ -1899,6 +1899,9 @@ export default function SupplyDetailPage() {
             supplyId={supply.id}
             supplyType={supply.type}
             invoices={supply.invoices || []}
+            potenciaContratada={supply.consumption_data?.potenciaContratada}
+            consumoPeriodos={supply.consumption_data?.consumoPeriodos}
+            clientName={supply.client?.name || supply.cups || ''}
             onInvoicesUpdated={async () => {
               // Re-fetch supply data to update indicators
               const supabase = createClient()
