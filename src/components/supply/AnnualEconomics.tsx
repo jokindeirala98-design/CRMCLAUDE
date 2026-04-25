@@ -1262,7 +1262,7 @@ function GasReportView({ invoices, supplyName, onBack }: {
                     <td className="px-3 py-3 text-right text-white/50">{row.terminoFijo > 0 ? `${row.terminoFijo.toFixed(2)}€` : '—'}</td>
                     <td className="px-3 py-3 text-right text-white/50">{row.impuesto > 0 ? `${row.impuesto.toFixed(2)}€` : '—'}</td>
                     <td className="px-3 py-3 text-right text-white/50">{row.alquiler > 0 ? `${row.alquiler.toFixed(2)}€` : '—'}</td>
-                    <td className="px-4 py-3 text-right font-black text-white bg-white/[0.03]">{row.total.toFixed(2)}€</td>
+                    <td className="px-4 py-3 text-right font-black text-white bg-[#E0E8DC]">{row.total.toFixed(2)}€</td>
                   </tr>
                 ))}
               </tbody>
@@ -1840,7 +1840,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
           <div className="relative z-10 flex flex-col items-center gap-3">
             <button onClick={() => window.print()}
               className="flex items-center gap-2 px-10 py-4 rounded-full text-sm font-black tracking-widest uppercase transition hover:scale-105"
-              style={{ background: 'linear-gradient(135deg, #3b82f6, #6366f1)', boxShadow: '0 20px 40px -10px rgba(59,130,246,0.3)' }}>
+              style={{ background: 'linear-gradient(135deg, #6B8068, #5A6E58)', boxShadow: '0 20px 40px -10px rgba(107,128,104,0.3)', color: '#FBF7EE' }}>
               <Download className="w-4 h-4" /> GENERAR PDF
             </button>
             <p className="text-[#8A9A8E] text-xs text-center max-w-xs">
@@ -2041,13 +2041,13 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
             overflow: visible !important;
             height: auto !important;
             z-index: 999999 !important;
-            background: #020617 !important;
+            background: #F4EEE2 !important;
           }
 
           /* Force colors on everything */
           html, body {
-            background: #020617 !important;
-            color: white !important;
+            background: #F4EEE2 !important;
+            color: #2D3A33 !important;
             margin: 0 !important;
             padding: 0 !important;
             overflow: visible !important;
@@ -2271,10 +2271,10 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
   }
 
   return (
-    <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(2,6,23,0.95)', border: '1px solid rgba(255,255,255,0.08)' }}>
-      <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
+    <div className="rounded-2xl overflow-hidden" style={{ background: '#FBF7EE', border: '1px solid #E5DCC9' }}>
+      <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5DCC9]">
         <div className="flex items-center gap-3">
-          <span className="text-xs font-bold tracking-[0.3em] text-white/60">DATOS EXTRAÍDOS {withEco.length}/{invoices.length}</span>
+          <span className="text-xs font-bold tracking-[0.3em] text-[#5A6B5F]">DATOS EXTRAÍDOS {withEco.length}/{invoices.length}</span>
           {withEco.length > 0 && (
             validationSummary.anyFail ? (
               <span
@@ -2299,7 +2299,7 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
         </div>
         <button onClick={() => setView('informe')}
           className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white transition hover:scale-105"
-          style={{ background: isGas ? 'linear-gradient(135deg, #ea580c, #f97316)' : 'linear-gradient(135deg, #3b82f6, #6366f1)' }}>
+          style={{ background: isGas ? 'linear-gradient(135deg, #ea580c, #f97316)' : 'linear-gradient(135deg, #6B8068, #5A6E58)', color: '#FBF7EE' }}>
           {isGas ? <Flame className="w-4 h-4" /> : <TrendingUp className="w-4 h-4" />} Generar informe
         </button>
       </div>
@@ -2314,7 +2314,7 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
           authoritativeType={propSupplyType}
         />
       ) : (
-        <div className="flex flex-col items-center justify-center py-16 text-white/30 gap-3">
+        <div className="flex flex-col items-center justify-center py-16 text-[#8A9A8E] gap-3">
           <AlertCircle className="w-8 h-8" />
           <p className="text-sm">Ninguna factura tiene datos económicos. Re-extrae las facturas.</p>
         </div>
@@ -2332,15 +2332,15 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
               initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
               className="rounded-2xl p-6 max-w-sm w-full mx-4"
-              style={{ background: 'rgba(15,23,42,0.95)', border: '1px solid rgba(255,255,255,0.15)', backdropFilter: 'blur(24px)' }}
+              style={{ background: '#FBF7EE', border: '1px solid #E5DCC9', boxShadow: '0 20px 50px -15px rgba(45,58,51,0.18)' }}
             >
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-xl bg-err-container/400/20 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-xl bg-err-container flex items-center justify-center">
                   <Trash2 className="w-5 h-5 text-err" />
                 </div>
                 <div>
-                  <h3 className="text-white font-bold text-sm">Eliminar factura</h3>
-                  <p className="text-white/50 text-xs">Se eliminará la factura y sus datos asociados</p>
+                  <h3 className="text-[#2D3A33] font-bold text-sm">Eliminar factura</h3>
+                  <p className="text-[#5A6B5F] text-xs">Se eliminará la factura y sus datos asociados</p>
                 </div>
               </div>
               <div className="flex items-center gap-3 justify-end">
