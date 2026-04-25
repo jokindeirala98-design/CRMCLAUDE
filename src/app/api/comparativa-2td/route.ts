@@ -265,8 +265,8 @@ export async function POST(req: NextRequest) {
     sc(ws, 8, N, 'ANUAL',   { bold: true, size: 11, color: CLR.ink3, align: 'center' })
 
     // Row 9: DIFERENCIA labels
-    sc(ws, 9, M, 'DIFERENCIA', { bold: true, size: 14, color: CLR.salviaDark, align: 'center' })
-    sc(ws, 9, N, 'DIFERENCIA', { bold: true, size: 14, color: CLR.salviaDark, align: 'center' })
+    sc(ws, 9, M, 'DIFERENCIA', { bold: true, size: 11, color: CLR.salviaDark, align: 'center' })
+    sc(ws, 9, N, 'DIFERENCIA', { bold: true, size: 11, color: CLR.salviaDark, align: 'center' })
 
     // Row 10: Power savings (formulas)
     fc(ws, 10, M, 'N10/12',   M10, { bold: true, size: 12, color: powColor, numFmt: '#,##0.00 €', bg: powBg })
@@ -324,12 +324,12 @@ export async function POST(req: NextRequest) {
     sc(ws, 23, N, 'IVA INCL.', { size: 10, color: CLR.ink3, align: 'center' })
 
     // Row 24: section header labels
-    sc(ws, 24, J, 'ESTA FACTURA:', { bold: true, size: 10, color: CLR.ink3, align: 'center' })
+    sc(ws, 24, J, 'ESTA FACTURA:', { bold: true, size: 9, color: CLR.ink3, align: 'center', wrap: true })
 
     // Row 25: sub-labels
     sc(ws, 25, A, 'CONSUMO',       { bold: true, size: 12, color: CLR.ink,  align: 'center' })
-    sc(ws, 25, F, 'Precio actual:', { size: 12,   color: CLR.ink3, align: 'center' })
-    sc(ws, 25, N, 'TOTAL:',        { bold: true, size: 14, color: CLR.salviaDark, align: 'center' })
+    sc(ws, 25, F, 'Precio actual:', { size: 10,   color: CLR.ink3, align: 'center', wrap: true })
+    sc(ws, 25, N, 'TOTAL:',        { bold: true, size: 12, color: CLR.salviaDark, align: 'center' })
 
     // Row 26: period headers for "current" costs + N26 total formula
     sc(ws, 26, J, 'P1', { bold: true, size: 14, color: CLR.ink, align: 'center' })
@@ -360,12 +360,12 @@ export async function POST(req: NextRequest) {
     sc(ws, 28, Q, 'ANUAL',   { bold: true, size: 11, color: CLR.ink3, align: 'center' })
 
     // Row 29: DIFERENCIA labels
-    sc(ws, 29, P, 'DIFERENCIA', { bold: true, size: 14, color: CLR.salviaDark, align: 'center' })
-    sc(ws, 29, Q, 'DIFERENCIA', { bold: true, size: 14, color: CLR.salviaDark, align: 'center' })
+    sc(ws, 29, P, 'DIFERENCIA', { bold: true, size: 11, color: CLR.salviaDark, align: 'center' })
+    sc(ws, 29, Q, 'DIFERENCIA', { bold: true, size: 11, color: CLR.salviaDark, align: 'center' })
 
     // Row 30: "Precio Nuevo:" + NUEVA FACTURA header + energy savings (formulas)
-    sc(ws, 30, F, 'Precio Nuevo:', { bold: true, size: 12, color: CLR.salviaDark, align: 'center' })
-    sc(ws, 30, J, 'NUEVA FACTURA:', { bold: true, size: 10, color: CLR.salviaDark, align: 'center' })
+    sc(ws, 30, F, 'Precio Nuevo:', { bold: true, size: 10, color: CLR.salviaDark, align: 'center', wrap: true })
+    sc(ws, 30, J, 'NUEVA FACTURA:', { bold: true, size: 9, color: CLR.salviaDark, align: 'center', wrap: true })
     sc(ws, 30, N, 'IVA INCL.', { size: 10, color: CLR.ink3, align: 'center' })
     fc(ws, 30, P, 'Q30/12',   P30, { bold: true, size: 12, color: eneColor, numFmt: '#,##0.00 €', bg: eneBg })
     fc(ws, 30, Q, 'N26-N33',  Q30, { bold: true, size: 12, color: eneColor, numFmt: '#,##0.00 €', bg: eneBg })
@@ -412,13 +412,13 @@ export async function POST(req: NextRequest) {
     ws.getRow(21).height = 12   // spacer
     ws.getRow(22).height = 22
     ws.getRow(23).height = 22
-    ws.getRow(24).height = 18
-    ws.getRow(25).height = 22
+    ws.getRow(24).height = 26   // wrap "ESTA FACTURA:"
+    ws.getRow(25).height = 26   // wrap "Precio actual:"
     ws.getRow(26).height = 24
     ws.getRow(27).height = 24
     ws.getRow(28).height = 22
     ws.getRow(29).height = 24
-    ws.getRow(30).height = 22
+    ws.getRow(30).height = 28   // wrap "Precio Nuevo:" y "NUEVA FACTURA:"
     ws.getRow(31).height = 12   // spacer
     ws.getRow(32).height = 24
     ws.getRow(33).height = 22
