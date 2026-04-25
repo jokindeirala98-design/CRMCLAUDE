@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import {
   CalendarDays,
   ClipboardList,
+  Target,
   Plus,
   CheckCircle2,
   Circle,
@@ -34,6 +35,7 @@ import { Badge } from '@/components/ui/Badge'
 import { NewTaskModal } from '@/components/modals/NewTaskModal'
 import { NewAppointmentModal } from '@/components/modals/NewAppointmentModal'
 import { QuickCreateModal } from '@/components/modals/QuickCreateModal'
+import { WeeklyPlan } from '@/components/agenda/WeeklyPlan'
 import { createClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/auth'
 import { cn } from '@/lib/utils/cn'
@@ -96,7 +98,7 @@ const TYPE_LABELS: Record<string, string> = {
 }
 
 // ── Tab type ───────────────────────────────────────────────────
-type ViewTab = 'corcho' | 'calendario'
+type ViewTab = 'corcho' | 'calendario' | 'semana'
 
 // ── Main Component ─────────────────────────────────────────────
 export default function AgendaPage() {
@@ -237,6 +239,24 @@ export default function AgendaPage() {
     const supabase = createClient()
     await supabase.from('tasks').delete().eq('id', taskId)
     fetchTasks()
+  }
+
+  // ── Appointment actions ──────────────────────────────────────
+  const markAppointmentDone = async (apptId: string) => {
+    const supabase = createClient()
+    setAppointments(prev =>
+      prev.map(a => a.id === apptId ? { ...a, status: 'completed' } : a)
+    )
+    await supabase.from('appointments').update({ status: 'completed' }).eq('id', apptId)
+    fetchAppointments()
+  }
+
+  const deleteAppointment = async (apptId: string) => {
+    if (!confirm('¿Eliminar esta cita?')) return
+    const supabase = createClient()
+    setAppointments(prev => prev.filter(a => a.id !== apptId))
+    await supabase.from('appointments').delete().eq('id', apptId)
+    fetchAppointments()
   }
 
   // Drag-and-drop
@@ -491,6 +511,16 @@ export default function AgendaPage() {
             >
               <CalendarDays className="w-4 h-4" />
               Calendario
+            </button>
+            <button
+              onClick={() => setActiveTab('semana')}
+              className={cn(
+                'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all',
+                activeTab === 'semana' ? 'bg-bg shadow-ambient-xs text-brand' : 'text-ink-3 hover:text-ink'
+              )}
+            >
+              <Target className="w-4 h-4" />
+              Semana
             </button>
           </div>
 
@@ -818,23 +848,55 @@ export default function AgendaPage() {
                   ) : (
                     <div className="space-y-2">
                       {getAppointmentsForDay(selectedDay).map((a: any) => (
-                        <div key={a.id} className="p-2.5 bg-bg-2 rounded-xl">
-                          <div className="flex items-center gap-2 mb-1">
-                            <Badge variant={a.type === 'signing' ? 'warning' : 'info'}>{TYPE_LABELS[a.type] || a.type}</Badge>
-                            <Badge variant={a.status === 'completed' ? 'success' : 'default'}>
-                              {a.status === 'scheduled' ? 'Pendiente' : a.status === 'completed' ? 'Realizada' : a.status}
-                            </Badge>
-                          </div>
-                          <p className="text-sm font-medium text-ink">{a.client?.name}</p>
-                          <div className="flex items-center gap-1 mt-1 text-xs text-ink-3">
-                            <Clock className="w-3 h-3" />
-                            {new Date(a.scheduled_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
-                            {a.location && (
-                              <>
-                                <span className="mx-1">·</span>
-                                <MapPin className="w-3 h-3" />{a.location}
-                              </>
-                            )}
+                        <div key={a.id} className={cn(
+                          'group p-2.5 rounded-xl transition-all',
+                          a.status === 'completed' ? 'bg-ok-container/30 opacity-70' : 'bg-bg-2'
+                        )}>
+                          <div className="flex items-start gap-2">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <Badge variant={a.type === 'signing' ? 'warning' : 'info'}>{TYPE_LABELS[a.type] || a.type}</Badge>
+                                {a.status === 'completed' && (
+                                  <Badge variant="success">Realizada</Badge>
+                                )}
+                              </div>
+                              <p className={cn(
+                                'text-sm font-medium',
+                                a.status === 'completed' ? 'text-ink-3 line-through' : 'text-ink'
+                              )}>
+                                {a.client?.name || '—'}
+                              </p>
+                              <div className="flex items-center gap-1 mt-1 text-xs text-ink-3">
+                                <Clock className="w-3 h-3" />
+                                {new Date(a.scheduled_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                                {a.location && (
+                                  <>
+                                    <span className="mx-1">·</span>
+                                    <MapPin className="w-3 h-3" />{a.location}
+                                  </>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Actions */}
+                            <div className="flex items-center gap-0.5 shrink-0">
+                              {a.status !== 'completed' && (
+                                <button
+                                  onClick={() => markAppointmentDone(a.id)}
+                                  className="p-1.5 rounded-lg hover:bg-ok-container text-ink-3 hover:text-ok transition-all"
+                                  title="Marcar como realizada"
+                                >
+                                  <CheckCircle2 className="w-4 h-4" />
+                                </button>
+                              )}
+                              <button
+                                onClick={() => deleteAppointment(a.id)}
+                                className="p-1.5 rounded-lg hover:bg-err-container text-ink-3 hover:text-err transition-all opacity-0 group-hover:opacity-100"
+                                title="Eliminar cita"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -850,7 +912,7 @@ export default function AgendaPage() {
                 ) : (
                   <div className="space-y-2">
                     {upcoming.map((a: any) => (
-                      <div key={a.id} className="flex items-center gap-2 p-2 rounded-lg hover:bg-bg-2 transition-all">
+                      <div key={a.id} className="group flex items-center gap-2 p-2 rounded-lg hover:bg-bg-2 transition-all">
                         <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
                           a.type === 'signing' ? 'bg-warn' : a.type === 'presentation' ? 'bg-brand' : 'bg-ok'
                         }`} />
@@ -861,6 +923,22 @@ export default function AgendaPage() {
                             {' '}{new Date(a.scheduled_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
                           </p>
                         </div>
+                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => markAppointmentDone(a.id)}
+                            className="p-1 rounded-md hover:bg-ok-container text-ink-4 hover:text-ok transition-all"
+                            title="Marcar como realizada"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => deleteAppointment(a.id)}
+                            className="p-1 rounded-md hover:bg-err-container text-ink-4 hover:text-err transition-all"
+                            title="Eliminar"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -868,6 +946,11 @@ export default function AgendaPage() {
               </Card>
             </div>
           </div>
+        )}
+
+        {/* ── SEMANA VIEW ─────────────────────────────────────── */}
+        {activeTab === 'semana' && (
+          <WeeklyPlan users={users} />
         )}
       </div>
 
