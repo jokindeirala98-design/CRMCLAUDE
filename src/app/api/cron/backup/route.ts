@@ -326,7 +326,7 @@ export async function GET(req: NextRequest) {
 
     const { error: emailError } = await resend.emails.send({
       from: 'Voltis CRM <facturacion@voltisenergia.com>',
-      to: ['nicolasvoltis@gmail.com'],
+      to: ['admin@voltisenergia.com'],
       subject: `📦 Backup CRM — ${today()}`,
       html: `
         <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px">
