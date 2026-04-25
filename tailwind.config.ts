@@ -30,6 +30,17 @@ const config: Config = {
         volt: '#C7F24A',
         'volt-ink': '#1D2C0E',
 
+        // ─── themeSalvia — warm editorial palette (informe + UI accents) ──
+        salvia:        '#6B8068',   // sage green — primary report accent
+        'salvia-soft': '#E0E8DC',   // sage tint — chip/badge backgrounds
+        'salvia-dark': '#5A6E58',   // deeper sage — gradients
+        durazno:       '#E8B89A',   // peach — dividers, highlights
+        'durazno-soft':'#F5DCC9',   // peach tint — badge bg
+        crema:         '#F4EEE2',   // warm canvas background
+        'crema-paper': '#FBF7EE',   // warm white — card/paper surface
+        lavanda:       '#E8E0F0',   // lavender tint — 6.1TD badge bg
+        'lavanda-ink': '#6B5A82',   // lavender ink
+
         // Semantic states (oklch-derived hex approximations)
         ok: 'oklch(0.72 0.14 150)',
         'ok-container': 'oklch(0.96 0.04 150)',

@@ -39,6 +39,23 @@
     --color-err-container:   oklch(0.96 0.05 25);
     --color-info:            oklch(0.65 0.12 240);
     --color-info-container:  oklch(0.96 0.04 240);
+
+    /* ─── themeSalvia — warm editorial palette ───────────────────── */
+    --color-salvia:        #6B8068;
+    --color-salvia-soft:   #E0E8DC;
+    --color-salvia-dark:   #5A6E58;
+    --color-durazno:       #E8B89A;
+    --color-durazno-soft:  #F5DCC9;
+    --color-crema:         #F4EEE2;
+    --color-crema-paper:   #FBF7EE;
+    --color-lavanda:       #E8E0F0;
+    --color-lavanda-ink:   #6B5A82;
+
+    /* Tariff tag tokens (used by TariffBadge + TechnologicalReportView) */
+    --tariff-20-bg:  #E0E8DC;  --tariff-20-fg:  #4A5E47;
+    --tariff-30-bg:  #F5DCC9;  --tariff-30-fg:  #9C5B36;
+    --tariff-61-bg:  #E8E0F0;  --tariff-61-fg:  #6B5A82;
+    --tariff-rl-bg:  #E6F4E8;  --tariff-rl-fg:  #2E6B42;
   }
 
   html {
@@ -96,6 +113,23 @@
     font-weight: 500;
     text-transform: uppercase;
   }
+
+  /* ── Tariff badge utility classes ── */
+  .tariff-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.125rem 0.5rem;
+    border-radius: 6px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    font-family: 'Geist Mono', ui-monospace, monospace;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+  .tariff-20 { background: var(--tariff-20-bg); color: var(--tariff-20-fg); }
+  .tariff-30 { background: var(--tariff-30-bg); color: var(--tariff-30-fg); }
+  .tariff-61 { background: var(--tariff-61-bg); color: var(--tariff-61-fg); }
+  .tariff-rl { background: var(--tariff-rl-bg); color: var(--tariff-rl-fg); }
 
   /* ── Legacy utilities kept for backward compat ── */
 

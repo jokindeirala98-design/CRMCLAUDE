@@ -113,7 +113,7 @@ export function Sidebar() {
               exit={{ opacity: 0, width: 0 }}
               className="overflow-hidden flex-shrink-0"
             >
-              <VoltisLogo height={36} />
+              <VoltisLogo height={34} color="#1F3A2E" subtitleColor="#6B8068" />
             </motion.div>
           )}
         </AnimatePresence>
@@ -144,7 +144,7 @@ export function Sidebar() {
                       className={cn(
                         'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-100',
                         isActive
-                          ? 'bg-ink text-bg'
+                          ? 'bg-brand text-volt'
                           : 'text-ink-3 hover:bg-line/60 hover:text-ink'
                       )}
                     >
@@ -177,7 +177,7 @@ export function Sidebar() {
           className={cn(
             'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all',
             pathname.startsWith('/settings')
-              ? 'bg-ink text-bg'
+              ? 'bg-brand text-volt'
               : 'text-ink-3 hover:bg-line/60 hover:text-ink'
           )}
         >

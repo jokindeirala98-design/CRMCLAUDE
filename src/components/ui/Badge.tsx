@@ -136,3 +136,29 @@ export function StatusBadge({ status }: { status: string }) {
     </Badge>
   )
 }
+
+// ── Tariff badge — salvia/durazno/lavanda palette aligned with report ─────────
+
+/**
+ * Renders a small monospaced badge for electricity tariffs.
+ * Colors match themeSalvia design tokens and TechnologicalReportView.
+ *
+ * 2.0TD → sage green
+ * 3.0TD → peach
+ * 6.1TD → lavender
+ * RL    → emerald
+ */
+export function TariffBadge({ tariff, className }: { tariff: string; className?: string }) {
+  const t = (tariff || '').trim().toUpperCase()
+
+  let cssClass = 'tariff-rl'
+  if (t.startsWith('2.'))      cssClass = 'tariff-20'
+  else if (t.startsWith('3.')) cssClass = 'tariff-30'
+  else if (t.startsWith('6.')) cssClass = 'tariff-61'
+
+  return (
+    <span className={cn('tariff-badge', cssClass, className)}>
+      {tariff}
+    </span>
+  )
+}
