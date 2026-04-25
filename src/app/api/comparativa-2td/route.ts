@@ -28,25 +28,25 @@ import { VOLTIS_TARIFFS_2TD, compute2TDSavings, type VoltisKey2TD } from '@/lib/
 const A = 1, B = 2, C = 3, D = 4, E = 5, F = 6, G = 7, H = 8, I = 9,
       J = 10, K = 11, L = 12, M = 13, N = 14, O = 15, P = 16, Q = 17, R = 18
 
-// ─── Brand colors (ARGB, no #) ───────────────────────────────────────────────
+// ─── Template colors (ARGB, no #) — matches original TIENDA template ─────────
 const CLR = {
-  ink:        'FF2D3A33',
-  ink3:       'FF5A6B5F',
-  ink4:       'FF8A9A8E',
-  crema:      'FFF4EEE2',
-  paper:      'FFFBF7EE',
-  line:       'FFE5DCC9',
-  line2:      'FFD9D0BA',
-  salvia:     'FF6B8068',
-  salviaDark: 'FF5A6E58',
-  salviaSoft: 'FFE0E8DC',
-  volt:       'FFC7F24A',
-  voltDark:   'FF8BAA30',
+  ink:        'FF1F2937',   // near-black text
+  ink3:       'FF4B5563',   // secondary text
+  ink4:       'FF9CA3AF',   // tertiary text
+  crema:      'FFFFFEF7',   // very light cream bg
+  paper:      'FFFFFFFF',   // white
+  line:       'FFD1D5DB',   // light border
+  line2:      'FFB8B8B8',   // medium gray border (thin lines)
+  salvia:     'FF548235',   // medium forest green
+  salviaDark: 'FF375623',   // dark forest green (main headers)
+  salviaSoft: 'FFE2EFDA',   // pale green (new tariff rows)
+  volt:       'FFFFC000',   // amber/gold (total savings highlight)
+  voltDark:   'FF7F5F00',   // dark amber (text on amber bg)
   white:      'FFFFFFFF',
-  green:      'FF2D6A4F',
-  greenSoft:  'FFD8F3DC',
-  red:        'FFC0392B',
-  redSoft:    'FFFCE8E6',
+  green:      'FF375623',   // positive savings text
+  greenSoft:  'FFC6EFCE',   // positive savings bg
+  red:        'FF9C0006',   // negative savings text
+  redSoft:    'FFFFC7CE',   // negative savings bg
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -67,7 +67,7 @@ function sc(ws: ExcelJS.Worksheet, row: number, col: number, value: ExcelJS.Cell
   }
   if (opts.bg) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: opts.bg } }
   c.alignment = { horizontal: opts.align ?? 'left', vertical: 'middle', wrapText: !!opts.wrap }
-  if (opts.border) {
+  if (opts.border !== false) {
     const b = { style: 'thin' as ExcelJS.BorderStyle, color: { argb: CLR.line2 } }
     c.border = { top: b, bottom: b, left: b, right: b }
   }
@@ -93,7 +93,7 @@ function fc(ws: ExcelJS.Worksheet, row: number, col: number,
   }
   if (opts.bg) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: opts.bg } }
   c.alignment = { horizontal: opts.align ?? 'center', vertical: 'middle' }
-  if (opts.border) {
+  if (opts.border !== false) {
     const b = { style: 'thin' as ExcelJS.BorderStyle, color: { argb: CLR.line2 } }
     c.border = { top: b, bottom: b, left: b, right: b }
   }
@@ -214,7 +214,7 @@ export async function POST(req: NextRequest) {
 
     // Row 3: other charges labels
     sc(ws, 3, Q, 'OTROS CARGOS:', { bold: true, size: 10, color: CLR.ink3, align: 'right' })
-    sc(ws, 3, R, 'ALQUILER DE EQUIPOS', { bold: true, size: 10, color: CLR.ink, align: 'center', bg: CLR.crema, border: true })
+    sc(ws, 3, R, 'ALQUILER DE EQUIPOS', { bold: true, size: 10, color: CLR.ink, align: 'center', bg: CLR.crema })
 
     // Row 4: column section headers
     sc(ws, 4, H, 'ANUALMENTE',    { bold: true, size: 10, color: CLR.ink3, align: 'center' })
@@ -238,7 +238,7 @@ export async function POST(req: NextRequest) {
     sc(ws, 7, F, currentPowerP2,{ bold: true, size: 12, color: CLR.ink, align: 'center', numFmt: '#,##0.000000' })
     fc(ws, 7, H, 'B7*E7*J15',     H7,  { bold: true, size: 12, color: CLR.ink, numFmt: '#,##0.00' })
     fc(ws, 7, I, 'C7*F7*J15',     I7,  { bold: true, size: 12, color: CLR.ink, numFmt: '#,##0.00' })
-    fc(ws, 7, K, '(H7+I7)*1.21',  K7,  { bold: true, size: 12, color: CLR.ink, numFmt: '#,##0.00', bg: CLR.crema, border: true })
+    fc(ws, 7, K, '(H7+I7)*1.21',  K7,  { bold: true, size: 12, color: CLR.ink, numFmt: '#,##0.00', bg: CLR.crema })
 
     // M7:N7 — "POR POTENCIA:" header (merged)
     mc(ws, 7, M, 7, N, 'POR POTENCIA:', { bold: true, size: 12, color: CLR.salviaDark, align: 'center', bg: CLR.salviaSoft })
@@ -252,8 +252,8 @@ export async function POST(req: NextRequest) {
     sc(ws, 9, N, 'DIFERENCIA', { bold: true, size: 14, color: CLR.salviaDark, align: 'center' })
 
     // Row 10: Power savings (formulas)
-    fc(ws, 10, M, 'N10/12',   M10, { bold: true, size: 12, color: powColor, numFmt: '#,##0.00 €', bg: powBg, border: true })
-    fc(ws, 10, N, 'K7-K14',   N10, { bold: true, size: 12, color: powColor, numFmt: '#,##0.00 €', bg: powBg, border: true })
+    fc(ws, 10, M, 'N10/12',   M10, { bold: true, size: 12, color: powColor, numFmt: '#,##0.00 €', bg: powBg })
+    fc(ws, 10, N, 'K7-K14',   N10, { bold: true, size: 12, color: powColor, numFmt: '#,##0.00 €', bg: powBg })
 
     // Row 11: NUEVO section headers
     sc(ws, 11, H, 'ANUALMENTE', { bold: true, size: 10, color: CLR.ink3, align: 'center' })
@@ -276,7 +276,7 @@ export async function POST(req: NextRequest) {
     sc(ws, 14, F, tariff.power.P2,   { bold: true, size: 12, color: CLR.salviaDark, align: 'center', numFmt: '#,##0.000000', bg: CLR.salviaSoft })
     fc(ws, 14, H, 'B14*E14*J15',    H14, { bold: true, size: 12, color: CLR.salviaDark, numFmt: '#,##0.00' })
     fc(ws, 14, I, 'C14*F14*J15',    I14, { bold: true, size: 12, color: CLR.salviaDark, numFmt: '#,##0.00' })
-    fc(ws, 14, K, '(H14+I14)*1.21', K14, { bold: true, size: 12, color: CLR.salviaDark, numFmt: '#,##0.00', bg: CLR.salviaSoft, border: true })
+    fc(ws, 14, K, '(H14+I14)*1.21', K14, { bold: true, size: 12, color: CLR.salviaDark, numFmt: '#,##0.00', bg: CLR.salviaSoft })
 
     // Q14:R14 — "TOTAL AHORRO ESTIMADO:" (merged)
     mc(ws, 14, Q, 14, R, 'TOTAL AHORRO ESTIMADO:', { bold: true, size: 14, color: CLR.white, bg: CLR.salviaDark, align: 'center' })
@@ -287,8 +287,8 @@ export async function POST(req: NextRequest) {
     sc(ws, 15, R, 'ANUAL',   { bold: true, size: 12, color: CLR.ink, align: 'center', bg: CLR.crema })
 
     // Row 16: Total savings (formulas referencing both sections)
-    fc(ws, 16, Q, 'M10+P30', Q16, { bold: true, size: 16, color: totColor, numFmt: '#,##0.00 €', bg: CLR.volt, border: true })
-    fc(ws, 16, R, 'N10+Q30', R16, { bold: true, size: 16, color: totColor, numFmt: '#,##0.00 €', bg: CLR.volt, border: true })
+    fc(ws, 16, Q, 'M10+P30', Q16, { bold: true, size: 16, color: totColor, numFmt: '#,##0.00 €', bg: CLR.volt })
+    fc(ws, 16, R, 'N10+Q30', R16, { bold: true, size: 16, color: totColor, numFmt: '#,##0.00 €', bg: CLR.volt })
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENERGIA SECTION (rows 18–33)
@@ -303,7 +303,7 @@ export async function POST(req: NextRequest) {
     mc(ws, 22, B, 22, C, 'CONSUMO ANUAL KWH', { bold: true, size: 12, color: CLR.white, bg: CLR.salvia, align: 'center' })
 
     // Row 23: B23:C23 — total kWh value
-    mc(ws, 23, B, 23, C, totalKwh, { bold: true, size: 12, color: CLR.ink, align: 'center', numFmt: '#,##0', bg: CLR.crema, border: true })
+    mc(ws, 23, B, 23, C, totalKwh, { bold: true, size: 12, color: CLR.ink, align: 'center', numFmt: '#,##0', bg: CLR.crema })
     sc(ws, 23, N, 'IVA INCL.', { size: 10, color: CLR.ink3, align: 'center' })
 
     // Row 24: section header labels
@@ -318,7 +318,7 @@ export async function POST(req: NextRequest) {
     sc(ws, 26, J, 'P1', { bold: true, size: 14, color: CLR.ink, align: 'center' })
     sc(ws, 26, K, 'P2', { bold: true, size: 14, color: CLR.ink, align: 'center' })
     sc(ws, 26, L, 'P3', { bold: true, size: 14, color: CLR.ink, align: 'center' })
-    fc(ws, 26, N, '(J27+K27+L27)*1.21', N26, { bold: true, size: 12, color: CLR.ink, numFmt: '#,##0.00 €', bg: CLR.crema, border: true })
+    fc(ws, 26, N, '(J27+K27+L27)*1.21', N26, { bold: true, size: 12, color: CLR.ink, numFmt: '#,##0.00 €', bg: CLR.crema })
 
     // Row 27: consumption & price period headers + formula costs + P27:Q27 merged header
     sc(ws, 27, B, 'P1', { bold: true, size: 14, color: CLR.ink, align: 'center' })
@@ -350,8 +350,8 @@ export async function POST(req: NextRequest) {
     sc(ws, 30, F, 'Precio Nuevo:', { bold: true, size: 12, color: CLR.salviaDark, align: 'center' })
     sc(ws, 30, J, 'NUEVA FACTURA:', { bold: true, size: 10, color: CLR.salviaDark, align: 'center' })
     sc(ws, 30, N, 'IVA INCL.', { size: 10, color: CLR.ink3, align: 'center' })
-    fc(ws, 30, P, 'Q30/12',   P30, { bold: true, size: 12, color: eneColor, numFmt: '#,##0.00 €', bg: eneBg, border: true })
-    fc(ws, 30, Q, 'N26-N33',  Q30, { bold: true, size: 12, color: eneColor, numFmt: '#,##0.00 €', bg: eneBg, border: true })
+    fc(ws, 30, P, 'Q30/12',   P30, { bold: true, size: 12, color: eneColor, numFmt: '#,##0.00 €', bg: eneBg })
+    fc(ws, 30, Q, 'N26-N33',  Q30, { bold: true, size: 12, color: eneColor, numFmt: '#,##0.00 €', bg: eneBg })
 
     // Row 32: Voltis period price headers
     sc(ws, 32, F, 'P1', { bold: true, size: 14, color: CLR.salviaDark, align: 'center' })
@@ -369,7 +369,7 @@ export async function POST(req: NextRequest) {
     fc(ws, 33, J, '$B$28*F33',       J33, { bold: true, size: 12, color: CLR.salviaDark, numFmt: '#,##0.00' })
     fc(ws, 33, K, '$C$28*G33',       K33, { bold: true, size: 12, color: CLR.salviaDark, numFmt: '#,##0.00' })
     fc(ws, 33, L, '$D$28*H33',       L33, { bold: true, size: 12, color: CLR.salviaDark, numFmt: '#,##0.00' })
-    fc(ws, 33, N, 'SUM(J33:L33)*1.21', N33, { bold: true, size: 12, color: CLR.salviaDark, numFmt: '#,##0.00 €', bg: CLR.salviaSoft, border: true })
+    fc(ws, 33, N, 'SUM(J33:L33)*1.21', N33, { bold: true, size: 12, color: CLR.salviaDark, numFmt: '#,##0.00 €', bg: CLR.salviaSoft })
 
     // ── Row heights (from template) ───────────────────────────────────────────
     ws.getRow(1).height  = 28

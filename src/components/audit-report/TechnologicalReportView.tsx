@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect } from 'react'
 import {
   Flame, Printer, Edit3, Save,
   CheckCircle2, ArrowLeft, Activity, LayoutGrid, Zap
@@ -515,6 +516,27 @@ export function TechnologicalReportView({
     setInformeBreve(generated)
     setIsEditing(true)
   }
+
+  // ─── Auto-generar informe breve al montar si está vacío ───────────────────
+  useEffect(() => {
+    if (!informeBreve && reportRows.length > 0) {
+      const generated = buildInformeBreve({
+        clientName: client?.name || 'el cliente',
+        clientType: client?.type,
+        reportRows,
+        classified,
+        grandTotal,
+        elecTotal,
+        gasTotal,
+        tariffGroups,
+        sortedTariffs,
+        elecSums: elecSumsGlobal,
+        elecTotalPeriods,
+      })
+      setInformeBreve(generated)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // solo al montar — igual que pulsar "Generar automáticamente"
 
   // Período dominante (el que más % tiene)
   const periodKeys = ['p1','p2','p3','p4','p5','p6'] as const
