@@ -77,9 +77,9 @@ function generateHTML(study: PowerStudyResult): string {
   const adj = calcAdj(study)
   const excess = adj.filter(a => a.dir === 'excess')
   const under = adj.filter(a => a.dir === 'under')
-  let adjMsg = 'POTENCIAS DENTRO DE RANGO', adjBg = '#E2F0D9', adjColor = '#375623'
-  if (excess.length > 0) { adjMsg = `AJUSTAR POTENCIAS ${excess.map(a => a.period).join(' · ')}`; adjBg = '#FFFF00'; adjColor = '#C00000' }
-  else if (under.length > 0) { adjMsg = `POSIBLE REDUCCIÓN EN ${under.map(a => a.period).join(' · ')}`; adjBg = '#BDD7EE'; adjColor = '#1F4E79' }
+  let adjMsg = 'POTENCIAS DENTRO DE RANGO', adjBg = '#E0E8DC', adjColor = '#4A5E47'
+  if (excess.length > 0) { adjMsg = `AJUSTAR POTENCIAS ${excess.map(a => a.period).join(' · ')}`; adjBg = '#FECACA'; adjColor = '#C00000' }
+  else if (under.length > 0) { adjMsg = `POSIBLE REDUCCIÓN EN ${under.map(a => a.period).join(' · ')}`; adjBg = '#E0E8DC'; adjColor = '#5A6E58' }
 
   const needsAdj = adj.some(a => a.needs)
   const activeSorted = PERIODS.filter(p => totalByPeriod[p] > 0).sort((a, b) => totalByPeriod[b] - totalByPeriod[a])
@@ -91,7 +91,7 @@ function generateHTML(study: PowerStudyResult): string {
 
   // Data rows — sorted chronologically
   const rows = sortedMeses.map((mes, i) => {
-    const bg = i % 2 === 0 ? '#fff' : '#F5F5F5'
+    const bg = i % 2 === 0 ? '#FBF7EE' : '#F4EEE2'
     return `<tr style="background:${bg};${C}">
       <td style="text-align:right;font-weight:600">${fmtKwh(mes.consumoTotal ?? 0)}</td>
       <td style="text-align:center;color:#555">${fmtDate(mes.fechaInicio)} – ${fmtDate(mes.fechaFin)}</td>
@@ -111,8 +111,8 @@ function generateHTML(study: PowerStudyResult): string {
   // Period analysis cards
   const periodCards = hasMax && adj.some(a => a.cont > 0) ? adj.map(a => {
     if (a.cont <= 0 && a.max <= 0) return ''
-    const color = a.needs ? (a.dir === 'excess' ? '#DC2626' : '#2563EB') : '#16A34A'
-    const bg = a.needs ? (a.dir === 'excess' ? '#FEF2F2' : '#EFF6FF') : '#F0FDF4'
+    const color = a.needs ? (a.dir === 'excess' ? '#DC2626' : '#5A6E58') : '#4A5E47'
+    const bg = a.needs ? (a.dir === 'excess' ? '#FEF2F2' : '#E0E8DC') : '#E0E8DC'
     return `<div style="flex:1;background:${bg} !important;border:1px solid ${color}22;border-radius:8px;padding:8px 6px;text-align:center;${C}">
       <div style="width:10px;height:10px;border-radius:2px;background:${PERIOD_COLORS[a.period]} !important;margin:0 auto 3px;${C}"></div>
       <div style="font-size:11px;font-weight:700">${a.period}</div>
@@ -130,27 +130,27 @@ function generateHTML(study: PowerStudyResult): string {
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
   @page { size: A4 landscape; margin: 8mm 10mm; }
-  body { font-family: "Arial Narrow", Calibri, Arial, sans-serif; font-size: 8px; color: #111827; background: #fff; }
-  .header { background: #1E3A5F !important; color: #fff !important; border-radius: 6px 6px 0 0; padding: 6px 12px; display: flex; justify-content: space-between; align-items: center; }
-  .header h1 { font-size: 12px; font-weight: 700; font-family: monospace; color: #fff !important; }
-  .header .client { font-size: 10px; color: #93C5FD !important; margin-top: 1px; }
-  .header .meta { font-size: 9px; color: #93C5FD !important; text-align: right; }
+  body { font-family: "Arial Narrow", Calibri, Arial, sans-serif; font-size: 8px; color: #2D3A33; background: #F4EEE2; }
+  .header { background: #1F3A2E !important; color: #FBF7EE !important; border-radius: 6px 6px 0 0; padding: 6px 12px; display: flex; justify-content: space-between; align-items: center; }
+  .header h1 { font-size: 12px; font-weight: 700; font-family: monospace; color: #C7F24A !important; }
+  .header .client { font-size: 10px; color: #A8C4AA !important; margin-top: 1px; }
+  .header .meta { font-size: 9px; color: #A8C4AA !important; text-align: right; }
   .kpi-grid { display: flex; gap: 8px; margin: 8px 0; }
-  .kpi-card { flex: 1; border: 1px solid #E5E7EB; border-radius: 6px; padding: 6px 10px; background: #fff !important; }
-  .kpi-card.warn { background: #FFFBEB !important; border-color: #FCD34D !important; }
-  .kpi-card.ok { background: #F0FDF4 !important; border-color: #86EFAC !important; }
-  .kpi-label { font-size: 7px; font-weight: 700; color: #6B7280 !important; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
-  .kpi-value { font-size: 14px; font-weight: 700; color: #111827 !important; }
-  .kpi-sub { font-size: 7px; color: #9CA3AF !important; margin-top: 1px; }
+  .kpi-card { flex: 1; border: 1px solid #E5DCC9; border-radius: 6px; padding: 6px 10px; background: #FBF7EE !important; }
+  .kpi-card.warn { background: #FFF8E6 !important; border-color: #F5DCC9 !important; }
+  .kpi-card.ok { background: #E0E8DC !important; border-color: #C8D8C4 !important; }
+  .kpi-label { font-size: 7px; font-weight: 700; color: #8A9A8E !important; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
+  .kpi-value { font-size: 14px; font-weight: 700; color: #2D3A33 !important; }
+  .kpi-sub { font-size: 7px; color: #8A9A8E !important; margin-top: 1px; }
   table { border-collapse: collapse; width: 100%; font-size: 7.5px; }
-  th, td { border: 1px solid #D0D0D0; padding: 1px 3px; white-space: nowrap; }
-  th { font-weight: 700; text-align: center; background: #fff !important; border-bottom: 2px solid #000; font-size: 7px; }
+  th, td { border: 1px solid #D9D0BA; padding: 1px 3px; white-space: nowrap; }
+  th { font-weight: 700; text-align: center; background: #EDE8DC !important; border-bottom: 2px solid #5A6B5F; font-size: 7px; color: #2D3A33; }
   thead { display: table-header-group; }
-  .sep { width: 4px; min-width: 4px; background: #F0F0F0 !important; border: none !important; padding: 0; }
+  .sep { width: 4px; min-width: 4px; background: #EDE8DC !important; border: none !important; padding: 0; }
   .page-break { page-break-before: always; break-before: page; }
-  .chart-box { border: 1px solid #E5E7EB; border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; background: #fff !important; text-align: center; break-inside: avoid; page-break-inside: avoid; }
+  .chart-box { border: 1px solid #E5DCC9; border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; background: #FBF7EE !important; text-align: center; break-inside: avoid; page-break-inside: avoid; }
   .chart-box svg { width: 100%; height: auto; display: block; }
-  .period-analysis { border: 1px solid #E5E7EB; border-radius: 8px; padding: 8px 12px; margin-top: 8px; background: #fff !important; break-inside: avoid; page-break-inside: avoid; }
+  .period-analysis { border: 1px solid #E5DCC9; border-radius: 8px; padding: 8px 12px; margin-top: 8px; background: #FBF7EE !important; break-inside: avoid; page-break-inside: avoid; }
   @media print { .header, .kpi-grid, .chart-box, .period-analysis { break-inside: avoid !important; page-break-inside: avoid !important; } }
 </style>
 </head>
@@ -170,9 +170,9 @@ function generateHTML(study: PowerStudyResult): string {
   <thead>
     <tr><th colspan="2" style="text-align:left">CUPS</th><th>TOTAL</th>${PERIODS.map(p=>`<th>${p} Activa</th>`).join('')}${hasMax?'<td class="sep"></td>':''}${hasMax?PERIODS.map(p=>`<th>${p} Maxím.</th>`).join(''):''}</tr>
     <tr><td colspan="2" style="font-family:monospace;font-size:7px">${study.cups||''}</td><td style="text-align:right;font-weight:700">${fmtKwh(grandTotal)}</td>${PERIODS.map(p=>`<td style="text-align:right;background:${cs(totalByPeriod[p])} !important;${C}">${totalByPeriod[p]>0?fmtKwh(totalByPeriod[p]):''}</td>`).join('')}${hasMax?'<td class="sep"></td>':''}${hasMax?PERIODS.map(p=>`<td style="text-align:right;background:${maxCs(maxByPeriod[p])} !important;${C}">${maxByPeriod[p]>0?fmtKw(maxByPeriod[p]):''}</td>`).join(''):''}</tr>
-    ${pc&&PERIODS.some(p=>((pc as any)[p]??0)>0)?`<tr><td colspan="2" style="font-weight:700;color:#1F4E79 !important;background:#DEEAF1 !important;${C}">Pot. Contratada (kW)</td><td style="background:#DEEAF1 !important;${C}"></td>${PERIODS.map(p=>`<td style="text-align:right;font-weight:700;background:#DEEAF1 !important;color:#1F4E79 !important;${C}">${((pc as any)[p]??0)>0?fmtKw((pc as any)[p]):''}</td>`).join('')}${hasMax?'<td class="sep"></td>':''}${hasMax?PERIODS.map(p=>`<td style="text-align:right;font-weight:700;background:#DEEAF1 !important;color:#1F4E79 !important;border-bottom:2px solid #1F4E79;${C}">${((pc as any)[p]??0)>0?fmtKw((pc as any)[p]):''}</td>`).join(''):''}</tr>`:''}
+    ${pc&&PERIODS.some(p=>((pc as any)[p]??0)>0)?`<tr><td colspan="2" style="font-weight:700;color:#5A6E58 !important;background:#E0E8DC !important;${C}">Pot. Contratada (kW)</td><td style="background:#E0E8DC !important;${C}"></td>${PERIODS.map(p=>`<td style="text-align:right;font-weight:700;background:#E0E8DC !important;color:#5A6E58 !important;${C}">${((pc as any)[p]??0)>0?fmtKw((pc as any)[p]):''}</td>`).join('')}${hasMax?'<td class="sep"></td>':''}${hasMax?PERIODS.map(p=>`<td style="text-align:right;font-weight:700;background:#E0E8DC !important;color:#5A6E58 !important;border-bottom:2px solid #6B8068;${C}">${((pc as any)[p]??0)>0?fmtKw((pc as any)[p]):''}</td>`).join(''):''}</tr>`:''}
     <tr><td colspan="2" style="font-size:8px;font-weight:700">${study.clientName||''}</td><td></td>${PERIODS.map(p=>`<td style="text-align:center;color:#555">${totalByPeriod[p]>0?fmtPct(grandTotal>0?totalByPeriod[p]/grandTotal:0):''}</td>`).join('')}${hasMax?'<td class="sep"></td>':''}${hasMax?`<td colspan="6" rowspan="2" style="font-weight:700;text-align:center;font-size:8px;background:${adjBg} !important;color:${adjColor} !important;${C};vertical-align:middle">${adjMsg}</td>`:''}</tr>
-    <tr><td colspan="3"></td><td colspan="6" style="font-weight:700;text-align:center;background:#FCE4D6 !important;color:#843C0C !important;${C}">${priorizarMsg}</td></tr>
+    <tr><td colspan="3"></td><td colspan="6" style="font-weight:700;text-align:center;background:#F5DCC9 !important;color:#9C5B36 !important;${C}">${priorizarMsg}</td></tr>
   </thead>
   <tbody>${rows}</tbody>
 </table>
@@ -182,7 +182,7 @@ function generateHTML(study: PowerStudyResult): string {
   <div class="header" style="margin-bottom:12px"><div><h1>${study.cups||'—'}</h1>${study.clientName?`<div class="client">${study.clientName}</div>`:''}</div><div class="meta">Gráficas de Consumo y Maxímetros</div></div>
   <div class="chart-box">${consumoSVG}</div>
   ${maximetroSVG?`<div class="chart-box">${maximetroSVG}</div>`:''}
-  ${periodCards?`<div class="period-analysis"><div style="font-size:10px;font-weight:700;color:#374151;margin-bottom:8px">Análisis de maxímetros por período</div><div style="display:flex;gap:8px">${periodCards}</div></div>`:''}
+  ${periodCards?`<div class="period-analysis"><div style="font-size:10px;font-weight:700;color:#2D3A33;margin-bottom:8px">Análisis de maxímetros por período</div><div style="display:flex;gap:8px">${periodCards}</div></div>`:''}
 </div>
 
 <script>window.onload=()=>{window.print()}</script>

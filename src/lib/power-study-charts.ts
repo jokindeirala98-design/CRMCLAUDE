@@ -67,7 +67,7 @@ export function buildConsumptionSVG(rawMeses: PowerStudyResult['meses'], width =
     if (total > 0) {
       const labelY = m.top + stackY - 4
       const fmtVal = total >= 1000 ? (total / 1000).toFixed(1) + 'k' : Math.round(total).toString()
-      dataLabels += `<text x="${xOf(i).toFixed(1)}" y="${labelY.toFixed(1)}" text-anchor="middle" font-size="${meses.length > 18 ? 7 : 9}" fill="#374151" font-weight="bold" font-family="${SVG_FONT}">${fmtVal}</text>`
+      dataLabels += `<text x="${xOf(i).toFixed(1)}" y="${labelY.toFixed(1)}" text-anchor="middle" font-size="${meses.length > 18 ? 7 : 9}" fill="#2D3A33" font-weight="bold" font-family="${SVG_FONT}">${fmtVal}</text>`
     }
   }
 
@@ -76,8 +76,8 @@ export function buildConsumptionSVG(rawMeses: PowerStudyResult['meses'], width =
   for (let t = 0; t <= yTicks; t++) {
     const v = Math.round((yMax * t) / yTicks)
     const y = m.top + yScale(v)
-    grid += `<line x1="${m.left}" y1="${y.toFixed(1)}" x2="${m.left+cW}" y2="${y.toFixed(1)}" stroke="#E5E7EB" />`
-    grid += `<text x="${m.left-6}" y="${(y+4).toFixed(1)}" text-anchor="end" font-size="10" fill="#6B7280" font-family="${SVG_FONT}">${v>=1000?(v/1000).toFixed(0)+'k':v}</text>`
+    grid += `<line x1="${m.left}" y1="${y.toFixed(1)}" x2="${m.left+cW}" y2="${y.toFixed(1)}" stroke="rgba(229,220,201,0.7)" />`
+    grid += `<text x="${m.left-6}" y="${(y+4).toFixed(1)}" text-anchor="end" font-size="10" fill="#8A9A8E" font-family="${SVG_FONT}">${v>=1000?(v/1000).toFixed(0)+'k':v}</text>`
   }
 
   let xLabels = ''
@@ -85,23 +85,23 @@ export function buildConsumptionSVG(rawMeses: PowerStudyResult['meses'], width =
     const x = xOf(i)
     const skip = meses.length > 24 ? i % 2 !== 0 : false
     if (!skip) {
-      xLabels += `<text x="${x.toFixed(1)}" y="${(m.top+cH+18).toFixed(1)}" text-anchor="middle" font-size="9" fill="#374151" font-family="${SVG_FONT}" transform="rotate(-45,${x.toFixed(1)},${(m.top+cH+18).toFixed(1)})">${monthLabel(meses[i].fechaFin)}</text>`
+      xLabels += `<text x="${x.toFixed(1)}" y="${(m.top+cH+18).toFixed(1)}" text-anchor="middle" font-size="9" fill="#5A6B5F" font-family="${SVG_FONT}" transform="rotate(-45,${x.toFixed(1)},${(m.top+cH+18).toFixed(1)})">${monthLabel(meses[i].fechaFin)}</text>`
     }
   }
 
   let legend = '', lx = m.left
   for (const p of activePeriods) {
-    legend += `<rect x="${lx}" y="${H-22}" width="10" height="10" fill="${PERIOD_COLORS[p]}" /><text x="${lx+13}" y="${H-13}" font-size="10" fill="#374151" font-family="${SVG_FONT}">${p}</text>`
+    legend += `<rect x="${lx}" y="${H-22}" width="10" height="10" fill="${PERIOD_COLORS[p]}" /><text x="${lx+13}" y="${H-13}" font-size="10" fill="#2D3A33" font-family="${SVG_FONT}">${p}</text>`
     lx += 42
   }
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="background:#fff">
-    <text x="${W/2}" y="18" text-anchor="middle" font-size="13" font-weight="bold" fill="#111827" font-family="${SVG_FONT}">CONSUMO MENSUAL (kWh)</text>
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="background:#FBF7EE">
+    <text x="${W/2}" y="18" text-anchor="middle" font-size="13" font-weight="bold" fill="#2D3A33" font-family="${SVG_FONT}">CONSUMO MENSUAL (kWh)</text>
     ${grid}${paths}${dataLabels}
-    <line x1="${m.left}" y1="${m.top}" x2="${m.left}" y2="${m.top+cH}" stroke="#9CA3AF"/>
-    <line x1="${m.left}" y1="${m.top+cH}" x2="${m.left+cW}" y2="${m.top+cH}" stroke="#9CA3AF"/>
+    <line x1="${m.left}" y1="${m.top}" x2="${m.left}" y2="${m.top+cH}" stroke="#D9D0BA"/>
+    <line x1="${m.left}" y1="${m.top+cH}" x2="${m.left+cW}" y2="${m.top+cH}" stroke="#D9D0BA"/>
     ${xLabels}
-    <text x="${m.left-44}" y="${m.top+cH/2}" text-anchor="middle" font-size="10" fill="#6B7280" font-family="${SVG_FONT}" transform="rotate(-90,${m.left-44},${m.top+cH/2})">kWh</text>
+    <text x="${m.left-44}" y="${m.top+cH/2}" text-anchor="middle" font-size="10" fill="#8A9A8E" font-family="${SVG_FONT}" transform="rotate(-90,${m.left-44},${m.top+cH/2})">kWh</text>
     ${legend}
   </svg>`
 }
@@ -141,7 +141,7 @@ export function buildMaximetroSVG(rawMeses: PowerStudyResult['meses'], potenciaC
       const y = m.top + yScale(v)
       bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${PERIOD_COLORS[p]}" opacity="0.85" />`
       if (meses.length <= 18 || pi === 0) {
-        maxLabels += `<text x="${(x + barW / 2).toFixed(1)}" y="${(y - 3).toFixed(1)}" text-anchor="middle" font-size="${meses.length > 14 ? 6 : 8}" fill="#374151" font-family="${SVG_FONT}">${Math.round(v)}</text>`
+        maxLabels += `<text x="${(x + barW / 2).toFixed(1)}" y="${(y - 3).toFixed(1)}" text-anchor="middle" font-size="${meses.length > 14 ? 6 : 8}" fill="#2D3A33" font-family="${SVG_FONT}">${Math.round(v)}</text>`
       }
     }
   }
@@ -170,7 +170,7 @@ export function buildMaximetroSVG(rawMeses: PowerStudyResult['meses'], potenciaC
     const x = m.left + i * groupW + groupW / 2
     const skip = meses.length > 24 ? i % 2 !== 0 : false
     if (!skip) {
-      xLabels += `<text x="${x.toFixed(1)}" y="${(m.top+cH+18).toFixed(1)}" text-anchor="middle" font-size="9" fill="#374151" font-family="${SVG_FONT}" transform="rotate(-45,${x.toFixed(1)},${(m.top+cH+18).toFixed(1)})">${monthLabel(meses[i].fechaFin)}</text>`
+      xLabels += `<text x="${x.toFixed(1)}" y="${(m.top+cH+18).toFixed(1)}" text-anchor="middle" font-size="9" fill="#5A6B5F" font-family="${SVG_FONT}" transform="rotate(-45,${x.toFixed(1)},${(m.top+cH+18).toFixed(1)})">${monthLabel(meses[i].fechaFin)}</text>`
     }
   }
 
@@ -180,17 +180,17 @@ export function buildMaximetroSVG(rawMeses: PowerStudyResult['meses'], potenciaC
     lx += 42
   }
   if (potenciaContratada) {
-    legend += `<line x1="${lx}" y1="${H-17}" x2="${lx+16}" y2="${H-17}" stroke="#6B7280" stroke-width="1.5" stroke-dasharray="5,3"/>`
-    legend += `<text x="${lx+20}" y="${H-13}" font-size="10" fill="#374151" font-family="${SVG_FONT}">Contratada</text>`
+    legend += `<line x1="${lx}" y1="${H-17}" x2="${lx+16}" y2="${H-17}" stroke="#8A9A8E" stroke-width="1.5" stroke-dasharray="5,3"/>`
+    legend += `<text x="${lx+20}" y="${H-13}" font-size="10" fill="#2D3A33" font-family="${SVG_FONT}">Contratada</text>`
   }
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="background:#fff">
-    <text x="${W/2}" y="18" text-anchor="middle" font-size="13" font-weight="bold" fill="#111827" font-family="${SVG_FONT}">MAXÍMETROS MENSUALES (kW)</text>
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="background:#FBF7EE">
+    <text x="${W/2}" y="18" text-anchor="middle" font-size="13" font-weight="bold" fill="#2D3A33" font-family="${SVG_FONT}">MAXÍMETROS MENSUALES (kW)</text>
     ${grid}${refLines}${bars}${maxLabels}
-    <line x1="${m.left}" y1="${m.top}" x2="${m.left}" y2="${m.top+cH}" stroke="#9CA3AF"/>
-    <line x1="${m.left}" y1="${m.top+cH}" x2="${m.left+cW}" y2="${m.top+cH}" stroke="#9CA3AF"/>
+    <line x1="${m.left}" y1="${m.top}" x2="${m.left}" y2="${m.top+cH}" stroke="#D9D0BA"/>
+    <line x1="${m.left}" y1="${m.top+cH}" x2="${m.left+cW}" y2="${m.top+cH}" stroke="#D9D0BA"/>
     ${xLabels}
-    <text x="${m.left-44}" y="${m.top+cH/2}" text-anchor="middle" font-size="10" fill="#6B7280" font-family="${SVG_FONT}" transform="rotate(-90,${m.left-44},${m.top+cH/2})">kW</text>
+    <text x="${m.left-44}" y="${m.top+cH/2}" text-anchor="middle" font-size="10" fill="#8A9A8E" font-family="${SVG_FONT}" transform="rotate(-90,${m.left-44},${m.top+cH/2})">kW</text>
     ${legend}
   </svg>`
 }
