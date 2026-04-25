@@ -100,8 +100,20 @@ interface Props {
 
 const PERIODS = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6']
 const PERIOD_COLORS: Record<string, string> = {
-  P1: '#60a5fa', P2: '#818cf8', P3: '#a78bfa',
-  P4: '#c084fc', P5: '#e879f9', P6: '#fb7185',
+  P1: '#A8B5C9', P2: '#E8B89A', P3: '#A8C0A0',
+  P4: '#E8D1A0', P5: '#B8A8C5', P6: '#6B8068',
+}
+
+/** Returns true for 2.0TD tariffs (doméstico, only P1+P2) */
+function is2TDTariff(tarifa?: string | null): boolean {
+  if (!tarifa) return false
+  const t = tarifa.trim().toUpperCase().replace(/\s+/g, '')
+  return t.startsWith('2.0') || t === '2.0TD' || t === '20TD'
+}
+
+/** Returns active periods based on tariff — P1+P2 only for 2.0TD, P1–P6 otherwise */
+function getActivePeriods(tarifa?: string | null): string[] {
+  return is2TDTariff(tarifa) ? ['P1', 'P2'] : PERIODS
 }
 const CANONICAL_MONTHS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
 const CANONICAL_MONTHS_FULL = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
@@ -411,13 +423,7 @@ function Mascot({ className }: { className?: string }) {
 // ─── GlowOrb ─────────────────────────────────────────────────────────────────
 
 function GlowOrb({ className = '', size = 'lg' }: { className?: string; size?: 'sm' | 'md' | 'lg' | 'xl' }) {
-  const sizes = {
-    sm: 'w-64 h-64 blur-[80px]',
-    md: 'w-96 h-96 blur-[120px]',
-    lg: 'w-[500px] h-[500px] blur-[150px]',
-    xl: 'w-[800px] h-[800px] blur-[200px]',
-  }
-  return <div className={`absolute rounded-full bg-info-container/400/10 ${sizes[size]} ${className}`} />
+  return null
 }
 
 // ─── CountUp Animation ───────────────────────────────────────────────────────
@@ -477,8 +483,8 @@ function SVGLineChart({ data }: { data: MonthlyAggregatedData[] }) {
         const y = PAD_T + plotH - (tick / max) * plotH
         return (
           <g key={i}>
-            <line x1={PAD_L} x2={W - PAD_R} y1={y} y2={y} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
-            <text x={PAD_L - 8} y={y + 4} fill="rgba(255,255,255,0.3)" fontSize="10" textAnchor="end">
+            <line x1={PAD_L} x2={W - PAD_R} y1={y} y2={y} stroke="rgba(45,58,51,0.08)" strokeWidth="1" />
+            <text x={PAD_L - 8} y={y + 4} fill="#8A9A8E" fontSize="10" textAnchor="end">
               {tick > 0 ? tick.toLocaleString('es-ES') : '0'}
             </text>
           </g>
@@ -489,17 +495,17 @@ function SVGLineChart({ data }: { data: MonthlyAggregatedData[] }) {
       {data.map((d, i) => {
         const x = PAD_L + (i / 11) * plotW
         return (
-          <text key={i} x={x} y={H - 4} fill={d.billsCount > 0 ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.15)'}
+          <text key={i} x={x} y={H - 4} fill={d.billsCount > 0 ? '#5A6B5F' : '#8A9A8E'}
             fontSize="10" textAnchor="middle">{d.label}</text>
         )
       })}
 
       {/* Line */}
-      {linePath && <path d={linePath} fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />}
+      {linePath && <path d={linePath} fill="none" stroke="#6B8068" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />}
 
       {/* Dots */}
       {points.filter(p => p.billsCount > 0).map((p, i) => (
-        <circle key={i} cx={p.x} cy={p.y} r="4" fill="#6366f1" stroke="#020617" strokeWidth="2" />
+        <circle key={i} cx={p.x} cy={p.y} r="4" fill="#6B8068" stroke="#FBF7EE" strokeWidth="2" />
       ))}
     </svg>
   )
@@ -516,16 +522,16 @@ function SVGBarChart({ data }: { data: MonthlyAggregatedData[] }) {
     <svg viewBox={`0 0 ${W} ${H + 30}`} className="w-full" style={{ overflow: 'visible' }}>
       <defs>
         <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#6366f1" />
-          <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.6" />
+          <stop offset="0%" stopColor="#6B8068" />
+          <stop offset="100%" stopColor="#A8C0A0" stopOpacity="0.6" />
         </linearGradient>
       </defs>
       {[0, 0.25, 0.5, 0.75, 1].map((t, i) => (
         <g key={i}>
           <line x1={PAD} x2={W - PAD} y1={H - t * (H - PAD)} y2={H - t * (H - PAD)}
-            stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
+            stroke="rgba(45,58,51,0.08)" strokeWidth="1" />
           <text x={PAD - 6} y={H - t * (H - PAD) + 4}
-            fill="rgba(255,255,255,0.3)" fontSize="9" textAnchor="end">
+            fill="#8A9A8E" fontSize="9" textAnchor="end">
             {t === 0 ? '0' : `${(max * t).toLocaleString('es-ES', { maximumFractionDigits: 0 })}€`}
           </text>
         </g>
@@ -541,13 +547,13 @@ function SVGBarChart({ data }: { data: MonthlyAggregatedData[] }) {
               fill="url(#barGrad)" rx="3"
               opacity={hasData ? 1 : 0.15} />
             <text x={x + BAR_W / 2} y={H + 16}
-              fill={hasData ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.2)'}
+              fill={hasData ? '#5A6B5F' : '#8A9A8E'}
               fontSize="9" textAnchor="middle" fontWeight={hasData ? '600' : '400'}>
               {d.label}
             </text>
             {hasData && d.totalFactura > 0 && (
               <text x={x + BAR_W / 2} y={y - 6}
-                fill="rgba(255,255,255,0.5)" fontSize="8" textAnchor="middle">
+                fill="#5A6B5F" fontSize="8" textAnchor="middle">
                 {d.totalFactura.toLocaleString('es-ES', { maximumFractionDigits: 0 })}€
               </text>
             )}
@@ -570,7 +576,7 @@ function DonutChart({ segments, total }: {
   const totalVal = segments.reduce((s, seg) => s + seg.value, 0) || 1
   return (
     <svg viewBox="0 0 220 220" className="w-48 h-48">
-      <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth={strokeW} />
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(45,58,51,0.06)" strokeWidth={strokeW} />
       {segments.map((seg, i) => {
         const pct = seg.value / totalVal
         const dash = pct * circumference
@@ -585,10 +591,10 @@ function DonutChart({ segments, total }: {
         offset += pct
         return el
       })}
-      <text x={cx} y={cy - 6} textAnchor="middle" fill="white" fontSize="18" fontWeight="bold">
+      <text x={cx} y={cy - 6} textAnchor="middle" fill="#2D3A33" fontSize="18" fontWeight="bold">
         {total >= 1000 ? `${(total / 1000).toLocaleString('es-ES', { maximumFractionDigits: 1 })}k€` : `${Math.round(total)}€`}
       </text>
-      <text x={cx} y={cy + 14} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize="9">
+      <text x={cx} y={cy + 14} textAnchor="middle" fill="#8A9A8E" fontSize="9">
         TOTAL FACTURADO
       </text>
     </svg>
@@ -696,7 +702,7 @@ function ReExtractBanner({ invoices, onDone }: { invoices: InvoiceRow[]; onDone:
       )}
       <div className="space-y-2">
         {invoices.map(inv => (
-          <div key={inv.id} className="flex items-center justify-between text-xs text-white/60">
+          <div key={inv.id} className="flex items-center justify-between text-xs text-[#5A6B5F]">
             <span className="truncate max-w-[200px]">
               {inv.file_url?.split('/').pop() || inv.id.slice(0, 8)}
             </span>
@@ -738,39 +744,47 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
 
   const isGas = isGasSupply(invoices, authoritativeType)
 
+  // Detect active periods — 2.0TD only uses P1+P2
+  const tarifa = invoices.find(inv => getEco(inv)?.tarifa || inv.extracted_data?.tariff)
+    ?.extracted_data?.tariff as string | undefined
+    || invoices.find(inv => getEco(inv)?.tarifa)
+    ? getEco(invoices.find(inv => getEco(inv)?.tarifa)!)?.tarifa
+    : undefined
+  const activePeriods = getActivePeriods(tarifa)
+
   // ── Common header rows (both luz & gas) ──
   const headerRows: RowDef[] = [
     {
       key: 'compania', label: 'COMPAÑÍA',
-      render: (eco, inv) => <span className="text-white/80 text-sm">{eco?.comercializadora || inv.extracted_data?.comercializadora || '—'}</span>,
+      render: (eco, inv) => <span className="text-[#4F5C53] text-sm">{eco?.comercializadora || inv.extracted_data?.comercializadora || '—'}</span>,
     },
     {
       key: 'titular', label: 'TITULAR',
-      render: (eco) => <span className="text-white/80 text-sm">{eco?.titular || '—'}</span>,
+      render: (eco) => <span className="text-[#4F5C53] text-sm">{eco?.titular || '—'}</span>,
     },
     {
       key: 'nifCif', label: 'NIF / CIF',
-      render: (eco, inv) => <span className="text-white/80 text-sm font-mono">{eco?.holder_cif_nif || (inv.extracted_data?.holder_cif_nif as string) || '—'}</span>,
+      render: (eco, inv) => <span className="text-[#4F5C53] text-sm font-mono">{eco?.holder_cif_nif || (inv.extracted_data?.holder_cif_nif as string) || '—'}</span>,
     },
     {
       key: 'cups', label: 'CUPS',
-      render: (eco, inv) => <span className="text-white/80 text-xs font-mono">{eco?.cups || inv.extracted_data?.cups || '—'}</span>,
+      render: (eco, inv) => <span className="text-[#4F5C53] text-xs font-mono">{eco?.cups || inv.extracted_data?.cups || '—'}</span>,
     },
     {
       key: 'supplyAddress', label: 'DIRECCIÓN SUMINISTRO',
-      render: (eco, inv) => <span className="text-white/80 text-xs">{eco?.supply_address || (inv.extracted_data?.supply_address as string) || '—'}</span>,
+      render: (eco, inv) => <span className="text-[#4F5C53] text-xs">{eco?.supply_address || (inv.extracted_data?.supply_address as string) || '—'}</span>,
     },
     {
       key: 'tarifa', label: 'TARIFA',
-      render: (eco, inv) => <span className="text-white/80 text-sm">{eco?.tarifa || inv.extracted_data?.tariff || '—'}</span>,
+      render: (eco, inv) => <span className="text-[#4F5C53] text-sm">{eco?.tarifa || inv.extracted_data?.tariff || '—'}</span>,
     },
     {
       key: 'fechaInicio', label: 'FECHA INICIO',
-      render: (eco, inv) => <span className="text-white/80 text-sm">{fmtDate(eco?.fechaInicio || inv.period_start)}</span>,
+      render: (eco, inv) => <span className="text-[#4F5C53] text-sm">{fmtDate(eco?.fechaInicio || inv.period_start)}</span>,
     },
     {
       key: 'fechaFin', label: 'FECHA FIN',
-      render: (eco, inv) => <span className="text-white/80 text-sm">{fmtDate(eco?.fechaFin || inv.period_end)}</span>,
+      render: (eco, inv) => <span className="text-[#4F5C53] text-sm">{fmtDate(eco?.fechaFin || inv.period_end)}</span>,
     },
     {
       key: 'mes', label: 'MES LIQUIDACIÓN',
@@ -779,7 +793,7 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
         const { start, end } = getInvoiceDates(inv)
         const { month, year } = getAssignedMonth(start, end)
         const label = year > 0 ? `${CANONICAL_MONTHS_FULL[month]?.toUpperCase() || '—'} ${year}` : '—'
-        return <span className={`${isGas ? 'text-warn' : 'text-[#60a5fa]'} font-bold text-sm tracking-wide`}>{label}</span>
+        return <span className={`${isGas ? 'text-warn' : 'text-[#6B8068]'} font-bold text-sm tracking-wide`}>{label}</span>
       },
     },
     { key: 'sep1', label: '', isSeparator: true, render: () => null },
@@ -790,11 +804,11 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
     {
       key: 'consumoKwh', label: 'CONSUMO (KWH)',
       isSectionHeader: true,
-      render: (eco) => <span className="text-white font-bold text-sm">{fmt(eco?.consumoTotalKwh, 0)}</span>,
+      render: (eco) => <span className="text-[#2D3A33] font-bold text-sm">{fmt(eco?.consumoTotalKwh, 0)}</span>,
     },
     {
       key: 'costeBrutoConsumo', label: 'COSTE BRUTO ENERGÍA (€)',
-      render: (eco) => <span className="text-white/80 text-sm">{fmt(eco?.costeBrutoConsumo)}</span>,
+      render: (eco) => <span className="text-[#4F5C53] text-sm">{fmt(eco?.costeBrutoConsumo)}</span>,
     },
     {
       key: 'descuentoEnergia', label: 'DESCUENTO ENERGÍA (€)',
@@ -873,19 +887,19 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
     {
       key: 'totalConsumoKwh', label: 'TOTAL CONSUMO (KWH)',
       isSectionHeader: true,
-      render: (eco) => <span className="text-white font-bold text-sm">{fmt(eco?.consumoTotalKwh, 0)}</span>,
+      render: (eco) => <span className="text-[#2D3A33] font-bold text-sm">{fmt(eco?.consumoTotalKwh, 0)}</span>,
     },
-    ...PERIODS.map(p => ({
+    ...activePeriods.map(p => ({
       key: `consumo_${p}`,
       label: `CONSUMO ${p}`,
       indent: true,
       render: (eco: BillEconomics | null) => {
         const item = eco?.consumo?.find(c => c.periodo === p)
-        if (!item || !item.kwh) return <span className="text-white/30 text-sm">—</span>
+        if (!item || !item.kwh) return <span className="text-[#8A9A8E] text-sm">—</span>
         return (
           <div>
-            <div className="text-white/80 text-sm">{fmt(item.kwh, 0)} kWh</div>
-            <div className="text-white/40 text-xs">{fmt(item.precioKwh, 4)} €/KWH</div>
+            <div className="text-[#4F5C53] text-sm">{fmt(item.kwh, 0)} kWh</div>
+            <div className="text-[#8A9A8E] text-xs">{fmt(item.precioKwh, 4)} €/KWH</div>
           </div>
         )
       },
@@ -893,62 +907,62 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
     {
       key: 'totalCosteConsumo', label: 'TOTAL COSTE CONSUMO (€)',
       isTotal: true,
-      render: (eco) => <span className="text-white font-semibold text-sm">{fmt(eco?.costeTotalConsumo)}</span>,
+      render: (eco) => <span className="text-[#2D3A33] font-semibold text-sm">{fmt(eco?.costeTotalConsumo)}</span>,
     },
     {
       key: 'costeMedio', label: 'COSTE MEDIO (€/KWH)',
       render: (eco) => {
         const precio = eco?.costeMedioKwh || (eco?.costeTotalConsumo && eco?.consumoTotalKwh ? eco.costeTotalConsumo / eco.consumoTotalKwh : null)
-        return <span className="text-white/70 text-sm">{precio ? fmt(precio, 4) : '—'}</span>
+        return <span className="text-[#5A6B5F] text-sm">{precio ? fmt(precio, 4) : '—'}</span>
       },
     },
     { key: 'sep2', label: '', isSeparator: true, render: () => null },
     {
       key: 'totalCostePotencia', label: 'TOTAL COSTE POTENCIA (€)',
       isSectionHeader: true,
-      render: (eco) => <span className="text-white font-bold text-sm">{fmt(eco?.costeTotalPotencia)}</span>,
+      render: (eco) => <span className="text-[#2D3A33] font-bold text-sm">{fmt(eco?.costeTotalPotencia)}</span>,
     },
-    ...PERIODS.map(p => ({
+    ...activePeriods.map(p => ({
       key: `potencia_${p}`,
       label: `POTENCIA ${p}`,
       indent: true,
       render: (eco: BillEconomics | null) => {
         const item = eco?.potencia?.find(c => c.periodo === p)
-        if (!item || !item.total) return <span className="text-white/30 text-sm">—</span>
-        return <span className="text-white/60 text-sm">{fmt(item.total)} €</span>
+        if (!item || !item.total) return <span className="text-[#8A9A8E] text-sm">—</span>
+        return <span className="text-[#5A6B5F] text-sm">{fmt(item.total)} €</span>
       },
     })),
     { key: 'sep3', label: '', isSeparator: true, render: () => null },
     {
       key: 'alquiler', label: 'ALQUILER DE EQUIPOS',
-      render: (eco) => { const m = normalizeOtros(eco?.otrosConceptos); const v = getOtro(m, 'alquiler'); return <span className="text-white/70 text-sm">{v !== null ? `${fmt(v)} €` : '—'}</span> },
+      render: (eco) => { const m = normalizeOtros(eco?.otrosConceptos); const v = getOtro(m, 'alquiler'); return <span className="text-[#5A6B5F] text-sm">{v !== null ? `${fmt(v)} €` : '—'}</span> },
     },
     {
       key: 'bonoSocial', label: 'BONO SOCIAL',
-      render: (eco) => { const m = normalizeOtros(eco?.otrosConceptos); const v = getOtro(m, 'bono social'); return <span className="text-white/70 text-sm">{v !== null ? `${fmt(v)} €` : '—'}</span> },
+      render: (eco) => { const m = normalizeOtros(eco?.otrosConceptos); const v = getOtro(m, 'bono social'); return <span className="text-[#5A6B5F] text-sm">{v !== null ? `${fmt(v)} €` : '—'}</span> },
     },
     {
       key: 'compensacion', label: 'COMPENSACIÓN EXCEDENTES',
-      render: (eco) => { const m = normalizeOtros(eco?.otrosConceptos); const v = getOtro(m, 'compensac'); return <span className="text-white/70 text-sm">{v !== null ? `${fmt(v)} €` : '—'}</span> },
+      render: (eco) => { const m = normalizeOtros(eco?.otrosConceptos); const v = getOtro(m, 'compensac'); return <span className="text-[#5A6B5F] text-sm">{v !== null ? `${fmt(v)} €` : '—'}</span> },
     },
     {
       key: 'exceso', label: 'EXCESO DE POTENCIA',
-      render: (eco) => { const m = normalizeOtros(eco?.otrosConceptos); const v = getOtro(m, 'exceso'); return <span className="text-white/70 text-sm">{v !== null ? `${fmt(v)} €` : '—'}</span> },
+      render: (eco) => { const m = normalizeOtros(eco?.otrosConceptos); const v = getOtro(m, 'exceso'); return <span className="text-[#5A6B5F] text-sm">{v !== null ? `${fmt(v)} €` : '—'}</span> },
     },
     {
       key: 'impuesto', label: 'IMPUESTO ELÉCTRICO',
-      render: (eco) => { const m = normalizeOtros(eco?.otrosConceptos); const v = getOtro(m, 'impuesto'); return <span className="text-white/70 text-sm">{v !== null ? `${fmt(v)} €` : '—'}</span> },
+      render: (eco) => { const m = normalizeOtros(eco?.otrosConceptos); const v = getOtro(m, 'impuesto'); return <span className="text-[#5A6B5F] text-sm">{v !== null ? `${fmt(v)} €` : '—'}</span> },
     },
     {
       key: 'iva', label: 'IVA / IGIC',
-      render: (eco) => { const m = normalizeOtros(eco?.otrosConceptos); const v = getOtro(m, 'iva') ?? getOtro(m, 'igic'); return <span className="text-white/70 text-sm">{v !== null ? `${fmt(v)} €` : '—'}</span> },
+      render: (eco) => { const m = normalizeOtros(eco?.otrosConceptos); const v = getOtro(m, 'iva') ?? getOtro(m, 'igic'); return <span className="text-[#5A6B5F] text-sm">{v !== null ? `${fmt(v)} €` : '—'}</span> },
     },
     {
       key: 'totalFactura', label: 'TOTAL FACTURA (€)',
       isHighlight: true, isTotal: true,
       render: (eco, inv) => {
         const v = eco?.totalFactura ?? inv.total_amount
-        return <span className="text-[#60a5fa] font-bold text-sm">{v ? `${fmt(v)} €` : '—'}</span>
+        return <span className="text-[#6B8068] font-bold text-sm">{v ? `${fmt(v)} €` : '—'}</span>
       },
     },
   ]
@@ -960,8 +974,8 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
     <div className="overflow-x-auto">
       <table className="w-full border-collapse text-left" style={{ minWidth: `${CONCEPT_COL_W + invoices.length * 280}px` }}>
         <thead>
-          <tr className="border-b border-white/10">
-            <th className={`sticky left-0 z-10 bg-[#020617] py-3 px-4 text-xs font-bold tracking-widest ${isGas ? 'text-warn' : 'text-[#60a5fa]'}`}
+          <tr className="border-b border-[#E5DCC9]">
+            <th className={`sticky left-0 z-10 bg-[#F4EEE2] py-3 px-4 text-xs font-bold tracking-widest ${isGas ? 'text-warn' : 'text-[#6B8068]'}`}
               style={{ width: CONCEPT_COL_W, minWidth: CONCEPT_COL_W }}>
               {isGas ? '🔥 GAS NATURAL' : 'CONCEPTO / PERIODO'}
             </th>
@@ -970,8 +984,8 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
               const eco = getEco(inv)
               return (
                 <th key={inv.id} className="py-3 px-4 min-w-[260px]" style={{ minWidth: 260 }}>
-                  <div className="text-xs text-white/60 font-normal mb-1">FACT {i + 1}</div>
-                  <div className="text-white text-xs font-medium truncate max-w-[230px]">{fileName}</div>
+                  <div className="text-xs text-[#5A6B5F] font-normal mb-1">FACT {i + 1}</div>
+                  <div className="text-[#2D3A33] text-xs font-medium truncate max-w-[230px]">{fileName}</div>
                   <div className="mt-1 flex items-center gap-1.5 flex-wrap">
                     {eco ? (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-ok-container/400/20 text-ok text-[10px]">
@@ -1013,22 +1027,22 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
         <tbody>
           {rows.map((row) => {
             if (row.isSeparator) return (
-              <tr key={row.key}><td colSpan={invoices.length + 1} className="py-1"><div className="h-px bg-white/5 mx-4" /></td></tr>
+              <tr key={row.key}><td colSpan={invoices.length + 1} className="py-1"><div className="h-px bg-[#E5DCC9] mx-4" /></td></tr>
             )
             return (
-              <tr key={row.key} className={['border-b border-white/5 transition-colors', row.isHighlight ? (isGas ? 'bg-warn-container/400/5' : 'bg-[#60a5fa]/5') : 'hover:bg-white/[0.02]'].join(' ')}>
+              <tr key={row.key} className={['border-b border-[#E5DCC9] transition-colors', row.isHighlight ? (isGas ? 'bg-warn-container/400/5' : 'bg-[#E0E8DC]') : 'hover:bg-[#F4EEE2]'].join(' ')}>
                 <td className="sticky left-0 z-10 py-3 px-4"
-                  style={{ backgroundColor: row.isHighlight ? (isGas ? 'rgba(249,115,22,0.05)' : 'rgba(96,165,250,0.05)') : '#020617', width: CONCEPT_COL_W, minWidth: CONCEPT_COL_W }}>
+                  style={{ backgroundColor: row.isHighlight ? (isGas ? 'rgba(232,184,154,0.15)' : 'rgba(107,128,104,0.10)') : '#F4EEE2', width: CONCEPT_COL_W, minWidth: CONCEPT_COL_W }}>
                   {row.isSectionHeader ? (
-                    <span className="text-white text-xs font-bold tracking-wider">{row.label}</span>
+                    <span className="text-[#2D3A33] text-xs font-bold tracking-wider">{row.label}</span>
                   ) : row.isHighlight ? (
-                    <span className={`flex items-center gap-2 ${isGas ? 'text-warn' : 'text-[#60a5fa]'} text-xs font-bold tracking-wider`}>{row.label}</span>
+                    <span className={`flex items-center gap-2 ${isGas ? 'text-warn' : 'text-[#6B8068]'} text-xs font-bold tracking-wider`}>{row.label}</span>
                   ) : row.indent ? (
-                    <span className="flex items-center gap-2 text-white/50 text-xs tracking-wider">
-                      <span className="w-1.5 h-1.5 rounded-full bg-white/30 flex-shrink-0" />{row.label}
+                    <span className="flex items-center gap-2 text-[#8A9A8E] text-xs tracking-wider">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#E5DCC9] flex-shrink-0" />{row.label}
                     </span>
                   ) : (
-                    <span className="text-white/50 text-xs tracking-wider">{row.label}</span>
+                    <span className="text-[#8A9A8E] text-xs tracking-wider">{row.label}</span>
                   )}
                 </td>
                 {invoices.map((inv) => (
@@ -1046,41 +1060,44 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
 // ─── Glassmorphism styles ────────────────────────────────────────────────────
 
 const glassStyle: React.CSSProperties = {
-  background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(48px)',
-  border: '1.5px solid rgba(255,255,255,0.12)',
-  boxShadow: '0 30px 60px -20px rgba(0,0,0,0.7), inset 0 0 20px rgba(255,255,255,0.03)',
+  background: 'rgba(251,247,238,0.95)',
+  border: '1px solid #E5DCC9',
+  boxShadow: '0 18px 48px -16px rgba(45,58,51,0.12)',
 }
 const kpiGlassStyle: React.CSSProperties = {
-  background: 'rgba(30,41,59,0.8)', backdropFilter: 'blur(40px)',
-  border: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 20px 40px -15px rgba(0,0,0,0.5)',
+  background: '#FBF7EE',
+  border: '1px solid #E5DCC9',
+  boxShadow: '0 8px 24px -8px rgba(45,58,51,0.10)',
 }
 
 // ─── Generic Audit Matrix Table ──────────────────────────────────────────────
 
 function AuditMatrixTable<T extends { mes: string; periods: Record<string, unknown>; total: unknown }>({
-  rows, renderCell, renderTotal, footerRow, onRowClick,
+  rows, renderCell, renderTotal, footerRow, onRowClick, activePeriods: periods = PERIODS,
 }: {
   rows: T[]
   renderCell: (row: T, period: string) => React.ReactNode
   renderTotal: (row: T) => React.ReactNode
   footerRow?: React.ReactNode
   onRowClick?: (row: T) => void
+  activePeriods?: string[]
 }) {
+  const colCount = periods.length
   return (
     <div className="rounded-2xl overflow-hidden" style={glassStyle}>
-      <div className="grid text-xs text-white/30 tracking-widest py-3 px-4 border-b border-white/5"
-        style={{ gridTemplateColumns: '220px repeat(6, 1fr) 180px' }}>
+      <div className="grid text-xs text-[#8A9A8E] tracking-widest py-3 px-4 border-b border-[#E5DCC9]"
+        style={{ gridTemplateColumns: `220px repeat(${colCount}, 1fr) 180px` }}>
         <span>MES</span>
-        {PERIODS.map(p => <span key={p}>{p}</span>)}
+        {periods.map(p => <span key={p}>{p}</span>)}
         <span>TOTAL</span>
       </div>
       {rows.map((row, i) => (
         <div key={i}
-          className={`grid items-center py-4 px-4 border-b border-white/[0.04] transition ${onRowClick ? 'cursor-pointer hover:bg-white/[0.06]' : 'hover:bg-white/[0.02]'}`}
-          style={{ gridTemplateColumns: '220px repeat(6, 1fr) 180px' }}
+          className={`grid items-center py-4 px-4 border-b border-[#E5DCC9]/50 transition ${onRowClick ? 'cursor-pointer hover:bg-[#EDE8DC]' : 'hover:bg-[#F4EEE2]'}`}
+          style={{ gridTemplateColumns: `220px repeat(${colCount}, 1fr) 180px` }}
           onClick={onRowClick ? () => onRowClick(row) : undefined}>
-          <span className="text-white font-bold text-sm italic">{row.mes}</span>
-          {PERIODS.map(p => <div key={p}>{renderCell(row, p)}</div>)}
+          <span className="text-[#2D3A33] font-bold text-sm italic">{row.mes}</span>
+          {periods.map(p => <div key={p}>{renderCell(row, p)}</div>)}
           <div>{renderTotal(row)}</div>
         </div>
       ))}
@@ -1154,11 +1171,11 @@ function GasReportView({ invoices, supplyName, onBack }: {
   }, [validInvoices])
 
   return (
-    <div className="fixed inset-0 z-[200] overflow-y-auto text-white" style={{ fontFamily: 'Inter, sans-serif', background: '#020617' }}>
+    <div className="fixed inset-0 z-[200] overflow-y-auto text-[#2D3A33]" style={{ fontFamily: 'Inter, sans-serif', background: '#F4EEE2' }}>
       <button onClick={onBack} title="Volver (ESC)"
         className="fixed top-4 left-4 z-[210] w-11 h-11 rounded-full flex items-center justify-center transition hover:scale-110 hover:bg-white/20"
-        style={{ background: 'rgba(15,23,42,0.60)', backdropFilter: 'blur(16px)', border: '1px solid rgba(255,255,255,0.20)' }}>
-        <ArrowLeft className="w-5 h-5 text-white" />
+        style={{ background: 'rgba(251,247,238,0.80)', backdropFilter: 'blur(16px)', border: '1px solid #E5DCC9' }}>
+        <ArrowLeft className="w-5 h-5 text-[#2D3A33]" />
       </button>
 
       <div className="relative z-10 max-w-7xl mx-auto px-8 py-20 space-y-12">
@@ -1168,7 +1185,7 @@ function GasReportView({ invoices, supplyName, onBack }: {
             <Flame className="w-4 h-4" /> INFORME DE GAS NATURAL
           </div>
           <h1 className="text-4xl font-black tracking-tight">{supplyName || 'SUMINISTRO'}</h1>
-          <p className="text-white/40 mt-2 text-sm">{summaryStats.tariff} · {validInvoices.length} facturas analizadas</p>
+          <p className="text-[#8A9A8E] mt-2 text-sm">{summaryStats.tariff} · {validInvoices.length} facturas analizadas</p>
         </motion.div>
 
         {/* KPIs */}
@@ -1331,6 +1348,16 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
     [validInvoices, selectedMonths]
   )
 
+  // Supply info — computed early so useMemo below can use activePeriods
+  const firstEco = validInvoices.length > 0 ? getEco(validInvoices[0]) : null
+  const firstEd = validInvoices[0]?.extracted_data
+  const cups = firstEco?.cups || firstEd?.cups || '—'
+  const tarifa = firstEco?.tarifa || firstEd?.tariff || '—'
+  const titular = firstEco?.titular || (firstEd?.holder_name as string) || supplyName || 'PROYECTO'
+
+  // Active periods: P1+P2 only for 2.0TD, P1–P6 for everything else
+  const activePeriods = getActivePeriods(tarifa !== '—' ? tarifa : null)
+
   // All computed data
   const { chartData, pieData, summaryStats, tableData, excessData, totalExcessAmount, hasExcesses, averagePriceStats } = useMemo(() => {
     const allMonthly = getMonthlyAggregatedData(validInvoices)
@@ -1386,7 +1413,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
       const pricesByPeriod: Record<string, number> = {}
       const periodSpend: Record<string, { eur: number; isEstimated: boolean }> = {}
 
-      PERIODS.forEach(p => {
+      activePeriods.forEach(p => {
         const item = eco.consumo?.find(c => c.periodo === p)
         kwhByPeriod[p] = item?.kwh || 0
         // Apply discount factor to price
@@ -1427,7 +1454,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
     }).sort((a, b) => a.monthIndex - b.monthIndex)
 
     // Per-period average price stats (for Modal 3)
-    const avgPriceStats = PERIODS.map(p => {
+    const avgPriceStats = activePeriods.map(p => {
       let totalKwhP = 0, totalEurP = 0
       tData.forEach(r => {
         totalKwhP += r.kwhByPeriod[p] || 0
@@ -1455,27 +1482,20 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
       hasExcesses: totalExcess > 0,
       averagePriceStats: avgPriceStats,
     }
-  }, [validInvoices, filteredInvoices, selectedMonths])
-
-  // Supply info
-  const firstEco = validInvoices.length > 0 ? getEco(validInvoices[0]) : null
-  const firstEd = validInvoices[0]?.extracted_data
-  const cups = firstEco?.cups || firstEd?.cups || '—'
-  const tarifa = firstEco?.tarifa || firstEd?.tariff || '—'
-  const titular = firstEco?.titular || (firstEd?.holder_name as string) || supplyName || 'PROYECTO'
+  }, [validInvoices, filteredInvoices, selectedMonths, activePeriods])
 
   const avgPriceAll = tableData.length > 0 ? tableData.reduce((s, r) => s + r.avgPrice, 0) / tableData.length : 0
 
   const spendTotals = useMemo((): Record<string, number> => {
     const totals: Record<string, number> = {}
-    PERIODS.forEach(p => { totals[p] = 0 })
+    activePeriods.forEach(p => { totals[p] = 0 })
     totals.grandTotal = 0
     tableData.forEach(row => {
-      PERIODS.forEach(p => { totals[p] += row.periodSpend[p]?.eur || 0 })
+      activePeriods.forEach(p => { totals[p] += row.periodSpend[p]?.eur || 0 })
       totals.grandTotal += row.totalFactura
     })
     return totals
-  }, [tableData])
+  }, [tableData, activePeriods])
 
   // ESC key to exit fullscreen report
   useEffect(() => {
@@ -1508,14 +1528,14 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
   }
 
   return (
-    <div ref={containerRef} id="voltis-report" className="fixed inset-0 z-[200] overflow-y-auto text-white"
-      style={{ fontFamily: 'Inter, sans-serif', background: '#020617' }}>
+    <div ref={containerRef} id="voltis-report" className="fixed inset-0 z-[200] overflow-y-auto text-[#2D3A33]"
+      style={{ fontFamily: 'Inter, sans-serif', background: '#F4EEE2' }}>
 
       {/* Back button (also ESC key) - Fixed sticky positioning */}
       <button onClick={onBack} title="Volver (ESC)"
         className="fixed top-4 left-4 z-[210] w-11 h-11 rounded-full flex items-center justify-center transition hover:scale-110 hover:bg-white/20 no-print"
-        style={{ background: 'rgba(15,23,42,0.60)', backdropFilter: 'blur(16px)', border: '1px solid rgba(255,255,255,0.20)', WebkitBackdropFilter: 'blur(16px)' }}>
-        <ArrowLeft className="w-5 h-5 text-white" />
+        style={{ background: 'rgba(251,247,238,0.80)', backdropFilter: 'blur(16px)', border: '1px solid #E5DCC9', WebkitBackdropFilter: 'blur(16px)' }}>
+        <ArrowLeft className="w-5 h-5 text-[#2D3A33]" />
       </button>
 
       {/* GlowOrbs (screen only) */}
@@ -1536,9 +1556,9 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
 
         {/* Month selector (screen only) - Sticky positioned with glassmorphism */}
         <div className="sticky top-0 z-[205] flex items-center gap-2 py-4 px-8 flex-wrap justify-center no-print"
-          style={{ background: 'rgba(2,6,23,0.70)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', borderBottom: '1px solid rgba(255,255,255,0.10)' }}>
+          style={{ background: 'rgba(244,238,226,0.92)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', borderBottom: '1px solid #E5DCC9' }}>
           <button onClick={selectAllMonths}
-            className={`px-4 py-2 rounded-xl text-sm font-bold transition ${isAnnual ? 'bg-white text-[#020617]' : 'bg-white/10 text-white/60 hover:bg-white/20'}`}>
+            className={`px-4 py-2 rounded-xl text-sm font-bold transition ${isAnnual ? 'bg-[#2D3A33] text-[#FBF7EE]' : 'bg-[#EDE8DC] text-[#5A6B5F] hover:bg-[#E5DCC9]'}`}>
             ANUAL
           </button>
           {CANONICAL_MONTHS.map((label, i) => {
@@ -1547,10 +1567,10 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
             return (
               <button key={i} onClick={() => toggleMonth(i)}
                 className={`w-9 h-9 rounded-xl text-xs font-medium transition ${
-                  isSelected && hasData ? 'bg-[#3b82f6] text-white shadow-lg shadow-blue-500/30' :
-                  isSelected && !hasData ? 'bg-white/20 text-white/40' :
-                  hasData ? 'bg-white/10 text-white/60 hover:bg-white/20 border border-info/30/30' :
-                  'bg-white/5 text-white/20 border border-white/5'
+                  isSelected && hasData ? 'bg-[#6B8068] text-[#FBF7EE] shadow-lg shadow-salvia/20' :
+                  isSelected && !hasData ? 'bg-[#EDE8DC] text-[#8A9A8E]' :
+                  hasData ? 'bg-[#E0E8DC] text-[#6B8068] hover:bg-[#D0DCC8] border border-[#6B8068]/30' :
+                  'bg-[#F4EEE2] text-[#8A9A8E] border border-[#E5DCC9]'
                 }`}>
                 {i + 1}
               </button>
@@ -1566,25 +1586,25 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
           className="report-page flex flex-col items-center justify-center min-h-screen px-8">
 
           <div className="text-center">
-            <h1 className="text-7xl md:text-8xl font-black tracking-tight text-[#60a5fa] mb-2"
+            <h1 className="text-7xl md:text-8xl font-black tracking-tight text-[#6B8068] mb-2"
               style={{ fontFamily: 'Inter, sans-serif' }}>VOLTIS</h1>
-            <p className="text-sm md:text-base tracking-[0.4em] text-white/40 mb-12">ANUAL ECONOMICS</p>
+            <p className="text-sm md:text-base tracking-[0.4em] text-[#8A9A8E] mb-12">ANUAL ECONOMICS</p>
 
-            <div className="w-20 h-1 bg-[#3b82f6] mx-auto mb-12 rounded-full" />
+            <div className="w-20 h-1 bg-[#E8B89A] mx-auto mb-12 rounded-full" />
 
-            <h2 className="text-4xl md:text-5xl lg:text-6xl font-black tracking-tight text-white mb-10">{titular}</h2>
+            <h2 className="text-4xl md:text-5xl lg:text-6xl font-black tracking-tight text-[#2D3A33] mb-10">{titular}</h2>
 
-            <div className="inline-flex items-center gap-3 px-6 py-3 rounded-full border border-[#3b82f6]/30 bg-[#0f172a]/80 mb-4">
-              <span className="text-white/40 text-sm tracking-widest">CUPS</span>
-              <span className="text-white/20">·</span>
-              <span className="text-white font-bold text-sm tracking-wider">{cups}</span>
+            <div className="inline-flex items-center gap-3 px-6 py-3 rounded-full border border-[#E5DCC9] bg-[#FBF7EE] mb-4">
+              <span className="text-[#8A9A8E] text-sm tracking-widest">CUPS</span>
+              <span className="text-[#E5DCC9]">·</span>
+              <span className="text-[#2D3A33] font-bold text-sm tracking-wider">{cups}</span>
             </div>
 
             <div className="block">
-              <span className="text-[#60a5fa] text-xs tracking-[0.3em]">TARIFA {tarifa}</span>
+              <span className="text-[#6B8068] text-xs tracking-[0.3em]">TARIFA {tarifa}</span>
             </div>
 
-            <p className="text-white/20 text-xs tracking-[0.3em] mt-16">INFORME DE AUDITORÍA ENERGÉTICA</p>
+            <p className="text-[#8A9A8E] text-xs tracking-[0.3em] mt-16">INFORME DE AUDITORÍA ENERGÉTICA</p>
           </div>
         </motion.div>
 
@@ -1594,47 +1614,47 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
         <motion.div id="scene-2" initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.3 }} variants={sectionVariants}
           className="report-page px-8 py-12">
           <div className="mb-10">
-            <p className="text-[#60a5fa] text-xs tracking-[0.4em] mb-2">MÉTRICAS AUDITADAS</p>
-            <h2 className="text-4xl md:text-5xl font-black tracking-tighter text-white">RESULTADOS {isAnnual ? 'ANUALES' : 'FILTRADOS'}</h2>
+            <p className="text-[#6B8068] text-xs tracking-[0.4em] mb-2">MÉTRICAS AUDITADAS</p>
+            <h2 className="text-4xl md:text-5xl font-black tracking-tighter text-[#2D3A33]">RESULTADOS {isAnnual ? 'ANUALES' : 'FILTRADOS'}</h2>
           </div>
 
           {/* Large centered KPI cards */}
           <div className="max-w-lg mx-auto space-y-6 mb-10">
             {/* Facturación Global */}
             <motion.div custom={0} variants={kpiVariants} className="rounded-2xl p-8 text-center" style={kpiGlassStyle}>
-              <p className="text-white/40 text-xs tracking-[0.3em] mb-3">FACTURACIÓN GLOBAL</p>
-              <p className="text-white text-5xl md:text-6xl font-black">
+              <p className="text-[#8A9A8E] text-xs tracking-[0.3em] mb-3">FACTURACIÓN GLOBAL</p>
+              <p className="text-[#2D3A33] text-5xl md:text-6xl font-black">
                 <CountUp value={summaryStats.global} decimals={2} duration={1.2} />
               </p>
-              <p className="text-[#60a5fa] text-sm mt-2 tracking-wider">EUR</p>
+              <p className="text-[#6B8068] text-sm mt-2 tracking-wider">EUR</p>
             </motion.div>
 
             {/* Energía Total */}
             <motion.div custom={1} variants={kpiVariants} className="rounded-2xl p-8 text-center" style={kpiGlassStyle}>
-              <p className="text-white/40 text-xs tracking-[0.3em] mb-3">ENERGÍA TOTAL CONSUMIDA</p>
-              <p className="text-white text-5xl md:text-6xl font-black">
+              <p className="text-[#8A9A8E] text-xs tracking-[0.3em] mb-3">ENERGÍA TOTAL CONSUMIDA</p>
+              <p className="text-[#2D3A33] text-5xl md:text-6xl font-black">
                 <CountUp value={summaryStats.kwh} decimals={0} duration={1.2} />
               </p>
-              <p className="text-[#60a5fa] text-sm mt-2 tracking-wider">kWh</p>
+              <p className="text-[#6B8068] text-sm mt-2 tracking-wider">kWh</p>
             </motion.div>
 
             {/* Precio Promedio + Docs side by side */}
             <div className="grid grid-cols-2 gap-4">
               <motion.div custom={2} variants={kpiVariants}
-                className="rounded-2xl p-6 text-center cursor-pointer hover:ring-1 hover:ring-teal-400/30"
+                className="rounded-2xl p-6 text-center cursor-pointer hover:ring-1 hover:ring-[#6B8068]/30"
                 style={kpiGlassStyle} onClick={() => setShowAvgPriceModal(true)}>
-                <p className="text-white/40 text-xs tracking-[0.2em] mb-3">PRECIO PROMEDIO</p>
-                <p className="text-white text-3xl md:text-4xl font-black">
+                <p className="text-[#8A9A8E] text-xs tracking-[0.2em] mb-3">PRECIO PROMEDIO</p>
+                <p className="text-[#2D3A33] text-3xl md:text-4xl font-black">
                   <CountUp value={summaryStats.precioPromedio} decimals={4} duration={1.5} />
                 </p>
-                <p className="text-[#60a5fa] text-sm mt-2 tracking-wider">EUR/kWh</p>
+                <p className="text-[#6B8068] text-sm mt-2 tracking-wider">EUR/kWh</p>
               </motion.div>
               <motion.div custom={3} variants={kpiVariants} className="rounded-2xl p-6 text-center" style={kpiGlassStyle}>
-                <p className="text-white/40 text-xs tracking-[0.2em] mb-3">DOCUMENTOS PROCESADOS</p>
-                <p className="text-white text-3xl md:text-4xl font-black">
+                <p className="text-[#8A9A8E] text-xs tracking-[0.2em] mb-3">DOCUMENTOS PROCESADOS</p>
+                <p className="text-[#2D3A33] text-3xl md:text-4xl font-black">
                   <CountUp value={summaryStats.docsCount} decimals={0} duration={1} />
                 </p>
-                <p className="text-[#60a5fa] text-sm mt-2 tracking-wider">FACTURAS</p>
+                <p className="text-[#6B8068] text-sm mt-2 tracking-wider">FACTURAS</p>
               </motion.div>
             </div>
           </div>
@@ -1642,12 +1662,12 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
           {/* Precio Medio por Periodo bar — hidden in print, visible in modal */}
           {averagePriceStats.some(p => p.totalKwh > 0) && (
             <div className="rounded-2xl p-5 mt-6 no-print" style={glassStyle}>
-              <p className="text-[#60a5fa] text-xs font-bold tracking-[0.3em] mb-4">PRECIO MEDIO POR PERIODO</p>
+              <p className="text-[#6B8068] text-xs font-bold tracking-[0.3em] mb-4">PRECIO MEDIO POR PERIODO</p>
               <div className="grid grid-cols-6 gap-4 text-center">
                 {averagePriceStats.map(ps => (
                   <div key={ps.period}>
                     <p className="text-xs font-bold" style={{ color: PERIOD_COLORS[ps.period] }}>{ps.period}</p>
-                    <p className="text-white/60 text-xs mt-0.5">{ps.totalKwh > 0 ? `${fmt(ps.avgPrice, 4)} €/kWh` : '—'}</p>
+                    <p className="text-[#5A6B5F] text-xs mt-0.5">{ps.totalKwh > 0 ? `${fmt(ps.avgPrice, 4)} €/kWh` : '—'}</p>
                   </div>
                 ))}
               </div>
@@ -1663,8 +1683,8 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
 
           {/* Bar chart — Evolución */}
           <div className="mb-12">
-            <p className="text-[#60a5fa] text-xs tracking-[0.4em] mb-1">ANÁLISIS TEMPORAL</p>
-            <h3 className="text-3xl md:text-4xl font-black mb-4">EVOLUCIÓN DEL GASTO MENSUAL</h3>
+            <p className="text-[#6B8068] text-xs tracking-[0.4em] mb-1">ANÁLISIS TEMPORAL</p>
+            <h3 className="text-3xl md:text-4xl font-black mb-4 text-[#2D3A33]">EVOLUCIÓN DEL GASTO MENSUAL</h3>
             <div className="rounded-2xl p-6" style={glassStyle}>
               <SVGBarChart data={chartData} />
             </div>
@@ -1672,8 +1692,8 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
 
           {/* Donut chart — Bio-estructura */}
           <div>
-            <p className="text-[#60a5fa] text-xs tracking-[0.4em] mb-1">ANÁLISIS ESTRUCTURAL</p>
-            <h3 className="text-3xl md:text-4xl font-black mb-4">BIO-ESTRUCTURA ECONÓMICA</h3>
+            <p className="text-[#6B8068] text-xs tracking-[0.4em] mb-1">ANÁLISIS ESTRUCTURAL</p>
+            <h3 className="text-3xl md:text-4xl font-black mb-4 text-[#2D3A33]">BIO-ESTRUCTURA ECONÓMICA</h3>
             <div className="rounded-2xl p-8" style={glassStyle}>
               <div className="flex items-center gap-12 flex-wrap justify-center">
                 <DonutChart segments={pieData} total={summaryStats.global} />
@@ -1684,7 +1704,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
                       <div key={seg.label} className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
                           <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: seg.color }} />
-                          <span className="text-white/70 text-sm">{seg.label === 'CONSUMO ENERGÍA' ? 'Consumo' : seg.label === 'POTENCIA' ? 'Potencia' : seg.label === 'IMPUESTOS Y OTROS' ? 'Impuestos' : 'Otros'}</span>
+                          <span className="text-[#5A6B5F] text-sm">{seg.label === 'CONSUMO ENERGÍA' ? 'Consumo' : seg.label === 'POTENCIA' ? 'Potencia' : seg.label === 'IMPUESTOS Y OTROS' ? 'Impuestos' : 'Otros'}</span>
                         </div>
                         <span className="font-bold text-sm" style={{ color: seg.color }}>{pct}%</span>
                       </div>
@@ -1703,12 +1723,12 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
           <motion.div id="scene-4" initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.2 }} variants={sectionVariants}
             className="report-page px-8 py-12">
             <div className="mb-3">
-              <p className="text-[#60a5fa] text-xs tracking-[0.4em] mb-2">ENGINEERING MATRIX</p>
-              <h3 className="text-3xl md:text-4xl font-black tracking-tight mb-6">MATRIZ ENERGÉTICA MENSUAL (KWH)</h3>
+              <p className="text-[#6B8068] text-xs tracking-[0.4em] mb-2">ENGINEERING MATRIX</p>
+              <h3 className="text-3xl md:text-4xl font-black tracking-tight mb-6 text-[#2D3A33]">MATRIZ ENERGÉTICA MENSUAL (KWH)</h3>
             </div>
             <AuditMatrixTable
               rows={tableData.map(r => ({ mes: r.mes, periods: r.kwhByPeriod as Record<string, unknown>, total: r.totalKwh }))}
-              renderCell={(row, p) => { const v = row.periods[p] as number; return v ? <span className="text-white/60 text-sm">{fmt(v, 0)}</span> : <span className="text-white/20 text-sm">-</span> }}
+              renderCell={(row, p) => { const v = row.periods[p] as number; return v ? <span className="text-[#5A6B5F] text-sm">{fmt(v, 0)}</span> : <span className="text-[#8A9A8E] text-sm">-</span> }}
               renderTotal={(row) => {
                 const v = row.total as number
                 const allTotals = tableData.map(r => r.totalKwh)
@@ -1716,11 +1736,12 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
                 const isMax = v === maxV && v > 0
                 return <span className={`font-bold text-sm ${isMax ? 'text-err bg-err-container/400/10 px-2 py-0.5 rounded' : 'text-info'}`}>{fmt(v, 0)}</span>
               }}
+              activePeriods={activePeriods}
               footerRow={
-                <div className="grid items-center py-4 px-4 border-t border-white/10 bg-white/[0.03]"
-                  style={{ gridTemplateColumns: '220px repeat(6, 1fr) 180px' }}>
-                  <span className="text-[#60a5fa] font-black text-sm tracking-wider">TOTAL</span>
-                  {PERIODS.map(p => {
+                <div className="grid items-center py-4 px-4 border-t border-[#E5DCC9] bg-[#EDE8DC]"
+                  style={{ gridTemplateColumns: `220px repeat(${activePeriods.length}, 1fr) 180px` }}>
+                  <span className="text-[#6B8068] font-black text-sm tracking-wider">TOTAL</span>
+                  {activePeriods.map(p => {
                     const total = tableData.reduce((s, r) => s + (r.kwhByPeriod[p] || 0), 0)
                     return <span key={p} className="text-info font-bold text-sm">{total > 0 ? fmt(total, 0) : '-'}</span>
                   })}
@@ -1735,23 +1756,24 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
             className="report-page px-8 py-12">
             <div className="mb-3">
               <p className="text-info text-xs tracking-[0.4em] mb-2">PRICING MATRIX</p>
-              <h3 className="text-3xl md:text-4xl font-black tracking-tight mb-6">MATRIZ DE COSTE POR PERIODO (€/KWH)</h3>
+              <h3 className="text-3xl md:text-4xl font-black tracking-tight mb-6 text-[#2D3A33]">MATRIZ DE COSTE POR PERIODO (€/KWH)</h3>
             </div>
             <AuditMatrixTable
+              activePeriods={activePeriods}
               rows={tableData.map(r => ({ id: r.id, mes: r.mes, periods: r.pricesByPeriod as Record<string, unknown>, total: r.avgPrice }))}
               renderCell={(row, p) => {
                 const v = row.periods[p] as number
-                if (!v) return <span className="text-white/20 text-sm">-</span>
-                return <span className="text-white/60 text-sm">{fmt(v, 4)}</span>
+                if (!v) return <span className="text-[#8A9A8E] text-sm">-</span>
+                return <span className="text-[#5A6B5F] text-sm">{fmt(v, 4)}</span>
               }}
               renderTotal={(row) => {
                 const v = row.total as number
-                if (!v) return <span className="text-white/20 text-sm">—</span>
+                if (!v) return <span className="text-[#8A9A8E] text-sm">—</span>
                 return <span className={`font-bold text-sm ${v > avgPriceAll ? 'text-err' : 'text-info'}`}>{fmt(v, 4)}</span>
               }}
               onRowClick={(row) => setSelectedPriceBillId((row as any).id)}
             />
-            <p className="text-white/30 text-xs mt-3 text-center italic no-print">Haz click en una fila para ver el cálculo del precio medio</p>
+            <p className="text-[#8A9A8E] text-xs mt-3 text-center italic no-print">Haz click en una fila para ver el cálculo del precio medio</p>
           </motion.div>
 
           {/* SCENE 6 — MATRIX 3: € spend + EXCESOS */}
@@ -1759,22 +1781,23 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
             className="report-page px-8 py-12">
             <div className="mb-3">
               <p className="text-info text-xs tracking-[0.4em] mb-2">SPENDING MATRIX</p>
-              <h3 className="text-3xl md:text-4xl font-black tracking-tight mb-6">MATRIZ DE GASTO POR PERIODO (€)</h3>
+              <h3 className="text-3xl md:text-4xl font-black tracking-tight mb-6 text-[#2D3A33]">MATRIZ DE GASTO POR PERIODO (€)</h3>
             </div>
             <AuditMatrixTable
-              rows={tableData.map(r => ({ id: r.id, mes: r.mes, periods: Object.fromEntries(PERIODS.map(p => [p, r.periodSpend[p]])) as Record<string, unknown>, total: r.totalFactura }))}
+              activePeriods={activePeriods}
+              rows={tableData.map(r => ({ id: r.id, mes: r.mes, periods: Object.fromEntries(activePeriods.map(p => [p, r.periodSpend[p]])) as Record<string, unknown>, total: r.totalFactura }))}
               renderCell={(row, p) => {
                 const cell = row.periods[p] as { eur: number; isEstimated: boolean } | undefined
-                if (!cell || cell.eur === 0) return <span className="text-white/20 text-sm">—</span>
-                return <span className={`text-sm ${cell.isEstimated ? 'text-yellow-400' : 'text-white/60'}`}>{fmt(cell.eur)}</span>
+                if (!cell || cell.eur === 0) return <span className="text-[#8A9A8E] text-sm">—</span>
+                return <span className={`text-sm ${cell.isEstimated ? 'text-yellow-400' : 'text-[#5A6B5F]'}`}>{fmt(cell.eur)}</span>
               }}
               renderTotal={(row) => <span className="text-info font-bold text-sm">{fmt(row.total as number)} €</span>}
               onRowClick={(row) => setSelectedBillId((row as any).id)}
               footerRow={
-                <div className="grid items-center py-4 px-4 border-t border-white/10 bg-white/[0.03]"
-                  style={{ gridTemplateColumns: '220px repeat(6, 1fr) 180px' }}>
-                  <span className="text-white font-black text-sm tracking-wider">TOTAL</span>
-                  {PERIODS.map(p => <span key={p} className="text-info font-bold text-sm">{spendTotals[p] > 0 ? fmt(spendTotals[p]) : '—'}</span>)}
+                <div className="grid items-center py-4 px-4 border-t border-[#E5DCC9] bg-[#EDE8DC]"
+                  style={{ gridTemplateColumns: `220px repeat(${activePeriods.length}, 1fr) 180px` }}>
+                  <span className="text-[#2D3A33] font-black text-sm tracking-wider">TOTAL</span>
+                  {activePeriods.map(p => <span key={p} className="text-info font-bold text-sm">{spendTotals[p] > 0 ? fmt(spendTotals[p]) : '—'}</span>)}
                   <span className="text-info font-black text-sm">{fmt(spendTotals.grandTotal)} €</span>
                 </div>
               }
@@ -1798,7 +1821,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
                     </tr>
                   ))}</tbody>
                   <tfoot><tr className="border-t border-warn/30/30">
-                    <td className="py-3 px-3 text-white font-black text-sm">TOTAL EXCESOS</td>
+                    <td className="py-3 px-3 text-[#2D3A33] font-black text-sm">TOTAL EXCESOS</td>
                     <td className="py-3 px-3 text-right text-warn font-black text-sm">{totalExcessAmount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</td>
                   </tr></tfoot>
                 </table>
@@ -1820,7 +1843,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
               style={{ background: 'linear-gradient(135deg, #3b82f6, #6366f1)', boxShadow: '0 20px 40px -10px rgba(59,130,246,0.3)' }}>
               <Download className="w-4 h-4" /> GENERAR PDF
             </button>
-            <p className="text-white/30 text-xs text-center max-w-xs">
+            <p className="text-[#8A9A8E] text-xs text-center max-w-xs">
               Activa «Background graphics» en el diálogo de impresión
             </p>
           </div>
@@ -1840,13 +1863,13 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
                 className="rounded-2xl p-6 max-w-lg w-full mx-4 max-h-[70vh] overflow-y-auto" style={glassStyle} onClick={e => e.stopPropagation()}>
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h3 className="text-lg font-bold text-white">{bill.mes}</h3>
-                    <button onClick={() => toggleReveal(bill.id)} className="text-white/40 text-xs hover:text-white/60 transition">
+                    <h3 className="text-lg font-bold text-[#2D3A33]">{bill.mes}</h3>
+                    <button onClick={() => toggleReveal(bill.id)} className="text-[#8A9A8E] text-xs hover:text-[#5A6B5F] transition">
                       {revealedIds.has(bill.id) ? bill.fileName : 'Ver nombre de archivo →'}
                     </button>
                   </div>
                   <button onClick={() => setSelectedBillId(null)} className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20">
-                    <X className="w-4 h-4 text-white/60" />
+                    <X className="w-4 h-4 text-[#8A9A8E]" />
                   </button>
                 </div>
 
@@ -1858,17 +1881,17 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
                   </div>
 
                   {/* Energy by Period */}
-                  <div className="col-span-2 rounded-xl p-4 bg-white/5 border border-white/10">
-                    <p className="text-white/50 text-xs tracking-wider mb-3">ENERGÍA POR PERIODO</p>
+                  <div className="col-span-2 rounded-xl p-4 bg-[#EDE8DC] border border-[#E5DCC9]">
+                    <p className="text-[#5A6B5F] text-xs tracking-wider mb-3">ENERGÍA POR PERIODO</p>
                     <div className="grid grid-cols-3 gap-2">
-                      {PERIODS.map(p => {
+                      {activePeriods.map(p => {
                         const spend = bill.periodSpend[p]
                         if (!spend || spend.eur === 0) return null
                         return (
                           <div key={p} className="text-center">
-                            <p className="text-white/40 text-[10px] font-medium">{p}</p>
-                            <p className={`text-sm font-bold ${spend.isEstimated ? 'text-yellow-400' : 'text-white'}`}>{fmt(spend.eur)} €</p>
-                            <p className="text-white/30 text-[10px]">{fmt(bill.kwhByPeriod[p], 0)} kWh</p>
+                            <p className="text-[#8A9A8E] text-[10px] font-medium">{p}</p>
+                            <p className={`text-sm font-bold ${spend.isEstimated ? 'text-yellow-400' : 'text-[#2D3A33]'}`}>{fmt(spend.eur)} €</p>
+                            <p className="text-[#8A9A8E] text-[10px]">{fmt(bill.kwhByPeriod[p], 0)} kWh</p>
                           </div>
                         )
                       })}
@@ -1915,33 +1938,33 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated }: {
                 className="rounded-2xl p-6 max-w-md w-full mx-4 max-h-[70vh] overflow-y-auto" style={glassStyle} onClick={e => e.stopPropagation()}>
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h3 className="text-lg font-bold text-white">{bill.mes}</h3>
-                    <button onClick={() => toggleReveal(bill.id + '_price')} className="text-white/40 text-xs hover:text-white/60 transition">
+                    <h3 className="text-lg font-bold text-[#2D3A33]">{bill.mes}</h3>
+                    <button onClick={() => toggleReveal(bill.id + '_price')} className="text-[#8A9A8E] text-xs hover:text-[#5A6B5F] transition">
                       {revealedIds.has(bill.id + '_price') ? bill.fileName : 'Ver nombre de archivo →'}
                     </button>
                   </div>
                   <button onClick={() => setSelectedPriceBillId(null)} className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20">
-                    <X className="w-4 h-4 text-white/60" />
+                    <X className="w-4 h-4 text-[#8A9A8E]" />
                   </button>
                 </div>
 
-                <p className="text-white/40 text-xs tracking-wider mb-3">PRECIO x kWh CONSUMIDO</p>
+                <p className="text-[#8A9A8E] text-xs tracking-wider mb-3">PRECIO x kWh CONSUMIDO</p>
                 <div className="space-y-2 mb-4">
                   {consumoItems.filter(c => c.kwh > 0).map(c => (
-                    <div key={c.periodo} className="flex items-center justify-between px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08] transition">
+                    <div key={c.periodo} className="flex items-center justify-between px-4 py-3 rounded-xl bg-[#EDE8DC] border border-[#E5DCC9] hover:bg-[#E0E8DC] transition">
                       <div className="flex items-center gap-3">
                         <span className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold" style={{ background: PERIOD_COLORS[c.periodo] + '30', color: PERIOD_COLORS[c.periodo] }}>{c.periodo}</span>
-                        <span className="text-white/50 text-sm">{fmt(c.kwh, 0)} kWh</span>
+                        <span className="text-[#5A6B5F] text-sm">{fmt(c.kwh, 0)} kWh</span>
                       </div>
-                      <span className="text-white font-bold text-sm">{fmt(c.precioKwh, 4)} €/kWh</span>
+                      <span className="text-[#2D3A33] font-bold text-sm">{fmt(c.precioKwh, 4)} €/kWh</span>
                     </div>
                   ))}
                 </div>
 
-                <div className="rounded-xl p-4 bg-cyan-600/10 border border-cyan-500/30">
-                  <p className="text-info text-xs tracking-wider mb-2">PRECIO MEDIO PONDERADO</p>
-                  <p className="text-white/50 text-xs mb-1">Σ(kWh × Precio) / ΣkWh</p>
-                  <p className="text-info text-2xl font-black">{fmt(bill.avgPrice, 4)} €/kWh</p>
+                <div className="rounded-xl p-4 bg-[#E0E8DC] border border-[#6B8068]/30">
+                  <p className="text-[#6B8068] text-xs tracking-wider mb-2">PRECIO MEDIO PONDERADO</p>
+                  <p className="text-[#5A6B5F] text-xs mb-1">Σ(kWh × Precio) / ΣkWh</p>
+                  <p className="text-[#6B8068] text-2xl font-black">{fmt(bill.avgPrice, 4)} €/kWh</p>
                 </div>
               </motion.div>
             </motion.div>
