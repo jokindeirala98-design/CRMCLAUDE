@@ -276,53 +276,6 @@ export default function SupplyDetailPage() {
       }
     }
 
-    // ── Auto-fetch gas SIPS if totalKwh is missing (gas only) ──
-    const isGasLoadCheck = data?.type === 'gas' || /^RL/i.test(data?.tariff || '')
-    const needsGasRefresh = isGasLoadCheck && data && data.cups && (
-      !data.consumption_data || !data.consumption_data.totalKwh
-    )
-    if (needsGasRefresh) {
-      setSipsLoading(true)
-      try {
-        const gasRes = await fetch('/api/sips-gas', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cups: data.cups }),
-        })
-        const gasResult = await gasRes.json()
-        if (gasResult.success && gasResult.data) {
-          const d = gasResult.data
-          const supabase = createClient()
-          const updatedConsumption = {
-            ...(data.consumption_data || {}),
-            source: 'sips_gas',
-            fetched_at: new Date().toISOString(),
-            totalKwh: d.totalConsumptionKwh || 0,
-            total: d.totalConsumption || '',
-            sips_tariff: d.tariff || data.tariff,
-            distribuidora: d.distribuidora || '',
-            codigoPostal: d.codigoPostal || '',
-            municipio: d.municipio || '',
-            provincia: d.provincia || '',
-            gasHistory: (d.consumptionHistory || []).map((h: any) => ({
-              fechaInicio: h.fechaInicio,
-              fechaFin: h.fechaFin,
-              kwh: h.total || 0,
-            })),
-          }
-          await supabase
-            .from('supplies')
-            .update({ consumption_data: updatedConsumption, updated_at: new Date().toISOString() })
-            .eq('id', id)
-          setSupply((prev: any) => prev ? { ...prev, consumption_data: updatedConsumption } : prev)
-        }
-      } catch (err) {
-        console.error('[fetchSupply] Auto SIPS gas refresh error:', err)
-      } finally {
-        setSipsLoading(false)
-      }
-    }
-
     // ── Auto-generate power study if SIPS data exists but study hasn't been computed yet ──
     if (
       data &&
@@ -1014,54 +967,6 @@ export default function SupplyDetailPage() {
     }
   }
 
-  // ── Gas SIPS handler: fetches annual consumption from distributor via ADX ──
-  const handleFetchSipsGas = async () => {
-    if (!supply?.cups || sipsLoading) return
-    setSipsLoading(true)
-    setSipsError('')
-    try {
-      const res = await fetch('/api/sips-gas', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cups: supply.cups }),
-      })
-      const result = await res.json()
-      if (result.success && result.data) {
-        const d = result.data
-        const supabase = createClient()
-        const updatedConsumption = {
-          ...(supply.consumption_data || {}),
-          source: 'sips_gas',
-          fetched_at: new Date().toISOString(),
-          totalKwh: d.totalConsumptionKwh || 0,
-          total: d.totalConsumption || '',
-          sips_tariff: d.tariff || supply.tariff,
-          distribuidora: d.distribuidora || '',
-          codigoPostal: d.codigoPostal || '',
-          municipio: d.municipio || '',
-          provincia: d.provincia || '',
-          // Gas has no consumoPeriodos — store plain history
-          gasHistory: (d.consumptionHistory || []).map((h: any) => ({
-            fechaInicio: h.fechaInicio,
-            fechaFin: h.fechaFin,
-            kwh: h.total || 0,
-          })),
-        }
-        await supabase
-          .from('supplies')
-          .update({ consumption_data: updatedConsumption, updated_at: new Date().toISOString() })
-          .eq('id', supply.id)
-        setSupply((prev: any) => prev ? { ...prev, consumption_data: updatedConsumption } : prev)
-      } else {
-        setSipsError(result.error || 'No se encontraron datos del SIPS Gas')
-      }
-    } catch (err: any) {
-      setSipsError(err.message || 'Error consultando SIPS Gas')
-    } finally {
-      setSipsLoading(false)
-    }
-  }
-
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -1554,60 +1459,16 @@ export default function SupplyDetailPage() {
             <Card className="overflow-hidden">
               <div className="p-4 space-y-5">
 
-                {/* ── Gas supply: SIPS button + Excel import zone ── */}
+                {/* ── Gas supply: Excel import zone ── */}
                 {isGasSupply ? (
-                  <div className="space-y-4">
-                    {/* Consultar SIPS Gas button */}
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <Button variant="secondary" size="sm" onClick={handleFetchSipsGas} disabled={sipsLoading} loading={sipsLoading}>
-                        <RefreshCw className="w-3.5 h-3.5" />
-                        {supply.consumption_data?.totalKwh ? 'Actualizar consumo distribuidora' : 'Consultar consumo distribuidora'}
-                      </Button>
-                      {sipsError && <span className="text-xs text-err">{sipsError}</span>}
-                      {supply.consumption_data?.fetched_at && (
-                        <span className="text-xs text-ink-3 ml-auto">
-                          Actualizado: {formatDate(supply.consumption_data.fetched_at)}
-                        </span>
-                      )}
-                    </div>
-                    {/* Annual consumption summary if we have SIPS data */}
-                    {supply.consumption_data?.totalKwh > 0 && (
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                        <div className="bg-bg-2 rounded-xl p-3">
-                          <p className="text-xs text-ink-3">Consumo Anual</p>
-                          <p className="text-lg font-bold text-ink mt-0.5">
-                            {Math.round(supply.consumption_data.totalKwh).toLocaleString('es-ES')} kWh
-                          </p>
-                        </div>
-                        <div className="bg-bg-2 rounded-xl p-3">
-                          <p className="text-xs text-ink-3">Tarifa</p>
-                          <p className="text-lg font-bold text-ink mt-0.5">
-                            {supply.consumption_data.sips_tariff || supply.tariff || '-'}
-                          </p>
-                        </div>
-                        <div className="bg-bg-2 rounded-xl p-3">
-                          <p className="text-xs text-ink-3">Distribuidora</p>
-                          <p className="text-xs font-medium text-ink mt-1 leading-tight">
-                            {supply.consumption_data.distribuidora || '-'}
-                          </p>
-                        </div>
-                        <div className="bg-bg-2 rounded-xl p-3">
-                          <p className="text-xs text-ink-3">Municipio</p>
-                          <p className="text-xs font-medium text-ink mt-1 leading-tight">
-                            {supply.consumption_data.municipio || supply.consumption_data.provincia || '-'}
-                          </p>
-                        </div>
-                      </div>
-                    )}
-                    <GasExcelImport
-                      supplyId={supply.id}
-                      cups={supply.cups}
-                      existingData={supply.consumption_data}
-                      onImported={(newData) => {
-                        setSupply((prev: any) => prev ? { ...prev, consumption_data: newData } : prev)
-                      }}
-                    />
-                  </div>
+                  <GasExcelImport
+                    supplyId={supply.id}
+                    cups={supply.cups}
+                    existingData={supply.consumption_data}
+                    onImported={(newData) => {
+                      setSupply((prev: any) => prev ? { ...prev, consumption_data: newData } : prev)
+                    }}
+                  />
                 ) : (
                 <>
 
