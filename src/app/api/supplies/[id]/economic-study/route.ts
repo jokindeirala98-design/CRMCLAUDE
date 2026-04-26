@@ -676,6 +676,74 @@ function avgPriceFromInvoices(invoices: any[]): number {
   return totalKwh > 0 ? totalCost / totalKwh : 0
 }
 
+// ── Helpers de persistencia ───────────────────────────────────────────────────
+
+/**
+ * Borra todos los estudios económicos previos del suministro
+ * (registros DB + archivos de storage) para que solo quede el último.
+ */
+async function purgeOldStudies(supabase: ReturnType<typeof createClient>, supplyId: string) {
+  const { data: old } = await supabase
+    .from('studies')
+    .select('id, report_url')
+    .eq('supply_id', supplyId)
+    .eq('type', 'economico')
+
+  if (!old?.length) return
+
+  // Extraer rutas de storage de las URLs públicas
+  const storagePaths = old
+    .map(s => {
+      const url = s.report_url as string | null
+      if (!url) return null
+      const marker = '/documents/'
+      const idx = url.indexOf(marker)
+      return idx !== -1 ? url.slice(idx + marker.length) : null
+    })
+    .filter(Boolean) as string[]
+
+  if (storagePaths.length) {
+    await supabase.storage.from('documents').remove(storagePaths).catch(() => {})
+  }
+
+  await supabase.from('studies')
+    .delete()
+    .in('id', old.map(s => s.id))
+}
+
+/**
+ * Limpia estudios previos e inserta uno nuevo sin report_url
+ * (solo config del admin, sin Excel adjunto). Usado por el modo 2TD.
+ */
+async function saveStudyConfig({
+  supabase, supplyId, userId, tariff, inputData, notes,
+}: {
+  supabase: ReturnType<typeof createClient>
+  supplyId: string
+  userId: string
+  tariff: string
+  inputData: Record<string, unknown>
+  notes?: string
+}) {
+  const now = new Date().toISOString()
+  await purgeOldStudies(supabase, supplyId)
+  await supabase.from('studies').insert({
+    supply_id: supplyId,
+    type: 'economico',
+    report_url: null,
+    status: 'completed',
+    created_by: userId,
+    created_at: now,
+    completed_at: now,
+    input_data: inputData,
+  })
+  await supabase.from('supplies').update({
+    ...(notes ? { study_notes: notes } : {}),
+    status: 'estudio_completado',
+    updated_at: now,
+  }).eq('id', supplyId)
+}
+
 // ── Route handler ─────────────────────────────────────────────────────────────
 
 export async function POST(
@@ -691,9 +759,19 @@ export async function POST(
       excesos = 0,
       notes = '',
       save = false,
+      // Modo save-only: no genera Excel, solo persiste la config (usado para 2TD)
+      save_only = false,
+      tariff_key,           // clave de tarifa Voltis 2TD (p.ej. 'tramos', '24h', 'mercado')
+      // Datos extra para config 2TD
+      consumo_2td,          // { P1, P2, P3 }
+      potencia_2td,         // { P1, P2 }
+      precio_energia_actual = 0,
+      precio_potencia_p1 = 0,
+      precio_potencia_p2 = 0,
+      ahorro_anual = 0,
     } = body
 
-    if (!nueva_comercializadora || !Array.isArray(precios_nuevos)) {
+    if (!save_only && (!nueva_comercializadora || !Array.isArray(precios_nuevos))) {
       return NextResponse.json({ error: 'nueva_comercializadora y precios_nuevos son obligatorios' }, { status: 400 })
     }
 
@@ -791,6 +869,40 @@ export async function POST(
     const clientName = supply.client?.name || supply.cups || 'Sin cliente'
     const cups = supply.cups || ''
     const tariffLabel = `TARIFA ${normalizeTariff(tariff)}`
+
+    // ── save_only: guardar config y salir (no genera Excel) ───────────────────
+    if (save_only && save) {
+      await saveStudyConfig({
+        supabase,
+        supplyId: params.id,
+        userId: user.id,
+        tariff,
+        inputData: tariff_key
+          ? {
+              // Modo 2TD: guardar tarifa Voltis seleccionada
+              tariff_key,
+              tariff,
+              comercializadora_voltis: 'Voltis Energía',
+              consumo_2td,
+              potencia_2td,
+              precio_energia_actual,
+              precio_potencia_p1,
+              precio_potencia_p2,
+              ahorro_anual,
+            }
+          : {
+              // Modo estudio completo
+              nueva_comercializadora,
+              precios_nuevos,
+              ssaa,
+              excesos,
+              tariff,
+              notes,
+            },
+        notes,
+      })
+      return NextResponse.json({ success: true })
+    }
 
     // ── Logos de comercializadoras ────────────────────────────────────────────
     const [logoActualResult, logoNuevaResult] = await Promise.all([
@@ -988,7 +1100,10 @@ export async function POST(
         const now = new Date().toISOString()
         const storagePath = `studies/${params.id}/${Date.now()}_${filename}`
 
-        // 1. Subir Excel a storage
+        // 1. Borrar estudios económicos previos del mismo suministro (y sus archivos)
+        await purgeOldStudies(supabase, params.id)
+
+        // 2. Subir nuevo Excel a storage
         await supabase.storage
           .from('documents')
           .upload(storagePath, buffer, {
@@ -999,7 +1114,7 @@ export async function POST(
         const { data: urlData } = supabase.storage.from('documents').getPublicUrl(storagePath)
         const reportUrl = urlData.publicUrl
 
-        // 2. Crear registro en studies
+        // 3. Insertar nuevo registro con input_data completo
         await supabase.from('studies').insert({
           supply_id: params.id,
           type: 'economico',
@@ -1008,16 +1123,24 @@ export async function POST(
           created_by: user.id,
           created_at: now,
           completed_at: now,
+          input_data: {
+            nueva_comercializadora,
+            precios_nuevos,
+            ssaa,
+            excesos,
+            tariff,
+            notes,
+          },
         })
 
-        // 3. Guardar notas + avanzar pipeline
+        // 4. Guardar notas + avanzar pipeline
         await supabase.from('supplies').update({
           ...(notes ? { study_notes: notes } : {}),
           status: 'estudio_completado',
           updated_at: now,
         }).eq('id', params.id)
 
-        // 4. Notificar al comercial
+        // 5. Notificar al comercial
         if (supply.client?.id) {
           const { data: clientData } = await supabase
             .from('clients')

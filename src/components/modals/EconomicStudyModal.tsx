@@ -153,11 +153,12 @@ function open2TDPdf(params: {
 // ─── Subcomponent: 2.0TD Comparison View ────────────────────────────────────
 
 function Comparativa2TDView({
-  cups, clientName,
+  cups, clientName, supplyId, autoSave, accessToken,
   consumo, potencia,
   currentEnergyPrice, currentPowerP1, currentPowerP2,
 }: {
   cups: string; clientName: string
+  supplyId?: string; autoSave?: boolean; accessToken?: string | null
   consumo: { P1: number; P2: number; P3: number }
   potencia: { P1: number; P2: number }
   currentEnergyPrice: number; currentPowerP1: number; currentPowerP2: number
@@ -279,18 +280,41 @@ function Comparativa2TDView({
                 onClick={async () => {
                   setDownloading(item.key)
                   try {
-                    const res = await fetch('/api/comparativa-2td', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        titular: clientName, cups, tariffKey: item.key,
-                        consumoP1: consumo.P1, consumoP2: consumo.P2, consumoP3: consumo.P3,
-                        potenciaP1: potencia.P1, potenciaP2: potencia.P2,
-                        currentEnergyPrice, currentPowerP1, currentPowerP2,
+                    const [excelRes] = await Promise.all([
+                      fetch('/api/comparativa-2td', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          titular: clientName, cups, tariffKey: item.key,
+                          consumoP1: consumo.P1, consumoP2: consumo.P2, consumoP3: consumo.P3,
+                          potenciaP1: potencia.P1, potenciaP2: potencia.P2,
+                          currentEnergyPrice, currentPowerP1, currentPowerP2,
+                        }),
                       }),
-                    })
-                    if (!res.ok) throw new Error('Error generando Excel')
-                    const blob = await res.blob()
+                      // Si autoSave: guardar selección de tarifa en studies
+                      autoSave && supplyId
+                        ? fetch(`/api/supplies/${supplyId}/economic-study`, {
+                            method: 'POST',
+                            headers: {
+                              'Content-Type': 'application/json',
+                              ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
+                            },
+                            body: JSON.stringify({
+                              save: true,
+                              save_only: true,
+                              tariff_key: item.key,
+                              consumo_2td: consumo,
+                              potencia_2td: potencia,
+                              precio_energia_actual: currentEnergyPrice,
+                              precio_potencia_p1: currentPowerP1,
+                              precio_potencia_p2: currentPowerP2,
+                              ahorro_anual: item.result.savings.totalAnnual,
+                            }),
+                          }).catch(() => null)
+                        : Promise.resolve(null),
+                    ])
+                    if (!excelRes.ok) throw new Error('Error generando Excel')
+                    const blob = await excelRes.blob()
                     const url = URL.createObjectURL(blob)
                     const a = document.createElement('a')
                     a.href = url
@@ -461,6 +485,9 @@ export function EconomicStudyModal({
             <Comparativa2TDView
               cups={cups}
               clientName={clientName}
+              supplyId={supplyId}
+              autoSave={autoSave}
+              accessToken={(() => { try { const r = localStorage.getItem('voltis-auth'); return r ? JSON.parse(r)?.access_token ?? null : null } catch { return null } })()}
               consumo={consumo2TD}
               potencia={potencia2TD}
               currentEnergyPrice={currentAvgEnergyPrice}
