@@ -3,6 +3,7 @@ import {
   analyzeDocument, getMimeType,
   type ExtractedDocumentData,
 } from '@/lib/gemini'
+import { createServerSupabaseClient } from '@/lib/supabase/server'
 
 // Vercel Hobby plan: max 10s per function
 // Max duration for Hobby/Pro plans (Vercel)
@@ -16,6 +17,16 @@ interface DocumentAnalysisRequest {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse<ExtractedDocumentData>> {
+  // Auth guard — only authenticated CRM users can call Gemini analysis routes
+  const supabase = createServerSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.json(
+      { mode: 'manual', documentType: 'otro', error: 'Unauthorized' } as ExtractedDocumentData,
+      { status: 401 }
+    )
+  }
+
   try {
     const body = await request.json() as DocumentAnalysisRequest
     const { file_base64, file_type, file_name, doc_type } = body

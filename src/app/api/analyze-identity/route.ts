@@ -4,6 +4,7 @@ import {
   analyzeIdentityDocument,
   type ExtractedIdentityData,
 } from '@/lib/identityExtractor'
+import { createServerSupabaseClient } from '@/lib/supabase/server'
 
 export type { ExtractedIdentityData } from '@/lib/identityExtractor'
 
@@ -19,6 +20,16 @@ interface IdentityAnalysisRequest {
 export async function POST(
   request: NextRequest
 ): Promise<NextResponse<ExtractedIdentityData>> {
+  // Auth guard — only authenticated CRM users can call Gemini analysis routes
+  const supabase = createServerSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.json(
+      { mode: 'manual', documentType: 'desconocido', error: 'Unauthorized' } as ExtractedIdentityData,
+      { status: 401 }
+    )
+  }
+
   try {
     const body = (await request.json()) as IdentityAnalysisRequest
     const { file_base64, file_type, file_name } = body

@@ -231,6 +231,18 @@ async function findClientByInvoiceData(
 
 /* ─── Main webhook handler ─────────────────────────────────────────────────── */
 export async function POST(req: NextRequest) {
+  // ── Security: verify Telegram webhook secret token ──────────────────────
+  // Telegram sends the secret (set via setWebhook's secret_token param)
+  // in the X-Telegram-Bot-Api-Secret-Token header on every update.
+  const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET
+  if (webhookSecret) {
+    const incoming = req.headers.get('x-telegram-bot-api-secret-token') || ''
+    if (incoming !== webhookSecret) {
+      console.warn('[Telegram Webhook] Invalid secret token — request rejected')
+      return NextResponse.json({ ok: false }, { status: 403 })
+    }
+  }
+
   try {
     const update: TelegramUpdate = await req.json()
 

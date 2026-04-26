@@ -3,6 +3,7 @@ import {
   analyzeInvoice, getMimeType,
   type ExtractedInvoiceData,
 } from '@/lib/gemini'
+import { createServerSupabaseClient } from '@/lib/supabase/server'
 
 // Re-export types for backward compatibility
 export type { ExtractedInvoiceData } from '@/lib/gemini'
@@ -24,6 +25,16 @@ interface InvoiceAnalysisRequest extends InvoicePageData {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse<ExtractedInvoiceData>> {
+  // Auth guard — only authenticated CRM users can call Gemini analysis routes
+  const supabase = createServerSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.json(
+      { mode: 'manual', error: 'Unauthorized' } as ExtractedInvoiceData,
+      { status: 401 }
+    )
+  }
+
   try {
     const body = await request.json() as InvoiceAnalysisRequest
 

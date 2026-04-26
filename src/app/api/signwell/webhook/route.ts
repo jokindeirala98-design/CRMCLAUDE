@@ -34,7 +34,11 @@ const SIGNWELL_BASE = 'https://www.signwell.com/api/v1'
 // ---------------------------------------------------------------------------
 async function verifySignwellWebhook(req: NextRequest, body: string): Promise<boolean> {
   const secret = process.env.SIGNWELL_WEBHOOK_SECRET
-  if (!secret) return true // Skip verification if secret not configured (dev mode)
+  if (!secret) {
+    // Secret is required in all environments — fail closed to prevent spoofed signing events
+    console.error('[SignWell Webhook] SIGNWELL_WEBHOOK_SECRET is not configured — rejecting request')
+    return false
+  }
 
   const signature = req.headers.get('x-signwell-signature') || ''
   if (!signature) return false

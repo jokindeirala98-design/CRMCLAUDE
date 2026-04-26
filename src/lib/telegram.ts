@@ -116,12 +116,17 @@ export async function downloadFile(fileId: string): Promise<{ buffer: Buffer; fi
 
 /* ─── Webhook management ───────────────────────────────────────────────────── */
 export async function setWebhook(url: string): Promise<void> {
-  await tg('setWebhook', {
+  const body: Record<string, unknown> = {
     url,
     allowed_updates: ['message', 'callback_query'],
     drop_pending_updates: true,
-  })
-  console.log(`[Telegram] Webhook set to: ${url}`)
+  }
+  // Include secret_token so Telegram signs every incoming update.
+  // The webhook handler verifies this via X-Telegram-Bot-Api-Secret-Token.
+  const secret = process.env.TELEGRAM_WEBHOOK_SECRET
+  if (secret) body.secret_token = secret
+  await tg('setWebhook', body)
+  console.log(`[Telegram] Webhook set to: ${url}${secret ? ' (with secret)' : ''}`)
 }
 
 export async function deleteWebhook(): Promise<void> {
