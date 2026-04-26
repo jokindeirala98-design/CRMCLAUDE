@@ -89,7 +89,7 @@ export function GasExcelImport({ supplyId, cups, existingData, onImported }: Pro
     e.preventDefault()
     setDragging(false)
     const dropped = Array.from(e.dataTransfer.files).filter(
-      f => /\.(xlsx|xls)$/i.test(f.name)
+      f => /\.(xlsx|xls|zip)$/i.test(f.name)
     )
     if (dropped.length > 0) handleFiles(dropped)
   }, [handleFiles])
@@ -165,7 +165,7 @@ export function GasExcelImport({ supplyId, cups, existingData, onImported }: Pro
         <input
           ref={inputRef}
           type="file"
-          accept=".xlsx,.xls"
+          accept=".xlsx,.xls,.zip"
           multiple
           className="hidden"
           onChange={onInputChange}
@@ -206,10 +206,10 @@ export function GasExcelImport({ supplyId, cups, existingData, onImported }: Pro
                 {hasExisting ? 'Actualizar datos con nuevo Excel' : 'Importar Excel de consumos gas'}
               </p>
               <p className="text-xs mt-0.5" style={{ color: '#8A9A8E' }}>
-                Arrastra aquí o haz clic · .xlsx / .xls · puedes soltar varios archivos a la vez
+                Arrastra aquí o haz clic · .xlsx / .xls / .zip · varios archivos a la vez
               </p>
               <p className="text-[11px] mt-1" style={{ color: '#A8B5A0' }}>
-                Formatos soportados: Naturgy (_39), Endesa Gas, y otros distribuidores
+                Formatos soportados: ZIP comercializadora, Naturgy (_39/_40), Endesa Gas
               </p>
             </div>
           </>
