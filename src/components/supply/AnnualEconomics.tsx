@@ -895,8 +895,8 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
         const estimated = gp?.precioKwhEstimated
         return (
           <div>
-            <span className={`text-sm ${estimated ? 'text-yellow-400' : 'text-white/70'}`}>{precio ? fmt(precio, 4) : '—'}</span>
-            {estimated && <span className="block text-[9px] text-yellow-500/60">estimado</span>}
+            <span className={`text-sm ${estimated ? 'text-yellow-600' : 'text-[#4A5E47]'}`}>{precio ? fmt(precio, 4) : '—'}</span>
+            {estimated && <span className="block text-[9px] text-yellow-600/70">estimado</span>}
           </div>
         )
       },
@@ -905,15 +905,15 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
     {
       key: 'terminoFijo', label: 'TÉRMINO FIJO (€)',
       isSectionHeader: true,
-      render: (eco) => <span className="text-white font-bold text-sm">{fmt(eco?.gasPricing?.terminoFijoTotal)}</span>,
+      render: (eco) => <span className="text-[#2D3A33] font-bold text-sm">{fmt(eco?.gasPricing?.terminoFijoTotal)}</span>,
     },
     {
       key: 'terminoFijoDiario', label: 'CUOTA DIARIA (€/DÍA)',
       indent: true,
       render: (eco) => {
         const gp = eco?.gasPricing
-        if (!gp?.terminoFijoDiario) return <span className="text-white/30 text-sm">—</span>
-        return <span className="text-white/60 text-sm">{fmt(gp.terminoFijoDiario, 4)} €/día × {gp.diasFacturados || '?'} días</span>
+        if (!gp?.terminoFijoDiario) return <span className="text-[#8A9A8E] text-sm">—</span>
+        return <span className="text-[#4F5C53] text-sm">{fmt(gp.terminoFijoDiario, 4)} €/día × {gp.diasFacturados || '?'} días</span>
       },
     },
     {
@@ -927,15 +927,15 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
     { key: 'sep_gas2', label: '', isSeparator: true, render: () => null },
     {
       key: 'impuestoHidrocarb', label: 'IMPUESTO HIDROCARBUROS (€)',
-      render: (eco) => <span className="text-white/70 text-sm">{fmt(eco?.gasPricing?.impuestoHidrocarbTotal)}</span>,
+      render: (eco) => <span className="text-[#4F5C53] text-sm">{fmt(eco?.gasPricing?.impuestoHidrocarbTotal)}</span>,
     },
     {
       key: 'alquilerGas', label: 'ALQUILER CONTADOR (€)',
-      render: (eco) => <span className="text-white/70 text-sm">{fmt(eco?.gasPricing?.alquilerTotal)}</span>,
+      render: (eco) => <span className="text-[#4F5C53] text-sm">{fmt(eco?.gasPricing?.alquilerTotal)}</span>,
     },
     {
       key: 'ivaGas', label: 'IVA (€)',
-      render: (eco) => <span className="text-white/70 text-sm">{fmt(eco?.gasPricing?.ivaTotal)}</span>,
+      render: (eco) => <span className="text-[#4F5C53] text-sm">{fmt(eco?.gasPricing?.ivaTotal)}</span>,
     },
     {
       key: 'totalFacturaGas', label: 'TOTAL FACTURA (€)',

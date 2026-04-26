@@ -1459,8 +1459,9 @@ export default function SupplyDetailPage() {
             <Card className="overflow-hidden">
               <div className="p-4 space-y-5">
 
-                {/* ── Gas supply: Excel import zone ── */}
+                {/* ── Gas supply: Excel import zone + data display ── */}
                 {isGasSupply ? (
+                  <>
                   <GasExcelImport
                     supplyId={supply.id}
                     cups={supply.cups}
@@ -1469,6 +1470,105 @@ export default function SupplyDetailPage() {
                       setSupply((prev: any) => prev ? { ...prev, consumption_data: newData } : prev)
                     }}
                   />
+
+                  {/* Gas data display (like electricity SIPS) */}
+                  {supply.consumption_data && (supply.consumption_data.totalKwh > 0 || (supply.consumption_data.gasHistory?.length > 0)) && (() => {
+                    const cd = supply.consumption_data
+                    const gasHistory: any[] = cd.gasHistory || []
+                    const totalKwh = cd.totalKwh || 0
+                    const fmtKwh = (n: number) => n > 0 ? `${Math.round(n).toLocaleString('es-ES')} kWh` : '-'
+                    const fmtD = (s: string) => {
+                      try { return new Date(s).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' }) }
+                      catch { return s?.slice(0, 10) || '' }
+                    }
+                    return (
+                      <div className="space-y-4 mt-2">
+                        {/* Summary cards */}
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                          <div className="bg-bg-2 rounded-xl p-3">
+                            <p className="text-xs text-ink-3">Consumo Anual</p>
+                            <p className="text-lg font-bold text-ink mt-0.5">{fmtKwh(totalKwh)}</p>
+                          </div>
+                          <div className="bg-bg-2 rounded-xl p-3">
+                            <p className="text-xs text-ink-3">Tarifa</p>
+                            <p className="text-lg font-bold text-ink mt-0.5">{cd.sips_tariff || '-'}</p>
+                          </div>
+                          <div className="bg-bg-2 rounded-xl p-3">
+                            <p className="text-xs text-ink-3">Distribuidora</p>
+                            <p className="text-xs font-medium text-ink mt-1 leading-tight">{cd.distribuidora || '-'}</p>
+                          </div>
+                          <div className="bg-bg-2 rounded-xl p-3">
+                            <p className="text-xs text-ink-3">Última lectura</p>
+                            <p className="text-sm font-bold text-ink mt-0.5">
+                              {cd.fecha_lectura ? fmtD(cd.fecha_lectura) : cd.fetched_at ? fmtD(cd.fetched_at) : '-'}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Address info */}
+                        {(cd.address || cd.municipio) && (
+                          <div className="bg-bg-2 rounded-xl p-3 flex gap-4 flex-wrap">
+                            {cd.address && (
+                              <div>
+                                <p className="text-[10px] font-semibold text-ink-3 uppercase tracking-wider">Dirección</p>
+                                <p className="text-xs font-medium text-ink mt-0.5">{cd.address}</p>
+                              </div>
+                            )}
+                            {cd.municipio && (
+                              <div>
+                                <p className="text-[10px] font-semibold text-ink-3 uppercase tracking-wider">Municipio</p>
+                                <p className="text-xs font-medium text-ink mt-0.5">{[cd.municipio, cd.provincia].filter(Boolean).join(', ')}</p>
+                              </div>
+                            )}
+                            {cd.cnae && (
+                              <div>
+                                <p className="text-[10px] font-semibold text-ink-3 uppercase tracking-wider">CNAE</p>
+                                <p className="text-xs font-medium text-ink mt-0.5">{cd.cnae}</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Monthly history table */}
+                        {gasHistory.length > 0 && (
+                          <div>
+                            <h4 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-2">
+                              Historial de consumos ({gasHistory.length} períodos)
+                            </h4>
+                            <div className="rounded-xl border border-line-2-variant/30 overflow-hidden">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="bg-bg-2 border-b border-line-2-variant/20">
+                                    <th className="text-left px-3 py-2 text-ink-3 font-semibold">Inicio</th>
+                                    <th className="text-left px-3 py-2 text-ink-3 font-semibold">Fin</th>
+                                    <th className="text-right px-3 py-2 text-ink-3 font-semibold">Consumo (kWh)</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {[...gasHistory].reverse().map((p: any, i: number) => (
+                                    <tr key={i} className={`border-b border-line-2-variant/10 ${i % 2 === 0 ? '' : 'bg-bg-2/50'}`}>
+                                      <td className="px-3 py-2 text-ink-3">{p.fechaInicio ? fmtD(p.fechaInicio) : '-'}</td>
+                                      <td className="px-3 py-2 text-ink-3">{p.fechaFin ? fmtD(p.fechaFin) : '-'}</td>
+                                      <td className="px-3 py-2 text-right font-semibold text-ink">
+                                        {p.kwh > 0 ? Math.round(p.kwh).toLocaleString('es-ES') : '-'}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                                <tfoot>
+                                  <tr className="bg-bg-2 border-t border-line-2-variant/30">
+                                    <td colSpan={2} className="px-3 py-2 font-bold text-ink">Total anual estimado</td>
+                                    <td className="px-3 py-2 text-right font-bold text-brand">{fmtKwh(totalKwh)}</td>
+                                  </tr>
+                                </tfoot>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
+                  </>
                 ) : (
                 <>
 
