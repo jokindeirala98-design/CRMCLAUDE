@@ -52,8 +52,9 @@ function wh2kwh(wh: number): number {
 
 // ── HTML table parser ─────────────────────────────────────────────────────────
 
-function isHtmlBuffer(buf: Buffer): boolean {
-  const head = buf.slice(0, 512).toString('utf-8').trimStart().toLowerCase()
+function isHtmlBuffer(buf: Buffer | Uint8Array): boolean {
+  const nodeBuf = Buffer.isBuffer(buf) ? buf : Buffer.from(buf)
+  const head = nodeBuf.slice(0, 512).toString('utf-8').trimStart().toLowerCase()
   return head.startsWith('<!doctype') || head.startsWith('<html') ||
          head.startsWith('<table') || head.includes('<html')
 }
@@ -349,15 +350,17 @@ function parseGrid(grid: string[][]): GasParsedResult[] {
 
 // ── Buffer → grid ─────────────────────────────────────────────────────────────
 
-async function bufferToGrid(buf: Buffer): Promise<string[][]> {
-  if (isHtmlBuffer(buf)) {
-    return parseHtmlToGrid(buf.toString('utf-8'))
+async function bufferToGrid(buf: Uint8Array): Promise<string[][]> {
+  const nodeBuf = Buffer.isBuffer(buf) ? buf : Buffer.from(buf)
+  if (isHtmlBuffer(nodeBuf)) {
+    return parseHtmlToGrid(nodeBuf.toString('utf-8'))
   }
 
   // Try ExcelJS (real XLSX)
   const wb = new ExcelJS.Workbook()
   try {
-    await wb.xlsx.load(buf)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await wb.xlsx.load(nodeBuf as any)
   } catch {
     throw new Error(
       'Formato no soportado. Si es un .xls antiguo, ábrelo en Excel y guárdalo como .xlsx'
@@ -388,22 +391,23 @@ async function bufferToGrid(buf: Buffer): Promise<string[][]> {
 
 // ── Extract files from upload (handles .zip) ──────────────────────────────────
 
-async function extractBuffers(file: File): Promise<Array<{ name: string; buf: Buffer }>> {
-  const buf = Buffer.from(await file.arrayBuffer())
+async function extractBuffers(file: File): Promise<Array<{ name: string; buf: Uint8Array }>> {
+  const arrayBuf = await file.arrayBuffer()
+  const uint8 = new Uint8Array(arrayBuf)
   const ext = file.name.split('.').pop()?.toLowerCase()
 
   if (ext === 'zip') {
     try {
-      const unzipped = unzipSync(buf)
+      const unzipped = unzipSync(uint8)
       return Object.entries(unzipped)
         .filter(([name]) => /\.(xlsx|xls)$/i.test(name) && !name.startsWith('__MACOSX'))
-        .map(([name, data]) => ({ name, buf: Buffer.from(data) }))
+        .map(([name, data]) => ({ name, buf: data }))
     } catch (e: any) {
       throw new Error(`No se pudo abrir el ZIP: ${e.message}`)
     }
   }
 
-  return [{ name: file.name, buf }]
+  return [{ name: file.name, buf: uint8 }]
 }
 
 // ── Route handler ─────────────────────────────────────────────────────────────
