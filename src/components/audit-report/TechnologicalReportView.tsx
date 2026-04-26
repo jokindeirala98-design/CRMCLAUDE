@@ -472,7 +472,7 @@ export function TechnologicalReportView({
   // ─── Gas RL grouping ──────────────────────────────────────────────────────
   const gasRLGroups: Record<string, ConsumptionSnapshot[]> = {}
   classified.gas.forEach(r => {
-    const match = (r.tariff || '').match(/RL[\s.]*([1-4])/i)
+    const match = (r.tariff || '').match(/RL[\s._-]*0?([1-4])/i)
     const rl = match ? `RL${match[1]}` : 'Sin RL'
     if (!gasRLGroups[rl]) gasRLGroups[rl] = []
     gasRLGroups[rl].push(r)

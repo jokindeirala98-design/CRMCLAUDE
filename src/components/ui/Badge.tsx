@@ -149,7 +149,14 @@ export function StatusBadge({ status }: { status: string }) {
  * RL    → emerald
  */
 export function TariffBadge({ tariff, className }: { tariff: string; className?: string }) {
-  const t = (tariff || '').trim().toUpperCase()
+  // Normalize display: RL04 → RL.4, RL4 → RL.4, RL.04 → RL.4, etc.
+  const normalizeDisplay = (raw: string): string => {
+    const m = raw.trim().match(/^RL[\s._-]*0?([1-4])$/i)
+    if (m) return `RL.${m[1]}`
+    return raw
+  }
+  const display = normalizeDisplay(tariff || '')
+  const t = display.toUpperCase()
 
   let cssClass = 'tariff-rl'
   if (t.startsWith('2.'))      cssClass = 'tariff-20'
@@ -158,7 +165,7 @@ export function TariffBadge({ tariff, className }: { tariff: string; className?:
 
   return (
     <span className={cn('tariff-badge', cssClass, className)}>
-      {tariff}
+      {display}
     </span>
   )
 }

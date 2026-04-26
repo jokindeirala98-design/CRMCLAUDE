@@ -63,8 +63,8 @@ export function normalizeTariff(tarifa: string | null | undefined): string | nul
   if (/^6[.,]?3/.test(t)) return '6.3TD'
   if (/^6[.,]?4/.test(t)) return '6.4TD'
 
-  // ── Gas tariffs ──
-  const rl = t.match(/R[L.]?([1-4])/)
+  // ── Gas tariffs (RL1–RL4, RL.1–RL.4, RL01–RL04, RL.01–RL.04, etc.) ──
+  const rl = t.match(/RL[_.\-]?0?([1-4])/)
   if (rl) return `RL.${rl[1]}`
 
   return tarifa
