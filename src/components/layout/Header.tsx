@@ -52,7 +52,10 @@ export function Header({
   }
 
   return (
-    <header className={`sticky top-0 z-30 bg-bg/80 backdrop-blur-xl border-b border-line/60 ${hideMobile ? 'hidden lg:block' : ''}`}>
+    <header
+      className={`sticky z-30 bg-bg/80 backdrop-blur-xl border-b border-line/60 ${hideMobile ? 'hidden lg:block' : ''}`}
+      style={{ top: 'env(safe-area-inset-top, 0px)' }}
+    >
       <div className="flex items-center justify-between px-4 lg:px-6 py-3">
         <div className="min-w-0 flex-1">
           {editing ? (

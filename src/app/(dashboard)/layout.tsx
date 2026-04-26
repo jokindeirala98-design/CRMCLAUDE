@@ -66,7 +66,7 @@ export default function DashboardLayout({
   return (
     <AuthProvider>
       <ToastProvider>
-        <div className="flex min-h-screen bg-bg overflow-x-hidden">
+        <div className="flex min-h-screen bg-bg" style={{ overflowX: 'clip' }}>
           {/* Desktop Sidebar */}
           <Sidebar />
 

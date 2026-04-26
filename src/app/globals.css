@@ -62,6 +62,8 @@
     font-family: 'Geist', 'Inter', sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* Ensure safe-area env vars are available for sticky headers */
+    padding-top: env(safe-area-inset-top, 0px);
   }
 
   body {
