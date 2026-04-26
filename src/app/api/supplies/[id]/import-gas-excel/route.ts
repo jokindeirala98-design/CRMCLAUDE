@@ -135,13 +135,17 @@ const MAESTRO_ALIASES: Record<string, string[]> = {
 
 function buildColMap(headers: string[], aliases: Record<string, string[]>): Record<string, number> {
   const map: Record<string, number> = {}
+  const usedCols = new Set<number>()
   headers.forEach((h, idx) => {
     const norm = normalizeKey(h)
     if (!norm) return
     for (const [field, keys] of Object.entries(aliases)) {
-      if (map[field] !== undefined) continue
+      if (map[field] !== undefined) continue      // field already claimed
+      if (usedCols.has(idx)) continue             // column already claimed by another field
       if (keys.some(k => norm === k || norm.includes(k) || k.includes(norm))) {
         map[field] = idx
+        usedCols.add(idx)
+        break  // one column → one field only
       }
     }
   })
@@ -204,7 +208,7 @@ const HIST_ALIASES: Record<string, string[]> = {
                  'fechaini', 'fecini', 'inicio'],
   fecha_fin:    ['fechafinmesconsumo', 'fechafin', 'fechafinconsumo', 'fecfinconsumo',
                  'fin', 'fechafin'],
-  consumo_wh:   ['consumoenwh', 'consumowh', 'kwh', 'energia', 'consumo'],
+  consumo_wh:   ['consumoenwh', 'consumowh', 'consumoenkwh', 'kwh'],
   caudal_max:   ['caudalmaximodiario', 'caudalmax', 'caudalmaximo'],
   caudal_med:   ['caudalmedioenwhdia', 'caudalmedio'],
 }
