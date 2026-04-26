@@ -2405,8 +2405,8 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
           </div>
         )}
 
-        {/* Month selector (screen only) - Sticky positioned with glassmorphism */}
-        <div className="sticky top-0 z-[205] flex items-center gap-2 py-4 px-8 flex-wrap justify-center no-print"
+        {/* Month selector (screen only) - Sticky below the page header (~57px) */}
+        <div className="sticky top-[57px] z-20 flex items-center gap-2 py-4 px-8 flex-wrap justify-center no-print"
           style={{ background: 'rgba(244,238,226,0.92)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', borderBottom: '1px solid #E5DCC9' }}>
           <button onClick={selectAllMonths}
             className={`px-4 py-2 rounded-xl text-sm font-bold transition ${isAnnual ? 'bg-[#2D3A33] text-[#FBF7EE]' : 'bg-[#EDE8DC] text-[#5A6B5F] hover:bg-[#E5DCC9]'}`}>
