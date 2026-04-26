@@ -250,7 +250,9 @@ function parseHistGrid(grid: string[][], headerIdx: number): GasParsedResult[] {
       cups: currentCups,
       fechaInicio: fechaInicio.replace('T00:00:00', '').replace('T00:00', ''),
       fechaFin:    fechaFin.replace('T00:00:00', '').replace('T00:00', ''),
-      kwh: Math.round(consumoWh / 1000), // always Wh → kWh for this format
+      // wh2kwh: divides by 1000 only if value > 500.000 (clearly Wh).
+      // If ≤ 500.000 assumes already in kWh (Naturgy _40 stores kWh, not Wh).
+      kwh: Math.round(wh2kwh(consumoWh)),
     })
   }
 
