@@ -2695,7 +2695,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
                   </tr></thead>
                   <tbody>{excessData.map(row => (
                     <tr key={row.id} className="border-b border-warn/30/10">
-                      <td className="py-3 px-3 text-white/70">{row.name}</td>
+                      <td className="py-3 px-3 text-ink-2">{row.name}</td>
                       <td className="py-3 px-3 text-right text-warn font-bold">{row.excessAmount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</td>
                     </tr>
                   ))}</tbody>
