@@ -37,6 +37,7 @@ export default function ClientDetailPage() {
   const [clientTasks, setClientTasks] = useState<any[]>([])
   const [dismissingTaskIds, setDismissingTaskIds] = useState<Set<string>>(new Set())
   const [togglingFallen, setTogglingFallen] = useState(false)
+  const [supplySearch, setSupplySearch] = useState('')
 
   const fetchClient = useCallback(async () => {
     const supabase = createClient()
@@ -200,6 +201,17 @@ export default function ClientDetailPage() {
   const sortedSupplies: any[] = [...(client.supplies || [])].sort(
     (a, b) => getSupplyAnnualConsumption(b) - getSupplyAnnualConsumption(a)
   )
+
+  // Filtered supplies by search query (CUPS or name)
+  const filteredSupplies = supplySearch.trim()
+    ? sortedSupplies.filter((s: any) => {
+        const q = supplySearch.toLowerCase()
+        return (
+          s.cups?.toLowerCase().includes(q) ||
+          s.name?.toLowerCase().includes(q)
+        )
+      })
+    : sortedSupplies
 
   const typeIcons: Record<string, string> = { luz: '⚡', gas: '🔥', telefonia: '📞' }
   const supplyTypeIconComponents: Record<string, React.ElementType> = { luz: Zap, gas: Flame, telefonia: PhoneIcon }
@@ -429,11 +441,20 @@ export default function ClientDetailPage() {
 
         {/* Supplies */}
         <div>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-sans font-semibold text-lg text-ink">
+          <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+            <h2 className="font-sans font-semibold text-lg text-ink flex-shrink-0">
               Suministros ({client.supplies?.length || 0})
             </h2>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-1 min-w-0 max-w-xs">
+              <input
+                type="text"
+                value={supplySearch}
+                onChange={e => setSupplySearch(e.target.value)}
+                placeholder="Buscar CUPS o nombre…"
+                className="flex-1 min-w-0 px-3 py-1.5 text-sm bg-bg-2 border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/40 placeholder:text-ink-4"
+              />
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
               <Button size="sm" onClick={() => setShowBulkUpload(true)}>
                 <Plus className="w-4 h-4" />
                 Importar facturas
@@ -447,7 +468,12 @@ export default function ClientDetailPage() {
             </Card>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {sortedSupplies.map((supply: any) => {
+              {filteredSupplies.length === 0 && (
+                <div className="col-span-full text-sm text-ink-3 text-center py-6">
+                  No hay suministros que coincidan con "{supplySearch}"
+                </div>
+              )}
+              {filteredSupplies.map((supply: any) => {
                 const invoiceCount = supply.invoices?.length || 0
                 const annualKwh = getSupplyAnnualConsumption(supply)
                 const isEditingName = editingSupplyName === supply.id
