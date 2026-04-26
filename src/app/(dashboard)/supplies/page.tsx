@@ -319,27 +319,49 @@ export default function SuppliesPage() {
     }
 
     // Priority for annual consumption (highest → lowest reliability):
-    //   1. consumption_data.consumoPeriodos sum (SIPS annual breakdown by period)
-    //   2. consumption_data.totalKwh (SIPS annual total — from totalConsumptionKwh)
-    //   3. Sum of invoice consumoTotalKwh (only one period's kwh, not reliable as annual)
+    //   Electricity:
+    //     1. consumption_data.consumoPeriodos sum (SIPS annual breakdown by period)
+    //     2. consumption_data.totalKwh (SIPS annual total)
+    //     3. Sum of invoice consumoTotalKwh (fallback — imprecise)
+    //   Gas:
+    //     1. consumption_data.totalKwh (set by import-gas-excel, authoritative)
+    //     2. gasHistory sum (also set by import-gas-excel)
+    //     → NEVER falls back to invoice data for gas
     const consumptionData: Record<string, number> = {}
     if (suppliesResult.data) {
       suppliesResult.data.forEach((supply: any) => {
         const cd = supply.consumption_data as any
-        const cp = cd?.consumoPeriodos || {}
-        const periodosSum = (Number(cp.P1)||0) + (Number(cp.P2)||0) + (Number(cp.P3)||0)
-                          + (Number(cp.P4)||0) + (Number(cp.P5)||0) + (Number(cp.P6)||0)
-        if (periodosSum > 0) {
-          consumptionData[supply.id] = periodosSum
-        } else {
-          const sipsTotal = Number(cd?.totalKwh) || Number(cd?.total) || 0
-          if (sipsTotal > 0) {
-            consumptionData[supply.id] = sipsTotal
+        const isGas = supply.type === 'gas'
+
+        if (isGas) {
+          // Gas: only show consumption when Excel SIPS data has been imported
+          const gasTotal = Number(cd?.totalKwh) || 0
+          if (gasTotal > 0) {
+            consumptionData[supply.id] = gasTotal
           } else {
-            // Last resort: sum of individual invoice periods
-            // (may be just one month's data — imprecise but better than nothing)
-            const invSum = invoiceKwhSum[supply.id] || 0
-            if (invSum > 0) consumptionData[supply.id] = invSum
+            // Try gasHistory sum
+            const history: any[] = cd?.gasHistory || []
+            const histSum = history.reduce((s: number, p: any) => s + (Number(p.kwh) || 0), 0)
+            if (histSum > 0) consumptionData[supply.id] = histSum
+            // else: no Excel data yet — leave blank (don't show)
+          }
+        } else {
+          // Electricity: consumoPeriodos → totalKwh → invoice fallback
+          const cp = cd?.consumoPeriodos || {}
+          const periodosSum = (Number(cp.P1)||0) + (Number(cp.P2)||0) + (Number(cp.P3)||0)
+                            + (Number(cp.P4)||0) + (Number(cp.P5)||0) + (Number(cp.P6)||0)
+          if (periodosSum > 0) {
+            consumptionData[supply.id] = periodosSum
+          } else {
+            const sipsTotal = Number(cd?.totalKwh) || Number(cd?.total) || 0
+            if (sipsTotal > 0) {
+              consumptionData[supply.id] = sipsTotal
+            } else {
+              // Last resort: sum of individual invoice periods
+              // (may be just one month's data — imprecise but better than nothing)
+              const invSum = invoiceKwhSum[supply.id] || 0
+              if (invSum > 0) consumptionData[supply.id] = invSum
+            }
           }
         }
       })

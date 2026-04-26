@@ -77,11 +77,26 @@ interface ClientGroup {
 
 /* ---------- helpers ---------- */
 function getSupplyConsumption(s: PendingSupply): number {
-  // Try consumption_data.totalKwh first (from SIPS)
   const cd = s.consumption_data as any
+  const isGas = s.type === 'gas'
+
+  if (isGas) {
+    // Gas: only show consumption when Excel SIPS data has been imported (never from invoices)
+    const gasTotal = Number(cd?.totalKwh) || 0
+    if (gasTotal > 0) return gasTotal
+    // Try gasHistory sum
+    const history: any[] = cd?.gasHistory || []
+    return history.reduce((sum: number, p: any) => sum + (Number(p.kwh) || 0), 0)
+  }
+
+  // Electricity: consumoPeriodos → totalKwh → invoice fallback
+  const cp = cd?.consumoPeriodos || {}
+  const periodosSum = (Number(cp.P1)||0) + (Number(cp.P2)||0) + (Number(cp.P3)||0)
+                    + (Number(cp.P4)||0) + (Number(cp.P5)||0) + (Number(cp.P6)||0)
+  if (periodosSum > 0) return periodosSum
   if (cd?.totalKwh && Number(cd.totalKwh) > 0) return Number(cd.totalKwh)
   if (cd?.total && Number(cd.total) > 0) return Number(cd.total)
-  // Fall back to summing invoices
+  // Fall back to summing invoices (electricity only)
   let sum = 0
   for (const inv of s.invoices) {
     const ed = inv.extracted_data as any
