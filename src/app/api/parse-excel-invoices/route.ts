@@ -304,144 +304,154 @@ export async function POST(req: NextRequest) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await wb.xlsx.load(Buffer.from(file_base64, 'base64') as any)
 
-    const ws = wb.worksheets[0]
-    if (!ws) return NextResponse.json({ error: 'No worksheet found' }, { status: 400 })
+    const worksheets = wb.worksheets.filter(ws => ws.rowCount > 0)
+    if (worksheets.length === 0) return NextResponse.json({ error: 'No worksheet found' }, { status: 400 })
 
-    const rowMap = buildRowMap(ws)
+    const allResults: any[] = []
 
-    // ── Gas detection: route to gas builder if this is a gas invoice sheet ────
-    if (isGasSheet(rowMap)) {
-      const gasCups = cellStr(getRow(rowMap, 'CUPS'), 2)
-      const gasComRow = getRow(rowMap, 'Compañia')
-                     ?? getRow(rowMap, 'Compania')
-                     ?? getRow(rowMap, 'Empresa')
-                     ?? getRow(rowMap, 'Comercializadora')
-                     ?? getRow(rowMap, 'Suministrador')
-      const gasComercializadora = cellStr(gasComRow, 2)
-      const gasTarifa = cellStr(getRow(rowMap, 'Tarifa RL'), 2)
-                     || cellStr(getRow(rowMap, 'Tarifa'), 2)
-      const gasMonthCols = detectMonthCols(ws, rowMap)
-      if (gasMonthCols.length === 0) {
-        return NextResponse.json({ error: 'No month columns detected in gas sheet' }, { status: 400 })
+    for (const ws of worksheets) {
+      try {
+        const rowMap = buildRowMap(ws)
+
+        // ── Gas detection: route to gas builder if this is a gas invoice sheet ────
+        if (isGasSheet(rowMap)) {
+          const gasCups = cellStr(getRow(rowMap, 'CUPS'), 2)
+          const gasComRow = getRow(rowMap, 'Compañia')
+                         ?? getRow(rowMap, 'Compania')
+                         ?? getRow(rowMap, 'Empresa')
+                         ?? getRow(rowMap, 'Comercializadora')
+                         ?? getRow(rowMap, 'Suministrador')
+          const gasComercializadora = cellStr(gasComRow, 2)
+          const gasTarifa = cellStr(getRow(rowMap, 'Tarifa RL'), 2)
+                         || cellStr(getRow(rowMap, 'Tarifa'), 2)
+          const gasMonthCols = detectMonthCols(ws, rowMap)
+          if (gasMonthCols.length > 0) {
+            const gasInvoices = buildGasInvoices(ws, rowMap, gasMonthCols, gasCups, gasComercializadora)
+            allResults.push({ cups: gasCups, tariff: gasTarifa, comercializadora: gasComercializadora, energyType: 'gas', invoices: gasInvoices })
+          }
+        } else {
+          // Electricity sheet
+          const cups         = cellStr(getRow(rowMap, 'CUPS'), 2)
+          const rawTariff    = cellStr(getRow(rowMap, 'Tarifa'), 2)
+          // Comercializadora: try multiple label variants
+          const comRow       = getRow(rowMap, 'Compañia')
+                            ?? getRow(rowMap, 'Compania')
+                            ?? getRow(rowMap, 'Empresa')
+                            ?? getRow(rowMap, 'Comercializadora')
+                            ?? getRow(rowMap, 'Suministrador')
+          const comercializadora = cellStr(comRow, 2)
+          const tariff       = normTariff(rawTariff)
+
+          // ── Month columns ─────────────────────────────────────────────────────────
+          const monthCols = detectMonthCols(ws, rowMap)
+          if (monthCols.length === 0) continue
+
+          // ── Per-month invoices ────────────────────────────────────────────────────
+          const invoices: any[] = []
+
+          for (const col of monthCols) {
+            const rawStart = getRow(rowMap, 'Fecha Inicio')?.getCell(col).value
+            const rawEnd   = getRow(rowMap, 'Fecha Fin')?.getCell(col).value
+            let periodStart = parseDate(rawStart)
+            let periodEnd   = parseDate(rawEnd)
+            if (periodStart && !periodEnd) periodEnd = lastDayOfMonth(periodStart)
+            if (!periodStart) continue   // skip columns with no date
+
+            const dias = daysBetween(periodStart, periodEnd!)
+
+            // Potencias P1-P6
+            const potencia = []
+            for (let p = 1; p <= 6; p++) {
+              const pid  = `P${p}`
+              const kw         = cellNum(getRow(rowMap, `Potencia ${pid} kw`), col)
+                              || cellNum(getRow(rowMap, `Potencia ${pid} (kW)`), col)
+              const precioKwDia= cellNum(getRow(rowMap, `Potencia ${pid} eur kw dia`), col)
+                              || cellNum(getRow(rowMap, `Potencia ${pid} (€/kW día)`), col)
+              const total      = cellNum(getRow(rowMap, `Potencia ${pid} eur`), col)
+                              || cellNum(getRow(rowMap, `Potencia ${pid} (€)`), col)
+              if (kw > 0 || total > 0) potencia.push({ periodo: pid, kw, precioKwDia, dias, total })
+            }
+
+            // Consumos P1-P6
+            const consumo = []
+            for (let p = 1; p <= 6; p++) {
+              const pid    = `P${p}`
+              const kwh    = cellNum(getRow(rowMap, `Consumo ${pid} kwh`), col)
+                          || cellNum(getRow(rowMap, `Consumo ${pid} (kWh)`), col)
+              const precio = cellNum(getRow(rowMap, `Precio ${pid} eur kwh`), col)
+                          || cellNum(getRow(rowMap, `Precio ${pid} (€/kWh)`), col)
+              const total  = kwh > 0 && precio > 0 ? Math.round(kwh * precio * 100) / 100 : 0
+              if (kwh > 0) consumo.push({ periodo: pid, kwh, precioKwh: precio, total })
+            }
+
+            // Totals
+            const consumoTotalKwh    = cellNum(getRow(rowMap, 'TOTAL CONSUMO (kWh)'), col)
+                                    || cellNum(getRow(rowMap, 'total consumo kwh'), col)
+                                    || consumo.reduce((s, c) => s + c.kwh, 0)
+            const costeTotalConsumo  = cellNum(getRow(rowMap, 'TOTAL COSTE CONSUMO (€)'), col)
+                                    || cellNum(getRow(rowMap, 'total coste consumo eur'), col)
+                                    || consumo.reduce((s, c) => s + c.total, 0)
+            const costeTotalPotencia = cellNum(getRow(rowMap, 'TOTAL COSTE POTENCIA (€)'), col)
+                                    || cellNum(getRow(rowMap, 'total coste potencia eur'), col)
+                                    || potencia.reduce((s, p) => s + p.total, 0)
+            const totalFactura       = cellNum(getRow(rowMap, 'TOTAL FACTURA (€)'), col)
+                                    || cellNum(getRow(rowMap, 'total factura eur'), col)
+
+            // Skip month if all zeros
+            if (consumoTotalKwh === 0 && costeTotalConsumo === 0 && costeTotalPotencia === 0 && totalFactura === 0) continue
+
+            // Human-readable billing period label
+            const billingPeriod = (() => {
+              try { return new Date(periodStart!).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }).toLowerCase() }
+              catch { return periodStart! }
+            })()
+
+            invoices.push({
+              period_start: periodStart,
+              period_end:   periodEnd,
+              total_amount: totalFactura || null,
+              extracted_data: {
+                mode: 'gemini',
+                cups,
+                comercializadora,
+                tariff,
+                billing_period: billingPeriod,
+                total_amount: totalFactura ? String(totalFactura) : '',
+                economics: {
+                  fechaInicio: periodStart,
+                  fechaFin:    periodEnd,
+                  comercializadora,
+                  cups,
+                  tarifa: tariff,
+                  potencia,
+                  consumo,
+                  consumoTotalKwh,
+                  costeTotalConsumo,
+                  costeTotalPotencia,
+                  totalFactura,
+                },
+              },
+            })
+          }
+          if (invoices.length > 0) {
+            allResults.push({ cups, tariff, comercializadora, energyType: 'electricity', invoices })
+          }
+        }
+      } catch (e) {
+        console.error('[parse-excel-invoices] sheet error:', e)
+        continue
       }
-      const gasInvoices = buildGasInvoices(ws, rowMap, gasMonthCols, gasCups, gasComercializadora)
-      return NextResponse.json({
-        cups: gasCups,
-        tariff: gasTarifa,
-        comercializadora: gasComercializadora,
-        energyType: 'gas',
-        invoices: gasInvoices,
-      })
     }
 
-    // ── Global fields ─────────────────────────────────────────────────────────
-    const cups         = cellStr(getRow(rowMap, 'CUPS'), 2)
-    const rawTariff    = cellStr(getRow(rowMap, 'Tarifa'), 2)
-    // Comercializadora: try multiple label variants
-    const comRow       = getRow(rowMap, 'Compañia')
-                      ?? getRow(rowMap, 'Compania')
-                      ?? getRow(rowMap, 'Empresa')
-                      ?? getRow(rowMap, 'Comercializadora')
-                      ?? getRow(rowMap, 'Suministrador')
-    const comercializadora = cellStr(comRow, 2)
-    const tariff       = normTariff(rawTariff)
+    if (allResults.length === 0) return NextResponse.json({ error: 'No valid data found in any sheet' }, { status: 400 })
 
-    // ── Month columns ─────────────────────────────────────────────────────────
-    const monthCols = detectMonthCols(ws, rowMap)
-    if (monthCols.length === 0) {
-      return NextResponse.json({ error: 'No month columns detected' }, { status: 400 })
+    // Backward compatible: single sheet returns flat structure
+    if (allResults.length === 1) {
+      return NextResponse.json({ ...allResults[0] })
     }
 
-    // ── Per-month invoices ────────────────────────────────────────────────────
-    const invoices: any[] = []
-
-    for (const col of monthCols) {
-      // Dates
-      const rawStart = getRow(rowMap, 'Fecha Inicio')?.getCell(col).value
-      const rawEnd   = getRow(rowMap, 'Fecha Fin')?.getCell(col).value
-      let periodStart = parseDate(rawStart)
-      let periodEnd   = parseDate(rawEnd)
-      if (periodStart && !periodEnd) periodEnd = lastDayOfMonth(periodStart)
-      if (!periodStart) continue   // skip columns with no date
-
-      const dias = daysBetween(periodStart, periodEnd!)
-
-      // Potencias P1-P6
-      const potencia = []
-      for (let p = 1; p <= 6; p++) {
-        const pid  = `P${p}`
-        const kw         = cellNum(getRow(rowMap, `Potencia ${pid} kw`), col)
-                        || cellNum(getRow(rowMap, `Potencia ${pid} (kW)`), col)
-        const precioKwDia= cellNum(getRow(rowMap, `Potencia ${pid} eur kw dia`), col)
-                        || cellNum(getRow(rowMap, `Potencia ${pid} (€/kW día)`), col)
-        const total      = cellNum(getRow(rowMap, `Potencia ${pid} eur`), col)
-                        || cellNum(getRow(rowMap, `Potencia ${pid} (€)`), col)
-        if (kw > 0 || total > 0) potencia.push({ periodo: pid, kw, precioKwDia, dias, total })
-      }
-
-      // Consumos P1-P6
-      const consumo = []
-      for (let p = 1; p <= 6; p++) {
-        const pid    = `P${p}`
-        const kwh    = cellNum(getRow(rowMap, `Consumo ${pid} kwh`), col)
-                    || cellNum(getRow(rowMap, `Consumo ${pid} (kWh)`), col)
-        const precio = cellNum(getRow(rowMap, `Precio ${pid} eur kwh`), col)
-                    || cellNum(getRow(rowMap, `Precio ${pid} (€/kWh)`), col)
-        const total  = kwh > 0 && precio > 0 ? Math.round(kwh * precio * 100) / 100 : 0
-        if (kwh > 0) consumo.push({ periodo: pid, kwh, precioKwh: precio, total })
-      }
-
-      // Totals
-      const consumoTotalKwh    = cellNum(getRow(rowMap, 'TOTAL CONSUMO (kWh)'), col)
-                              || cellNum(getRow(rowMap, 'total consumo kwh'), col)
-                              || consumo.reduce((s, c) => s + c.kwh, 0)
-      const costeTotalConsumo  = cellNum(getRow(rowMap, 'TOTAL COSTE CONSUMO (€)'), col)
-                              || cellNum(getRow(rowMap, 'total coste consumo eur'), col)
-                              || consumo.reduce((s, c) => s + c.total, 0)
-      const costeTotalPotencia = cellNum(getRow(rowMap, 'TOTAL COSTE POTENCIA (€)'), col)
-                              || cellNum(getRow(rowMap, 'total coste potencia eur'), col)
-                              || potencia.reduce((s, p) => s + p.total, 0)
-      const totalFactura       = cellNum(getRow(rowMap, 'TOTAL FACTURA (€)'), col)
-                              || cellNum(getRow(rowMap, 'total factura eur'), col)
-
-      // Skip month if all zeros
-      if (consumoTotalKwh === 0 && costeTotalConsumo === 0 && costeTotalPotencia === 0 && totalFactura === 0) continue
-
-      // Human-readable billing period label
-      const billingPeriod = (() => {
-        try { return new Date(periodStart!).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }).toLowerCase() }
-        catch { return periodStart! }
-      })()
-
-      invoices.push({
-        period_start: periodStart,
-        period_end:   periodEnd,
-        total_amount: totalFactura || null,
-        extracted_data: {
-          mode: 'gemini',
-          cups,
-          comercializadora,
-          tariff,
-          billing_period: billingPeriod,
-          total_amount: totalFactura ? String(totalFactura) : '',
-          economics: {
-            fechaInicio: periodStart,
-            fechaFin:    periodEnd,
-            comercializadora,
-            cups,
-            tarifa: tariff,
-            potencia,
-            consumo,
-            consumoTotalKwh,
-            costeTotalConsumo,
-            costeTotalPotencia,
-            totalFactura,
-          },
-        },
-      })
-    }
-
-    return NextResponse.json({ cups, tariff, comercializadora, invoices })
+    // Multi-sheet: return results array
+    return NextResponse.json({ multiSupply: true, results: allResults, count: allResults.length })
 
   } catch (err: any) {
     console.error('[parse-excel-invoices]', err)

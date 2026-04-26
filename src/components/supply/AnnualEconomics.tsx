@@ -571,6 +571,54 @@ function SVGBarChart({ data }: { data: MonthlyAggregatedData[] }) {
   )
 }
 
+// ─── SVG Bar Chart for kWh (electricity) ───────────────────────────────────
+
+function SVGBarChartKwh({ data, color = '#6B8068' }: { data: { totalKwh: number; label: string; billsCount?: number }[]; color?: string }) {
+  const max = Math.max(...data.map(d => d.totalKwh), 1)
+  const W = 760, H = 220, PAD = 40
+  const barCount = data.length
+  const BAR_W = Math.min(40, (W - PAD * 2) / barCount - 6)
+  const gradId = `barGradKwh_${color.replace('#','')}`
+  const lightColor = color + '99'
+  return (
+    <svg viewBox={`0 0 ${W} ${H + 30}`} className="w-full" style={{ overflow: 'visible' }}>
+      <defs>
+        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} />
+          <stop offset="100%" stopColor={lightColor} stopOpacity="0.6" />
+        </linearGradient>
+      </defs>
+      {[0, 0.25, 0.5, 0.75, 1].map((t, i) => (
+        <g key={i}>
+          <line x1={PAD} x2={W - PAD} y1={H - t * (H - PAD)} y2={H - t * (H - PAD)} stroke="rgba(45,58,51,0.08)" strokeWidth="1" />
+          <text x={PAD - 6} y={H - t * (H - PAD) + 4} fill="#8A9A8E" fontSize="9" textAnchor="end">
+            {t === 0 ? '0' : `${Math.round(max * t).toLocaleString('es-ES')} kWh`}
+          </text>
+        </g>
+      ))}
+      {data.map((d, i) => {
+        const x = PAD + i * ((W - PAD * 2) / barCount) + ((W - PAD * 2) / barCount - BAR_W) / 2
+        const barH = d.totalKwh > 0 ? Math.max(2, (d.totalKwh / max) * (H - PAD)) : 0
+        const y = H - barH
+        const hasData = (d.billsCount ?? (d.totalKwh > 0 ? 1 : 0)) > 0
+        return (
+          <g key={i}>
+            <rect x={x} y={y} width={BAR_W} height={barH || 2} fill={`url(#${gradId})`} rx="3" opacity={hasData ? 1 : 0.15} />
+            <text x={x + BAR_W / 2} y={H + 16} fill={hasData ? '#5A6B5F' : '#8A9A8E'} fontSize="9" textAnchor="middle" fontWeight={hasData ? '600' : '400'}>
+              {d.label}
+            </text>
+            {hasData && d.totalKwh > 0 && (
+              <text x={x + BAR_W / 2} y={y - 6} fill="#5A6B5F" fontSize="8" textAnchor="middle">
+                {Math.round(d.totalKwh).toLocaleString('es-ES')}
+              </text>
+            )}
+          </g>
+        )
+      })}
+    </svg>
+  )
+}
+
 // ─── SVG Donut Chart ─────────────────────────────────────────────────────────
 
 function DonutChart({ segments, total }: {
@@ -1820,6 +1868,29 @@ function GasReportView({ invoices, supplyName, onBack }: {
     }
   }, [validInvoices])
 
+  // Build 12-month chart arrays from tableData (gas invoices)
+  const gasChartKwh = useMemo(() => {
+    const months = CANONICAL_MONTHS.map((label, i) => ({ label, totalKwh: 0, billsCount: 0, monthIndex: i }))
+    tableData.forEach(row => {
+      if (row.monthIndex >= 0 && row.monthIndex < 12) {
+        months[row.monthIndex].totalKwh += row.kwh
+        months[row.monthIndex].billsCount++
+      }
+    })
+    return months
+  }, [tableData])
+
+  const gasChartEur = useMemo(() => {
+    const months = CANONICAL_MONTHS.map((label, i) => ({ label, totalKwh: 0, billsCount: 0, monthIndex: i }))
+    tableData.forEach(row => {
+      if (row.monthIndex >= 0 && row.monthIndex < 12) {
+        months[row.monthIndex].totalKwh += row.total  // reuse totalKwh field for € amount
+        months[row.monthIndex].billsCount++
+      }
+    })
+    return months
+  }, [tableData])
+
   return (
     <div className="fixed inset-0 z-[200] overflow-y-auto text-[#2D3A33]" style={{ fontFamily: 'Inter, sans-serif', background: '#F4EEE2' }}>
       <button onClick={onBack} title="Volver (ESC)"
@@ -1874,6 +1945,22 @@ function GasReportView({ invoices, supplyName, onBack }: {
               })}
             </div>
           </div>
+        )}
+
+        {/* Consumption kWh chart */}
+        {gasChartKwh.some(m => m.totalKwh > 0) && (
+          <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} className="rounded-2xl p-6" style={glassStyle}>
+            <h3 className="text-xs font-bold tracking-[0.2em] text-white/40 mb-6">CONSUMO MENSUAL (kWh)</h3>
+            <SVGBarChartKwh data={gasChartKwh} color="#f97316" />
+          </motion.div>
+        )}
+
+        {/* Cost € chart */}
+        {gasChartEur.some(m => m.totalKwh > 0) && (
+          <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} className="rounded-2xl p-6" style={glassStyle}>
+            <h3 className="text-xs font-bold tracking-[0.2em] text-white/40 mb-6">GASTO MENSUAL (€)</h3>
+            <SVGBarChartKwh data={gasChartEur} color="#fbbf24" />
+          </motion.div>
         )}
 
         {/* Gas invoices table */}
@@ -2387,6 +2474,15 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
             <h3 className="text-3xl md:text-4xl font-black mb-4 text-[#2D3A33]">EVOLUCIÓN DEL GASTO MENSUAL</h3>
             <div className="rounded-2xl p-6" style={glassStyle}>
               <SVGBarChart data={chartData} />
+            </div>
+          </div>
+
+          {/* kWh chart — Consumo mensual */}
+          <div className="mt-8">
+            <p className="text-[#6B8068] text-xs tracking-[0.4em] mb-1">CONSUMO ENERGÉTICO</p>
+            <h3 className="text-3xl md:text-4xl font-black mb-4 text-[#2D3A33]">EVOLUCIÓN DEL CONSUMO (kWh)</h3>
+            <div className="rounded-2xl p-6" style={glassStyle}>
+              <SVGBarChartKwh data={chartData} />
             </div>
           </div>
 

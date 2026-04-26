@@ -276,6 +276,53 @@ export default function SupplyDetailPage() {
       }
     }
 
+    // ── Auto-fetch gas SIPS if totalKwh is missing (gas only) ──
+    const isGasLoadCheck = data?.type === 'gas' || /^RL/i.test(data?.tariff || '')
+    const needsGasRefresh = isGasLoadCheck && data && data.cups && (
+      !data.consumption_data || !data.consumption_data.totalKwh
+    )
+    if (needsGasRefresh) {
+      setSipsLoading(true)
+      try {
+        const gasRes = await fetch('/api/sips-gas', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cups: data.cups }),
+        })
+        const gasResult = await gasRes.json()
+        if (gasResult.success && gasResult.data) {
+          const d = gasResult.data
+          const supabase = createClient()
+          const updatedConsumption = {
+            ...(data.consumption_data || {}),
+            source: 'sips_gas',
+            fetched_at: new Date().toISOString(),
+            totalKwh: d.totalConsumptionKwh || 0,
+            total: d.totalConsumption || '',
+            sips_tariff: d.tariff || data.tariff,
+            distribuidora: d.distribuidora || '',
+            codigoPostal: d.codigoPostal || '',
+            municipio: d.municipio || '',
+            provincia: d.provincia || '',
+            gasHistory: (d.consumptionHistory || []).map((h: any) => ({
+              fechaInicio: h.fechaInicio,
+              fechaFin: h.fechaFin,
+              kwh: h.total || 0,
+            })),
+          }
+          await supabase
+            .from('supplies')
+            .update({ consumption_data: updatedConsumption, updated_at: new Date().toISOString() })
+            .eq('id', id)
+          setSupply((prev: any) => prev ? { ...prev, consumption_data: updatedConsumption } : prev)
+        }
+      } catch (err) {
+        console.error('[fetchSupply] Auto SIPS gas refresh error:', err)
+      } finally {
+        setSipsLoading(false)
+      }
+    }
+
     // ── Auto-generate power study if SIPS data exists but study hasn't been computed yet ──
     if (
       data &&
@@ -1570,7 +1617,31 @@ export default function SupplyDetailPage() {
                     <RefreshCw className="w-3.5 h-3.5" />
                     {supply.consumption_data ? 'Actualizar datos SIPS' : 'Consultar SIPS'}
                   </Button>
-                  {sipsError && <span className="text-xs text-err">{sipsError}</span>}
+                  {sipsError && (
+                    <div className="flex flex-col gap-2 mt-2">
+                      <span className="text-xs text-err">{sipsError}</span>
+                      <p className="text-xs text-ink-3">No se pudo conectar con la distribuidora. Puedes subir el Excel de la distribuidora manualmente:</p>
+                      <label className="cursor-pointer inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium bg-warn-container/40 text-warn border border-warn/30 rounded-lg hover:bg-warn-container transition-colors w-fit">
+                        <FileText className="w-3.5 h-3.5" />
+                        Subir Excel distribuidora
+                        <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={async (e) => {
+                          const file = e.target.files?.[0]
+                          if (!file) return
+                          const reader = new FileReader()
+                          reader.onload = async (ev) => {
+                            const base64 = (ev.target?.result as string).split(',')[1]
+                            const res = await fetch('/api/parse-excel-invoices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file_base64: base64 }) })
+                            const result = await res.json()
+                            if (result.cups && result.invoices) {
+                              setSipsError('')
+                              alert(`Excel procesado: ${result.invoices.length} facturas encontradas para CUPS ${result.cups}`)
+                            }
+                          }
+                          reader.readAsDataURL(file)
+                        }} />
+                      </label>
+                    </div>
+                  )}
                   {supply.consumption_data?.fetched_at && (
                     <span className="text-xs text-ink-3 ml-auto">
                       Actualizado: {formatDate(supply.consumption_data.fetched_at)}
