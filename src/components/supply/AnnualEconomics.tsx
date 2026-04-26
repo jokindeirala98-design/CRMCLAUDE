@@ -2406,8 +2406,8 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
           </div>
         )}
 
-        {/* Month selector (screen only) - Sticky below the page header (~57px) */}
-        <div className="sticky top-[57px] z-20 flex items-center gap-2 py-4 px-8 flex-wrap justify-center no-print"
+        {/* Month selector (screen only) - Fixed at viewport top (portal context, no page header above) */}
+        <div className="fixed top-0 inset-x-0 z-[205] flex items-center gap-2 py-4 px-8 flex-wrap justify-center no-print"
           style={{ background: 'rgba(244,238,226,0.92)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', borderBottom: '1px solid #E5DCC9' }}>
           <button onClick={selectAllMonths}
             className={`px-4 py-2 rounded-xl text-sm font-bold transition ${isAnnual ? 'bg-[#2D3A33] text-[#FBF7EE]' : 'bg-[#EDE8DC] text-[#5A6B5F] hover:bg-[#E5DCC9]'}`}>
@@ -2429,6 +2429,9 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
             )
           })}
         </div>
+
+        {/* Spacer so content isn't hidden behind the fixed month selector (~68px tall) */}
+        <div className="h-[68px] no-print" />
 
         {/* ════════════════════════════════════════════════════════════════
             SCENE 1 — PORTADA (matches standalone exactly)
