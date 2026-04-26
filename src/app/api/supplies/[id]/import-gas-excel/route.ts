@@ -570,6 +570,89 @@ export async function POST(
       await supabase.from('consumption_snapshots').insert({ ...snapshotData, created_at: new Date().toISOString() })
     }
 
+    // ── Bulk update other gas supplies of the same client ─────────────────────
+    // If the file has data for more CUPS than just this supply, update them all
+    const otherResults = allResults.filter(r => {
+      const norm = r.cups.toUpperCase().replace(/\s/g, '')
+      return norm !== supplyCupsNorm && norm.length > 10
+    })
+
+    if (otherResults.length > 0 && supply.client_id) {
+      // Fetch all gas supplies for this client
+      const { data: clientSupplies } = await supabase
+        .from('supplies')
+        .select('id, cups, tariff, consumption_data')
+        .eq('client_id', supply.client_id)
+        .eq('type', 'gas')
+        .neq('id', params.id)
+
+      if (clientSupplies && clientSupplies.length > 0) {
+        for (const clientSupply of clientSupplies) {
+          const cupsNorm = (clientSupply.cups || '').toUpperCase().replace(/\s/g, '')
+          const match = otherResults.find(r => r.cups.toUpperCase().replace(/\s/g, '') === cupsNorm)
+          if (!match) continue
+
+          const prevData = (clientSupply.consumption_data as any) ?? {}
+          const bulkData = {
+            ...prevData,
+            source: 'excel_import' as const,
+            fetched_at: new Date().toISOString(),
+            import_filename: fileNames.join(', '),
+            import_rows_total: allResults.length,
+            sips_tariff:        match.tariff       || prevData.sips_tariff,
+            distribuidora:      match.distribuidora || prevData.distribuidora,
+            municipio:          match.municipio     || prevData.municipio,
+            provincia:          match.provincia     || prevData.provincia,
+            codigoPostal:       match.codigo_postal || prevData.codigoPostal,
+            cnae:               match.cnae          || prevData.cnae,
+            fechaUltimaLectura: match.fecha_lectura || prevData.fechaUltimaLectura,
+            caudal:             match.caudal        || prevData.caudal,
+            consumoPeriodos:    undefined,
+            totalKwh:           match.totalKwh,
+            total:              match.totalKwh,
+            gasHistory:         match.gasHistory.length > 0 ? match.gasHistory : prevData.gasHistory,
+          }
+
+          await supabase
+            .from('supplies')
+            .update({ consumption_data: bulkData, updated_at: new Date().toISOString() })
+            .eq('id', clientSupply.id)
+
+          // Upsert snapshot for this supply too
+          const { data: snap } = await supabase
+            .from('consumption_snapshots')
+            .select('id')
+            .eq('supply_id', clientSupply.id)
+            .maybeSingle()
+
+          const bulkSnapshot = {
+            client_id: supply.client_id,
+            supply_id: clientSupply.id,
+            cups: match.cups || clientSupply.cups || '',
+            tariff: match.tariff || clientSupply.tariff || '',
+            supply_type: 'gas' as const,
+            comercializadora: null,
+            address: match.address || null,
+            potencia_p1: null, potencia_p2: null, potencia_p3: null,
+            potencia_p4: null, potencia_p5: null, potencia_p6: null,
+            consumo_p1: null, consumo_p2: null, consumo_p3: null,
+            consumo_p4: null, consumo_p5: null, consumo_p6: null,
+            consumo_total: match.totalKwh,
+            source: 'excel_import' as const,
+            validation_status: 'validated' as const,
+            observations: `Importado en bloque desde: ${fileNames.join(', ')}`,
+            updated_at: new Date().toISOString(),
+            created_by: user.id,
+          }
+          if (snap) {
+            await supabase.from('consumption_snapshots').update(bulkSnapshot).eq('id', snap.id)
+          } else {
+            await supabase.from('consumption_snapshots').insert({ ...bulkSnapshot, created_at: new Date().toISOString() })
+          }
+        }
+      }
+    }
+
     return NextResponse.json({
       success: true,
       parsed: {

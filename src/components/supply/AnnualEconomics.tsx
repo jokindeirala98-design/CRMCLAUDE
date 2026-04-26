@@ -143,12 +143,22 @@ const fmtDate = (d?: string | null) => {
 
 function parseSpanishDate(d?: string): Date | null {
   if (!d) return null
-  if (d.includes('-')) {
+  // ISO / dash format: 2025-04-30 or 2025-04-30T00:00:00
+  if (d.includes('-') && !d.startsWith('0')) {
     const ds = new Date(d)
     return isNaN(ds.getTime()) ? null : ds
   }
+  // Slash format: 30/04/2025
   if (d.includes('/')) {
     const parts = d.split('/')
+    if (parts.length < 3) return null
+    const [day, month, year] = parts.map(Number)
+    const ds = new Date(year, month - 1, day)
+    return isNaN(ds.getTime()) ? null : ds
+  }
+  // Dot format: 30.04.2025 (gas invoices)
+  if (d.includes('.')) {
+    const parts = d.split('.')
     if (parts.length < 3) return null
     const [day, month, year] = parts.map(Number)
     const ds = new Date(year, month - 1, day)
@@ -1884,12 +1894,14 @@ function GasReportView({ invoices, supplyName, onBack }: {
     const months = CANONICAL_MONTHS.map((label, i) => ({ label, totalKwh: 0, billsCount: 0, monthIndex: i }))
     tableData.forEach(row => {
       if (row.monthIndex >= 0 && row.monthIndex < 12) {
-        months[row.monthIndex].totalKwh += row.total  // reuse totalKwh field for € amount
+        months[row.monthIndex].totalKwh += row.total
         months[row.monthIndex].billsCount++
       }
     })
     return months
   }, [tableData])
+
+  const [gasChartMode, setGasChartMode] = useState<'kwh' | 'eur'>('kwh')
 
   return (
     <div className="fixed inset-0 z-[200] overflow-y-auto text-[#2D3A33]" style={{ fontFamily: 'Inter, sans-serif', background: '#F4EEE2' }}>
@@ -1920,8 +1932,8 @@ function GasReportView({ invoices, supplyName, onBack }: {
             <motion.div key={i} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}
               className="rounded-2xl p-6" style={kpiGlassStyle}>
               <div className="mb-3">{kpi.icon}</div>
-              <p className="text-[10px] font-bold tracking-[0.2em] text-white/40 mb-1">{kpi.label}</p>
-              <p className="text-2xl font-black tabular-nums">{kpi.value}</p>
+              <p className="text-[10px] font-bold tracking-[0.2em] mb-1" style={{ color: '#8A9A8E' }}>{kpi.label}</p>
+              <p className="text-2xl font-black tabular-nums text-[#2D3A33]">{kpi.value}</p>
             </motion.div>
           ))}
         </div>
@@ -1929,7 +1941,7 @@ function GasReportView({ invoices, supplyName, onBack }: {
         {/* Cost distribution pie */}
         {pieData.length > 0 && (
           <div className="rounded-2xl p-6" style={glassStyle}>
-            <h3 className="text-xs font-bold tracking-[0.2em] text-white/40 mb-6">DISTRIBUCIÓN DE COSTES</h3>
+            <h3 className="text-xs font-bold tracking-[0.2em] mb-6" style={{ color: '#8A9A8E' }}>DISTRIBUCIÓN DE COSTES</h3>
             <div className="flex flex-wrap items-center justify-center gap-8">
               {pieData.map((item, i) => {
                 const pct = summaryStats.totalEur > 0 ? (item.value / summaryStats.totalEur * 100) : 0
@@ -1937,8 +1949,8 @@ function GasReportView({ invoices, supplyName, onBack }: {
                   <div key={i} className="flex items-center gap-3">
                     <div className="w-4 h-4 rounded-full" style={{ background: item.color }} />
                     <div>
-                      <p className="text-sm font-bold text-white">{item.label}</p>
-                      <p className="text-xs text-white/50">{item.value.toFixed(2)} € ({pct.toFixed(1)}%)</p>
+                      <p className="text-sm font-bold text-[#2D3A33]">{item.label}</p>
+                      <p className="text-xs" style={{ color: '#8A9A8E' }}>{item.value.toFixed(2)} € ({pct.toFixed(1)}%)</p>
                     </div>
                   </div>
                 )
@@ -1947,34 +1959,51 @@ function GasReportView({ invoices, supplyName, onBack }: {
           </div>
         )}
 
-        {/* Consumption kWh chart */}
-        {gasChartKwh.some(m => m.totalKwh > 0) && (
+        {/* Toggle chart: kWh / € */}
+        {(gasChartKwh.some(m => m.totalKwh > 0) || gasChartEur.some(m => m.totalKwh > 0)) && (
           <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} className="rounded-2xl p-6" style={glassStyle}>
-            <h3 className="text-xs font-bold tracking-[0.2em] text-white/40 mb-6">CONSUMO MENSUAL (kWh)</h3>
-            <SVGBarChartKwh data={gasChartKwh} color="#f97316" />
-          </motion.div>
-        )}
-
-        {/* Cost € chart */}
-        {gasChartEur.some(m => m.totalKwh > 0) && (
-          <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} className="rounded-2xl p-6" style={glassStyle}>
-            <h3 className="text-xs font-bold tracking-[0.2em] text-white/40 mb-6">GASTO MENSUAL (€)</h3>
-            <SVGBarChartKwh data={gasChartEur} color="#fbbf24" />
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xs font-bold tracking-[0.2em]" style={{ color: '#8A9A8E' }}>
+                {gasChartMode === 'kwh' ? 'CONSUMO MENSUAL (kWh)' : 'GASTO MENSUAL (€)'}
+              </h3>
+              <div className="flex rounded-lg overflow-hidden border" style={{ borderColor: '#E5DCC9' }}>
+                <button
+                  onClick={() => setGasChartMode('kwh')}
+                  className="px-3 py-1.5 text-[11px] font-bold tracking-wider transition"
+                  style={{
+                    background: gasChartMode === 'kwh' ? '#f97316' : 'transparent',
+                    color: gasChartMode === 'kwh' ? '#fff' : '#8A9A8E',
+                  }}
+                >kWh</button>
+                <button
+                  onClick={() => setGasChartMode('eur')}
+                  className="px-3 py-1.5 text-[11px] font-bold tracking-wider transition"
+                  style={{
+                    background: gasChartMode === 'eur' ? '#fbbf24' : 'transparent',
+                    color: gasChartMode === 'eur' ? '#fff' : '#8A9A8E',
+                  }}
+                >€</button>
+              </div>
+            </div>
+            <SVGBarChartKwh
+              data={gasChartMode === 'kwh' ? gasChartKwh : gasChartEur}
+              color={gasChartMode === 'kwh' ? '#f97316' : '#fbbf24'}
+            />
           </motion.div>
         )}
 
         {/* Gas invoices table */}
         <div className="rounded-2xl overflow-hidden" style={glassStyle}>
-          <h3 className="text-xs font-bold tracking-[0.2em] text-white/40 px-6 pt-5 pb-3">FACTURAS DE GAS</h3>
+          <h3 className="text-xs font-bold tracking-[0.2em] px-6 pt-5 pb-3" style={{ color: '#8A9A8E' }}>FACTURAS DE GAS</h3>
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="border-b border-white/10 text-white/40 font-bold tracking-wider">
+                <tr className="font-bold tracking-wider" style={{ borderBottom: '1px solid #E5DCC9', color: '#8A9A8E' }}>
                   <th className="px-4 py-3 text-left">MES</th>
                   <th className="px-3 py-3 text-center">TARIFA</th>
                   <th className="px-3 py-3 text-right">KWH</th>
                   <th className="px-3 py-3 text-right">BRUTO EN.</th>
-                  <th className="px-3 py-3 text-right text-ok/70">DESC. EN.</th>
+                  <th className="px-3 py-3 text-right">DESC. EN.</th>
                   <th className="px-3 py-3 text-right text-warn">NETO EN.</th>
                   <th className="px-3 py-3 text-right">€/KWH</th>
                   <th className="px-3 py-3 text-right">T. FIJO</th>
@@ -1983,44 +2012,44 @@ function GasReportView({ invoices, supplyName, onBack }: {
                   <th className="px-4 py-3 text-right">TOTAL</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5">
+              <tbody>
                 {tableData.map((row, idx) => (
-                  <tr key={idx} className="hover:bg-white/[0.04] transition-colors">
-                    <td className="px-4 py-3 font-bold text-white">{row.mes}</td>
+                  <tr key={idx} className="transition-colors hover:bg-[#F0EAD8]" style={{ borderBottom: '1px solid #F0EAD8' }}>
+                    <td className="px-4 py-3 font-bold text-[#2D3A33]">{row.mes}</td>
                     <td className="px-3 py-3 text-center text-warn font-bold">{row.tarifa}</td>
-                    <td className="px-3 py-3 text-right font-mono text-white/80">{row.kwh.toLocaleString('es-ES', { maximumFractionDigits: 0 })}</td>
-                    <td className="px-3 py-3 text-right font-mono text-white/60">{row.costeBruto.toFixed(2)}€</td>
-                    <td className="px-3 py-3 text-right font-mono text-ok/60">{row.descuentoEnergia > 0 ? `-${row.descuentoEnergia.toFixed(2)}€` : '—'}</td>
+                    <td className="px-3 py-3 text-right font-mono text-[#2D3A33]">{row.kwh.toLocaleString('es-ES', { maximumFractionDigits: 0 })}</td>
+                    <td className="px-3 py-3 text-right font-mono" style={{ color: '#6B7F6A' }}>{row.costeBruto.toFixed(2)}€</td>
+                    <td className="px-3 py-3 text-right font-mono text-ok">{row.descuentoEnergia > 0 ? `-${row.descuentoEnergia.toFixed(2)}€` : '—'}</td>
                     <td className="px-3 py-3 text-right font-mono text-warn font-bold">{row.costeNeto.toFixed(2)}€</td>
-                    <td className={`px-3 py-3 text-right font-mono ${row.precioEstimated ? 'text-yellow-400' : 'text-white/70'}`}>
+                    <td className={`px-3 py-3 text-right font-mono ${row.precioEstimated ? 'text-yellow-600' : 'text-[#4A5E47]'}`}>
                       {row.precioKwh > 0 ? row.precioKwh.toFixed(4) : '—'}
-                      {row.precioEstimated && <span className="block text-[8px] text-yellow-500/50 leading-none">est.</span>}
+                      {row.precioEstimated && <span className="block text-[8px] leading-none" style={{ color: '#8A9A8E' }}>est.</span>}
                     </td>
-                    <td className="px-3 py-3 text-right text-white/50">{row.terminoFijo > 0 ? `${row.terminoFijo.toFixed(2)}€` : '—'}</td>
-                    <td className="px-3 py-3 text-right text-white/50">{row.impuesto > 0 ? `${row.impuesto.toFixed(2)}€` : '—'}</td>
-                    <td className="px-3 py-3 text-right text-white/50">{row.alquiler > 0 ? `${row.alquiler.toFixed(2)}€` : '—'}</td>
-                    <td className="px-4 py-3 text-right font-black text-white bg-[#E0E8DC]">{row.total.toFixed(2)}€</td>
+                    <td className="px-3 py-3 text-right" style={{ color: '#8A9A8E' }}>{row.terminoFijo > 0 ? `${row.terminoFijo.toFixed(2)}€` : '—'}</td>
+                    <td className="px-3 py-3 text-right" style={{ color: '#8A9A8E' }}>{row.impuesto > 0 ? `${row.impuesto.toFixed(2)}€` : '—'}</td>
+                    <td className="px-3 py-3 text-right" style={{ color: '#8A9A8E' }}>{row.alquiler > 0 ? `${row.alquiler.toFixed(2)}€` : '—'}</td>
+                    <td className="px-4 py-3 text-right font-black text-[#2D3A33] bg-[#E0E8DC]">{row.total.toFixed(2)}€</td>
                   </tr>
                 ))}
               </tbody>
-              <tfoot className="bg-white/5 border-t border-white/10 font-bold text-[11px]">
+              <tfoot className="font-bold text-[11px]" style={{ borderTop: '2px solid #D9D0BA', background: '#F4EEE2' }}>
                 <tr>
-                  <td className="px-4 py-4 text-white uppercase font-black italic">TOTAL</td>
-                  <td className="px-3 py-4 text-center text-white/50">{summaryStats.tariff}</td>
-                  <td className="px-3 py-4 text-right tabular-nums text-white">{summaryStats.totalKwh.toLocaleString('es-ES', { maximumFractionDigits: 0 })}</td>
-                  <td className="px-3 py-4 text-right tabular-nums text-white/60">
+                  <td className="px-4 py-4 uppercase font-black italic text-[#2D3A33]">TOTAL</td>
+                  <td className="px-3 py-4 text-center" style={{ color: '#8A9A8E' }}>{summaryStats.tariff}</td>
+                  <td className="px-3 py-4 text-right tabular-nums font-black text-[#2D3A33]">{summaryStats.totalKwh.toLocaleString('es-ES', { maximumFractionDigits: 0 })}</td>
+                  <td className="px-3 py-4 text-right tabular-nums" style={{ color: '#6B7F6A' }}>
                     {tableData.reduce((s, r) => s + r.costeBruto, 0).toFixed(2)}€
                   </td>
-                  <td className="px-3 py-4 text-right tabular-nums text-ok/60">
+                  <td className="px-3 py-4 text-right tabular-nums text-ok">
                     {tableData.reduce((s, r) => s + r.descuentoEnergia, 0) > 0
                       ? `-${tableData.reduce((s, r) => s + r.descuentoEnergia, 0).toFixed(2)}€` : '—'}
                   </td>
-                  <td className="px-3 py-4 text-right tabular-nums text-warn">{summaryStats.totalEnergyNet.toFixed(2)}€</td>
-                  <td className="px-3 py-4 text-right tabular-nums text-white">{summaryStats.avgPrice.toFixed(4)}</td>
-                  <td className="px-3 py-4 text-right tabular-nums text-white/50">{summaryStats.totalTerminoFijo.toFixed(2)}€</td>
-                  <td className="px-3 py-4 text-right tabular-nums text-white/50">{summaryStats.totalImpuesto.toFixed(2)}€</td>
-                  <td className="px-3 py-4 text-right tabular-nums text-white/50">{summaryStats.totalAlquiler.toFixed(2)}€</td>
-                  <td className="px-4 py-4 text-right tabular-nums text-white font-black bg-white/[0.06]">{summaryStats.totalEur.toFixed(2)}€</td>
+                  <td className="px-3 py-4 text-right tabular-nums text-warn font-black">{summaryStats.totalEnergyNet.toFixed(2)}€</td>
+                  <td className="px-3 py-4 text-right tabular-nums text-[#2D3A33]">{summaryStats.avgPrice.toFixed(4)}</td>
+                  <td className="px-3 py-4 text-right tabular-nums" style={{ color: '#8A9A8E' }}>{summaryStats.totalTerminoFijo.toFixed(2)}€</td>
+                  <td className="px-3 py-4 text-right tabular-nums" style={{ color: '#8A9A8E' }}>{summaryStats.totalImpuesto.toFixed(2)}€</td>
+                  <td className="px-3 py-4 text-right tabular-nums" style={{ color: '#8A9A8E' }}>{summaryStats.totalAlquiler.toFixed(2)}€</td>
+                  <td className="px-4 py-4 text-right tabular-nums font-black text-[#2D3A33] bg-[#D4E0CF]">{summaryStats.totalEur.toFixed(2)}€</td>
                 </tr>
               </tfoot>
             </table>
