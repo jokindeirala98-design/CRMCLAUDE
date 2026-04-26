@@ -2031,26 +2031,24 @@ export default function SupplyDetailPage() {
 
         {/* ═══════ ANUAL ECONOMICS panel — fullscreen overlay ═══════ */}
         {activeTab === 'economics' && (
-          <div className="fixed inset-0 z-40 overflow-y-auto bg-bg">
-            <AnnualEconomics
-              supplyId={supply.id}
-              supplyType={supply.type}
-              invoices={supply.invoices || []}
-              potenciaContratada={supply.consumption_data?.potenciaContratada}
-              consumoPeriodos={supply.consumption_data?.consumoPeriodos}
-              gasHistory={supply.consumption_data?.gasHistory}
-              clientName={supply.client?.name || supply.cups || ''}
-              onInvoicesUpdated={async () => {
-                const supabase = createClient()
-                const { data } = await supabase
-                  .from('supplies')
-                  .select('*, client:clients(*), comercializadora:comercializadoras(*), invoices:invoices(*), contracts:contracts(*), studies:studies(*)')
-                  .eq('id', supply.id)
-                  .single()
-                if (data) setSupply(data as any)
-              }}
-            />
-          </div>
+          <AnnualEconomics
+            supplyId={supply.id}
+            supplyType={supply.type}
+            invoices={supply.invoices || []}
+            potenciaContratada={supply.consumption_data?.potenciaContratada}
+            consumoPeriodos={supply.consumption_data?.consumoPeriodos}
+            gasHistory={supply.consumption_data?.gasHistory}
+            clientName={supply.client?.name || supply.cups || ''}
+            onInvoicesUpdated={async () => {
+              const supabase = createClient()
+              const { data } = await supabase
+                .from('supplies')
+                .select('*, client:clients(*), comercializadora:comercializadoras(*), invoices:invoices(*), contracts:contracts(*), studies:studies(*)')
+                .eq('id', supply.id)
+                .single()
+              if (data) setSupply(data as any)
+            }}
+          />
         )}
 
         {/* ═══════ POTENCIAS Y CONSUMOS panel ═══════ */}
