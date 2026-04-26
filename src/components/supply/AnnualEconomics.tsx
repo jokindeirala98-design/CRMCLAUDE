@@ -540,9 +540,12 @@ function SVGLineChart({ data }: { data: MonthlyAggregatedData[] }) {
 // ─── SVG Bar Chart (kept for backwards compat) ─────────────────────────────
 
 function SVGBarChart({ data }: { data: MonthlyAggregatedData[] }) {
-  const max = Math.max(...data.map(d => d.totalFactura), 1)
+  // Only show bars for months that have actual invoice data
+  const filtered = data.filter(d => d.billsCount > 0)
+  const chartItems = filtered.length > 0 ? filtered : data
+  const max = Math.max(...chartItems.map(d => d.totalFactura), 1)
   const W = 760, H = 220, PAD = 40
-  const barCount = 12
+  const barCount = chartItems.length
   const BAR_W = Math.min(40, (W - PAD * 2) / barCount - 6)
   return (
     <svg viewBox={`0 0 ${W} ${H + 30}`} className="w-full" style={{ overflow: 'visible' }}>
@@ -562,22 +565,20 @@ function SVGBarChart({ data }: { data: MonthlyAggregatedData[] }) {
           </text>
         </g>
       ))}
-      {data.map((d, i) => {
+      {chartItems.map((d, i) => {
         const x = PAD + i * ((W - PAD * 2) / barCount) + ((W - PAD * 2) / barCount - BAR_W) / 2
         const barH = d.totalFactura > 0 ? Math.max(2, (d.totalFactura / max) * (H - PAD)) : 0
         const y = H - barH
-        const hasData = d.billsCount > 0
         return (
           <g key={i}>
             <rect x={x} y={y} width={BAR_W} height={barH || 2}
-              fill="url(#barGrad)" rx="3"
-              opacity={hasData ? 1 : 0.15} />
+              fill="url(#barGrad)" rx="3" />
             <text x={x + BAR_W / 2} y={H + 16}
-              fill={hasData ? '#5A6B5F' : '#8A9A8E'}
-              fontSize="9" textAnchor="middle" fontWeight={hasData ? '600' : '400'}>
+              fill="#5A6B5F"
+              fontSize="9" textAnchor="middle" fontWeight="600">
               {d.label}
             </text>
-            {hasData && d.totalFactura > 0 && (
+            {d.totalFactura > 0 && (
               <text x={x + BAR_W / 2} y={y - 6}
                 fill="#5A6B5F" fontSize="8" textAnchor="middle">
                 {d.totalFactura.toLocaleString('es-ES', { maximumFractionDigits: 0 })}€
@@ -2234,16 +2235,18 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
 
       } else {
         // SWIPE phase: only direction matters
+        // "0" is treated as 10 (October) — pressing 0 after e.g. "9" means ascending toward Oct
+        const swipeVal = (d === 0) ? 10 : d
         if (kb.lastKey >= 0 && kb.anchor >= 0) {
-          if (d > kb.lastKey) {
+          if (swipeVal > kb.lastKey) {
             // Ascending → anchor is the START, extend to December
             startTransition(() => setSelectedMonths(new Set(Array.from({ length: 12 - kb.anchor }, (_, k) => kb.anchor + k))))
-          } else if (d < kb.lastKey) {
+          } else if (swipeVal < kb.lastKey) {
             // Descending → anchor is the END, extend back to January
             startTransition(() => setSelectedMonths(new Set(Array.from({ length: kb.anchor + 1 }, (_, k) => k))))
           }
         }
-        kb.lastKey = d
+        kb.lastKey = swipeVal
       }
 
       bump()
