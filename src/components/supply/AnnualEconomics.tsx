@@ -2119,8 +2119,14 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
   const containerRef = useRef<HTMLDivElement>(null)
   const [selectedMonths, setSelectedMonths] = useState<Set<number>>(new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]))
   const [dragAnchor, setDragAnchor] = useState<number | null>(null)
-  const [kbAnchor, setKbAnchor] = useState<number | null>(null)
-  const kbTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Keyboard state lives in a ref to avoid stale closures in the keydown listener
+  const kbRef = useRef<{
+    phase: 'anchor' | 'swipe'
+    anchor: number        // 0-indexed month, -1 = none
+    buf: string           // digit buffer for multi-digit months (10/11/12)
+    lastKey: number       // last digit pressed in swipe phase, -1 = first
+    timer: ReturnType<typeof setTimeout> | null
+  }>({ phase: 'anchor', anchor: -1, buf: '', lastKey: -1, timer: null })
   const [showAvgPriceModal, setShowAvgPriceModal] = useState(false)
   const [selectedBillId, setSelectedBillId] = useState<string | null>(null)         // Modal 1: Bill breakdown (Matrix 3)
   const [selectedPriceBillId, setSelectedPriceBillId] = useState<string | null>(null) // Modal 2: Price calc (Matrix 2)
@@ -2167,36 +2173,81 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
     return () => window.removeEventListener('mouseup', onUp)
   }, [])
 
-  // Keyboard range selection: press a number key to set anchor, keep pressing to extend range.
-  // Keys 1–9 → months 1–9 (indices 0–8) · Key 0 → month 10 (index 9)
-  // Example: press 5, then 4 3 2 1 → selects months 1–5
+  // ── Keyboard range selection ──────────────────────────────────────────────
+  // Phase 1 – ANCHOR: first key(s) set the boundary month.
+  //   Digits 2–9 → single-digit month; digit 1 waits for a 2nd digit (10/11/12) or swipe.
+  // Phase 2 – SWIPE: subsequent keys indicate direction only:
+  //   ascending  (each key > previous) → select anchor … December (anchor is range START)
+  //   descending (each key < previous) → select January … anchor  (anchor is range END)
+  // Resets after 1.5 s of inactivity or on any non-digit key.
+  //
+  // Examples:
+  //   "5" "8" "7" "6" "5" → anchor=5(May), descending → Jan–May
+  //   "6" "7" "8" "9"     → anchor=6(Jun), ascending  → Jun–Dec
+  //   "1" "0" "4" "5" "6" → anchor=10(Oct), ascending → Oct–Dec
   useEffect(() => {
+    const kb = kbRef.current
+
+    const resetKb = () => {
+      if (kb.timer) clearTimeout(kb.timer)
+      kb.phase = 'anchor'; kb.anchor = -1; kb.buf = ''; kb.lastKey = -1; kb.timer = null
+    }
+    const bump = () => {
+      if (kb.timer) clearTimeout(kb.timer)
+      kb.timer = setTimeout(resetKb, 1500)
+    }
+
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
       if (e.ctrlKey || e.metaKey || e.altKey) return
-      const digit = parseInt(e.key, 10)
-      if (isNaN(digit)) { // non-digit → clear kb anchor
-        if (e.key !== 'Escape') { setKbAnchor(null); if (kbTimerRef.current) clearTimeout(kbTimerRef.current) }
-        return
-      }
-      const idx = digit === 0 ? 9 : digit - 1   // 1→0, …, 9→8, 0→9
-      if (idx < 0 || idx > 11) return
-      if (kbTimerRef.current) clearTimeout(kbTimerRef.current)
-      setKbAnchor(prev => {
-        if (prev === null) {
-          setSelectedMonths(new Set([idx]))
-          return idx
+      if (e.key === 'Escape') { resetKb(); return }
+
+      const d = parseInt(e.key, 10)
+      if (isNaN(d)) { resetKb(); return }
+
+      if (kb.phase === 'anchor') {
+        const newBuf = kb.buf + e.key
+        const month = parseInt(newBuf, 10)
+
+        if (month < 1 || month > 12) {
+          // e.g., buf="1" and now "3" → "13" invalid.
+          // Treat current digit as first swipe key with anchor already set from buf.
+          if (kb.anchor >= 0) {
+            kb.phase = 'swipe'; kb.lastKey = d; bump()
+          } else { resetKb() }
+          return
         }
-        const lo = Math.min(prev, idx); const hi = Math.max(prev, idx)
-        setSelectedMonths(new Set(Array.from({ length: hi - lo + 1 }, (_, k) => lo + k)))
-        return prev   // keep anchor fixed at first key pressed
-      })
-      // Auto-clear anchor after 1.5 s of inactivity
-      kbTimerRef.current = setTimeout(() => setKbAnchor(null), 1500)
+
+        kb.buf = newBuf
+        kb.anchor = month - 1          // 0-indexed
+        setSelectedMonths(new Set([month - 1]))
+
+        // Confirm anchor immediately for digits 2-9 (single-digit months).
+        // For digit 1: stay in anchor phase one more keypress (to catch 10/11/12).
+        if (d >= 2 || newBuf.length >= 2) {
+          kb.phase = 'swipe'; kb.lastKey = -1
+        }
+
+      } else {
+        // SWIPE phase: only direction matters
+        if (kb.lastKey >= 0 && kb.anchor >= 0) {
+          if (d > kb.lastKey) {
+            // Ascending → anchor is the START, extend to December
+            setSelectedMonths(new Set(Array.from({ length: 12 - kb.anchor }, (_, k) => kb.anchor + k)))
+          } else if (d < kb.lastKey) {
+            // Descending → anchor is the END, extend back to January
+            setSelectedMonths(new Set(Array.from({ length: kb.anchor + 1 }, (_, k) => k)))
+          }
+        }
+        kb.lastKey = d
+      }
+
+      bump()
     }
+
     window.addEventListener('keydown', onKey)
-    return () => { window.removeEventListener('keydown', onKey); if (kbTimerRef.current) clearTimeout(kbTimerRef.current) }
-  }, [])
+    return () => { window.removeEventListener('keydown', onKey); if (kb.timer) clearTimeout(kb.timer) }
+  }, []) // stable: kbRef is a ref, setSelectedMonths is stable
 
   // Touch support: find which button is under the finger and extend the range
   const handleMonthTouchStart = (i: number, e: React.TouchEvent) => {
