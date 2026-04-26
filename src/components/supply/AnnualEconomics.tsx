@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useMemo, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { createClient } from '@/lib/supabase/client'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -3302,10 +3303,12 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
   }
 
   if (view === 'informe') {
-    if (isGas) {
-      return <GasReportView invoices={invoices} supplyName={supplyName} onBack={() => setView('tabla')} gasHistory={gasHistory} />
-    }
-    return <ReportView invoices={invoices} supplyName={supplyName || clientName} onBack={() => setView('tabla')} onInvoicesUpdated={onInvoicesUpdated} potenciaContratada={potenciaContratada} consumoPeriodos={consumoPeriodos} />
+    const reportNode = isGas
+      ? <GasReportView invoices={invoices} supplyName={supplyName} onBack={() => setView('tabla')} gasHistory={gasHistory} />
+      : <ReportView invoices={invoices} supplyName={supplyName || clientName} onBack={() => setView('tabla')} onInvoicesUpdated={onInvoicesUpdated} potenciaContratada={potenciaContratada} consumoPeriodos={consumoPeriodos} />
+    // Portal to document.body so fixed positioning escapes framer-motion's transform context
+    if (typeof document !== 'undefined') return createPortal(reportNode, document.body)
+    return reportNode
   }
 
   return (
