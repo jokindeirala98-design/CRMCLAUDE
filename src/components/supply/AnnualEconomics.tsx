@@ -1659,33 +1659,62 @@ function extractCurrentPowerPrices(invoices: InvoiceRow[]): { P1: number; P2: nu
       || (inv.extracted_data as any)?.fecha_fin || (inv.extracted_data as any)?.invoice_date || ''
     return d(b).localeCompare(d(a))
   })
+
+  const normPeriod = (raw: any): string | null => {
+    const s = String(raw || '').trim()
+    const m = s.match(/(?:P|[Pp]er[íi]odo\s*)?([1-6])$/i)
+    return m ? `P${m[1]}` : null
+  }
+
   for (const inv of sorted) {
     const ed = inv.extracted_data as any
-    const potArr: any[] = ed?.economics?.potencia || ed?.potencia || []
-    if (!Array.isArray(potArr) || !potArr.length) continue
     const prices: Record<string, number> = {}
+
+    // ── Path A: potencia[] array (rebuilt by postProcessEconomics) ───────────
+    // Each item has: periodo, kw, dias, precioKwDia (may be null), total
+    const potArr: any[] = ed?.economics?.potencia || ed?.potencia || []
     for (const item of potArr) {
-      // Normalize period names: "1" → "P1", "Periodo 1" → "P1", "p1" → "P1"
-      const rawP = String(item.periodo || '').trim()
-      const match = rawP.match(/(?:P|[Pp]er[íi]odo\s*)?([1-6])$/i)
-      const p = match ? `P${match[1]}` : rawP.toUpperCase()
-      if (!['P1', 'P2', 'P3'].includes(p)) continue
-      // Try direct price fields first (€/kW·día)
+      const p = normPeriod(item.periodo)
+      if (!p || !['P1', 'P2', 'P3'].includes(p)) continue
       let price = Number(item.precioKwDia) || Number(item.precioKw) || Number(item.precioUnitario) || 0
-      // Fallback: compute from total / (kw * dias) if direct field is missing
       if (!price) {
-        const kw = Number(item.kw) || 0
-        const dias = Number(item.dias) || 0
-        const total = Number(item.total) || 0
-        if (kw > 0 && dias > 0 && total > 0) price = total / (kw * dias)
+        // precioKwDia is null when Gemini didn't extract kw/dias from raw lines —
+        // compute it ourselves from total / (kw * dias)
+        const kw   = Number(item.kw)    || 0
+        const dias = Number(item.dias)  || 0
+        const tot  = Number(item.total) || 0
+        if (kw > 0 && dias > 0 && tot > 0) price = tot / (kw * dias)
       }
-      // Accept realistic €/kW·día range (0.001–5). Typical 2.0TD ATR: ~0.04–0.15 €/kW·día.
-      // Previous filter was < 1 which incorrectly excluded some valid prices.
       if (price > 0 && price < 5) prices[p] = price
     }
+
+    // ── Path B: rawLineItems fallback ────────────────────────────────────────
+    // When potencia[] items lack kw/dias (precioKwDia stays null), sum the
+    // precioUnitario (€/kW·día) of peaje + cargo + comercializacion per period.
+    // This is exactly what postProcessEconomics would compute given complete data.
+    if (!prices.P1 && !prices.P2 && !prices.P3) {
+      const rawItems: any[] = ed?.economics?.rawLineItems || ed?.rawLineItems || []
+      const potCats = ['potencia_peaje', 'potencia_cargo', 'potencia_comercializacion']
+      for (const item of rawItems) {
+        const cat = String(item.category || '').toLowerCase()
+        if (!potCats.includes(cat)) continue
+        const p = normPeriod(item.periodo)
+        if (!p || !['P1', 'P2', 'P3'].includes(p)) continue
+        let price = Number(item.precioUnitario) || 0
+        if (!price) {
+          const kw   = Number(item.kw)    || 0
+          const dias = Number(item.dias)  || 0
+          const tot  = Number(item.total) || 0
+          if (kw > 0 && dias > 0 && tot > 0) price = tot / (kw * dias)
+        }
+        // Sum peaje + cargo + comer to get combined €/kW·día for this period
+        if (price > 0 && price < 5) prices[p] = (prices[p] || 0) + price
+      }
+    }
+
     if (prices.P1 || prices.P2 || prices.P3) {
       const p1 = prices.P1 || 0
-      // 2.0TD may label valle period as P3 instead of P2; if P2 still missing, fall back to P1 price
+      // 2.0TD labels the off-peak period as P3 (not P2). Fall back: P3 → P2 → P1.
       const p2 = prices.P2 > 0 ? prices.P2 : (prices.P3 > 0 ? prices.P3 : p1)
       return { P1: p1, P2: p2 }
     }

@@ -917,18 +917,33 @@ async function processAndNotify(
                 })()
 
               // Current power prices from invoice (€/kW·día per period)
+              // Path A: use potencia[] rebuilt array (precioKwDia may be null if Gemini didn't extract kw/dias)
               const potArr: any[] = eco?.potencia || []
               const potPrices: Record<string, number> = {}
+              const normP = (raw: any) => { const m = String(raw||'').trim().match(/(?:P|[Pp]er[íi]odo\s*)?([1-6])$/i); return m ? `P${m[1]}` : null }
               for (const item of potArr) {
-                const rawP = String(item.periodo || '').trim()
-                const match = rawP.match(/(?:P|[Pp]er[íi]odo\s*)?([1-6])$/i)
-                const p = match ? `P${match[1]}` : rawP.toUpperCase()
-                if (!['P1','P2','P3'].includes(p)) continue
+                const p = normP(item.periodo)
+                if (!p || !['P1','P2','P3'].includes(p)) continue
                 let price = Number(item.precioKwDia) || Number(item.precioKw) || Number(item.precioUnitario) || 0
                 if (!price && Number(item.kw) > 0 && Number(item.dias) > 0 && Number(item.total) > 0) {
                   price = Number(item.total) / (Number(item.kw) * Number(item.dias))
                 }
                 if (price > 0 && price < 5) potPrices[p] = price
+              }
+              // Path B: if potencia[] prices still zero, sum precioUnitario from rawLineItems per period
+              if (!potPrices.P1 && !potPrices.P2 && !potPrices.P3) {
+                const rawItems: any[] = eco?.rawLineItems || []
+                const potCats = ['potencia_peaje','potencia_cargo','potencia_comercializacion']
+                for (const item of rawItems) {
+                  if (!potCats.includes(String(item.category||'').toLowerCase())) continue
+                  const p = normP(item.periodo)
+                  if (!p || !['P1','P2','P3'].includes(p)) continue
+                  let price = Number(item.precioUnitario) || 0
+                  if (!price && Number(item.kw) > 0 && Number(item.dias) > 0 && Number(item.total) > 0) {
+                    price = Number(item.total) / (Number(item.kw) * Number(item.dias))
+                  }
+                  if (price > 0 && price < 5) potPrices[p] = (potPrices[p] || 0) + price
+                }
               }
               const currentPowerP1 = potPrices.P1 || 0
               const currentPowerP2 = potPrices.P2 > 0 ? potPrices.P2 : (potPrices.P3 > 0 ? potPrices.P3 : potPrices.P1 || 0)
