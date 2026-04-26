@@ -177,7 +177,9 @@ export default function SupplyDetailPage() {
       setSiblingSupplies(siblings || [])
     }
 
-    // ── Auto-refresh SIPS if maxímetros or reactiva are missing ──
+    // ── Auto-refresh SIPS if maxímetros or reactiva are missing (luz only) ──
+    // Gas supplies never auto-fetch SIPS — data comes exclusively from Excel import.
+    const isGasLoad = data?.type === 'gas' || /^RL/i.test(data?.tariff || '')
     const hasMaximetros = data?.consumption_data?.maximetroHistory?.length > 0
     const hasReactiva = data?.consumption_data?.reactivaHistory?.length > 0
     const studyIsStale = data?.power_study_result && (
@@ -186,17 +188,13 @@ export default function SupplyDetailPage() {
       // Study has fewer months than current consumption history
       (data.power_study_result.meses?.length < (data.consumption_data?.history?.length || 0))
     )
-    const needsRefresh = data && data.cups && (
+    const needsRefresh = !isGasLoad && data && data.cups && (
       !data.consumption_data || !hasMaximetros || !hasReactiva || studyIsStale
     )
     if (needsRefresh) {
       setSipsLoading(true)
       try {
-        // Detect gas supply to route to correct SIPS endpoint
-        const isGasSupply = data.type === 'gas' ||
-          /^RL/i.test(data.tariff || '') ||
-          /^RL/i.test(data.consumption_data?.sips_tariff || '')
-        const sipsEndpoint = isGasSupply ? '/api/sips-gas' : '/api/sips'
+        const sipsEndpoint = '/api/sips'
         const sipsRes = await fetch(sipsEndpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -212,17 +210,17 @@ export default function SupplyDetailPage() {
                 P1: h.P1, P2: h.P2, P3: h.P3, P4: h.P4, P5: h.P5, P6: h.P6, total: h.total,
               }))
             : (data.consumption_data?.history || [])
-          const newMaximetro = isGasSupply ? [] : (d.maximetroHistory || []).map((h: any) => ({
+          const newMaximetro = (d.maximetroHistory || []).map((h: any) => ({
             fecha: h.fecha, fechaInicio: h.fechaInicio, fechaFin: h.fechaFin,
             P1: h.P1, P2: h.P2, P3: h.P3, P4: h.P4, P5: h.P5, P6: h.P6,
           }))
-          const newReactiva = isGasSupply ? [] : (d.reactivaHistory || []).map((h: any) => ({
+          const newReactiva = (d.reactivaHistory || []).map((h: any) => ({
             fecha: h.fecha, fechaInicio: h.fechaInicio, fechaFin: h.fechaFin,
             P1: h.P1, P2: h.P2, P3: h.P3, P4: h.P4, P5: h.P5, P6: h.P6,
           }))
           const updatedConsumption = {
             ...(data.consumption_data || {}),
-            source: isGasSupply ? 'totalenergies_sips' : 'greening_sips',
+            source: 'greening_sips',
             fetched_at: new Date().toISOString(),
             history: newHistory,
             maximetroHistory: newMaximetro,
@@ -865,15 +863,12 @@ export default function SupplyDetailPage() {
 
   const handleFetchSips = async () => {
     if (!supply?.cups || sipsLoading) return
+    // Gas supplies get their data exclusively from Excel import — never from SIPS
+    if (supply.type === 'gas' || /^RL/i.test(supply.tariff || '')) return
     setSipsLoading(true)
     setSipsError('')
     try {
-      // Detect gas supply to route to correct SIPS endpoint
-      const isGas = supply.type === 'gas' ||
-        /^RL/i.test(supply.tariff || '') ||
-        /^RL/i.test(supply.consumption_data?.sips_tariff || '')
-      const endpoint = isGas ? '/api/sips-gas' : '/api/sips'
-      const res = await fetch(endpoint, {
+      const res = await fetch('/api/sips', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cups: supply.cups }),
@@ -887,7 +882,7 @@ export default function SupplyDetailPage() {
           .from('supplies')
           .update({
             consumption_data: {
-              source: isGas ? 'totalenergies_sips' : 'greening_sips',
+              source: 'greening_sips',
               fetched_at: new Date().toISOString(),
               total: d.totalConsumption,
               totalKwh: d.totalConsumptionKwh,
