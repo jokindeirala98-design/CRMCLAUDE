@@ -846,12 +846,31 @@ async function processAndNotify(
           ? '\n\n📎 <i>Sin CUPS detectado. Para mejor extracción, envía la factura como <b>archivo</b> (📎 adjunto) en lugar de como foto.</i>'
           : (!result.cups ? '\n\n⚠️ <i>CUPS no detectado. Verifica la calidad de la imagen o complétalo manualmente en el CRM.</i>' : '')
 
-        sendMessage(chatId,
+        await sendMessage(chatId,
           `${emoji} <b>${typeLabel}</b>\n\n` +
           `👤 ${clientName}\n` +
           `🔌 <code>${result.cups || 'Sin CUPS'}</code>${aytoTag}${multiPageTag}${noCupsPhotoHint}\n\n` +
           `<a href="${appUrl}/supplies/${result.supply_id}">Ver suministro →</a>`
         ).catch(() => {})
+
+        // ── Comparativa link for 2.0TD electricity invoices ───────────────────
+        // Detect tariff from analyzed doc (already extracted by Gemini)
+        const invoiceTariff = (
+          analyzed.tariff ||
+          analyzed.economics?.tarifa ||
+          analyzed.economics?.tariff || ''
+        ).toString().trim().toUpperCase()
+
+        const is2TD = /^2\.?0?TD/i.test(invoiceTariff) || invoiceTariff === '2TD'
+
+        if (is2TD && result.supply_id) {
+          const comparativaUrl = `${appUrl}/supplies/${result.supply_id}?tab=economics&view=informe`
+          sendMessage(chatId,
+            `📊 <b>Comparativa de ahorro disponible</b>\n\n` +
+            `Esta factura es <b>tarifa 2.0TD</b>. Puedes ver las 3 opciones de tarifa Voltis y descargar la comparativa en PDF desde:\n\n` +
+            `<a href="${comparativaUrl}">📋 Ver comparativa de ahorro →</a>`
+          ).catch(() => {})
+        }
       } catch {
         sendMessage(chatId, `✅ Factura procesada → ${result.cups || 'sin CUPS'}`).catch(() => {})
       }

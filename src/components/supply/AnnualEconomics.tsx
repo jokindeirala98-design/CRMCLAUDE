@@ -110,6 +110,8 @@ interface Props {
   clientName?: string
   /** Gas historical consumption from Excel import (gasHistory in consumption_data) */
   gasHistory?: GasHistoryPeriod[]
+  /** Auto-open the report/informe view on mount (e.g. from Telegram deep link) */
+  initialView?: 'tabla' | 'informe'
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -3334,8 +3336,8 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated, supplyType: propSupplyType, potenciaContratada, consumoPeriodos, clientName, gasHistory }: Props) {
-  const [view, setView] = useState<'tabla' | 'informe'>('tabla')
+export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated, supplyType: propSupplyType, potenciaContratada, consumoPeriodos, clientName, gasHistory, initialView }: Props) {
+  const [view, setView] = useState<'tabla' | 'informe'>(initialView ?? 'tabla')
   const [busyRescan, setBusyRescan] = useState<string | null>(null)
   const [busyDelete, setBusyDelete] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)

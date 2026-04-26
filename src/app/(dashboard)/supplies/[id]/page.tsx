@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import {
   ArrowLeft, Zap, Building2, MapPin, FileText, CreditCard,
   ChevronRight, CheckCircle2, Circle, Clock, XCircle,
@@ -89,12 +89,17 @@ export default function SupplyDetailPage() {
   const { id: rawId } = useParams()
   const id = Array.isArray(rawId) ? rawId[0] : rawId as string
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [supply, setSupply] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
-  const [activeTab, setActiveTab] = useState<'sips' | 'economics' | 'potencias' | null>(null)
+  // Auto-open tab from ?tab= URL param (e.g. from Telegram bot deep links)
+  const urlTab = searchParams.get('tab') as 'sips' | 'economics' | 'potencias' | null
+  const [activeTab, setActiveTab] = useState<'sips' | 'economics' | 'potencias' | null>(
+    ['sips', 'economics', 'potencias'].includes(urlTab || '') ? urlTab : null
+  )
   const [sipsLoading, setSipsLoading] = useState(false)
   const [sipsError, setSipsError] = useState('')
   const [sipsTab, setSipsTab] = useState<'consumos' | 'maximetros' | 'reactivas'>('consumos')
@@ -2039,6 +2044,7 @@ export default function SupplyDetailPage() {
             consumoPeriodos={supply.consumption_data?.consumoPeriodos}
             gasHistory={supply.consumption_data?.gasHistory}
             clientName={supply.client?.name || supply.cups || ''}
+            initialView={searchParams.get('view') === 'informe' ? 'informe' : undefined}
             onInvoicesUpdated={async () => {
               const supabase = createClient()
               const { data } = await supabase
