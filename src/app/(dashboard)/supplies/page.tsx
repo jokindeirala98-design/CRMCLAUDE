@@ -106,21 +106,26 @@ function SuppliesModal({
     : sortedSupplies
 
   // Keyboard: type to filter tariff, Backspace to clear, Escape to close
+  // Use capture=true so we intercept before the global search palette
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { onClose(); return }
+      if (e.key === 'Escape') { e.stopPropagation(); onClose(); return }
       // Don't capture if user is typing in an input/textarea
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
       if (e.key === 'Backspace') {
+        e.stopPropagation()
+        e.preventDefault()
         setTariffFilter(prev => prev.slice(0, -1))
         return
       }
-      if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
+      if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.stopPropagation()
+        e.preventDefault()
         setTariffFilter(prev => prev + e.key)
       }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, { capture: true })
+    return () => window.removeEventListener('keydown', onKey, { capture: true })
   }, [onClose])
 
   const handleCardClick = (id: string) => {
