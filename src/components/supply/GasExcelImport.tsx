@@ -1,8 +1,7 @@
 'use client'
 
 import { useState, useRef, useCallback } from 'react'
-import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, X, Flame, RefreshCw } from 'lucide-react'
-import { Button } from '@/components/ui/Button'
+import { Upload, CheckCircle2, AlertCircle, Loader2, X, Flame, RefreshCw } from 'lucide-react'
 
 interface GasParsedRow {
   cups: string
@@ -20,7 +19,6 @@ interface GasParsedRow {
 interface Props {
   supplyId: string
   cups?: string | null
-  /** Datos de consumo ya importados (consumption_data del suministro) */
   existingData?: Record<string, any> | null
   onImported: (newConsumptionData: Record<string, any>) => void
 }
@@ -32,9 +30,10 @@ function fmtKwh(n: number) {
 
 export function GasExcelImport({ supplyId, cups, existingData, onImported }: Props) {
   const [dragging, setDragging] = useState(false)
-  const [file, setFile] = useState<File | null>(null)
+  const [files, setFiles] = useState<File[]>([])
   const [parsed, setParsed] = useState<GasParsedRow | null>(null)
   const [rowsInFile, setRowsInFile] = useState(0)
+  const [filesProcessed, setFilesProcessed] = useState(0)
   const [matchedByCups, setMatchedByCups] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -48,15 +47,16 @@ export function GasExcelImport({ supplyId, cups, existingData, onImported }: Pro
     } catch { return null }
   }
 
-  const handleFile = useCallback(async (f: File) => {
-    setFile(f)
+  const handleFiles = useCallback(async (newFiles: File[]) => {
+    if (newFiles.length === 0) return
+    setFiles(newFiles)
     setParsed(null)
     setError('')
     setSaved(false)
     setSaving(true)
 
     const formData = new FormData()
-    formData.append('file', f)
+    for (const f of newFiles) formData.append('file', f)
     if (cups) formData.append('targetCups', cups)
 
     const token = getToken()
@@ -74,6 +74,7 @@ export function GasExcelImport({ supplyId, cups, existingData, onImported }: Pro
       }
       setParsed(data.parsed)
       setRowsInFile(data.rows_in_file ?? 1)
+      setFilesProcessed(data.files_processed ?? newFiles.length)
       setMatchedByCups(data.matched_by_cups ?? false)
       setSaved(true)
       onImported(data.consumption_data)
@@ -87,19 +88,24 @@ export function GasExcelImport({ supplyId, cups, existingData, onImported }: Pro
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     setDragging(false)
-    const f = e.dataTransfer.files[0]
-    if (f) handleFile(f)
-  }, [handleFile])
+    const dropped = Array.from(e.dataTransfer.files).filter(
+      f => /\.(xlsx|xls)$/i.test(f.name)
+    )
+    if (dropped.length > 0) handleFiles(dropped)
+  }, [handleFiles])
 
   const onInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0]
-    if (f) handleFile(f)
+    const selected = Array.from(e.target.files || [])
+    if (selected.length > 0) handleFiles(selected)
     e.target.value = ''
+  }
+
+  const reset = () => {
+    setSaved(false); setFiles([]); setParsed(null); setError('')
   }
 
   const hasExisting = !!existingData?.fetched_at || !!existingData?.totalKwh
   const existingKwh = existingData?.totalKwh || 0
-  const existingFilename = existingData?.import_filename
   const existingDate = existingData?.fetched_at
     ? new Date(existingData.fetched_at).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })
     : null
@@ -131,7 +137,7 @@ export function GasExcelImport({ supplyId, cups, existingData, onImported }: Pro
               {existingDate && (
                 <span className="text-xs ml-auto" style={{ color: '#8A9A8E' }}>
                   Actualizado: {existingDate}
-                  {existingFilename && <> · {existingFilename}</>}
+                  {existingData?.import_filename && <> · {existingData.import_filename}</>}
                 </span>
               )}
             </div>
@@ -160,6 +166,7 @@ export function GasExcelImport({ supplyId, cups, existingData, onImported }: Pro
           ref={inputRef}
           type="file"
           accept=".xlsx,.xls"
+          multiple
           className="hidden"
           onChange={onInputChange}
         />
@@ -167,7 +174,9 @@ export function GasExcelImport({ supplyId, cups, existingData, onImported }: Pro
         {saving ? (
           <>
             <Loader2 className="w-7 h-7 animate-spin" style={{ color: '#6B8068' }} />
-            <p className="text-sm font-semibold" style={{ color: '#5A6E58' }}>Procesando Excel…</p>
+            <p className="text-sm font-semibold" style={{ color: '#5A6E58' }}>
+              Procesando {files.length > 1 ? `${files.length} archivos` : 'Excel'}…
+            </p>
           </>
         ) : saved && parsed ? (
           <>
@@ -175,12 +184,12 @@ export function GasExcelImport({ supplyId, cups, existingData, onImported }: Pro
             <div className="text-center px-4">
               <p className="text-sm font-bold" style={{ color: '#3D5C45' }}>¡Datos importados!</p>
               <p className="text-xs mt-0.5" style={{ color: '#8A9A8E' }}>
-                {file?.name} · {rowsInFile} fila{rowsInFile !== 1 ? 's' : ''}
-                {rowsInFile > 1 && (matchedByCups ? ' · coincidencia por CUPS' : ' · primera fila')}
+                {filesProcessed} archivo{filesProcessed !== 1 ? 's' : ''} · {rowsInFile} fila{rowsInFile !== 1 ? 's' : ''}
+                {matchedByCups ? ' · coincidencia por CUPS' : ''}
               </p>
             </div>
             <button
-              onClick={e => { e.stopPropagation(); setSaved(false); setFile(null); setParsed(null) }}
+              onClick={e => { e.stopPropagation(); reset() }}
               className="absolute top-2 right-2 p-1 rounded-full hover:bg-black/5 transition"
             >
               <RefreshCw className="w-3.5 h-3.5" style={{ color: '#8A9A8E' }} />
@@ -197,10 +206,10 @@ export function GasExcelImport({ supplyId, cups, existingData, onImported }: Pro
                 {hasExisting ? 'Actualizar datos con nuevo Excel' : 'Importar Excel de consumos gas'}
               </p>
               <p className="text-xs mt-0.5" style={{ color: '#8A9A8E' }}>
-                Arrastra aquí o haz clic · .xlsx / .xls
+                Arrastra aquí o haz clic · .xlsx / .xls · puedes soltar varios archivos a la vez
               </p>
               <p className="text-[11px] mt-1" style={{ color: '#A8B5A0' }}>
-                Formatos soportados: Naturgy, Endesa Gas, y otros distribuidores
+                Formatos soportados: Naturgy (_39), Endesa Gas, y otros distribuidores
               </p>
             </div>
           </>
@@ -222,7 +231,7 @@ export function GasExcelImport({ supplyId, cups, existingData, onImported }: Pro
         </div>
       )}
 
-      {/* Preview de datos parseados */}
+      {/* Preview */}
       {parsed && saved && (
         <div className="rounded-xl border overflow-hidden" style={{ borderColor: '#E5DCC9' }}>
           <div className="px-4 py-2 flex items-center gap-2"
@@ -231,8 +240,8 @@ export function GasExcelImport({ supplyId, cups, existingData, onImported }: Pro
             <span className="text-xs font-bold uppercase tracking-wider" style={{ color: '#4A5E47' }}>
               Datos importados
             </span>
-            <span className="text-xs ml-auto font-mono" style={{ color: '#8A9A8E' }}>
-              {file?.name}
+            <span className="text-xs ml-auto font-mono truncate max-w-[200px]" style={{ color: '#8A9A8E' }}>
+              {files.map(f => f.name).join(', ')}
             </span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-px bg-line">
@@ -250,33 +259,6 @@ export function GasExcelImport({ supplyId, cups, existingData, onImported }: Pro
               </div>
             ))}
           </div>
-
-          {/* Period breakdown if available */}
-          {(parsed.consumo_p1 > 0 || parsed.consumo_p2 > 0 || parsed.consumo_p3 > 0) && (
-            <div className="px-4 py-3 bg-bg" style={{ borderTop: '1px solid #E5DCC9' }}>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-3 mb-2">
-                Consumo por período
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {[
-                  { p: 'P1', v: parsed.consumo_p1 },
-                  { p: 'P2', v: parsed.consumo_p2 },
-                  { p: 'P3', v: parsed.consumo_p3 },
-                  { p: 'P4', v: parsed.consumo_p4 },
-                  { p: 'P5', v: parsed.consumo_p5 },
-                  { p: 'P6', v: parsed.consumo_p6 },
-                ].filter(({ v }) => v > 0).map(({ p, v }) => (
-                  <div key={p} className="rounded-lg px-3 py-1.5 text-center"
-                    style={{ background: '#E0E8DC', minWidth: 72 }}>
-                    <p className="text-[10px] font-bold" style={{ color: '#6B8068' }}>{p}</p>
-                    <p className="text-xs font-bold text-ink font-mono">
-                      {Math.round(v).toLocaleString('es-ES')}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       )}
 
