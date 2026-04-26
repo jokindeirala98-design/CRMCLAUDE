@@ -1887,36 +1887,40 @@ function GasReportView({ invoices, supplyName, onBack, gasHistory }: {
     }
   }, [validInvoices])
 
-  // Build 12-month chart arrays from gasHistory (if available & richer) or tableData
+  // Build chart arrays from gasHistory (if available & richer) or tableData
+  // Uses sequential bars (one per period) to avoid cross-year calendar-month collisions
   const gasChartKwh = useMemo(() => {
-    const months = CANONICAL_MONTHS.map((label, i) => ({ label, totalKwh: 0, billsCount: 0, monthIndex: i }))
-
-    // Prefer gasHistory from SIPS/Excel import when it covers more months than invoices
     const history = gasHistory && gasHistory.length > 0 ? gasHistory : null
     const invoiceMonthCount = new Set(tableData.map(r => r.monthIndex)).size
 
     if (history && history.length > invoiceMonthCount) {
-      // Take last 12 periods from history
+      // Take last 12 periods sorted chronologically — one bar per period
       const last12 = [...history]
         .sort((a, b) => new Date(a.fechaInicio).getTime() - new Date(b.fechaInicio).getTime())
         .slice(-12)
-      last12.forEach(p => {
-        // Assign to the calendar month of fechaFin (or fechaInicio if no fin)
+      return last12.map((p, i) => {
         const d = new Date(p.fechaFin || p.fechaInicio)
-        const monthIdx = isNaN(d.getTime()) ? -1 : d.getMonth()
-        if (monthIdx >= 0) {
-          months[monthIdx].totalKwh += p.kwh
-          months[monthIdx].billsCount++
+        let label: string
+        if (isNaN(d.getTime())) {
+          label = `P${i + 1}`
+        } else {
+          const mes = d.toLocaleDateString('es-ES', { month: 'short' }).replace('.', '')
+          const mesCapital = mes.charAt(0).toUpperCase() + mes.slice(1)
+          const anyo = String(d.getFullYear()).slice(2)
+          label = `${mesCapital} ${anyo}`
         }
-      })
-    } else {
-      tableData.forEach(row => {
-        if (row.monthIndex >= 0 && row.monthIndex < 12) {
-          months[row.monthIndex].totalKwh += row.kwh
-          months[row.monthIndex].billsCount++
-        }
+        return { label, totalKwh: p.kwh, billsCount: 1, monthIndex: i }
       })
     }
+
+    // Fallback: use invoice tableData grouped by calendar month
+    const months = CANONICAL_MONTHS.map((label, i) => ({ label, totalKwh: 0, billsCount: 0, monthIndex: i }))
+    tableData.forEach(row => {
+      if (row.monthIndex >= 0 && row.monthIndex < 12) {
+        months[row.monthIndex].totalKwh += row.kwh
+        months[row.monthIndex].billsCount++
+      }
+    })
     return months
   }, [tableData, gasHistory])
 
