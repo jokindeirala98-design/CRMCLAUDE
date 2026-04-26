@@ -708,6 +708,17 @@ export async function POST(
       }
     }
 
+    // ── Create/update prescoring now that we have real gas consumption data ──────
+    try {
+      const { ensurePendingPrescoring } = await import('@/lib/ensurePrescoring')
+      await ensurePendingPrescoring(supabase, params.id, {
+        userId: user.id,
+        updateNulls: true,  // patch existing row if present; create if not
+      })
+    } catch (prescoringErr) {
+      console.warn('[import-gas-excel] prescoring update failed (non-fatal)', prescoringErr)
+    }
+
     return NextResponse.json({
       success: true,
       parsed: {

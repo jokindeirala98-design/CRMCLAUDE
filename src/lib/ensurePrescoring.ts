@@ -83,6 +83,21 @@ export async function ensurePendingPrescoring(
     // 3. Skip 2.0 tariffs — those don't need prescoring
     if (isResidentialTariff(supply.tariff)) return false
 
+    // 4a. For gas supplies: only create/update prescoring once Excel SIPS data is imported.
+    //     Without it we would show wrong consumption values pulled from invoice extraction.
+    //     A gas supply is considered "ready" when consumption_data has a real totalKwh
+    //     (set by import-gas-excel) or at least one gasHistory period.
+    if (supply.type === 'gas') {
+      const sipsCheck: any = (supply as any).consumption_data || {}
+      const hasGasData =
+        Number(sipsCheck?.totalKwh) > 0 ||
+        (Array.isArray(sipsCheck?.gasHistory) && sipsCheck.gasHistory.length > 0)
+      if (!hasGasData) {
+        console.log('[ensurePrescoring] gas supply skipped — no Excel SIPS data yet', supplyId)
+        return false
+      }
+    }
+
     // 4. Build the prescoring payload from the best available data
     const client: any = (supply as any).client || null
     const invoices: any[] = (supply as any).invoices || []
@@ -111,13 +126,28 @@ export async function ensurePendingPrescoring(
       supply.type === 'telefonia' ? 'Telefonía' :
       'Electricidad'
 
-    const consumoAnual =
-      sips?.total ||
-      sips?.totalKwh ||
-      extracted?.economics?.consumoTotalKwh ||
-      null
+    // For gas: use totalKwh from Excel import (set by import-gas-excel route)
+    // For electricity: use consumoPeriodos sum from SIPS, fallback to totalKwh / invoice data
+    let consumoAnualNum: number
+    if (supply.type === 'gas') {
+      // Gas: totalKwh is set directly by import-gas-excel
+      consumoAnualNum = Number(sips?.totalKwh) > 0
+        ? Number(sips.totalKwh)
+        : ((Array.isArray(sips?.gasHistory) && sips.gasHistory.length > 0)
+          ? sips.gasHistory.reduce((sum: number, p: any) => sum + (Number(p.kwh) || 0), 0)
+          : 0)
+    } else {
+      // Electricity: consumoPeriodos is the annual breakdown from SIPS
+      const cp = (sips?.consumoPeriodos || {}) as { P1?: number; P2?: number; P3?: number; P4?: number; P5?: number; P6?: number }
+      const periodosSum = (Number(cp.P1)||0) + (Number(cp.P2)||0) + (Number(cp.P3)||0)
+                        + (Number(cp.P4)||0) + (Number(cp.P5)||0) + (Number(cp.P6)||0)
+      consumoAnualNum = periodosSum > 0
+        ? periodosSum
+        : (Number(sips?.totalKwh) > 0 ? Number(sips?.totalKwh) : (extracted?.economics?.consumoTotalKwh || 0))
+    }
+    const consumoAnual = consumoAnualNum > 0 ? consumoAnualNum : null
 
-    const poblacion = sips?.municipio || null
+    const poblacion = sips?.municipio || (supply.type === 'gas' ? (sips?.localidad || null) : null)
     const direccionFiscal =
       client?.fiscal_address ||
       extracted?.fiscal_address ||
@@ -132,7 +162,7 @@ export async function ensurePendingPrescoring(
       cif: cif,
       producto,
       tariff: supply.tariff || null,
-      consumo_anual: consumoAnual ? String(consumoAnual) : null,
+      consumo_anual: consumoAnual ? `${Math.round(Number(consumoAnual)).toLocaleString('es-ES')} kWh` : null,
       entidad: extracted?.comercializadora || null,
       telefono: client?.phone || null,
       poblacion,
@@ -156,7 +186,8 @@ export async function ensurePendingPrescoring(
         if (nullOrEmpty(currentRow.client_name) && payload.client_name) patch.client_name = payload.client_name
         if (nullOrEmpty(currentRow.cif) && payload.cif) patch.cif = payload.cif
         if (nullOrEmpty(currentRow.producto) && payload.producto) patch.producto = payload.producto
-        if (nullOrEmpty(currentRow.consumo_anual) && payload.consumo_anual) patch.consumo_anual = payload.consumo_anual
+        // consumo_anual: always overwrite — SIPS is the authoritative source
+        if (payload.consumo_anual) patch.consumo_anual = payload.consumo_anual
         if (nullOrEmpty(currentRow.entidad) && payload.entidad) patch.entidad = payload.entidad
         if (nullOrEmpty(currentRow.telefono) && payload.telefono) patch.telefono = payload.telefono
         if (nullOrEmpty(currentRow.poblacion) && payload.poblacion) patch.poblacion = payload.poblacion
