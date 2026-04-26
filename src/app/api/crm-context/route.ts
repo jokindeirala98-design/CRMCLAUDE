@@ -40,6 +40,14 @@ export interface CRMContext {
 }
 
 export async function GET(request: NextRequest) {
+  // Auth guard — only authenticated CRM users can read the full CRM context
+  const { createServerSupabaseClient } = await import('@/lib/supabase/server')
+  const authClient = createServerSupabaseClient()
+  const { data: { user } } = await authClient.auth.getUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
     const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
