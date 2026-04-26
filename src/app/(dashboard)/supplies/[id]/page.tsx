@@ -29,6 +29,7 @@ import { downloadClientInvoicesZip, type DownloadProgress } from '@/lib/utils/do
 import { advanceSupplyPipeline } from '@/lib/supply-pipeline'
 import { useAuthStore } from '@/stores/auth'
 import type { SupplyStatus } from '@/types/database'
+import { GasExcelImport } from '@/components/supply/GasExcelImport'
 
 // Pipeline steps in order
 const PIPELINE_STEPS: { key: SupplyStatus; label: string; icon: any }[] = [
@@ -994,6 +995,7 @@ export default function SupplyDetailPage() {
   const currentIndex = getPipelineIndex(supply.status)
   const isRejected = supply.status === 'rechazado'
   const transitions = TRANSITIONS[supply.status] || []
+  const isGasSupply = supply.type === 'gas' || /^RL/i.test(supply.tariff || '')
 
   return (
     <div>
@@ -1411,8 +1413,8 @@ export default function SupplyDetailPage() {
           {([
             {
               key: 'sips' as const,
-              label: 'DATOS SIPS',
-              icon: Activity,
+              label: isGasSupply ? 'DATOS GAS' : 'DATOS SIPS',
+              icon: isGasSupply ? Flame : Activity,
               activeClass: 'border-info/30 bg-info-container/40 text-info shadow-md',
               inactiveClass: 'border-line-2-variant/30 bg-white text-ink hover:border-info/30 hover:bg-info-container/40',
               dot: supply.consumption_data ? 'bg-info-container/400' : 'bg-gray-300',
@@ -1456,11 +1458,24 @@ export default function SupplyDetailPage() {
           })}
         </div>
 
-        {/* ═══════ DATOS SIPS panel ═══════ */}
+        {/* ═══════ DATOS SIPS / GAS panel ═══════ */}
         {activeTab === 'sips' && supply.cups && (
           <div id="sips-data" className="scroll-mt-4">
             <Card className="overflow-hidden">
               <div className="p-4 space-y-5">
+
+                {/* ── Gas supply: Excel import zone (replaces SIPS) ── */}
+                {isGasSupply ? (
+                  <GasExcelImport
+                    supplyId={supply.id}
+                    cups={supply.cups}
+                    existingData={supply.consumption_data}
+                    onImported={(newData) => {
+                      setSupply((prev: any) => prev ? { ...prev, consumption_data: newData } : prev)
+                    }}
+                  />
+                ) : (
+                <>
 
                 {/* Fetch / Refresh + last update */}
                 <div className="flex items-center gap-3 flex-wrap">
@@ -1887,6 +1902,8 @@ export default function SupplyDetailPage() {
                     <p>No hay datos SIPS disponibles</p>
                     <p className="text-xs mt-1">Pulsa "Consultar SIPS" para obtener los datos de consumo</p>
                   </div>
+                )}
+                </>
                 )}
               </div>
             </Card>
