@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useMemo, useEffect, useRef } from 'react'
+import React, { useState, useMemo, useEffect, useRef, startTransition } from 'react'
 import { createPortal } from 'react-dom'
 import { createClient } from '@/lib/supabase/client'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -2152,13 +2152,13 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
   // ── Drag-to-select range on month buttons ─────────────────────────────────
   const applyRange = (a: number, b: number) => {
     const lo = Math.min(a, b); const hi = Math.max(a, b)
-    setSelectedMonths(new Set(Array.from({ length: hi - lo + 1 }, (_, k) => lo + k)))
+    startTransition(() => setSelectedMonths(new Set(Array.from({ length: hi - lo + 1 }, (_, k) => lo + k))))
   }
 
   const handleMonthMouseDown = (i: number, e: React.MouseEvent) => {
     e.preventDefault()           // prevent text selection during drag
     setDragAnchor(i)
-    setSelectedMonths(new Set([i]))
+    startTransition(() => setSelectedMonths(new Set([i])))
   }
 
   const handleMonthMouseEnter = (i: number) => {
@@ -2220,12 +2220,16 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
 
         kb.buf = newBuf
         kb.anchor = month - 1          // 0-indexed
-        setSelectedMonths(new Set([month - 1]))
+        startTransition(() => setSelectedMonths(new Set([month - 1])))
 
         // Confirm anchor immediately for digits 2-9 (single-digit months).
         // For digit 1: stay in anchor phase one more keypress (to catch 10/11/12).
         if (d >= 2 || newBuf.length >= 2) {
-          kb.phase = 'swipe'; kb.lastKey = -1
+          kb.phase = 'swipe'
+          // Seed lastKey with the anchor's month number (1-indexed) so the very
+          // first swipe key can determine direction without needing a second one.
+          // e.g. anchor=Sep(9) → lastKey=9; press "8" → 8<9 → descending → Jan–Sep ✓
+          kb.lastKey = kb.anchor + 1
         }
 
       } else {
@@ -2233,10 +2237,10 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
         if (kb.lastKey >= 0 && kb.anchor >= 0) {
           if (d > kb.lastKey) {
             // Ascending → anchor is the START, extend to December
-            setSelectedMonths(new Set(Array.from({ length: 12 - kb.anchor }, (_, k) => kb.anchor + k)))
+            startTransition(() => setSelectedMonths(new Set(Array.from({ length: 12 - kb.anchor }, (_, k) => kb.anchor + k))))
           } else if (d < kb.lastKey) {
             // Descending → anchor is the END, extend back to January
-            setSelectedMonths(new Set(Array.from({ length: kb.anchor + 1 }, (_, k) => k)))
+            startTransition(() => setSelectedMonths(new Set(Array.from({ length: kb.anchor + 1 }, (_, k) => k))))
           }
         }
         kb.lastKey = d
@@ -2253,7 +2257,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
   const handleMonthTouchStart = (i: number, e: React.TouchEvent) => {
     e.preventDefault()
     setDragAnchor(i)
-    setSelectedMonths(new Set([i]))
+    startTransition(() => setSelectedMonths(new Set([i])))
   }
 
   const handleMonthTouchMove = (e: React.TouchEvent) => {
