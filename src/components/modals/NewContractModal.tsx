@@ -70,7 +70,7 @@ export function NewContractModal({ open, onClose, onCreated, preselectedClientId
         setSelectedClient(client || null)
         const { data } = await supabase
           .from('supplies')
-          .select('id, cups, tariff, type, address, annual_consumption')
+          .select('id, cups, tariff, type, address, consumption_data')
           .eq('client_id', preselectedClientId)
           .order('created_at', { ascending: false })
         setSupplies(data || [])
@@ -85,7 +85,7 @@ export function NewContractModal({ open, onClose, onCreated, preselectedClientId
     const fetchSupplies = async () => {
       const supabase = createClient()
       const [suppliesRes] = await Promise.all([
-        supabase.from('supplies').select('id, cups, tariff, type, address, annual_consumption').eq('client_id', form.client_id).order('created_at', { ascending: false }),
+        supabase.from('supplies').select('id, cups, tariff, type, address, consumption_data').eq('client_id', form.client_id).order('created_at', { ascending: false }),
       ])
       setSupplies(suppliesRes.data || [])
       // Update selectedClient
@@ -105,7 +105,13 @@ export function NewContractModal({ open, onClose, onCreated, preselectedClientId
         ...f,
         servicio: supply.type || 'electricity',
         producto: f.producto || supply.tariff || '',
-        consumo_anual: f.consumo_anual || (supply.annual_consumption ? String(supply.annual_consumption) : ''),
+        consumo_anual: f.consumo_anual || (() => {
+          const cd = supply.consumption_data as any
+          const cp = cd?.consumoPeriodos || {}
+          const pSum = (Number(cp.P1)||0)+(Number(cp.P2)||0)+(Number(cp.P3)||0)+(Number(cp.P4)||0)+(Number(cp.P5)||0)+(Number(cp.P6)||0)
+          const kwh = pSum > 0 ? pSum : (Number(cd?.totalKwh) || 0)
+          return kwh > 0 ? String(Math.round(kwh)) : ''
+        })(),
       }))
     }
   }, [form.supply_id, supplies])

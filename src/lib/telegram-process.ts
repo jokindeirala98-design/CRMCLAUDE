@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { analyzeInvoice } from '@/lib/gemini'
+import { analyzeIdentityDocument } from '@/lib/identityExtractor'
 import { normalizeCups } from '@/lib/utils/cups'
 import { fetchSipsForCups } from '@/lib/sips'
 import { advanceSupplyPipeline } from '@/lib/supply-pipeline'
@@ -189,6 +190,115 @@ export async function processTelegramInboxItem(
         processed_at: new Date().toISOString(),
       }).eq('id', inboxId)
       return { ok: false, error: 'Analysis failed: ' + analysisErr.message }
+    }
+  }
+
+  // 3b. Identity document detection — if no CUPS/tariff found by invoice extractor,
+  //      try the identity extractor. If it recognises the doc (DNI/CIF/cert bancario),
+  //      save the file URL to the client's profile and return early (no supply/invoice).
+  const quickCups = extractedData?.cups ? normalizeCups(extractedData.cups) : null
+  const quickTariff = extractedData?.tariff || extractedData?.economics?.tarifa || null
+  if (!quickCups && !quickTariff && base64 && fileMime) {
+    try {
+      const identity = await analyzeIdentityDocument(base64, fileMime)
+      if (identity.documentType !== 'desconocido') {
+        console.log(`[TelegramProcess] Identity document detected: ${identity.documentType}`)
+
+        // Find or create client from identity data
+        let identityClientId: string | null = null
+        const identityId = identity.documentType === 'dni' ? identity.dni
+          : identity.documentType === 'cif' ? identity.cif
+          : identity.iban ? null : null // cert bancario: match by iban/name
+
+        // Try CIF/NIF match first
+        if (identityId) {
+          const cleanId = identityId.replace(/[\s.-]/g, '').toUpperCase()
+          const { data: matches } = await supabase
+            .from('clients')
+            .select('id')
+            .or(`cif_nif.ilike.%${cleanId}%,cif.ilike.%${cleanId}%,nif.ilike.%${cleanId}%`)
+            .limit(1)
+          if (matches?.length) identityClientId = matches[0].id
+        }
+
+        // Try by name
+        if (!identityClientId) {
+          const nameToSearch = identity.full_name || identity.company_name || identity.account_holder || null
+          if (nameToSearch) {
+            const brandKeywords = extractBrandKeywords(nameToSearch)
+            const keyword = brandKeywords[0]
+            if (keyword) {
+              const { data: nameMatches } = await supabase
+                .from('clients')
+                .select('id, name')
+                .ilike('name', `%${keyword}%`)
+                .limit(1)
+              if (nameMatches?.length) identityClientId = nameMatches[0].id
+            }
+          }
+        }
+
+        // Create new client if not found
+        if (!identityClientId) {
+          const clientName = identity.full_name || identity.company_name || identity.account_holder || item.file_name || 'Cliente Telegram'
+          const isParticular = identity.documentType === 'dni'
+          const clientPayload = {
+            name: clientName,
+            type: isParticular ? 'particular' : 'empresa',
+            commercial_id: item.user_id,
+            cif_nif: identity.dni || identity.cif || null,
+            nif: identity.dni || null,
+            cif: identity.cif || null,
+            marketing_consent: false,
+          }
+          const res = await supabase.from('clients').insert({ ...clientPayload, origin: 'telegram' }).select('id').single()
+          identityClientId = res.data?.id || null
+          console.log(`[TelegramProcess] Created client from identity doc: ${identityClientId}`)
+        }
+
+        // Save document URL and extracted fields to the client
+        if (identityClientId) {
+          const patch: Record<string, any> = {}
+          if (identity.documentType === 'dni') {
+            patch.nif_file_url = item.file_url
+            if (identity.dni) { patch.nif = identity.dni; patch.cif_nif = identity.dni }
+            if (identity.full_name) patch.name = identity.full_name
+            if (identity.fiscal_address) patch.fiscal_address = identity.fiscal_address
+          } else if (identity.documentType === 'cif') {
+            patch.cif_file_url = item.file_url
+            if (identity.cif) { patch.cif = identity.cif; patch.cif_nif = identity.cif }
+            if (identity.company_name) patch.name = identity.company_name
+            if (identity.fiscal_address) patch.fiscal_address = identity.fiscal_address
+          } else if (identity.documentType === 'cert_bancario') {
+            patch.iban_file_url = item.file_url
+            if (identity.iban) patch.iban = identity.iban
+            if (identity.account_holder) patch.name = identity.account_holder
+            if (identity.account_holder_id) {
+              const id = identity.account_holder_id.toUpperCase()
+              if (/^[A-HJNP-SUVW]/.test(id)) { patch.cif = id; patch.cif_nif = id }
+              else { patch.nif = id; patch.cif_nif = id }
+            }
+          }
+          if (Object.keys(patch).length > 0) {
+            await supabase.from('clients').update(patch).eq('id', identityClientId)
+            console.log(`[TelegramProcess] Saved identity doc (${identity.documentType}) to client ${identityClientId}:`, Object.keys(patch))
+          }
+        }
+
+        await supabase.from('telegram_inbox').update({
+          status: 'processed',
+          processed_at: new Date().toISOString(),
+        }).eq('id', inboxId)
+
+        return {
+          ok: true,
+          client_id: identityClientId || undefined,
+          client_type: identity.documentType === 'dni' ? 'particular' : 'empresa',
+        }
+      }
+    } catch (identityErr: any) {
+      // Non-fatal — if identity detection fails, continue as normal invoice
+      console.warn(`[TelegramProcess] Identity detection failed (continuing as invoice):`, identityErr.message)
     }
   }
 
