@@ -100,8 +100,29 @@ export default function ClientsPage() {
   const [quickTaskFor, setQuickTaskFor]     = useState<{ clientId: string; clientName: string; status: string } | null>(null)
   const [confirmDeleteSupplyId, setConfirmDeleteSupplyId] = useState<string | null>(null)
   const [deletingSupply, setDeletingSupply] = useState(false)
+  const [modalTariffFilter, setModalTariffFilter] = useState('')
   const nameInputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
+
+  // Keyboard tariff filter for client modal — capture phase to avoid global search
+  useEffect(() => {
+    if (!selectedClient) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { setSelectedClient(null); setModalTariffFilter(''); return }
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.key === 'Backspace') {
+        e.stopPropagation(); e.preventDefault()
+        setModalTariffFilter(prev => prev.slice(0, -1))
+        return
+      }
+      if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.stopPropagation(); e.preventDefault()
+        setModalTariffFilter(prev => prev + e.key)
+      }
+    }
+    window.addEventListener('keydown', onKey, { capture: true })
+    return () => window.removeEventListener('keydown', onKey, { capture: true })
+  }, [selectedClient])
 
   useEffect(() => {
     const fetchData = async () => {
@@ -526,7 +547,7 @@ export default function ClientsPage() {
         <>
           <div
             className="fixed inset-0 bg-ink/50 z-[100] backdrop-blur-sm"
-            onClick={() => { setSelectedClient(null); setEditingSupplyName(null) }}
+            onClick={() => { setSelectedClient(null); setEditingSupplyName(null); setModalTariffFilter('') }}
           />
           <div className="fixed inset-0 z-[101] flex items-center justify-center p-4 pointer-events-none">
             <div
@@ -556,8 +577,17 @@ export default function ClientsPage() {
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
+                    {modalTariffFilter && (
+                      <button
+                        onClick={() => setModalTariffFilter('')}
+                        className="flex items-center gap-1 px-2 py-1 rounded-lg bg-brand/10 text-brand text-xs font-mono font-semibold hover:bg-brand/20 transition-colors"
+                      >
+                        {modalTariffFilter.toUpperCase()}
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
                     <button
-                      onClick={() => { setSelectedClient(null); setEditingSupplyName(null) }}
+                      onClick={() => { setSelectedClient(null); setEditingSupplyName(null); setModalTariffFilter('') }}
                       className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-bg-2 transition-colors"
                     >
                       <X className="w-4 h-4 text-ink-3" />
@@ -643,7 +673,12 @@ export default function ClientsPage() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    {selectedClient.supplies.map((supply: any) => {
+                    {(modalTariffFilter
+                      ? selectedClient.supplies.filter((s: any) =>
+                          (s.tariff || '').replace(/\s/g,'').toUpperCase().startsWith(modalTariffFilter.toUpperCase())
+                        )
+                      : selectedClient.supplies
+                    ).map((supply: any) => {
                       const SIcon = supplyTypeIcons[supply.type] || Zap
                       const isEditing = editingSupplyName === supply.id
 

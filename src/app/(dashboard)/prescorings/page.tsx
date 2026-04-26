@@ -17,6 +17,7 @@ import {
   Zap,
   XCircle,
   RefreshCw,
+  Trash2,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import type { Prescoring, PrescoringStatus } from '@/types/database'
@@ -43,6 +44,7 @@ const COLUMNS: Column[] = [
   { key: 'telefono', label: 'TELÉFONO', width: 'w-28', editable: true },
   { key: 'poblacion', label: 'POBLACIÓN', width: 'w-28', editable: true },
   { key: 'direccion_fiscal', label: 'DIR. FISCAL', width: 'w-44', editable: true },
+  { key: 'delete', label: '', width: 'w-10', editable: false, align: 'center' },
 ]
 
 // ---- HELPERS ----
@@ -256,6 +258,8 @@ export default function PrescoringsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [sendingAll, setSendingAll] = useState(false)
   const [showExportMenu, setShowExportMenu] = useState(false)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const exportMenuRef = useRef<HTMLDivElement>(null)
 
   const supabase = createClient()
@@ -402,6 +406,15 @@ export default function PrescoringsPage() {
     await supabase.from('prescorings').update({ [field]: value }).eq('id', id)
     setPrescorings(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p))
     setSaving(null)
+  }
+
+  // ---- DELETE PRESCORING ----
+  const deletePrescoring = async (id: string) => {
+    setDeleting(true)
+    await supabase.from('prescorings').delete().eq('id', id)
+    setPrescorings(prev => prev.filter(p => p.id !== id))
+    setConfirmDeleteId(null)
+    setDeleting(false)
   }
 
   // ---- EXPORT ----
@@ -554,15 +567,32 @@ export default function PrescoringsPage() {
           ) : (
             <AnimatePresence mode="popLayout">
               {currentItems.map(p => (
-                <PrescoringCard
-                  key={p.id}
-                  p={p}
-                  onToggleSent={() => markAsSent(p)}
-                  onResend={() => resendRejected(p)}
-                  onReject={p.status === 'sent' ? () => rejectPrescoring(p) : undefined}
-                  saving={saving === p.id}
-                  isRejected={p.status === 'rejected'}
-                />
+                <div key={p.id} className="relative">
+                  <PrescoringCard
+                    p={p}
+                    onToggleSent={() => markAsSent(p)}
+                    onResend={() => resendRejected(p)}
+                    onReject={p.status === 'sent' ? () => rejectPrescoring(p) : undefined}
+                    saving={saving === p.id}
+                    isRejected={p.status === 'rejected'}
+                  />
+                  {/* Delete button for mobile */}
+                  <div className="flex justify-end mt-1 px-1">
+                    {confirmDeleteId === p.id ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-ink-3">¿Eliminar?</span>
+                        <button onClick={() => deletePrescoring(p.id)} disabled={deleting} className="px-2 py-0.5 rounded bg-err text-white text-xs font-semibold">
+                          {deleting ? '...' : 'Sí'}
+                        </button>
+                        <button onClick={() => setConfirmDeleteId(null)} className="px-2 py-0.5 rounded bg-bg-2 text-ink-3 text-xs">No</button>
+                      </div>
+                    ) : (
+                      <button onClick={() => setConfirmDeleteId(p.id)} className="flex items-center gap-1 text-ink-4 hover:text-err text-xs transition-colors">
+                        <Trash2 className="w-3 h-3" /> Eliminar
+                      </button>
+                    )}
+                  </div>
+                </div>
               ))}
             </AnimatePresence>
           )}
@@ -713,6 +743,34 @@ export default function PrescoringsPage() {
                         </td>
                         <td className="w-44 px-0 py-0">
                           <EditableCell value={p.direccion_fiscal || ''} onChange={(v) => updateCell(p.id, 'direccion_fiscal', v)} editable={true} />
+                        </td>
+                        {/* Delete */}
+                        <td className="w-10 px-1 py-1.5 text-center">
+                          {confirmDeleteId === p.id ? (
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => deletePrescoring(p.id)}
+                                disabled={deleting}
+                                className="px-1.5 py-0.5 rounded bg-err text-white text-[10px] font-semibold hover:opacity-90 disabled:opacity-50"
+                              >
+                                {deleting ? '...' : 'OK'}
+                              </button>
+                              <button
+                                onClick={() => setConfirmDeleteId(null)}
+                                className="p-0.5 rounded text-ink-3 hover:text-ink"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setConfirmDeleteId(p.id)}
+                              className="p-1 rounded text-ink-4 hover:text-err hover:bg-err-container/40 transition-colors"
+                              title="Eliminar prescoring"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </td>
                       </tr>
                     )
