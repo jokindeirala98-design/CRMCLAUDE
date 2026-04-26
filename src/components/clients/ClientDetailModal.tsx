@@ -16,7 +16,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import {
-  X, Copy, Pencil, Save, Loader2, Upload, FileText, Check,
+  X, Copy, Pencil, Save, Loader2, Upload, FileText, Check, ExternalLink,
   Building2, User as UserIcon, Mail, Phone, CreditCard, MapPin, Zap, AlertCircle,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -553,14 +553,26 @@ function FieldStatic({
 }
 
 function DocStatus({ label, url }: { label: string; url: string | null | undefined }) {
-  return (
+  const inner = (
     <div
-      className={`flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg ${
-        url ? 'bg-success/10 text-ok' : 'bg-bg-2 text-ink-3'
+      className={`flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg transition ${
+        url
+          ? 'bg-success/10 text-ok hover:bg-success/20 cursor-pointer'
+          : 'bg-bg-2 text-ink-3'
       }`}
     >
       {url ? <Check className="w-3 h-3" /> : <X className="w-3 h-3 opacity-50" />}
       <span className="font-medium">{label}</span>
+      {url && <ExternalLink className="w-2.5 h-2.5 opacity-60" />}
     </div>
   )
+
+  if (url) {
+    return (
+      <a href={url} target="_blank" rel="noopener noreferrer" title={`Ver ${label}`}>
+        {inner}
+      </a>
+    )
+  }
+  return inner
 }
