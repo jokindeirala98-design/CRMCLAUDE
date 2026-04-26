@@ -23,6 +23,10 @@
     "clsx": "^2.1.0",
     "tailwind-merge": "^2.3.0",
     "exceljs": "^4.4.0",
+    "fflate": "^0.8.2",
+    "htmlparser2": "^8.0.2",
+    "domhandler": "^5.0.3",
+    "domutils": "^3.2.2",
     "jszip": "^3.10.1",
     "sharp": "^0.33.0",
     "resend": "^3.2.0"
