@@ -1448,7 +1448,7 @@ ${page1}${page2}${page3}${page4}${page5}${page6}${page7}
 
 function openGasPDF(params: {
   supplyName: string; tariff: string
-  tableData: { mes: string; kwh: number; precioKwh: number; precioEstimated: boolean; terminoFijo: number; impuesto: number; alquiler: number; total: number; monthIndex: number }[]
+  tableData: { mes: string; tarifa: string; kwh: number; m3: number; factor: number; precioKwh: number; precioEstimated: boolean; terminoFijo: number; impuesto: number; alquiler: number; iva: number; total: number; monthIndex: number }[]
   summaryStats: { totalKwh: number; totalEur: number; avgPrice: number; adjustedCount: number }
   pieData: { label: string; value: number; color: string }[]
 }) {
@@ -1514,15 +1514,21 @@ function openGasPDF(params: {
 
   const gasRows = tableData.map(r =>
     `<tr>
-      <td>${r.mes}</td>
-      <td class="${r.precioEstimated ? 'est' : ''}">${Math.round(r.kwh).toLocaleString('es-ES')}</td>
-      <td class="${r.precioEstimated ? 'est' : ''}">${_pdfFmt(r.precioKwh, 4)}</td>
+      <td style="text-align:left">${r.mes}${r.kwh === 0 ? '' : (r.precioEstimated ? ' <span style="color:#facc15;font-size:7px">●</span>' : '')}</td>
+      <td style="text-align:center;color:#f97316">${r.tarifa || '—'}</td>
+      <td>${r.kwh > 0 ? Math.round(r.kwh).toLocaleString('es-ES') : '—'}</td>
+      <td>${r.m3 > 0 ? r.m3.toLocaleString('es-ES') : '—'}</td>
+      <td>${r.factor > 0 ? r.factor.toFixed(4) : '—'}</td>
+      <td class="${r.precioEstimated ? 'est' : ''}">${r.precioKwh > 0 ? _pdfFmt(r.precioKwh, 4) : '—'}</td>
       <td>${r.terminoFijo > 0 ? _pdfFmt(r.terminoFijo) : '—'}</td>
       <td>${r.impuesto > 0 ? _pdfFmt(r.impuesto) : '—'}</td>
       <td>${r.alquiler > 0 ? _pdfFmt(r.alquiler) : '—'}</td>
+      <td>${r.iva > 0 ? _pdfFmt(r.iva) : '—'}</td>
       <td style="font-weight:800">${_pdfFmt(r.total)}</td>
     </tr>`
   ).join('')
+
+  const totalIva = tableData.reduce((s, r) => s + r.iva, 0)
 
   const page4 = `<div class="page">
   <div class="eye" style="color:#f97316">DETALLE FACTURAS GAS</div>
@@ -1530,18 +1536,23 @@ function openGasPDF(params: {
   <div class="card"><table>
     <thead><tr>
       <th style="text-align:left">MES</th>
-      <th>kWh</th><th>€/kWh</th><th>T.Fijo</th><th>Imp.Hidroc.</th><th>Alquiler</th><th>TOTAL €</th>
+      <th style="text-align:center">TARIFA</th>
+      <th>kWh</th><th>m3</th><th>Factor</th><th>€/kWh</th>
+      <th>T.Fijo</th><th>Imp.Hidroc.</th><th>Alquiler</th><th>IVA</th><th>TOTAL €</th>
     </tr></thead>
     <tbody>${gasRows}</tbody>
     <tfoot><tr class="gas-tot">
-      <td>TOTAL</td>
+      <td style="text-align:left">TOTAL</td>
+      <td>—</td>
       <td>${Math.round(summaryStats.totalKwh).toLocaleString('es-ES')}</td>
+      <td>—</td><td>—</td>
       <td>${_pdfFmt(summaryStats.avgPrice, 4)}</td>
       <td>—</td><td>—</td><td>—</td>
+      <td>${totalIva > 0 ? _pdfFmt(totalIva) : '—'}</td>
       <td>${_pdfFmt(summaryStats.totalEur)}</td>
     </tr></tfoot>
   </table></div>
-  <p style="font-size:9px;color:#ca8a04;margin-top:8px">Valores en amarillo = precio estimado</p>
+  <p style="font-size:9px;color:rgba(255,255,255,0.4);margin-top:8px">● Precios en amarillo son estimados · m3 es informativo · ● Puntos amarillos indican facturas con ajustes/regularizaciones</p>
 </div>`
 
   const page5 = `<div class="page closing" style="background:#FBF7EE">
@@ -1774,15 +1785,19 @@ function GasReportView({ invoices, supplyName, onBack }: {
       totalAlquiler += alquiler; totalIva += iva
       if ((eco.descuentoEnergia || 0) > 0) adjustedCount++
 
+      const gc = (eco as any).gasConsumption as any
       return {
         id: inv.id, monthIndex: month,
         mes: year > 0 ? `${CANONICAL_MONTHS_FULL[month]?.toUpperCase() || '—'} ${year}` : '—',
-        tarifa: eco.tarifa || inv.extracted_data?.tariff || '—',
+        tarifa: (eco as any).tarifaRL || eco.tarifa || inv.extracted_data?.tariff || '—',
         kwh, costeBruto: eco.costeBrutoConsumo || 0,
         descuentoEnergia: eco.descuentoEnergia || 0,
         costeNeto: energyNet,
         precioKwh: eco.costeMedioKwhNeto || eco.costeMedioKwh || (gp.precioKwh) || (kwh > 0 ? energyNet / kwh : 0),
         precioEstimated: gp.precioKwhEstimated || false,
+        m3: gc?.m3 || 0,
+        factor: gc?.factorConversion || 0,
+        iva,
         terminoFijo, impuesto, alquiler, total: eur,
       }
     }).sort((a, b) => a.monthIndex - b.monthIndex)

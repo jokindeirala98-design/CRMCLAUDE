@@ -155,6 +155,145 @@ function detectMonthCols(ws: ExcelJS.Worksheet, rowMap: Map<string, ExcelJS.Row>
   return cols
 }
 
+// ── Gas sheet detection ───────────────────────────────────────────────────────
+// If ANY of these labels appears in column A, the sheet contains gas invoices.
+const GAS_LABEL_SET = new Set([
+  'impuesto sobre hidrocarburos',
+  'termino fijo total',
+  'termino fijo diario',
+  'consumo m3',
+  'tarifa rl',
+  'factor conversion',
+  'alquiler de contador',
+])
+
+function isGasSheet(rowMap: Map<string, ExcelJS.Row>): boolean {
+  return Array.from(rowMap.keys()).some(key => GAS_LABEL_SET.has(key))
+}
+
+// ── Gas invoice builder ───────────────────────────────────────────────────────
+function buildGasInvoices(
+  ws: ExcelJS.Worksheet,
+  rowMap: Map<string, ExcelJS.Row>,
+  monthCols: number[],
+  cups: string,
+  comercializadora: string,
+): any[] {
+  const invoices: any[] = []
+
+  for (const col of monthCols) {
+    // Dates
+    const rawStart = getRow(rowMap, 'Fecha Inicio')?.getCell(col).value
+    const rawEnd   = getRow(rowMap, 'Fecha Fin')?.getCell(col).value
+    let periodStart = parseDate(rawStart)
+    let periodEnd   = parseDate(rawEnd)
+    if (periodStart && !periodEnd) periodEnd = lastDayOfMonth(periodStart)
+    if (!periodStart) continue
+
+    // GasConsumption
+    const consumoKwh = cellNum(getRow(rowMap, 'TOTAL CONSUMO (kWh)'), col)
+    const consumoM3  = cellNum(getRow(rowMap, 'Consumo M3'), col)
+    const factorConversion = cellNum(getRow(rowMap, 'Factor Conversión'), col)
+                          || cellNum(getRow(rowMap, 'Factor Conversion'), col)
+    const lecturaAnterior  = cellNum(getRow(rowMap, 'Lectura Anterior'), col)
+    const lecturaActual    = cellNum(getRow(rowMap, 'Lectura Actual'), col)
+    const tipoLectura      = cellStr(getRow(rowMap, 'Tipo Lectura'), col) || undefined
+
+    // GasPricing
+    const precioKwh         = cellNum(getRow(rowMap, 'Precio kWh'), col)
+    const terminoFijoDiario = cellNum(getRow(rowMap, 'Término Fijo Diario'), col)
+                           || cellNum(getRow(rowMap, 'Termino Fijo Diario'), col)
+    const diasFacturados    = cellNum(getRow(rowMap, 'Días Facturados'), col)
+                           || cellNum(getRow(rowMap, 'Dias Facturados'), col)
+    const terminoFijoTotal  = cellNum(getRow(rowMap, 'Término Fijo Total'), col)
+                           || cellNum(getRow(rowMap, 'Termino Fijo Total'), col)
+    const impuestoHidrocarbTotal = cellNum(getRow(rowMap, 'Impuesto sobre Hidrocarburos'), col)
+    const alquilerTotal     = cellNum(getRow(rowMap, 'Alquiler de Contador'), col)
+    const ivaPct            = cellNum(getRow(rowMap, 'IVA %'), col) || 21
+    const ivaTotal          = cellNum(getRow(rowMap, 'IVA Total / IVA / IGIC (€)'), col)
+                           || cellNum(getRow(rowMap, 'IVA Total'), col)
+                           || cellNum(getRow(rowMap, 'IVA (€)'), col)
+    const descuentoTerminoFijo = cellNum(getRow(rowMap, 'Descuento Término Fijo'), col)
+                              || cellNum(getRow(rowMap, 'Descuento Termino Fijo'), col)
+    const descuentoOtros    = cellNum(getRow(rowMap, 'Descuento Otros'), col)
+
+    // Energy cost fields
+    const tarifaRL          = cellStr(getRow(rowMap, 'Tarifa RL'), col)
+    const costeBrutoConsumo = cellNum(getRow(rowMap, 'Coste Bruto Consumo'), col)
+    const descuentoEnergia  = cellNum(getRow(rowMap, 'Descuento Energía'), col)
+                           || cellNum(getRow(rowMap, 'Descuento Energia'), col)
+    const costeNetoConsumo  = cellNum(getRow(rowMap, 'Coste Neto Consumo'), col)
+    const costeTotalConsumo = cellNum(getRow(rowMap, 'TOTAL COSTE CONSUMO (€)'), col) || costeNetoConsumo
+    const totalFactura      = cellNum(getRow(rowMap, 'TOTAL FACTURA (€)'), col)
+
+    // Skip empty columns
+    if (consumoKwh === 0 && totalFactura === 0) continue
+
+    // Estimated price if not explicit
+    const precioKwhFinal = precioKwh || (consumoKwh > 0 && costeNetoConsumo > 0 ? costeNetoConsumo / consumoKwh : 0)
+    const precioKwhEstimated = precioKwh === 0 && precioKwhFinal > 0
+
+    const billingPeriod = (() => {
+      try { return new Date(periodStart!).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }).toLowerCase() }
+      catch { return periodStart! }
+    })()
+
+    invoices.push({
+      period_start: periodStart,
+      period_end:   periodEnd,
+      total_amount: totalFactura || null,
+      extracted_data: {
+        mode: 'excel_gas',
+        energyType: 'gas',
+        cups,
+        comercializadora,
+        tarifaRL: tarifaRL || undefined,
+        billing_period: billingPeriod,
+        total_amount: totalFactura ? String(totalFactura) : '',
+        economics: {
+          fechaInicio:  periodStart,
+          fechaFin:     periodEnd,
+          cups,
+          comercializadora,
+          tarifa:       tarifaRL || undefined,
+          supply_type:  'gas',
+          totalFactura,
+          consumoTotalKwh:    consumoKwh,
+          costeTotalConsumo,
+          costeBrutoConsumo:  costeBrutoConsumo || undefined,
+          descuentoEnergia:   descuentoEnergia || undefined,
+          costeNetoConsumo:   costeNetoConsumo || undefined,
+          costeMedioKwhNeto:  consumoKwh > 0 && costeNetoConsumo > 0 ? costeNetoConsumo / consumoKwh : undefined,
+          tarifaRL:           tarifaRL || undefined,
+          gasConsumption: {
+            kwh: consumoKwh,
+            m3:  consumoM3 || undefined,
+            factorConversion: factorConversion || undefined,
+            lecturaAnterior:  lecturaAnterior  || undefined,
+            lecturaActual:    lecturaActual    || undefined,
+            tipoLectura:      tipoLectura,
+          },
+          gasPricing: {
+            precioKwh:              precioKwhFinal,
+            precioKwhEstimated:     precioKwhEstimated,
+            terminoFijoDiario:      terminoFijoDiario || 0,
+            diasFacturados:         diasFacturados    || 0,
+            terminoFijoTotal:       terminoFijoTotal  || 0,
+            impuestoHidrocarbTotal: impuestoHidrocarbTotal || 0,
+            alquilerTotal:          alquilerTotal     || 0,
+            ivaPorcentaje:          ivaPct,
+            ivaTotal:               ivaTotal          || 0,
+            descuentoTerminoFijo:   descuentoTerminoFijo  || undefined,
+            descuentoOtros:         descuentoOtros        || undefined,
+          },
+        },
+      },
+    })
+  }
+
+  return invoices
+}
+
 // ── Main handler ──────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
@@ -169,6 +308,31 @@ export async function POST(req: NextRequest) {
     if (!ws) return NextResponse.json({ error: 'No worksheet found' }, { status: 400 })
 
     const rowMap = buildRowMap(ws)
+
+    // ── Gas detection: route to gas builder if this is a gas invoice sheet ────
+    if (isGasSheet(rowMap)) {
+      const gasCups = cellStr(getRow(rowMap, 'CUPS'), 2)
+      const gasComRow = getRow(rowMap, 'Compañia')
+                     ?? getRow(rowMap, 'Compania')
+                     ?? getRow(rowMap, 'Empresa')
+                     ?? getRow(rowMap, 'Comercializadora')
+                     ?? getRow(rowMap, 'Suministrador')
+      const gasComercializadora = cellStr(gasComRow, 2)
+      const gasTarifa = cellStr(getRow(rowMap, 'Tarifa RL'), 2)
+                     || cellStr(getRow(rowMap, 'Tarifa'), 2)
+      const gasMonthCols = detectMonthCols(ws, rowMap)
+      if (gasMonthCols.length === 0) {
+        return NextResponse.json({ error: 'No month columns detected in gas sheet' }, { status: 400 })
+      }
+      const gasInvoices = buildGasInvoices(ws, rowMap, gasMonthCols, gasCups, gasComercializadora)
+      return NextResponse.json({
+        cups: gasCups,
+        tariff: gasTarifa,
+        comercializadora: gasComercializadora,
+        energyType: 'gas',
+        invoices: gasInvoices,
+      })
+    }
 
     // ── Global fields ─────────────────────────────────────────────────────────
     const cups         = cellStr(getRow(rowMap, 'CUPS'), 2)
