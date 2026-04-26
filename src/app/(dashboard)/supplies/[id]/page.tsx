@@ -2037,6 +2037,7 @@ export default function SupplyDetailPage() {
             invoices={supply.invoices || []}
             potenciaContratada={supply.consumption_data?.potenciaContratada}
             consumoPeriodos={supply.consumption_data?.consumoPeriodos}
+            gasHistory={supply.consumption_data?.gasHistory}
             clientName={supply.client?.name || supply.cups || ''}
             onInvoicesUpdated={async () => {
               // Re-fetch supply data to update indicators

@@ -89,6 +89,12 @@ export interface InvoiceRow {
   } | null
 }
 
+interface GasHistoryPeriod {
+  fechaInicio: string
+  fechaFin: string
+  kwh: number
+}
+
 interface Props {
   invoices: InvoiceRow[]
   supplyId: string
@@ -101,6 +107,8 @@ interface Props {
   consumoPeriodos?: Record<string, number>
   /** Client/supply name for display */
   clientName?: string
+  /** Gas historical consumption from Excel import (gasHistory in consumption_data) */
+  gasHistory?: GasHistoryPeriod[]
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -1812,10 +1820,11 @@ ${page1}${page2}
 
 // ─── Gas Report View ────────────────────────────────────────────────────────
 
-function GasReportView({ invoices, supplyName, onBack }: {
+function GasReportView({ invoices, supplyName, onBack, gasHistory }: {
   invoices: InvoiceRow[]
   supplyName?: string
   onBack: () => void
+  gasHistory?: GasHistoryPeriod[]
 }) {
   const validInvoices = useMemo(() => invoices.filter(hasUsableData), [invoices])
 
@@ -1878,17 +1887,38 @@ function GasReportView({ invoices, supplyName, onBack }: {
     }
   }, [validInvoices])
 
-  // Build 12-month chart arrays from tableData (gas invoices)
+  // Build 12-month chart arrays from gasHistory (if available & richer) or tableData
   const gasChartKwh = useMemo(() => {
     const months = CANONICAL_MONTHS.map((label, i) => ({ label, totalKwh: 0, billsCount: 0, monthIndex: i }))
-    tableData.forEach(row => {
-      if (row.monthIndex >= 0 && row.monthIndex < 12) {
-        months[row.monthIndex].totalKwh += row.kwh
-        months[row.monthIndex].billsCount++
-      }
-    })
+
+    // Prefer gasHistory from SIPS/Excel import when it covers more months than invoices
+    const history = gasHistory && gasHistory.length > 0 ? gasHistory : null
+    const invoiceMonthCount = new Set(tableData.map(r => r.monthIndex)).size
+
+    if (history && history.length > invoiceMonthCount) {
+      // Take last 12 periods from history
+      const last12 = [...history]
+        .sort((a, b) => new Date(a.fechaInicio).getTime() - new Date(b.fechaInicio).getTime())
+        .slice(-12)
+      last12.forEach(p => {
+        // Assign to the calendar month of fechaFin (or fechaInicio if no fin)
+        const d = new Date(p.fechaFin || p.fechaInicio)
+        const monthIdx = isNaN(d.getTime()) ? -1 : d.getMonth()
+        if (monthIdx >= 0) {
+          months[monthIdx].totalKwh += p.kwh
+          months[monthIdx].billsCount++
+        }
+      })
+    } else {
+      tableData.forEach(row => {
+        if (row.monthIndex >= 0 && row.monthIndex < 12) {
+          months[row.monthIndex].totalKwh += row.kwh
+          months[row.monthIndex].billsCount++
+        }
+      })
+    }
     return months
-  }, [tableData])
+  }, [tableData, gasHistory])
 
   const gasChartEur = useMemo(() => {
     const months = CANONICAL_MONTHS.map((label, i) => ({ label, totalKwh: 0, billsCount: 0, monthIndex: i }))
@@ -3152,7 +3182,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated, supplyType: propSupplyType, potenciaContratada, consumoPeriodos, clientName }: Props) {
+export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated, supplyType: propSupplyType, potenciaContratada, consumoPeriodos, clientName, gasHistory }: Props) {
   const [view, setView] = useState<'tabla' | 'informe'>('tabla')
   const [busyRescan, setBusyRescan] = useState<string | null>(null)
   const [busyDelete, setBusyDelete] = useState<string | null>(null)
@@ -3269,7 +3299,7 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
 
   if (view === 'informe') {
     if (isGas) {
-      return <GasReportView invoices={invoices} supplyName={supplyName} onBack={() => setView('tabla')} />
+      return <GasReportView invoices={invoices} supplyName={supplyName} onBack={() => setView('tabla')} gasHistory={gasHistory} />
     }
     return <ReportView invoices={invoices} supplyName={supplyName || clientName} onBack={() => setView('tabla')} onInvoicesUpdated={onInvoicesUpdated} potenciaContratada={potenciaContratada} consumoPeriodos={consumoPeriodos} />
   }
