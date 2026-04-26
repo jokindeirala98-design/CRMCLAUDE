@@ -491,11 +491,46 @@ export async function POST(
       }, { status: 422 })
     }
 
+    // ── Merge results for the same CUPS from different files ──────────────────
+    // e.g. _39 (Maestro) gives annual totalKwh, _40 (Historial) gives gasHistory
+    // → merge: prefer highest totalKwh, union gasHistory, prefer non-empty fields
+    const mergedMap = new Map<string, GasParsedResult>()
+    for (const r of allResults) {
+      const key = r.cups.toUpperCase().replace(/\s/g, '')
+      const ex = mergedMap.get(key)
+      if (!ex) {
+        mergedMap.set(key, { ...r })
+      } else {
+        const combinedHistory = [...ex.gasHistory, ...r.gasHistory]
+          .sort((a, b) => new Date(a.fechaInicio).getTime() - new Date(b.fechaInicio).getTime())
+          .filter((p, i, arr) =>
+            arr.findIndex(x => x.fechaInicio === p.fechaInicio && x.fechaFin === p.fechaFin) === i
+          )
+        mergedMap.set(key, {
+          cups:          ex.cups,
+          nombre:        ex.nombre        || r.nombre,
+          address:       ex.address       || r.address,
+          tariff:        ex.tariff        || r.tariff,
+          distribuidora: ex.distribuidora || r.distribuidora,
+          totalKwh:      Math.max(ex.totalKwh, r.totalKwh),   // ← key fix
+          provincia:     ex.provincia     || r.provincia,
+          municipio:     ex.municipio     || r.municipio,
+          codigo_postal: ex.codigo_postal || r.codigo_postal,
+          caudal:        ex.caudal        || r.caudal,
+          presion:       ex.presion       || r.presion,
+          cnae:          ex.cnae          || r.cnae,
+          fecha_lectura: ex.fecha_lectura || r.fecha_lectura,
+          gasHistory:    combinedHistory,
+        })
+      }
+    }
+    const mergedResults = Array.from(mergedMap.values())
+
     // ── Match best result for this supply ─────────────────────────────────────
-    const matchedResult = allResults.find(
+    const matchedResult = mergedResults.find(
       r => r.cups.toUpperCase().replace(/\s/g, '') === supplyCupsNorm
     )
-    const best = matchedResult ?? allResults[0]
+    const best = matchedResult ?? mergedResults[0]
     const matchedByCups = !!matchedResult
 
     // ── Build consumption_data ────────────────────────────────────────────────
@@ -572,7 +607,7 @@ export async function POST(
 
     // ── Bulk update other gas supplies of the same client ─────────────────────
     // If the file has data for more CUPS than just this supply, update them all
-    const otherResults = allResults.filter(r => {
+    const otherResults = mergedResults.filter(r => {
       const norm = r.cups.toUpperCase().replace(/\s/g, '')
       return norm !== supplyCupsNorm && norm.length > 10
     })
@@ -672,7 +707,7 @@ export async function POST(
         cnae:           best.cnae,
         fecha_lectura:  best.fecha_lectura,
       },
-      rows_in_file:     allResults.length,
+      rows_in_file:     mergedResults.length,
       files_processed:  fileNames.length,
       matched_by_cups:  matchedByCups,
       consumption_data: newConsumptionData,

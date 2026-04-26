@@ -2089,6 +2089,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
   const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set())
   const [show2TDModal, setShow2TDModal] = useState(false)
   const [downloading2TD, setDownloading2TD] = useState<VoltisKey2TD | null>(null)
+  const [elecChartMode, setElecChartMode] = useState<'eur' | 'kwh'>('eur')
   const toggleReveal = (id: string) => setRevealedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
 
   const isAnnual = selectedMonths.size === 12
@@ -2399,7 +2400,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
             ════════════════════════════════════════════════════════════════ */}
         <motion.div id="scene-1" initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 1, ease: 'easeOut' }}
-          className="report-page flex flex-col items-center justify-center min-h-screen px-8">
+          className="report-page flex flex-col items-center justify-center min-h-[calc(100vh-64px)] px-8">
 
           <div className="text-center">
             <h1 className="text-7xl md:text-8xl font-black tracking-tight text-[#6B8068] mb-2"
@@ -2497,21 +2498,40 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
         <motion.div id="scene-3" initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.2 }} variants={sectionVariants}
           className="report-page px-8 py-12">
 
-          {/* Bar chart — Evolución */}
+          {/* Bar chart — Evolución (€ / kWh toggle) */}
           <div className="mb-12">
-            <p className="text-[#6B8068] text-xs tracking-[0.4em] mb-1">ANÁLISIS TEMPORAL</p>
-            <h3 className="text-3xl md:text-4xl font-black mb-4 text-[#2D3A33]">EVOLUCIÓN DEL GASTO MENSUAL</h3>
-            <div className="rounded-2xl p-6" style={glassStyle}>
-              <SVGBarChart data={chartData} />
+            <div className="flex items-end justify-between mb-4 flex-wrap gap-3">
+              <div>
+                <p className="text-[#6B8068] text-xs tracking-[0.4em] mb-1">ANÁLISIS TEMPORAL</p>
+                <h3 className="text-3xl md:text-4xl font-black text-[#2D3A33]">
+                  {elecChartMode === 'eur' ? 'EVOLUCIÓN DEL GASTO MENSUAL' : 'EVOLUCIÓN DEL CONSUMO (kWh)'}
+                </h3>
+              </div>
+              {/* Toggle */}
+              <div className="flex rounded-xl overflow-hidden border no-print" style={{ borderColor: '#E5DCC9' }}>
+                <button
+                  onClick={() => setElecChartMode('eur')}
+                  className="px-4 py-2 text-xs font-bold transition-all"
+                  style={{
+                    background: elecChartMode === 'eur' ? '#6B8068' : 'transparent',
+                    color: elecChartMode === 'eur' ? '#FBF7EE' : '#8A9A8E',
+                  }}
+                >€ Gasto</button>
+                <button
+                  onClick={() => setElecChartMode('kwh')}
+                  className="px-4 py-2 text-xs font-bold transition-all"
+                  style={{
+                    background: elecChartMode === 'kwh' ? '#6B8068' : 'transparent',
+                    color: elecChartMode === 'kwh' ? '#FBF7EE' : '#8A9A8E',
+                  }}
+                >kWh</button>
+              </div>
             </div>
-          </div>
-
-          {/* kWh chart — Consumo mensual */}
-          <div className="mt-8">
-            <p className="text-[#6B8068] text-xs tracking-[0.4em] mb-1">CONSUMO ENERGÉTICO</p>
-            <h3 className="text-3xl md:text-4xl font-black mb-4 text-[#2D3A33]">EVOLUCIÓN DEL CONSUMO (kWh)</h3>
             <div className="rounded-2xl p-6" style={glassStyle}>
-              <SVGBarChartKwh data={chartData} />
+              {elecChartMode === 'eur'
+                ? <SVGBarChart data={chartData} />
+                : <SVGBarChartKwh data={chartData} />
+              }
             </div>
           </div>
 
