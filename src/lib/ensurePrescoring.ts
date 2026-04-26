@@ -120,11 +120,16 @@ export async function ensurePendingPrescoring(
       client?.cif_nif ||
       null
 
+    // Determine client type:
+    //   "Ayuntamiento" — name starts with "Ayuntamiento de"
+    //   "Empresa"      — CIF/NIF starts with a letter (CIF format)
+    //   "Particular"   — everything else (NIF or no identifier)
+    const name = (clientName || '').trim().toLowerCase()
+    const idField = (cif || '').trim()
     const producto =
-      supply.type === 'luz' ? 'Electricidad' :
-      supply.type === 'gas' ? 'Gas' :
-      supply.type === 'telefonia' ? 'Telefonía' :
-      'Electricidad'
+      name.startsWith('ayuntamiento de') ? 'Ayuntamiento' :
+      (idField && /^[A-Za-z]/.test(idField)) ? 'Empresa' :
+      'Particular'
 
     // For gas: use totalKwh from Excel import (set by import-gas-excel route)
     // For electricity: use consumoPeriodos sum from SIPS, fallback to totalKwh / invoice data

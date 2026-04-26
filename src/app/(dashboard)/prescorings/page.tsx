@@ -38,7 +38,7 @@ const COLUMNS: Column[] = [
   { key: 'cups', label: 'CUPS', width: 'w-52', editable: true },
   { key: 'client_name', label: 'NOMBRE', width: 'w-44', editable: true },
   { key: 'cif', label: 'CIF', width: 'w-28', editable: true },
-  { key: 'producto', label: 'PRODUCTO', width: 'w-28', editable: true },
+  { key: 'producto', label: 'CLIENTE', width: 'w-28', editable: false, align: 'center' },
   { key: 'tariff', label: 'TARIFA', width: 'w-24', editable: true },
   { key: 'consumo_anual', label: 'CONSUMO', width: 'w-28', editable: true },
   { key: 'entidad', label: 'ENTIDAD', width: 'w-28', editable: true },
@@ -47,6 +47,27 @@ const COLUMNS: Column[] = [
   { key: 'direccion_fiscal', label: 'DIR. FISCAL', width: 'w-44', editable: true },
   { key: 'delete', label: '', width: 'w-10', editable: false, align: 'center' },
 ]
+
+// ---- CLIENT TYPE HELPER ----
+/**
+ * Determine the client category from name + identifier:
+ *   • "Ayuntamiento" — name starts with "ayuntamiento de" (case-insensitive)
+ *   • "Empresa"      — identifier is a CIF (first char is a letter)
+ *   • "Particular"   — anything else (NIF starts with a digit, or no id)
+ */
+function getClientType(clientName: string | null, cif: string | null): string {
+  const name = (clientName || '').trim().toLowerCase()
+  if (name.startsWith('ayuntamiento de')) return 'Ayuntamiento'
+  const id = (cif || '').trim()
+  if (id && /^[A-Za-z]/.test(id)) return 'Empresa'
+  return 'Particular'
+}
+
+const CLIENT_TYPE_STYLE: Record<string, string> = {
+  Ayuntamiento: 'bg-blue-50 text-blue-700 border-blue-200',
+  Empresa:      'bg-amber-50 text-amber-700 border-amber-200',
+  Particular:   'bg-emerald-50 text-emerald-700 border-emerald-200',
+}
 
 // ---- HELPERS ----
 function fmtDate(d: string | null) {
@@ -420,14 +441,14 @@ export default function PrescoringsPage() {
 
   // ---- EXPORT ----
   const exportCSV = (data: Prescoring[], label: string) => {
-    const headers = ['ESTADO', 'FECHA', 'CUPS', 'NOMBRE', 'CIF', 'PRODUCTO', 'TARIFA', 'CONSUMO', 'ENTIDAD', 'TELÉFONO', 'POBLACIÓN', 'DIR. FISCAL']
+    const headers = ['ESTADO', 'FECHA', 'CUPS', 'NOMBRE', 'CIF', 'CLIENTE', 'TARIFA', 'CONSUMO', 'ENTIDAD', 'TELÉFONO', 'POBLACIÓN', 'DIR. FISCAL']
     const rows = data.map(p => [
       p.status === 'sent' ? 'ENVIADO' : p.status === 'rejected' ? 'RECHAZADO' : 'PENDIENTE',
       fmtDate(p.requested_at),
       p.cups || '',
       p.client_name || '',
       p.cif || '',
-      p.producto || '',
+      getClientType(p.client_name, p.cif),
       p.tariff || '',
       p.consumo_anual || '',
       p.entidad || '',
@@ -724,8 +745,15 @@ export default function PrescoringsPage() {
                         <td className="w-28 px-0 py-0">
                           <EditableCell value={p.cif || ''} onChange={(v) => updateCell(p.id, 'cif', v)} editable={true} />
                         </td>
-                        <td className="w-28 px-0 py-0">
-                          <EditableCell value={p.producto || ''} onChange={(v) => updateCell(p.id, 'producto', v)} editable={true} />
+                        <td className="w-28 px-2 py-1.5 text-center">
+                          {(() => {
+                            const tipo = getClientType(p.client_name, p.cif)
+                            return (
+                              <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold border ${CLIENT_TYPE_STYLE[tipo] || ''}`}>
+                                {tipo}
+                              </span>
+                            )
+                          })()}
                         </td>
                         <td className="w-24 px-0 py-0">
                           <EditableCell value={p.tariff || ''} onChange={(v) => updateCell(p.id, 'tariff', v)} editable={true} />

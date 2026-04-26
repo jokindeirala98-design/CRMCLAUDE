@@ -71,6 +71,33 @@ export async function sendChatAction(chatId: number | string, action: string = '
   await tg('sendChatAction', { chat_id: chatId, action })
 }
 
+/* ─── Document sending ─────────────────────────────────────────────────────── */
+/**
+ * Send a file (Buffer) as a Telegram document.
+ * Uses multipart/form-data as required by the Telegram Bot API.
+ */
+export async function sendDocument(
+  chatId: number | string,
+  fileBuffer: Buffer,
+  fileName: string,
+  caption?: string,
+): Promise<any> {
+  const form = new FormData()
+  form.append('chat_id', String(chatId))
+  form.append('document', new Blob([new Uint8Array(fileBuffer)]), fileName)
+  if (caption) {
+    form.append('caption', caption)
+    form.append('parse_mode', 'HTML')
+  }
+  const res = await fetch(`${API}${token()}/sendDocument`, { method: 'POST', body: form })
+  const data = await res.json()
+  if (!data.ok) {
+    console.error(`[Telegram] sendDocument failed:`, data)
+    throw new Error(data.description || 'Telegram sendDocument error')
+  }
+  return data.result
+}
+
 /* ─── File handling ────────────────────────────────────────────────────────── */
 export async function getFileUrl(fileId: string): Promise<string> {
   const file = await tg('getFile', { file_id: fileId })

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
   sendMessage, editMessage, answerCallback, sendChatAction,
-  downloadFile, inlineKeyboard, button, createBotSupabase,
+  downloadFile, sendDocument, inlineKeyboard, button, createBotSupabase,
 } from '@/lib/telegram'
 import { processTelegramInboxItem } from '@/lib/telegram-process'
 import { analyzeDocument } from '@/lib/gemini'
@@ -853,7 +853,7 @@ async function processAndNotify(
           `<a href="${appUrl}/supplies/${result.supply_id}">Ver suministro →</a>`
         ).catch(() => {})
 
-        // ── Comparativa link for 2.0TD electricity invoices ───────────────────
+        // ── Auto-send comparativa Excel files for 2.0TD electricity invoices ──
         // Detect tariff from analyzed doc (already extracted by Gemini)
         const invoiceTariff = (
           analyzed.tariff ||
@@ -864,12 +864,109 @@ async function processAndNotify(
         const is2TD = /^2\.?0?TD/i.test(invoiceTariff) || invoiceTariff === '2TD'
 
         if (is2TD && result.supply_id) {
-          const comparativaUrl = `${appUrl}/supplies/${result.supply_id}?tab=economics&view=informe`
-          sendMessage(chatId,
-            `📊 <b>Comparativa de ahorro disponible</b>\n\n` +
-            `Esta factura es <b>tarifa 2.0TD</b>. Puedes ver las 3 opciones de tarifa Voltis y descargar la comparativa en PDF desde:\n\n` +
-            `<a href="${comparativaUrl}">📋 Ver comparativa de ahorro →</a>`
-          ).catch(() => {})
+          // Fire-and-forget: generate and send 3 Excel comparativas via bot
+          ;(async () => {
+            try {
+              const supabase2td = createBotSupabase()
+              // Fetch supply SIPS data for consumo/potencia
+              const { data: supplyData } = await supabase2td
+                .from('supplies')
+                .select('consumption_data, cups')
+                .eq('id', result.supply_id!)
+                .single()
+              const cd = supplyData?.consumption_data as any
+              const cp = cd?.consumoPeriodos || {}
+              const pp = cd?.potenciaContratada || {}
+
+              const consumoP1 = Number(cp.P1) || 0
+              const consumoP2 = Number(cp.P2) || 0
+              const consumoP3 = Number(cp.P3) || 0
+              if (!consumoP1 && !consumoP2 && !consumoP3) {
+                // No SIPS data yet — skip comparativa
+                return
+              }
+
+              // Potencia: for 2.0TD SIPS may store valle in P3 instead of P2
+              const rawPP1 = Number(pp.P1) || 0
+              const rawPP2 = Number(pp.P2) || 0
+              const rawPP3 = Number(pp.P3) || 0
+              const potenciaP1 = rawPP1
+              const potenciaP2 = rawPP2 > 0 ? rawPP2 : rawPP3 > 0 ? rawPP3 : rawPP1
+
+              // Current energy price from invoice (€/kWh avg)
+              const eco = analyzed.economics as any
+              const currentEnergyPrice =
+                Number(eco?.costeMedioKwhNeto) ||
+                Number(eco?.costeMedioKwh) ||
+                (() => {
+                  const tkwh = Number(eco?.consumoTotalKwh) || 0
+                  const ten = Number(eco?.costeTotalConsumo) || Number(eco?.costeNetoConsumo) || 0
+                  return tkwh > 0 ? ten / tkwh : 0
+                })()
+
+              // Current power prices from invoice (€/kW·día per period)
+              const potArr: any[] = eco?.potencia || []
+              const potPrices: Record<string, number> = {}
+              for (const item of potArr) {
+                const rawP = String(item.periodo || '').trim()
+                const match = rawP.match(/(?:P|[Pp]er[íi]odo\s*)?([1-6])$/i)
+                const p = match ? `P${match[1]}` : rawP.toUpperCase()
+                if (!['P1','P2','P3'].includes(p)) continue
+                let price = Number(item.precioKwDia) || Number(item.precioKw) || Number(item.precioUnitario) || 0
+                if (!price && Number(item.kw) > 0 && Number(item.dias) > 0 && Number(item.total) > 0) {
+                  price = Number(item.total) / (Number(item.kw) * Number(item.dias))
+                }
+                if (price > 0 && price < 5) potPrices[p] = price
+              }
+              const currentPowerP1 = potPrices.P1 || 0
+              const currentPowerP2 = potPrices.P2 > 0 ? potPrices.P2 : (potPrices.P3 > 0 ? potPrices.P3 : potPrices.P1 || 0)
+
+              await sendMessage(chatId,
+                `📊 <b>Tarifa 2.0TD detectada</b>\n\n` +
+                `Generando comparativa de ahorro Voltis con las 3 opciones de tarifa...`
+              )
+
+              const tariffKeys = ['tramos', '24h', 'mercado'] as const
+              const tariffLabels: Record<string, string> = {
+                tramos: '⏰ Tramos Horarios',
+                '24h': '☀️ Precio Fijo 24h',
+                mercado: '📈 Precio Mercado',
+              }
+
+              for (const tariffKey of tariffKeys) {
+                try {
+                  const res = await fetch(`${appUrl}/api/comparativa-2td`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      titular: clientName,
+                      cups: result.cups || supplyData?.cups || '',
+                      tariffKey,
+                      consumoP1, consumoP2, consumoP3,
+                      potenciaP1, potenciaP2,
+                      currentEnergyPrice,
+                      currentPowerP1,
+                      currentPowerP2,
+                    }),
+                  })
+                  if (!res.ok) throw new Error(`API error ${res.status}`)
+                  const arrayBuf = await res.arrayBuffer()
+                  const buf = Buffer.from(arrayBuf)
+                  const fileName = `Comparativa_Voltis_${tariffKey}_${(clientName || 'cliente').replace(/\s+/g, '_')}.xlsx`
+                  await sendDocument(
+                    chatId,
+                    buf,
+                    fileName,
+                    `${tariffLabels[tariffKey]} — comparativa ahorro Voltis 2.0TD`,
+                  )
+                } catch (excelErr: any) {
+                  console.error(`[Telegram] 2TD comparativa ${tariffKey} error:`, excelErr.message)
+                }
+              }
+            } catch (comp2tdErr: any) {
+              console.error('[Telegram] 2TD comparativa block error:', comp2tdErr.message)
+            }
+          })()
         }
       } catch {
         sendMessage(chatId, `✅ Factura procesada → ${result.cups || 'sin CUPS'}`).catch(() => {})

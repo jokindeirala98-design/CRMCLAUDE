@@ -40,7 +40,7 @@ export default function ConsumptionTable({ rows, onRowUpdated, onRowDeleted }: P
     .filter(r => {
       if (search) {
         const q = search.toLowerCase()
-        if (!r.cups?.toLowerCase().includes(q) && !r.address?.toLowerCase().includes(q) && !r.comercializadora?.toLowerCase().includes(q)) return false
+        if (!r.cups?.toLowerCase().includes(q) && !r.address?.toLowerCase().includes(q) && !r.comercializadora?.toLowerCase().includes(q) && !r.name?.toLowerCase().includes(q)) return false
       }
       if (filterTariff !== 'all' && r.tariff !== filterTariff) return false
       if (filterType !== 'all' && r.supply_type !== filterType) return false
@@ -137,7 +137,7 @@ export default function ConsumptionTable({ rows, onRowUpdated, onRowDeleted }: P
           <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-3" />
           <input
             type="text"
-            placeholder="Buscar CUPS, direccion, comercializadora..."
+            placeholder="Buscar CUPS, nombre, dirección, comercializadora..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="w-full pl-8 pr-3 py-1.5 text-xs bg-bg-2 rounded-lg border border-line-2-variant/20 outline-none focus:border-brand"
