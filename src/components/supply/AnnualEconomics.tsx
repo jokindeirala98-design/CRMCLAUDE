@@ -2118,6 +2118,9 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [selectedMonths, setSelectedMonths] = useState<Set<number>>(new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]))
+  const [dragAnchor, setDragAnchor] = useState<number | null>(null)
+  const [kbAnchor, setKbAnchor] = useState<number | null>(null)
+  const kbTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [showAvgPriceModal, setShowAvgPriceModal] = useState(false)
   const [selectedBillId, setSelectedBillId] = useState<string | null>(null)         // Modal 1: Bill breakdown (Matrix 3)
   const [selectedPriceBillId, setSelectedPriceBillId] = useState<string | null>(null) // Modal 2: Price calc (Matrix 2)
@@ -2139,6 +2142,78 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
   }
 
   const selectAllMonths = () => setSelectedMonths(new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]))
+
+  // ── Drag-to-select range on month buttons ─────────────────────────────────
+  const applyRange = (a: number, b: number) => {
+    const lo = Math.min(a, b); const hi = Math.max(a, b)
+    setSelectedMonths(new Set(Array.from({ length: hi - lo + 1 }, (_, k) => lo + k)))
+  }
+
+  const handleMonthMouseDown = (i: number, e: React.MouseEvent) => {
+    e.preventDefault()           // prevent text selection during drag
+    setDragAnchor(i)
+    setSelectedMonths(new Set([i]))
+  }
+
+  const handleMonthMouseEnter = (i: number) => {
+    if (dragAnchor === null) return
+    applyRange(dragAnchor, i)
+  }
+
+  // End drag on mouseup anywhere (including outside buttons)
+  useEffect(() => {
+    const onUp = () => setDragAnchor(null)
+    window.addEventListener('mouseup', onUp)
+    return () => window.removeEventListener('mouseup', onUp)
+  }, [])
+
+  // Keyboard range selection: press a number key to set anchor, keep pressing to extend range.
+  // Keys 1–9 → months 1–9 (indices 0–8) · Key 0 → month 10 (index 9)
+  // Example: press 5, then 4 3 2 1 → selects months 1–5
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+      const digit = parseInt(e.key, 10)
+      if (isNaN(digit)) { // non-digit → clear kb anchor
+        if (e.key !== 'Escape') { setKbAnchor(null); if (kbTimerRef.current) clearTimeout(kbTimerRef.current) }
+        return
+      }
+      const idx = digit === 0 ? 9 : digit - 1   // 1→0, …, 9→8, 0→9
+      if (idx < 0 || idx > 11) return
+      if (kbTimerRef.current) clearTimeout(kbTimerRef.current)
+      setKbAnchor(prev => {
+        if (prev === null) {
+          setSelectedMonths(new Set([idx]))
+          return idx
+        }
+        const lo = Math.min(prev, idx); const hi = Math.max(prev, idx)
+        setSelectedMonths(new Set(Array.from({ length: hi - lo + 1 }, (_, k) => lo + k)))
+        return prev   // keep anchor fixed at first key pressed
+      })
+      // Auto-clear anchor after 1.5 s of inactivity
+      kbTimerRef.current = setTimeout(() => setKbAnchor(null), 1500)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => { window.removeEventListener('keydown', onKey); if (kbTimerRef.current) clearTimeout(kbTimerRef.current) }
+  }, [])
+
+  // Touch support: find which button is under the finger and extend the range
+  const handleMonthTouchStart = (i: number, e: React.TouchEvent) => {
+    e.preventDefault()
+    setDragAnchor(i)
+    setSelectedMonths(new Set([i]))
+  }
+
+  const handleMonthTouchMove = (e: React.TouchEvent) => {
+    if (dragAnchor === null) return
+    const touch = e.touches[0]
+    const el = document.elementFromPoint(touch.clientX, touch.clientY)
+    const btn = el?.closest('[data-month-idx]') as HTMLElement | null
+    if (!btn) return
+    const idx = parseInt(btn.dataset.monthIdx ?? '', 10)
+    if (!isNaN(idx)) applyRange(dragAnchor, idx)
+  }
 
   // Invoices with usable data vs without
   const validInvoices = useMemo(() => invoices.filter(hasUsableData), [invoices])
@@ -2417,8 +2492,19 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
             const isSelected = selectedMonths.has(i)
             const hasData = monthsWithData.has(i)
             return (
-              <button key={i} onClick={() => toggleMonth(i)}
-                className={`w-9 h-9 rounded-xl text-xs font-medium transition ${
+              <button
+                key={i}
+                data-month-idx={i}
+                onMouseDown={(e) => handleMonthMouseDown(i, e)}
+                onMouseEnter={() => handleMonthMouseEnter(i)}
+                onTouchStart={(e) => handleMonthTouchStart(i, e)}
+                onTouchMove={handleMonthTouchMove}
+                onTouchEnd={() => setDragAnchor(null)}
+                style={{ userSelect: 'none', WebkitUserSelect: 'none' }}
+                className={`w-9 h-9 rounded-xl text-xs font-medium transition select-none ${
+                  dragAnchor !== null && isSelected
+                    ? 'scale-110 ring-2 ring-[#6B8068]/60' : ''
+                } ${
                   isSelected && hasData ? 'bg-[#6B8068] text-[#FBF7EE] shadow-lg shadow-salvia/20' :
                   isSelected && !hasData ? 'bg-[#EDE8DC] text-[#8A9A8E]' :
                   hasData ? 'bg-[#E0E8DC] text-[#6B8068] hover:bg-[#D0DCC8] border border-[#6B8068]/30' :
