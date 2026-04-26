@@ -101,6 +101,7 @@ interface GasParsedResult {
   cnae: string
   fecha_lectura: string
   gasHistory: PeriodEntry[] // chronological periods
+  sourceFormat: 'maestro' | 'historial'  // which parser produced this result
 }
 
 // ── Format A: Maestro de suministros (_39 style) ──────────────────────────────
@@ -194,6 +195,7 @@ function parseMaestroGrid(grid: string[][], headerIdx: number): GasParsedResult[
       cnae: get('cnae'),
       fecha_lectura: get('fecha_lectura'),
       gasHistory: [],
+      sourceFormat: 'maestro' as const,
     })
   }
   return results
@@ -316,6 +318,7 @@ function parseHistGrid(grid: string[][], headerIdx: number): GasParsedResult[] {
         fechaFin: p.fechaFin,
         kwh: p.kwh,
       })),
+      sourceFormat: 'historial' as const,
     })
   }
   return results
@@ -512,13 +515,23 @@ export async function POST(
           .filter((p, i, arr) =>
             arr.findIndex(x => x.fechaInicio === p.fechaInicio && x.fechaFin === p.fechaFin) === i
           )
+        // Prefer Maestro's ConsumoAnual (explicit, authoritative) over Historial's
+        // calculated annual (which can be wrong if dates/units are off).
+        // If one is Maestro and the other Historial, use Maestro's totalKwh.
+        // If both are the same format, fall back to the higher value.
+        const maestro = ex.sourceFormat === 'maestro' ? ex : r.sourceFormat === 'maestro' ? r : null
+        const historial = ex.sourceFormat === 'historial' ? ex : r.sourceFormat === 'historial' ? r : null
+        const bestTotalKwh = maestro && maestro.totalKwh > 0
+          ? maestro.totalKwh
+          : Math.max(ex.totalKwh, r.totalKwh)
+
         mergedMap.set(key, {
           cups:          ex.cups,
           nombre:        ex.nombre        || r.nombre,
           address:       ex.address       || r.address,
           tariff:        ex.tariff        || r.tariff,
           distribuidora: ex.distribuidora || r.distribuidora,
-          totalKwh:      Math.max(ex.totalKwh, r.totalKwh),   // ← key fix
+          totalKwh:      bestTotalKwh,
           provincia:     ex.provincia     || r.provincia,
           municipio:     ex.municipio     || r.municipio,
           codigo_postal: ex.codigo_postal || r.codigo_postal,
@@ -527,6 +540,7 @@ export async function POST(
           cnae:          ex.cnae          || r.cnae,
           fecha_lectura: ex.fecha_lectura || r.fecha_lectura,
           gasHistory:    combinedHistory,
+          sourceFormat:  maestro ? 'maestro' : historial ? 'historial' : ex.sourceFormat,
         })
       }
     }
