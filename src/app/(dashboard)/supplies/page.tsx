@@ -23,10 +23,23 @@ function formatTariff(raw: string | null | undefined): string {
     '6.2': '6.2TD', '62TD': '6.2TD', '62': '6.2TD',
     '6.3': '6.3TD', '63TD': '6.3TD', '63': '6.3TD',
     '6.4': '6.4TD', '64TD': '6.4TD', '64': '6.4TD',
+    'RL04': 'RL04', 'RL4': 'RL04',
     'RL.1': 'RL.1', 'RL1': 'RL.1',
     'RL.2': 'RL.2', 'RL2': 'RL.2',
   }
   return tariffMap[s] || raw
+}
+
+/** Sort priority for tariffs: higher number = shown first within electricity/gas group */
+function tariffSortKey(tariff: string): number {
+  if (tariff.startsWith('6.4')) return 60
+  if (tariff.startsWith('6.3')) return 59
+  if (tariff.startsWith('6.2')) return 58
+  if (tariff.startsWith('6.1')) return 57
+  if (tariff.startsWith('6'))   return 56
+  if (tariff.startsWith('3.0')) return 40
+  if (tariff.startsWith('2.0')) return 20
+  return 0
 }
 
 function fmtKwh(n: number | undefined): string {
@@ -71,10 +84,41 @@ function SuppliesModal({
 }) {
   const router = useRouter()
   const panelRef = useRef<HTMLDivElement>(null)
+  const [tariffFilter, setTariffFilter] = useState('')
 
-  // Close on Escape
+  // Sort: electricity first (by tariff desc), then gas (by tariff desc)
+  const sortedSupplies = [...group.supplies].sort((a, b) => {
+    const aGas = a.type === 'gas' ? 1 : 0
+    const bGas = b.type === 'gas' ? 1 : 0
+    if (aGas !== bGas) return aGas - bGas
+    const aTariff = formatTariff(a.tariff)
+    const bTariff = formatTariff(b.tariff)
+    return tariffSortKey(bTariff) - tariffSortKey(aTariff)
+  })
+
+  // Apply tariff filter (user typed prefix)
+  const visibleSupplies = tariffFilter
+    ? sortedSupplies.filter(s => {
+        const t = formatTariff(s.tariff).replace(/\s+/g, '').toUpperCase()
+        const f = tariffFilter.toUpperCase()
+        return t.startsWith(f)
+      })
+    : sortedSupplies
+
+  // Keyboard: type to filter tariff, Backspace to clear, Escape to close
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { onClose(); return }
+      // Don't capture if user is typing in an input/textarea
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.key === 'Backspace') {
+        setTariffFilter(prev => prev.slice(0, -1))
+        return
+      }
+      if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
+        setTariffFilter(prev => prev + e.key)
+      }
+    }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
@@ -110,86 +154,116 @@ function SuppliesModal({
           <div>
             <h2 className="text-base font-bold text-ink">{group.clientName}</h2>
             <p className="text-xs text-ink-3 mt-0.5">
-              {group.supplies.length} suministros
+              {visibleSupplies.length !== group.supplies.length
+                ? `${visibleSupplies.length} de ${group.supplies.length} suministros`
+                : `${group.supplies.length} suministros`}
               {group.clientCif && ` · ${group.clientCif}`}
               {group.totalKwh > 0 && ` · ${fmtKwh(group.totalKwh)} total`}
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-xl hover:bg-bg-2 text-ink-3 hover:text-ink transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Tariff filter indicator */}
+            {tariffFilter && (
+              <button
+                onClick={() => setTariffFilter('')}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-brand/10 text-brand text-xs font-mono font-semibold hover:bg-brand/20 transition-colors"
+              >
+                {tariffFilter.toUpperCase()}
+                <X className="w-3 h-3" />
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="p-2 rounded-xl hover:bg-bg-2 text-ink-3 hover:text-ink transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Cards grid */}
         <div className="overflow-y-auto p-4 scrollbar-thin">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {group.supplies.map((supply) => {
-              const kwh = consumptionMap[supply.id]
-              const tariff = formatTariff(supply.tariff)
-              const isGas = supply.type === 'gas'
+          {visibleSupplies.length === 0 ? (
+            <div className="text-center py-12 text-ink-3 text-sm">
+              No hay suministros con tarifa <span className="font-mono font-semibold">{tariffFilter.toUpperCase()}</span>
+              <button onClick={() => setTariffFilter('')} className="block mx-auto mt-2 text-brand text-xs underline">
+                Limpiar filtro
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {visibleSupplies.map((supply) => {
+                const kwh = consumptionMap[supply.id]
+                const tariff = formatTariff(supply.tariff)
+                const isGas = supply.type === 'gas'
 
-              return (
-                <button
-                  key={supply.id}
-                  onClick={() => handleCardClick(supply.id)}
-                  className="group text-left bg-card border border-line rounded-xl p-4 hover:border-brand/40 hover:shadow-ambient-md transition-all duration-150 hover:-translate-y-0.5 active:scale-[0.98]"
-                >
-                  {/* Type icon + tariff */}
-                  <div className="flex items-start justify-between gap-2 mb-3">
-                    <div className={cn(
-                      'w-8 h-8 rounded-lg flex items-center justify-center shrink-0',
-                      isGas ? 'bg-warn-container/40' : 'bg-info-container/40'
-                    )}>
-                      <Zap className={cn('w-4 h-4', isGas ? 'text-warn' : 'text-info')} />
+                return (
+                  <button
+                    key={supply.id}
+                    onClick={() => handleCardClick(supply.id)}
+                    className="group text-left bg-card border border-line rounded-xl p-4 hover:border-brand/40 hover:shadow-ambient-md transition-all duration-150 hover:-translate-y-0.5 active:scale-[0.98]"
+                  >
+                    {/* Type icon + tariff */}
+                    <div className="flex items-start justify-between gap-2 mb-3">
+                      <div className={cn(
+                        'w-8 h-8 rounded-lg flex items-center justify-center shrink-0',
+                        isGas ? 'bg-warn-container/40' : 'bg-info-container/40'
+                      )}>
+                        <Zap className={cn('w-4 h-4', isGas ? 'text-warn' : 'text-info')} />
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                        {tariff !== '-' && <Badge variant="info">{tariff}</Badge>}
+                        <StatusBadge status={supply.status ?? ''} />
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                      {tariff !== '-' && <Badge variant="info">{tariff}</Badge>}
-                      <StatusBadge status={supply.status ?? ''} />
+
+                    {/* CUPS */}
+                    <p className="font-mono text-[11px] text-ink-3 truncate mb-1">
+                      {supply.cups || 'Sin CUPS'}
+                    </p>
+
+                    {/* Alias / name */}
+                    {supply.name && (
+                      <p className="text-sm font-semibold text-ink truncate mb-1">{supply.name}</p>
+                    )}
+
+                    {/* Address */}
+                    {supply.address && (
+                      <div className="flex items-center gap-1 mt-1">
+                        <MapPin className="w-3 h-3 text-ink-3 shrink-0" />
+                        <p className="text-xs text-ink-3 truncate">{supply.address}</p>
+                      </div>
+                    )}
+
+                    {/* Consumption */}
+                    <div className="flex items-center justify-between mt-3 pt-3 border-t border-line">
+                      <span className="text-xs text-ink-3">Consumo anual</span>
+                      <span className={cn(
+                        'text-xs font-semibold',
+                        kwh ? 'text-ink' : 'text-ink-3'
+                      )}>
+                        {kwh ? fmtKwh(kwh) : '—'}
+                      </span>
                     </div>
-                  </div>
 
-                  {/* CUPS */}
-                  <p className="font-mono text-[11px] text-ink-3 truncate mb-1">
-                    {supply.cups || 'Sin CUPS'}
-                  </p>
-
-                  {/* Alias / name */}
-                  {supply.name && (
-                    <p className="text-sm font-semibold text-ink truncate mb-1">{supply.name}</p>
-                  )}
-
-                  {/* Address */}
-                  {supply.address && (
-                    <div className="flex items-center gap-1 mt-1">
-                      <MapPin className="w-3 h-3 text-ink-3 shrink-0" />
-                      <p className="text-xs text-ink-3 truncate">{supply.address}</p>
+                    {/* Arrow hint on hover */}
+                    <div className="flex items-center gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <span className="text-[10px] text-brand font-medium">Ver suministro</span>
+                      <ChevronRight className="w-3 h-3 text-brand" />
                     </div>
-                  )}
-
-                  {/* Consumption */}
-                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-line">
-                    <span className="text-xs text-ink-3">Consumo anual</span>
-                    <span className={cn(
-                      'text-xs font-semibold',
-                      kwh ? 'text-ink' : 'text-ink-3'
-                    )}>
-                      {kwh ? fmtKwh(kwh) : '—'}
-                    </span>
-                  </div>
-
-                  {/* Arrow hint on hover */}
-                  <div className="flex items-center gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <span className="text-[10px] text-brand font-medium">Ver suministro</span>
-                    <ChevronRight className="w-3 h-3 text-brand" />
-                  </div>
-                </button>
-              )
-            })}
-          </div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </div>
+
+        {/* Footer hint */}
+        {!tariffFilter && (
+          <div className="px-6 py-2 border-t border-line shrink-0 flex items-center justify-between">
+            <span className="text-[10px] text-ink-3">Pulsa una tecla para filtrar por tarifa · Borrar para limpiar · Esc para cerrar</span>
+          </div>
+        )}
       </motion.div>
     </div>
   )
