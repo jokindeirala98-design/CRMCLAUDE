@@ -272,8 +272,12 @@ function parseAdxResponse(cups: string, data: any): SipsData {
     )
 
     result.consumptionHistory = sorted.map((entry: any) => {
-      const p1 = entry.Consumo_kWh_P1 || 0
-      const p2 = entry.Consumo_kWh_P2 || 0
+      // Gas readings come in Wh from some distributors — detect and convert
+      const rawP1 = Number(entry.Consumo_kWh_P1 ?? entry.ConsumoEnWh ?? 0)
+      const rawP2 = Number(entry.Consumo_kWh_P2 ?? 0)
+      // If values look like Wh (>500,000 for annual-scale), divide by 1000
+      const p1 = rawP1 > 500_000 ? Math.round(rawP1 / 1000) : rawP1
+      const p2 = rawP2 > 500_000 ? Math.round(rawP2 / 1000) : rawP2
       return {
         fecha: entry.Fec_Fin_consumo || entry.Fec_Fin_Consumo || '',
         fechaInicio: entry.Fec_Ini_Consumo || '',
@@ -283,26 +287,45 @@ function parseAdxResponse(cups: string, data: any): SipsData {
       }
     })
 
-    // Use pre-calculated kWhAnual if available, otherwise sum last 12
-    const kWhAnual = suministro?.kWhAnual || suministro?.kWhAnual_p1 || 0
+    // ── Annual consumption: try every possible field name from ADX/distributor ──
+    // ConsumoAnual comes from the _39 SIPS export (already in kWh)
+    // kWhAnual / kWhAnual_p1 are ADX-internal fields
+    const rawAnual =
+      suministro?.ConsumoAnual   ||   // NEDGIA / distributor SIPS field (kWh)
+      suministro?.Consumo_Anual  ||
+      suministro?.consumoAnual   ||
+      suministro?.kWhAnual       ||
+      suministro?.kWhAnual_p1    ||
+      0
+    // The field could be Wh if very large — normalise
+    const kWhAnual = rawAnual > 500_000 ? Math.round(Number(rawAnual) / 1000) : Number(rawAnual)
 
     if (kWhAnual > 0) {
       result.totalConsumptionKwh = kWhAnual
       result.totalConsumption = `${Math.round(kWhAnual).toLocaleString('es-ES')} kWh`
-      dbg(`consumo_anual=${kWhAnual} (pre-calculated)`)
+      dbg(`consumo_anual=${kWhAnual} (pre-calculated from suministro)`)
     } else {
-      // Fallback: sum last 12 entries
-      const last12 = result.consumptionHistory.slice(-12)
-      const total = last12.reduce((s, e) => s + e.total, 0)
-      result.totalConsumptionKwh = Math.round(total)
-      result.totalConsumption = `${Math.round(total).toLocaleString('es-ES')} kWh`
-      dbg(`consumo_anual=${total} (sum last 12)`)
+      // Fallback: sum ALL history entries (gas periods can be bi-monthly,
+      // so "last 12 entries" may only cover 6–8 months — sum all and scale to 12 months)
+      const allTotal = result.consumptionHistory.reduce((s: number, e: any) => s + e.total, 0)
+      // Approximate annual by scaling to 365 days if we have date coverage
+      const firstDate = result.consumptionHistory[0]?.fechaInicio
+      const lastDate  = result.consumptionHistory[result.consumptionHistory.length - 1]?.fechaFin
+      let annualEst = allTotal
+      if (firstDate && lastDate) {
+        const daysCovered = Math.round((new Date(lastDate).getTime() - new Date(firstDate).getTime()) / 86400000) + 1
+        if (daysCovered > 60 && daysCovered < 730) {
+          annualEst = Math.round(allTotal * 365 / daysCovered)
+        }
+      }
+      result.totalConsumptionKwh = Math.round(annualEst)
+      result.totalConsumption = `${Math.round(annualEst).toLocaleString('es-ES')} kWh`
+      dbg(`consumo_anual=${annualEst} (estimated from ${result.consumptionHistory.length} lecturas)`)
     }
 
-    result.consumoPeriodos = {
-      P1: result.totalConsumptionKwh,
-      P2: 0, P3: 0, P4: 0, P5: 0, P6: 0,
-    }
+    // Gas has no P1–P6 breakdown — store total as a clean single value
+    // consumoPeriodos is NOT set for gas to avoid P1 label in electricity-style displays
+    result.consumoPeriodos = undefined as any
   } else {
     result.consumptionHistory = []
     result.totalConsumptionKwh = 0
