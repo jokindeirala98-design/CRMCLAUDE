@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { X, Upload, FileText, AlertTriangle } from 'lucide-react'
+import { X, Upload, FileText, AlertTriangle, ExternalLink } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
@@ -59,7 +59,7 @@ export function NewContractModal({ open, onClose, onCreated, preselectedClientId
     const fetchData = async () => {
       const supabase = createClient()
       const [clientsRes, comercRes] = await Promise.all([
-        supabase.from('clients').select('id, name, type, cif_nif, email, phone, iban, fiscal_address').order('name'),
+        supabase.from('clients').select('id, name, type, cif_nif, email, phone, iban, fiscal_address, nif_file_url, cif_file_url, iban_file_url').order('name'),
         supabase.from('comercializadoras').select('id, name').eq('active', true).order('name'),
       ])
       setClients(clientsRes.data || [])
@@ -227,6 +227,49 @@ export function NewContractModal({ open, onClose, onCreated, preselectedClientId
               clients={clients}
               placeholder="Buscar cliente..."
             />
+
+            {/* Document links — shown when client has stored files */}
+            {selectedClient && (selectedClient.nif_file_url || selectedClient.cif_file_url || selectedClient.iban_file_url) && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-ink-4">Documentos:</span>
+                {selectedClient.nif_file_url && (
+                  <a
+                    href={selectedClient.nif_file_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-info-container text-info text-xs font-medium hover:opacity-80 transition"
+                  >
+                    <FileText className="w-3 h-3" />
+                    DNI
+                    <ExternalLink className="w-2.5 h-2.5 opacity-70" />
+                  </a>
+                )}
+                {selectedClient.cif_file_url && (
+                  <a
+                    href={selectedClient.cif_file_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-info-container text-info text-xs font-medium hover:opacity-80 transition"
+                  >
+                    <FileText className="w-3 h-3" />
+                    CIF
+                    <ExternalLink className="w-2.5 h-2.5 opacity-70" />
+                  </a>
+                )}
+                {selectedClient.iban_file_url && (
+                  <a
+                    href={selectedClient.iban_file_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-info-container text-info text-xs font-medium hover:opacity-80 transition"
+                  >
+                    <FileText className="w-3 h-3" />
+                    Cert. bancario
+                    <ExternalLink className="w-2.5 h-2.5 opacity-70" />
+                  </a>
+                )}
+              </div>
+            )}
 
             <Select
               label="Suministro (CUPS)"
