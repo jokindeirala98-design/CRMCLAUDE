@@ -2766,17 +2766,18 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
 
   const comp2TDData = useMemo(() => {
     if (!is2TD || !consumoPeriodos || !potenciaContratada) return null
-    const consumoP1 = consumoPeriodos.P1 || 0
-    const consumoP2 = consumoPeriodos.P2 || 0
-    const consumoP3 = consumoPeriodos.P3 || 0
-    // SIPS para 2.0TD puede devolver la potencia valle en P3 en vez de P2 (P2=0).
-    // Si P2 y P3 son ambos 0 pero P1>0, usamos P1 como P2 (2.0TD típicamente
-    // tiene la misma potencia contratada en ambos períodos).
-    const rawPotP1 = potenciaContratada.P1 || 0
-    const rawPotP2 = potenciaContratada.P2 || 0
-    const rawPotP3 = (potenciaContratada as any).P3 || 0
-    const potP1 = rawPotP1
-    const potP2 = rawPotP2 > 0 ? rawPotP2 : rawPotP3 > 0 ? rawPotP3 : rawPotP1
+    const consumoP1 = Number(consumoPeriodos.P1) || 0
+    const consumoP2 = Number(consumoPeriodos.P2) || 0
+    const consumoP3 = Number(consumoPeriodos.P3) || 0
+    // SIPS para 2.0TD puede devolver la potencia valle en P2, P3 o incluso P4-P6.
+    // Algunos distribuidores solo populan P1 en el endpoint /info — usamos el primer
+    // valor no-cero de P2..P6, y si todos son 0 usamos P1 como fallback (contrato
+    // con la misma potencia en todos los periodos, habitual en 2.0TD residencial).
+    const pc = potenciaContratada as any
+    const potP1 = Number(pc.P1) || 0
+    const potP2 = (['P2', 'P3', 'P4', 'P5', 'P6'] as const)
+      .map(k => Number(pc[k]) || 0)
+      .find(v => v > 0) ?? potP1
     if (!consumoP1 && !consumoP2 && !consumoP3) return null
 
     const currentEnergyPrice = summaryStats.precioPromedio

@@ -206,6 +206,32 @@ export async function fetchSipsData(cups: string, token: string): Promise<SipsDa
     if (!result.tariff && raw.CodigoTarifaATREnVigor) {
       result.tariff = mapTariffCode(raw.CodigoTarifaATREnVigor)
     }
+
+    // Enrich potenciaContratada using raw SIPS PotenciasContratadasEnWP* fields.
+    // The raw endpoint stores potencias in Watts — divide by 1000 to get kW.
+    // This fills in periods that the /info endpoint leaves as 0 or null,
+    // which is common for 2.0TD supplies where some distributors only populate P1.
+    const rawPotW = {
+      P1: Number(raw.PotenciasContratadasEnWP1 || 0) / 1000,
+      P2: Number(raw.PotenciasContratadasEnWP2 || 0) / 1000,
+      P3: Number(raw.PotenciasContratadasEnWP3 || 0) / 1000,
+      P4: Number(raw.PotenciasContratadasEnWP4 || 0) / 1000,
+      P5: Number(raw.PotenciasContratadasEnWP5 || 0) / 1000,
+      P6: Number(raw.PotenciasContratadasEnWP6 || 0) / 1000,
+    }
+    const hasRawPotencia = Object.values(rawPotW).some(v => v > 0)
+    if (hasRawPotencia) {
+      if (!result.potenciaContratada) {
+        result.potenciaContratada = rawPotW
+      } else {
+        // Fill any zeros left by the /info endpoint with raw SIPS values
+        for (const k of ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'] as const) {
+          if (!(result.potenciaContratada[k] > 0) && rawPotW[k] > 0) {
+            result.potenciaContratada[k] = rawPotW[k]
+          }
+        }
+      }
+    }
   }
 
   if (Array.isArray(rawData?.ConsumosSips) && rawData.ConsumosSips.length > 0) {

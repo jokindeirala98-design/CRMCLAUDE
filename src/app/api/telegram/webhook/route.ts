@@ -898,12 +898,13 @@ async function processAndNotify(
                 return
               }
 
-              // Potencia: for 2.0TD SIPS may store valle in P3 instead of P2
-              const rawPP1 = Number(pp.P1) || 0
-              const rawPP2 = Number(pp.P2) || 0
-              const rawPP3 = Number(pp.P3) || 0
-              const potenciaP1 = rawPP1
-              const potenciaP2 = rawPP2 > 0 ? rawPP2 : rawPP3 > 0 ? rawPP3 : rawPP1
+              // Potencia: for 2.0TD SIPS may store valle in P2, P3, or higher periods.
+              // Some distributors only populate P1 in the /info endpoint.
+              // Scan P2–P6 for the first non-zero value; fall back to P1 if all zero.
+              const potenciaP1 = Number(pp.P1) || 0
+              const potenciaP2 = (['P2', 'P3', 'P4', 'P5', 'P6'] as const)
+                .map(k => Number(pp[k]) || 0)
+                .find(v => v > 0) ?? potenciaP1
 
               // Current energy price from invoice (€/kWh avg)
               const eco = analyzed.economics as any
