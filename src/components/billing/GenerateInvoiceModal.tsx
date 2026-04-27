@@ -143,12 +143,14 @@ export function GenerateInvoiceModal({ onClose, onCreated, preselectedClientId, 
     : undefined
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+      onClick={onClose}>
       <motion.div
         initial={{ opacity: 0, scale: 0.96, y: 16 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: 16 }}
         className="bg-bg rounded-2xl shadow-2xl w-full max-w-4xl max-h-[95vh] overflow-hidden flex flex-col"
+        onClick={e => e.stopPropagation()}
       >
         {/* Modal header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-line/60">

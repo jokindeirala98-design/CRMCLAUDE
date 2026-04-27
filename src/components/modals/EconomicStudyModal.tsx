@@ -456,9 +456,11 @@ export function EconomicStudyModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      onClick={onClose}>
       <div className="bg-bg rounded-2xl shadow-2xl w-full border border-line flex flex-col"
-        style={{ maxWidth: is2TD ? '640px' : '512px', maxHeight: '92vh' }}>
+        style={{ maxWidth: is2TD ? '640px' : '512px', maxHeight: '92vh' }}
+        onClick={e => e.stopPropagation()}>
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-line flex-shrink-0">
