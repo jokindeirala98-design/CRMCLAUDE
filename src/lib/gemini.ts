@@ -73,12 +73,12 @@ function getApiKey(): string | null {
  * response is cached for the process lifetime to avoid repeated probing.
  */
 const CANDIDATE_MODELS = [
-  'gemini-2.5-flash-preview-04-17', // latest 2.5 flash (Apr 2025)
-  'gemini-2.5-flash',               // stable alias when released
-  'gemini-2.0-flash',               // confirmed stable
-  'gemini-2.0-flash-lite',          // lighter version, lower quota
-  'gemini-1.5-flash',               // fallback stable
-  'gemini-1.5-pro',                 // fallback pro
+  'gemini-2.5-flash',               // primary — only model working for new API keys (2025)
+  'gemini-2.5-pro',                 // pro variant (higher cost, better for complex docs)
+  'gemini-2.0-flash',               // legacy — only available for older keys
+  'gemini-2.0-flash-lite',          // legacy lite
+  'gemini-1.5-flash',               // legacy fallback
+  'gemini-1.5-pro',                 // legacy fallback pro
 ]
 
 let _cachedModel: string | null = null
