@@ -31,10 +31,9 @@ export default function LoginPage() {
       return
     }
 
-    // router.refresh() forces Next.js to re-run middleware with the new session cookie
-    // before navigating, preventing the infinite loading / redirect loop
-    router.refresh()
-    router.push('/panel')
+    // Hard redirect ensures the browser sends the session cookie in the new request,
+    // avoiding the middleware race condition with router.push (client-side navigation)
+    window.location.href = '/panel'
   }
 
   return (
