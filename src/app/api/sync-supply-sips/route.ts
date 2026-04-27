@@ -153,6 +153,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: snapErr.message }, { status: 500 })
     }
 
+    // 6. Update prescoring consumo_anual if a row exists for this supply
+    if (bestTotalKwh && bestTotalKwh > 0) {
+      const consumoAnualStr = `${Math.round(bestTotalKwh).toLocaleString('es-ES')} kWh`
+      await supabase
+        .from('prescorings')
+        .update({ consumo_anual: consumoAnualStr })
+        .eq('supply_id', supply_id)
+    }
+
     return NextResponse.json({ success: true, updated: snapshotUpdate })
   } catch (error: any) {
     console.error('[sync-supply-sips] Error:', error)
