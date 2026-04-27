@@ -1,8 +1,14 @@
-import { NextResponse, type NextRequest } from 'next/server'
+import { updateSession } from '@/lib/supabase/middleware'
+import type { NextRequest } from 'next/server'
 
+/**
+ * Global middleware — enforces Supabase Auth on every page route.
+ * - Unauthenticated users are redirected to /login.
+ * - Authenticated users on /login are sent to /panel.
+ * - API routes are excluded so they can handle their own auth checks.
+ */
 export async function middleware(request: NextRequest) {
-  // Auth handled client-side for now
-  return NextResponse.next()
+  return await updateSession(request)
 }
 
 export const config = {

@@ -35,32 +35,35 @@ interface NavItem {
 }
 
 // ── Nav groups ────────────────────────────────────────────────────────────────
+// Every item has a `permission` key — non-admin users only see sections
+// the owner has explicitly enabled for them in Configuración > Equipo.
+// Admins bypass all permission checks (filterItem returns true for isAdmin()).
 const navGroups: { label: string; items: NavItem[] }[] = [
   {
     label: 'General',
     items: [
-      { href: '/panel',   label: 'Panel',   icon: LayoutDashboard },
-      { href: '/inbox',   label: 'Bandeja', icon: Inbox },
-      { href: '/agenda',  label: 'Agenda',  icon: CalendarDays },
+      { href: '/panel',   label: 'Panel',   icon: LayoutDashboard, permission: 'panel' },
+      { href: '/inbox',   label: 'Bandeja', icon: Inbox,           permission: 'inbox' },
+      { href: '/agenda',  label: 'Agenda',  icon: CalendarDays,    permission: 'agenda' },
     ],
   },
   {
     label: 'Operación',
     items: [
-      { href: '/clients',       label: 'Clientes',     icon: Users },
-      { href: '/supplies',      label: 'Suministros',  icon: Zap },
-      { href: '/prescorings',   label: 'Prescorings',  icon: ClipboardCheck, permission: 'prescorings' },
-      { href: '/informes',      label: 'Informes',     icon: FileSpreadsheet, adminOnly: true },
-      { href: '/contracts',     label: 'Contratos',    icon: FileText },
+      { href: '/clients',     label: 'Clientes',    icon: Users,          permission: 'clients' },
+      { href: '/supplies',    label: 'Suministros', icon: Zap,            permission: 'supplies' },
+      { href: '/prescorings', label: 'Prescorings', icon: ClipboardCheck, permission: 'prescorings' },
+      { href: '/informes',    label: 'Informes',    icon: FileSpreadsheet, adminOnly: true },
+      { href: '/contracts',   label: 'Contratos',   icon: FileText,       permission: 'contracts' },
     ],
   },
   {
     label: 'Finanzas',
     items: [
-      { href: '/subscriptions', label: 'Suscripciones', icon: CreditCard,  permission: 'billing' },
-      { href: '/billing',       label: 'Facturación',   icon: Receipt,     permission: 'billing' },
-      { href: '/commissions',   label: 'Comisiones',    icon: DollarSign },
-      { href: '/reports',       label: 'Estadísticas',  icon: BarChart3,   permission: 'reports' },
+      { href: '/subscriptions', label: 'Suscripciones', icon: CreditCard, permission: 'billing' },
+      { href: '/billing',       label: 'Facturación',   icon: Receipt,    permission: 'billing' },
+      { href: '/commissions',   label: 'Comisiones',    icon: DollarSign, permission: 'commissions' },
+      { href: '/reports',       label: 'Estadísticas',  icon: BarChart3,  permission: 'reports' },
     ],
   },
 ]

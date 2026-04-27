@@ -1,0 +1,153 @@
+-- ============================================================
+-- RLS PERMISSIONS: Only admins can INSERT / UPDATE / DELETE
+-- All authenticated users can SELECT (subject to their role)
+-- ============================================================
+
+-- ── Helper function ──────────────────────────────────────────
+-- Returns the role from users_profile for the current session user.
+CREATE OR REPLACE FUNCTION public.current_user_role()
+RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT role FROM public.users_profile WHERE id = auth.uid()
+$$;
+
+-- ── clients ─────────────────────────────────────────────────
+ALTER TABLE public.clients ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "clients_select" ON public.clients;
+CREATE POLICY "clients_select" ON public.clients
+  FOR SELECT TO authenticated USING (true);
+
+DROP POLICY IF EXISTS "clients_insert" ON public.clients;
+CREATE POLICY "clients_insert" ON public.clients
+  FOR INSERT TO authenticated WITH CHECK (public.current_user_role() = 'admin');
+
+DROP POLICY IF EXISTS "clients_update" ON public.clients;
+CREATE POLICY "clients_update" ON public.clients
+  FOR UPDATE TO authenticated USING (public.current_user_role() = 'admin');
+
+DROP POLICY IF EXISTS "clients_delete" ON public.clients;
+CREATE POLICY "clients_delete" ON public.clients
+  FOR DELETE TO authenticated USING (public.current_user_role() = 'admin');
+
+-- ── supplies ────────────────────────────────────────────────
+ALTER TABLE public.supplies ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "supplies_select" ON public.supplies;
+CREATE POLICY "supplies_select" ON public.supplies
+  FOR SELECT TO authenticated USING (true);
+
+DROP POLICY IF EXISTS "supplies_insert" ON public.supplies;
+CREATE POLICY "supplies_insert" ON public.supplies
+  FOR INSERT TO authenticated WITH CHECK (public.current_user_role() = 'admin');
+
+DROP POLICY IF EXISTS "supplies_update" ON public.supplies;
+CREATE POLICY "supplies_update" ON public.supplies
+  FOR UPDATE TO authenticated USING (public.current_user_role() = 'admin');
+
+DROP POLICY IF EXISTS "supplies_delete" ON public.supplies;
+CREATE POLICY "supplies_delete" ON public.supplies
+  FOR DELETE TO authenticated USING (public.current_user_role() = 'admin');
+
+-- ── invoices ────────────────────────────────────────────────
+ALTER TABLE public.invoices ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "invoices_select" ON public.invoices;
+CREATE POLICY "invoices_select" ON public.invoices
+  FOR SELECT TO authenticated USING (true);
+
+DROP POLICY IF EXISTS "invoices_insert" ON public.invoices;
+CREATE POLICY "invoices_insert" ON public.invoices
+  FOR INSERT TO authenticated WITH CHECK (public.current_user_role() = 'admin');
+
+DROP POLICY IF EXISTS "invoices_update" ON public.invoices;
+CREATE POLICY "invoices_update" ON public.invoices
+  FOR UPDATE TO authenticated USING (public.current_user_role() = 'admin');
+
+DROP POLICY IF EXISTS "invoices_delete" ON public.invoices;
+CREATE POLICY "invoices_delete" ON public.invoices
+  FOR DELETE TO authenticated USING (public.current_user_role() = 'admin');
+
+-- ── contracts ───────────────────────────────────────────────
+ALTER TABLE public.contracts ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "contracts_select" ON public.contracts;
+CREATE POLICY "contracts_select" ON public.contracts
+  FOR SELECT TO authenticated USING (true);
+
+DROP POLICY IF EXISTS "contracts_insert" ON public.contracts;
+CREATE POLICY "contracts_insert" ON public.contracts
+  FOR INSERT TO authenticated WITH CHECK (public.current_user_role() = 'admin');
+
+DROP POLICY IF EXISTS "contracts_update" ON public.contracts;
+CREATE POLICY "contracts_update" ON public.contracts
+  FOR UPDATE TO authenticated USING (public.current_user_role() = 'admin');
+
+DROP POLICY IF EXISTS "contracts_delete" ON public.contracts;
+CREATE POLICY "contracts_delete" ON public.contracts
+  FOR DELETE TO authenticated USING (public.current_user_role() = 'admin');
+
+-- ── prescorings ─────────────────────────────────────────────
+ALTER TABLE public.prescorings ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "prescorings_select" ON public.prescorings;
+CREATE POLICY "prescorings_select" ON public.prescorings
+  FOR SELECT TO authenticated USING (true);
+
+DROP POLICY IF EXISTS "prescorings_insert" ON public.prescorings;
+CREATE POLICY "prescorings_insert" ON public.prescorings
+  FOR INSERT TO authenticated WITH CHECK (public.current_user_role() = 'admin');
+
+DROP POLICY IF EXISTS "prescorings_update" ON public.prescorings;
+CREATE POLICY "prescorings_update" ON public.prescorings
+  FOR UPDATE TO authenticated USING (public.current_user_role() = 'admin');
+
+DROP POLICY IF EXISTS "prescorings_delete" ON public.prescorings;
+CREATE POLICY "prescorings_delete" ON public.prescorings
+  FOR DELETE TO authenticated USING (public.current_user_role() = 'admin');
+
+-- ── users_profile ────────────────────────────────────────────
+-- Users can always read their own profile.
+-- Only admins can read all profiles (for team management).
+-- Only admins can insert/update/delete other profiles.
+ALTER TABLE public.users_profile ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "users_profile_select" ON public.users_profile;
+CREATE POLICY "users_profile_select" ON public.users_profile
+  FOR SELECT TO authenticated
+  USING (id = auth.uid() OR public.current_user_role() = 'admin');
+
+DROP POLICY IF EXISTS "users_profile_insert" ON public.users_profile;
+CREATE POLICY "users_profile_insert" ON public.users_profile
+  FOR INSERT TO authenticated WITH CHECK (public.current_user_role() = 'admin');
+
+DROP POLICY IF EXISTS "users_profile_update" ON public.users_profile;
+CREATE POLICY "users_profile_update" ON public.users_profile
+  FOR UPDATE TO authenticated
+  USING (id = auth.uid() OR public.current_user_role() = 'admin');
+
+DROP POLICY IF EXISTS "users_profile_delete" ON public.users_profile;
+CREATE POLICY "users_profile_delete" ON public.users_profile
+  FOR DELETE TO authenticated USING (public.current_user_role() = 'admin');
+
+-- ── telegram_links ───────────────────────────────────────────
+ALTER TABLE public.telegram_links ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "telegram_links_select" ON public.telegram_links;
+CREATE POLICY "telegram_links_select" ON public.telegram_links
+  FOR SELECT TO authenticated USING (user_id = auth.uid() OR public.current_user_role() = 'admin');
+
+DROP POLICY IF EXISTS "telegram_links_insert" ON public.telegram_links;
+CREATE POLICY "telegram_links_insert" ON public.telegram_links
+  FOR INSERT TO authenticated WITH CHECK (user_id = auth.uid());
+
+DROP POLICY IF EXISTS "telegram_links_update" ON public.telegram_links;
+CREATE POLICY "telegram_links_update" ON public.telegram_links
+  FOR UPDATE TO authenticated USING (user_id = auth.uid() OR public.current_user_role() = 'admin');
+
+DROP POLICY IF EXISTS "telegram_links_delete" ON public.telegram_links;
+CREATE POLICY "telegram_links_delete" ON public.telegram_links
+  FOR DELETE TO authenticated USING (user_id = auth.uid() OR public.current_user_role() = 'admin');

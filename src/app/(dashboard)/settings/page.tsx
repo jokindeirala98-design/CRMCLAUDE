@@ -28,15 +28,47 @@ export default function SettingsPage() {
     email: '',
     phone: '',
   })
+  // ── Permission groups — mirrors the sidebar sections ──
+  const PERMISSION_GROUPS = [
+    {
+      label: 'General',
+      items: [
+        { key: 'panel',  label: 'Panel' },
+        { key: 'inbox',  label: 'Bandeja' },
+        { key: 'agenda', label: 'Agenda' },
+      ],
+    },
+    {
+      label: 'Operación',
+      items: [
+        { key: 'clients',     label: 'Clientes' },
+        { key: 'supplies',    label: 'Suministros' },
+        { key: 'prescorings', label: 'Prescorings' },
+        { key: 'contracts',   label: 'Contratos' },
+      ],
+    },
+    {
+      label: 'Finanzas',
+      items: [
+        { key: 'billing',     label: 'Facturación' },
+        { key: 'commissions', label: 'Comisiones' },
+        { key: 'reports',     label: 'Estadísticas' },
+      ],
+    },
+  ] as const
+
+  const DEFAULT_PERMISSIONS = {
+    panel: false, inbox: false, agenda: false,
+    clients: false, supplies: false, prescorings: false, contracts: false,
+    billing: false, commissions: false, reports: false,
+  }
+
   const [inviteForm, setInviteForm] = useState({
     email: '',
     full_name: '',
+    password: '',
     role: 'commercial',
-    permissions: {
-      prescorings: false,
-      billing: false,
-      reports: false,
-    },
+    permissions: { ...DEFAULT_PERMISSIONS },
   })
 
   // ── Telegram bot state ──
@@ -210,18 +242,22 @@ export default function SettingsPage() {
           full_name: inviteForm.full_name,
           role: inviteForm.role,
           permissions: inviteForm.permissions,
+          ...(inviteForm.password ? { password: inviteForm.password } : {}),
         }),
       })
 
       const result = await res.json()
-      if (!res.ok) throw new Error(result.error || 'Error al enviar invitación')
+      if (!res.ok) throw new Error(result.error || 'Error al crear el acceso')
 
-      toast('success', `Invitación enviada a ${inviteForm.email}`)
+      toast('success', inviteForm.password
+        ? `Acceso creado para ${inviteForm.email}. Ya puede entrar con esa contraseña.`
+        : `Invitación enviada a ${inviteForm.email}`)
       setInviteForm({
         email: '',
         full_name: '',
+        password: '',
         role: 'commercial',
-        permissions: { prescorings: false, billing: false, reports: false },
+        permissions: { ...DEFAULT_PERMISSIONS },
       })
 
       // Refetch team list to show the pre-created profile row
@@ -266,7 +302,8 @@ export default function SettingsPage() {
   const startEditingPermissions = (userId: string, currentRole: string, currentPermissions: Record<string, boolean>) => {
     setEditingUserId(userId)
     setEditingRole(currentRole)
-    setEditingPermissions(currentPermissions || {})
+    // Merge with defaults so all permission keys are always present
+    setEditingPermissions({ ...DEFAULT_PERMISSIONS, ...(currentPermissions || {}) })
   }
 
   const handleSavePermissions = async (userId: string) => {
@@ -294,6 +331,23 @@ export default function SettingsPage() {
       setTeamMembers(data || [])
     } catch (error) {
       toast('error', 'Error al actualizar permisos')
+    }
+  }
+
+  const handleDeleteUser = async (userId: string, userName: string) => {
+    if (!confirm(`¿Eliminar el acceso de ${userName}? Esta acción no se puede deshacer.`)) return
+    try {
+      const res = await fetch('/api/invite-user', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error)
+      toast('success', `Acceso de ${userName} eliminado`)
+      setTeamMembers(prev => prev.filter(m => m.id !== userId))
+    } catch (err: any) {
+      toast('error', err.message || 'Error al eliminar usuario')
     }
   }
 
@@ -605,79 +659,76 @@ export default function SettingsPage() {
         {/* Invite User Form (admin only) */}
         {isAdmin() && (
           <Card>
-            <h3 className="font-sans font-semibold text-base text-ink mb-4 flex items-center gap-2">
+            <h3 className="font-sans font-semibold text-base text-ink mb-1 flex items-center gap-2">
               <UserPlus className="w-5 h-5 text-brand" />
-              Invitar usuario
+              Crear acceso para compañero
             </h3>
             <p className="text-sm text-ink-3 mb-4">
-              Envía una invitación a un nuevo miembro del equipo. Establece su rol y permisos.
+              Crea un usuario con nombre y contraseña. Tú decides a qué secciones del sidebar puede acceder.
             </p>
 
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input
-                  label="Email"
-                  type="email"
-                  value={inviteForm.email}
-                  onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
-                  placeholder="usuario@example.com"
-                />
-                <Input
                   label="Nombre completo"
                   value={inviteForm.full_name}
                   onChange={(e) => setInviteForm({ ...inviteForm, full_name: e.target.value })}
-                  placeholder="Juan Pérez"
+                  placeholder="Ana García"
+                />
+                <Input
+                  label="Email (usuario)"
+                  type="email"
+                  value={inviteForm.email}
+                  onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
+                  placeholder="ana@tuempresa.com"
                 />
               </div>
 
-              <Select
-                label="Rol"
-                value={inviteForm.role}
-                onChange={(e) => setInviteForm({ ...inviteForm, role: e.target.value })}
-                options={[
-                  { value: 'admin', label: 'Administrador' },
-                  { value: 'commercial', label: 'Comercial' },
-                ]}
+              <Input
+                label="Contraseña"
+                type="password"
+                value={inviteForm.password}
+                onChange={(e) => setInviteForm({ ...inviteForm, password: e.target.value })}
+                placeholder="Mínimo 8 caracteres"
+                hint="Si dejas este campo vacío, se enviará un email de invitación para que el usuario establezca su propia contraseña."
               />
 
               {inviteForm.role === 'commercial' && (
-                <div className="p-4 bg-bg-2 rounded-xl space-y-3">
-                  <p className="text-sm font-medium text-ink">Permisos</p>
-                  <div className="space-y-2">
-                    {['prescorings', 'billing', 'reports'].map((permission) => (
-                      <label key={permission} className="flex items-center gap-3 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={inviteForm.permissions[permission as keyof typeof inviteForm.permissions] || false}
-                          onChange={(e) =>
-                            setInviteForm({
-                              ...inviteForm,
-                              permissions: {
-                                ...inviteForm.permissions,
-                                [permission]: e.target.checked,
-                              },
-                            })
-                          }
-                          className="w-4 h-4 rounded accent-primary cursor-pointer"
-                        />
-                        <span className="text-sm text-ink capitalize">
-                          {permission === 'prescorings' && 'Prescorings'}
-                          {permission === 'billing' && 'Facturación'}
-                          {permission === 'reports' && 'Reportes'}
-                        </span>
-                      </label>
-                    ))}
+                <div className="p-4 bg-bg-2 rounded-xl space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-brand" />
+                    <p className="text-sm font-semibold text-ink">Accesos al sidebar</p>
                   </div>
+                  {PERMISSION_GROUPS.map((group) => (
+                    <div key={group.label}>
+                      <p className="text-xs font-medium text-ink-3 uppercase tracking-wider mb-2">{group.label}</p>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {group.items.map(({ key, label }) => (
+                          <label key={key} className="flex items-center gap-2.5 cursor-pointer p-2 rounded-lg hover:bg-line/40 transition-colors">
+                            <input
+                              type="checkbox"
+                              checked={(inviteForm.permissions as any)[key] || false}
+                              onChange={(e) =>
+                                setInviteForm({
+                                  ...inviteForm,
+                                  permissions: { ...inviteForm.permissions, [key]: e.target.checked },
+                                })
+                              }
+                              className="w-4 h-4 rounded accent-primary cursor-pointer flex-shrink-0"
+                            />
+                            <span className="text-sm text-ink">{label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
 
               <div className="flex justify-end">
-                <Button
-                  onClick={handleSendInvitation}
-                  loading={invitationLoading}
-                >
+                <Button onClick={handleSendInvitation} loading={invitationLoading}>
                   <UserPlus className="w-4 h-4" />
-                  Enviar invitación
+                  {inviteForm.password ? 'Crear acceso' : 'Enviar invitación'}
                 </Button>
               </div>
             </div>
@@ -813,30 +864,34 @@ export default function SettingsPage() {
                         </div>
 
                         {editingRole === 'commercial' && (
-                          <div className="space-y-3 p-3 bg-bg-2 rounded-lg">
-                            <p className="text-sm font-medium text-ink">Permisos</p>
-                            <div className="space-y-2">
-                              {['prescorings', 'billing', 'reports'].map((permission) => (
-                                <label key={permission} className="flex items-center gap-3 cursor-pointer">
-                                  <input
-                                    type="checkbox"
-                                    checked={editingPermissions[permission] || false}
-                                    onChange={(e) =>
-                                      setEditingPermissions({
-                                        ...editingPermissions,
-                                        [permission]: e.target.checked,
-                                      })
-                                    }
-                                    className="w-4 h-4 rounded accent-primary cursor-pointer"
-                                  />
-                                  <span className="text-sm text-ink capitalize">
-                                    {permission === 'prescorings' && 'Prescorings'}
-                                    {permission === 'billing' && 'Facturación'}
-                                    {permission === 'reports' && 'Reportes'}
-                                  </span>
-                                </label>
-                              ))}
+                          <div className="space-y-4 p-3 bg-bg-2 rounded-lg">
+                            <div className="flex items-center gap-2">
+                              <Shield className="w-4 h-4 text-brand" />
+                              <p className="text-sm font-semibold text-ink">Accesos al sidebar</p>
                             </div>
+                            {PERMISSION_GROUPS.map((group) => (
+                              <div key={group.label}>
+                                <p className="text-xs font-medium text-ink-3 uppercase tracking-wider mb-2">{group.label}</p>
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                  {group.items.map(({ key, label }) => (
+                                    <label key={key} className="flex items-center gap-2.5 cursor-pointer p-2 rounded-lg hover:bg-line/40 transition-colors">
+                                      <input
+                                        type="checkbox"
+                                        checked={editingPermissions[key] || false}
+                                        onChange={(e) =>
+                                          setEditingPermissions({
+                                            ...editingPermissions,
+                                            [key]: e.target.checked,
+                                          })
+                                        }
+                                        className="w-4 h-4 rounded accent-primary cursor-pointer flex-shrink-0"
+                                      />
+                                      <span className="text-sm text-ink">{label}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         )}
 
@@ -887,6 +942,16 @@ export default function SettingsPage() {
                           >
                             <Edit2 className="w-4 h-4" />
                           </Button>
+                          {member.id !== user?.id && (
+                            <Button
+                              size="sm"
+                              variant="tertiary"
+                              onClick={() => handleDeleteUser(member.id, member.full_name || member.email)}
+                              className="text-err hover:bg-err-container/30"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          )}
                         </div>
                       </div>
                     )}
