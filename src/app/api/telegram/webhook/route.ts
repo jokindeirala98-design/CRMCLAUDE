@@ -41,7 +41,7 @@ interface ConversationState {
   expiresAt: number
 }
 
-const CONVO_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
+const CONVO_TTL_MS = 2 * 60 * 60 * 1000 // 2 hours — prevents stale client attribution
 
 async function getConvo(chatId: number): Promise<ConversationState | null> {
   try {
@@ -287,6 +287,19 @@ async function handleMessage(msg: TelegramMessage) {
 
   if (!text) return
 
+  // ── "ya" / "listo" → close active client mode ────────────────────────────
+  if (/^(ya|listo|fin|hecho|done|ok|stop|salir|cancel|reset)$/i.test(text.trim())) {
+    const convo = await getConvo(chatId)
+    const activeClient = convo?.data?.clientModeName
+    await clearConvo(chatId)
+    if (activeClient) {
+      return sendMessage(chatId,
+        `✅ Sesión de <b>${activeClient}</b> cerrada.\n\nListo para nuevos documentos o clientes.`
+      )
+    }
+    return sendMessage(chatId, '✅ Bot reiniciado. Listo para nuevos documentos.')
+  }
+
   const user = await getLinkedUser(chatId)
   if (!user) return sendMessage(chatId, '🔒 Vincula tu cuenta con /vincular')
 
@@ -315,13 +328,13 @@ async function handleMessage(msg: TelegramMessage) {
   }
 
   await sendMessage(chatId,
-    '👋 Envíame <b>documentos</b> o escribe el <b>nombre de un cliente</b> para activarlo.\n\n' +
-    'Acepto:\n' +
-    '• 📄 <b>Facturas</b> de luz/gas\n' +
-    '• 🪪 <b>DNI / NIF / CIF</b> (foto o PDF)\n' +
-    '• 🏦 <b>Certificados bancarios</b>\n' +
-    '• 📞 Teléfono  📧 Email  💳 IBAN (texto)\n\n' +
-    'Comandos: /vincular · /mis · /buscar · /salir · /ayuda'
+    '👋 Envíame <b>facturas</b> o escribe el <b>nombre de un cliente</b> para activarlo.\n\n' +
+    '📋 <b>Flujo habitual:</b>\n' +
+    '1. Escribe el nombre del cliente (o parte de él)\n' +
+    '2. Envía sus facturas\n' +
+    '3. Escribe <b>"ya"</b> cuando termines\n\n' +
+    'También puedo procesar facturas sin activar cliente — las identifico automáticamente por CUPS o nombre del titular.\n\n' +
+    '⚡ <b>/cancel</b> — reiniciar bot a cero'
   )
 }
 
@@ -350,8 +363,17 @@ async function handleCommand(msg: TelegramMessage, text: string) {
         'Luego escríbeme:\n<code>/vincular TU_CODIGO</code>'
       )
 
+    case '/cancel':
+    case '/reset':
     case '/salir':
-      return handleExitClientMode(chatId)
+      await clearConvo(chatId)
+      return sendMessage(chatId,
+        '🔄 <b>Bot reiniciado.</b>\n\n' +
+        'Todo limpio. Puedes:\n' +
+        '• Enviarme facturas directamente\n' +
+        '• Escribir el nombre de un cliente para activarlo\n' +
+        '• Escribe <b>"ya"</b> cuando termines con un cliente'
+      )
 
     case '/ultimo':
       return handleLastClient(chatId)
@@ -986,6 +1008,9 @@ async function processAndNotify(
                 mercado: '📈 Precio Mercado',
               }
 
+              // Track savings per tariff to determine winner
+              const savingsMap: Record<string, number> = {}
+
               for (const tariffKey of tariffKeys) {
                 try {
                   const res = await fetch(`${appUrl}/api/comparativa-2td`, {
@@ -1015,9 +1040,44 @@ async function processAndNotify(
                     fileName,
                     `${tariffLabels[tariffKey]} — comparativa ahorro Voltis 2.0TD`,
                   )
+
+                  // Calculate savings server-side for winner detection
+                  try {
+                    const { compute2TDSavings, VOLTIS_TARIFFS_2TD } = await import('@/lib/voltis-tariffs-2td')
+                    const s = compute2TDSavings(
+                      { P1: consumoP1, P2: consumoP2, P3: consumoP3 },
+                      { P1: potenciaP1, P2: potenciaP2 },
+                      { P1: currentEnergyPriceP1, P2: currentEnergyPriceP2, P3: currentEnergyPriceP3 },
+                      currentPowerP1,
+                      currentPowerP2,
+                      tariffKey,
+                    )
+                    savingsMap[tariffKey] = s.savings.totalAnnual
+                  } catch { /* skip if import fails */ }
                 } catch (excelErr: any) {
                   console.error(`[Telegram] 2TD comparativa ${tariffKey} error:`, excelErr.message)
                 }
+              }
+
+              // Send summary with winner tariff and link to supply in CRM
+              const supplyUrl = `${appUrl}/supplies/${result.supply_id}`
+              const entries = Object.entries(savingsMap).filter(([, v]) => v > 0)
+              if (entries.length > 0) {
+                entries.sort((a, b) => b[1] - a[1])
+                const [winnerKey, winnerSaving] = entries[0]
+                const winnerLabel = tariffLabels[winnerKey] || winnerKey
+                const savingMonth = (winnerSaving / 12).toFixed(0)
+                const savingYear = winnerSaving.toFixed(0)
+                await sendMessage(chatId,
+                  `🏆 <b>Tarifa más óptima: ${winnerLabel}</b>\n\n` +
+                  `💰 Ahorro estimado: <b>${savingMonth}€/mes</b> (${savingYear}€/año)\n\n` +
+                  `📄 Ver comparativa completa y generar PDF:\n` +
+                  `<a href="${supplyUrl}">Abrir suministro en CRM →</a>`
+                )
+              } else {
+                await sendMessage(chatId,
+                  `📊 Comparativas generadas. Ver PDF en CRM:\n<a href="${supplyUrl}">Abrir suministro →</a>`
+                )
               }
             } catch (comp2tdErr: any) {
               console.error('[Telegram] 2TD comparativa block error:', comp2tdErr.message)
