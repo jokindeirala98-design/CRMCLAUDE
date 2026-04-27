@@ -996,11 +996,12 @@ async function processAndNotify(
                 return
               }
 
-              // Potencia: for 2.0TD SIPS may store valle in P2, P3, or higher periods.
-              // Some distributors only populate P1 in the /info endpoint.
-              // Scan P2–P6 for the first value >= 0.1 kW (minimum realistic contracted power).
-              // Values < 0.1 kW are SIPS artifacts (e.g., 3W stored as 3 → 0.003 kW after /1000).
+              // Potencia: for 2.0TD SIPS stores P1 = punta, P3 = valle.
+              // P2 is often a SIPS artifact (e.g. 3W → 0.003 kW after /1000).
+              // Send P3 explicitly; the comparativa API will use it directly for valle.
               const potenciaP1 = Number(pp.P1) || 0
+              const potenciaP3 = Number(pp.P3) || 0
+              // potenciaP2: first valid (≥ 0.1 kW) value from P2-P6 — fallback for valley
               const potenciaP2 = (['P2', 'P3', 'P4', 'P5', 'P6'] as const)
                 .map(k => Number(pp[k]) || 0)
                 .find(v => v >= 0.1) ?? potenciaP1
@@ -1097,7 +1098,7 @@ async function processAndNotify(
                       cups: result.cups || supplyData?.cups || '',
                       tariffKey,
                       consumoP1, consumoP2, consumoP3,
-                      potenciaP1, potenciaP2,
+                      potenciaP1, potenciaP2, potenciaP3,
                       currentEnergyPrice,
                       currentEnergyPriceP1,
                       currentEnergyPriceP2,

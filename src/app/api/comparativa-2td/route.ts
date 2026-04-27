@@ -6,17 +6,23 @@
  *
  * Body (JSON):
  * {
- *   titular:            string
- *   cups:               string
- *   tariffKey:          'tramos' | '24h' | 'mercado'
- *   consumoP1:          number   // kWh punta
- *   consumoP2:          number   // kWh llano
- *   consumoP3:          number   // kWh valle
- *   potenciaP1:         number   // kW contracted punta
- *   potenciaP2:         number   // kW contracted valle
- *   currentEnergyPrice: number   // current avg €/kWh (flat, all periods)
- *   currentPowerP1:     number   // current €/kW·día period 1
- *   currentPowerP2:     number   // current €/kW·día period 2
+ *   titular:                string
+ *   cups:                   string
+ *   tariffKey:              'tramos' | '24h' | 'mercado'
+ *   consumoP1:              number   // kWh punta
+ *   consumoP2:              number   // kWh llano
+ *   consumoP3:              number   // kWh valle
+ *   potenciaP1:             number   // kW contracted punta  (SIPS P1)
+ *   potenciaP2:             number   // kW contracted valley (SIPS P2, may be artifact)
+ *   potenciaP3:             number   // kW contracted valley (SIPS P3, preferred for 2.0TD)
+ *   currentEnergyPrice:     number   // current avg €/kWh (flat / weighted)
+ *   currentEnergyPriceP1?:  number   // per-period punta price
+ *   currentEnergyPriceP2?:  number   // per-period llano price
+ *   currentEnergyPriceP3?:  number   // per-period valle price
+ *   energyPricingFormat?:   string   // 'precio_unico' | 'por_periodo' | 'indexado'
+ *   isIndexed?:             boolean  // true = indexed tariff, use weighted avg
+ *   currentPowerP1:         number   // current €/kW·día period 1
+ *   currentPowerP2:         number   // current €/kW·día period 2
  * }
  */
 
@@ -111,16 +117,20 @@ export async function POST(req: NextRequest) {
       cups = '',
       tariffKey,
       consumoP1 = 0, consumoP2 = 0, consumoP3 = 0,
-      potenciaP1 = 0, potenciaP2 = 0,
+      potenciaP1 = 0, potenciaP2 = 0, potenciaP3 = 0,
       currentEnergyPrice = 0,
       currentEnergyPriceP1, currentEnergyPriceP2, currentEnergyPriceP3,
+      energyPricingFormat,
+      isIndexed = false,
       currentPowerP1 = 0, currentPowerP2 = 0,
     } = body as {
       titular: string; cups: string; tariffKey: VoltisKey2TD
       consumoP1: number; consumoP2: number; consumoP3: number
-      potenciaP1: number; potenciaP2: number
+      potenciaP1: number; potenciaP2: number; potenciaP3: number
       currentEnergyPrice: number
       currentEnergyPriceP1?: number; currentEnergyPriceP2?: number; currentEnergyPriceP3?: number
+      energyPricingFormat?: string
+      isIndexed?: boolean
       currentPowerP1: number; currentPowerP2: number
     }
 
@@ -128,16 +138,55 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid tariffKey' }, { status: 400 })
     }
 
-    // Support per-period prices (new) or flat price (legacy)
-    const ep = {
-      P1: currentEnergyPriceP1 ?? currentEnergyPrice,
-      P2: currentEnergyPriceP2 ?? currentEnergyPrice,
-      P3: currentEnergyPriceP3 ?? currentEnergyPrice,
+    // ── Potencia: use SIPS P3 as valle for 2.0TD ──────────────────────────────
+    // For 2.0TD tariff SIPS always stores: P1 = punta, P3 = valle.
+    // P2 is often a SIPS artifact (e.g. 3W stored as 0.003 kW after /1000).
+    // Use potenciaP3 directly; fall back to potenciaP2 (already sanity-filtered
+    // by caller) and finally to potenciaP1 if both are missing.
+    const valleKw = potenciaP3 > 0.1 ? potenciaP3
+      : potenciaP2 > 0.1             ? potenciaP2
+      : potenciaP1
+
+    // ── Energy price: detect tariff type and use the right prices ─────────────
+    // Case 1 — flat/single price (precio_unico): use same price for all periods.
+    // Case 2 — per-period (por_periodo): use actual punta/llano/valle prices.
+    // Case 3 — indexed (indexado): prices vary across invoices → caller has
+    //           already weighted-averaged them into currentEnergyPrice; use flat.
+    const flatPrice = currentEnergyPrice > 0
+      ? currentEnergyPrice
+      : (() => {
+          const p1 = currentEnergyPriceP1 ?? 0
+          const p2 = currentEnergyPriceP2 ?? 0
+          const p3 = currentEnergyPriceP3 ?? 0
+          const totalKwh = consumoP1 + consumoP2 + consumoP3
+          if (totalKwh > 0) return (consumoP1 * p1 + consumoP2 * p2 + consumoP3 * p3) / totalKwh
+          const count = [p1, p2, p3].filter(v => v > 0).length
+          return count > 0 ? (p1 + p2 + p3) / count : 0
+        })()
+
+    let ep: { P1: number; P2: number; P3: number }
+    if (isIndexed || energyPricingFormat === 'indexado') {
+      // Case 3 — indexed: all columns use the flat weighted average
+      ep = { P1: flatPrice, P2: flatPrice, P3: flatPrice }
+    } else if (
+      energyPricingFormat === 'por_periodo' &&
+      currentEnergyPriceP1 !== undefined &&
+      currentEnergyPriceP3 !== undefined
+    ) {
+      // Case 2 — per-period: show actual punta / llano / valle prices
+      ep = {
+        P1: currentEnergyPriceP1,
+        P2: currentEnergyPriceP2 ?? currentEnergyPriceP3,
+        P3: currentEnergyPriceP3,
+      }
+    } else {
+      // Case 1 — flat / precio_unico: same price for all three columns
+      ep = { P1: flatPrice, P2: flatPrice, P3: flatPrice }
     }
 
     const tariff  = VOLTIS_TARIFFS_2TD[tariffKey]
     const consumo = { P1: consumoP1, P2: consumoP2, P3: consumoP3 }
-    const potencia = { P1: potenciaP1, P2: potenciaP2 }
+    const potencia = { P1: potenciaP1, P2: valleKw }  // P2 = valle for compute2TDSavings
     const totalKwh = consumoP1 + consumoP2 + consumoP3
 
     compute2TDSavings(consumo, potencia, ep, currentPowerP1, currentPowerP2, tariffKey)
@@ -145,10 +194,10 @@ export async function POST(req: NextRequest) {
     // ── Pre-compute formula result values ──────────────────────────────────────
     // POTENCIA section
     const H7  = potenciaP1 * currentPowerP1 * 365
-    const I7  = potenciaP2 * currentPowerP2 * 365
+    const I7  = valleKw * currentPowerP2 * 365
     const K7  = (H7 + I7) * 1.21
     const H14 = potenciaP1 * tariff.power.P1 * 365
-    const I14 = potenciaP2 * tariff.power.P2 * 365
+    const I14 = valleKw * tariff.power.P2 * 365
     const K14 = (H14 + I14) * 1.21
     const N10 = K7 - K14
     const M10 = N10 / 12
@@ -260,7 +309,7 @@ export async function POST(req: NextRequest) {
 
     // Row 7: ACTUAL — kW | current price | annual (formula) | total IVA (formula)
     sc(ws, 7, B, potenciaP1,    { bold: true, size: 12, color: CLR.ink, align: 'center', numFmt: '#,##0.000' })
-    sc(ws, 7, C, potenciaP2,    { bold: true, size: 12, color: CLR.ink, align: 'center', numFmt: '#,##0.000' })
+    sc(ws, 7, C, valleKw,        { bold: true, size: 12, color: CLR.ink, align: 'center', numFmt: '#,##0.000' })
     sc(ws, 7, E, currentPowerP1,{ bold: true, size: 12, color: CLR.ink, align: 'center', numFmt: '#,##0.000000' })
     sc(ws, 7, F, currentPowerP2,{ bold: true, size: 12, color: CLR.ink, align: 'center', numFmt: '#,##0.000000' })
     fc(ws, 7, H, 'B7*E7*J15',     H7,  { bold: true, size: 12, color: CLR.ink, numFmt: '#,##0.00' })
@@ -298,7 +347,7 @@ export async function POST(req: NextRequest) {
 
     // Row 14: NUEVO — kW | Voltis price | annual (formula) | total IVA (formula)
     sc(ws, 14, B, potenciaP1,        { bold: true, size: 12, color: CLR.salviaDark, align: 'center', numFmt: '#,##0.000' })
-    sc(ws, 14, C, potenciaP2,        { bold: true, size: 12, color: CLR.salviaDark, align: 'center', numFmt: '#,##0.000' })
+    sc(ws, 14, C, valleKw,            { bold: true, size: 12, color: CLR.salviaDark, align: 'center', numFmt: '#,##0.000' })
     sc(ws, 14, E, tariff.power.P1,   { bold: true, size: 12, color: CLR.salviaDark, align: 'center', numFmt: '#,##0.000000', bg: CLR.salviaSoft })
     sc(ws, 14, F, tariff.power.P2,   { bold: true, size: 12, color: CLR.salviaDark, align: 'center', numFmt: '#,##0.000000', bg: CLR.salviaSoft })
     fc(ws, 14, H, 'B14*E14*J15',    H14, { bold: true, size: 12, color: CLR.salviaDark, numFmt: '#,##0.00' })
