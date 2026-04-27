@@ -844,17 +844,26 @@ async function processAndNotify(
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
 
   try {
-    // Use analyzeInvoice directly — the bot is exclusively for invoices.
-    // analyzeDocument (general classifier) was returning 'otro' for many electricity
-    // bills and extracting no data. analyzeInvoice uses the invoice-specific prompt
-    // and always extracts CUPS, tariff, holder, economics etc.
-    const analyzed = await analyzeInvoice(base64, mimeType, extraPages.length ? extraPages : undefined)
-    analyzed.documentType = 'factura'
+    // ── Step 1: classify with analyzeDocument ─────────────────────────────────
+    // This tells us if it's a DNI/NIF/CIF/IBAN/contract or an invoice.
+    // We need this to correctly route identity documents.
+    const analyzed = await analyzeDocument(base64, mimeType, undefined, extraPages.length ? extraPages : undefined)
+    const docType = analyzed.documentType // 'factura' | 'nif' | 'cif' | 'iban' | 'contrato' | 'otro'
 
-    // Guard: if Gemini returned completely empty data (API key issue or unreadable doc)
-    const hasAnyData = !!(
+    // ── Step 2: route identity documents (DNI, CIF, IBAN) immediately ────────
+    const isDefinitelyNonInvoice = (
+      (docType === 'nif' && (analyzed.nif || analyzed.holder_cif_nif)) ||
+      (docType === 'cif' && (analyzed.cif || analyzed.holder_cif_nif)) ||
+      (docType === 'iban' && analyzed.iban) ||
+      (docType === 'contrato')
+    )
+    if (isDefinitelyNonInvoice) {
+      return handleNonInvoiceDocResult(chatId, inboxId, analyzed, user)
+    }
+
+    // ── Step 3: check if analyzeDocument returned useful invoice data ─────────
+    const hasInvoiceData = !!(
       analyzed.cups ||
-      analyzed.holder_name ||
       analyzed.tariff ||
       analyzed.comercializadora ||
       analyzed.billing_period ||
@@ -863,18 +872,40 @@ async function processAndNotify(
       (analyzed.economics?.consumo?.length > 0) ||
       (analyzed.economics?.rawLineItems?.length > 0)
     )
-    if (!hasAnyData) {
-      await sendMessage(chatId,
-        '⚠️ <b>No pude leer la factura.</b>\n\n' +
-        'El documento no contiene datos legibles. Comprueba que:\n' +
-        '• Es un PDF de calidad (no una foto de baja resolución)\n' +
-        '• La GEMINI_API_KEY en Vercel es válida y está activa\n\n' +
-        'Prueba reenviando como archivo PDF adjunto (📎).'
+
+    // ── Step 4: if no invoice data, retry with analyzeInvoice (invoice-specific prompt)
+    // This covers BN/Naturgy/other formats where the general classifier returns 'otro'
+    if (!hasInvoiceData) {
+      const invoiceRetry = await analyzeInvoice(base64, mimeType, extraPages.length ? extraPages : undefined)
+      const hasRetryData = !!(
+        invoiceRetry.cups ||
+        invoiceRetry.holder_name ||
+        invoiceRetry.tariff ||
+        invoiceRetry.comercializadora ||
+        invoiceRetry.billing_period ||
+        invoiceRetry.economics?.consumoTotalKwh ||
+        invoiceRetry.economics?.costeTotalConsumo ||
+        (invoiceRetry.economics?.consumo?.length > 0) ||
+        (invoiceRetry.economics?.rawLineItems?.length > 0)
       )
-      return
+      if (!hasRetryData) {
+        await sendMessage(chatId,
+          '⚠️ <b>No pude leer el documento.</b>\n\n' +
+          'No se encontraron datos de factura ni de identificación. Comprueba que:\n' +
+          '• Es un PDF de calidad (no una foto de baja resolución)\n' +
+          '• La GEMINI_API_KEY en Vercel es válida y está activa\n\n' +
+          'Prueba reenviando como archivo PDF adjunto (📎).'
+        )
+        return
+      }
+      invoiceRetry.documentType = 'factura'
+      Object.assign(analyzed, invoiceRetry)
+    } else {
+      analyzed.documentType = 'factura'
     }
 
-    // Invoice flow — fetch real filename from inbox (never hardcode 'photo.jpg')
+    // ── Step 5: invoice flow — fetch real filename from inbox ─────────────────
+    // (never hardcode 'photo.jpg')
     const { data: inboxMeta } = await createBotSupabase()
       .from('telegram_inbox').select('file_name').eq('id', inboxId).single()
     const realFileName = inboxMeta?.file_name || 'factura.pdf'
