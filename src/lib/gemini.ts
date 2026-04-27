@@ -706,12 +706,45 @@ A3. NATURGY / UnionFenosa:
    - Puede tener "Financiación del Bono Social de Gas" → bono_social (positivo, cargo).
    - "Tasa CNMC" → gas_tasa_cnmc, "Cuota del GTS" → gas_cuota_gts.
 
-A4. REPSOL / Respol LUZ y GAS:
-   - Formato compacto. Energía a veces en tabla única con columnas P1–P6.
-   - Si la tabla muestra "Término de energía" con un precio único para todos los periodos
-     y luego "Peajes y cargos de energía" también como único concepto → suma ambos como
-     costa bruta de consumo total; distribúyelos en rawLineItems por categoría.
-   - Frecuentemente incluye descuento en % ("Descuento comercial X%") → descuento_energia.
+A4. REPSOL Comercializadora — LUZ (2.0TD y 3.0TD):
+   ── 2.0TD Repsol ──
+   - Energía con precio único o por periodo P1/P2. Formato simple.
+   - Puede incluir "Descuento comercial X%" → descuento_energia.
+
+   ── 3.0TD Repsol — ATENCIÓN: formato en 2 páginas ──
+   - Página 1 (RESUMEN FACTURA): Solo importes CONSOLIDADOS (ej. "Término fijo 84,27€").
+     NO extraigas potencia de aquí — son subtotales globales sin desglose P1-P6.
+   - Página 2 (DETALLE FACTURA): Es la que contiene TODO el desglose real. Extrae de aquí:
+
+   POTENCIA — "Término fijo (P1)" a "Término fijo (P6)":
+   → category: potencia_comercializacion, periodo: Px, kw: X, dias: Y
+   → ⚠️ El precio está en €/kW·AÑO (FORMATO B — SIEMPRE divide entre 365):
+     Ejemplo: "19,800 kW x 30 días x 16,148038 €/kWaño" → precioKwDia = 16.148038/365 = 0.04424
+     Verifica: 19.8 × 0.04424 × 30 = 26.28 ✓
+   → Hay SIEMPRE 6 líneas de potencia (P1 a P6), aunque algunas tengan el mismo kW.
+
+   EXCESO DE POTENCIA — "Excesos de potencia (Px)":
+   → category: exceso_potencia, periodo: Px
+   → Precio en €/kW·DÍA (FORMATO A — ya es diario, NO dividas entre 365):
+     Ejemplo: "1,24 kW x 0,006126 €/kW día x 30 días"
+
+   ENERGÍA — "Consumo (P3)", "Consumo (P4)", "Consumo (P6)" (solo periodos con kWh > 0):
+   → category: energia_comercializacion, periodo: Px, kwh: X, precioUnitario: Y (€/kWh)
+   → Los periodos sin consumo (kWh=0) no aparecen en el detalle — es correcto, no añadas líneas vacías.
+
+   OTROS:
+   - "Excedente de autoconsumo X kWh × Y €/kWh" → compensacion_excedentes, total NEGATIVO
+   - "Financiación Bono Social" → bono_social
+   - "Impuesto Eléctrico" → impuesto_electrico
+   - "Equipos de medida" → alquiler_equipos
+   - "IVA (21%)" → iva
+
+   ⚠️ TRAMPA REPSOL — Secciones INFORMATIVAS al pie — NO emitir como rawLineItems:
+   La sección "IMPORTES CORRESPONDIENTES A PEAJES DE TRANSPORTES Y DISTRIBUCIÓN Y CARGOS"
+   muestra cuánto de la potencia y energía va a regulados vs libre. Es solo un desglose
+   informativo de los importes YA incluidos en los "Término fijo" y "Consumo" de arriba.
+   NUNCA los emitas como líneas adicionales — causaría doble conteo.
+   Lo mismo para "Cuota de comercialización" al final — ya está dentro del "Término fijo".
 
 A5. EDP / Hidrocantábrico:
    - Similar a Naturgy pero puede tener "Término de Potencia Acceso" consolidado.
@@ -747,6 +780,35 @@ A9. SWAP ENERGÍA / SWAP ENERGIA:
    - Si la factura tiene 2 páginas enviadas como imágenes separadas y estás viendo solo
      una, extrae lo que puedas — el CUPS puede estar en la página no visible.
    - Totales: "Total base imponible", "IVA 21%", "Total factura" o "Total a pagar".
+
+A10. COMERCIALIZADORA DESCONOCIDA — MODO EXPERTO (aplica si no hay patrón en A1-A9):
+   Si la comercializadora no aparece en los patrones anteriores, actúa como un asesor
+   energético senior y extrae los datos usando tu conocimiento del mercado eléctrico español:
+
+   RAZONAMIENTO POR ESTRUCTURA:
+   - Si ves kW × días × €/unidad → es potencia (el precio puede ser diario o anual — detecta la unidad)
+   - Si ves kWh × €/kWh → es energía (commercialización, peaje o cargo)
+   - Si ves días × €/día → suele ser término fijo de gas o alquiler contador
+   - Si ves un % aplicado sobre un subtotal → suele ser impuesto eléctrico (5,11%) o IVA (21%)
+   - Si el importe es negativo → compensación de excedentes, descuento o abono
+
+   CLASIFICACIÓN POR CONTENIDO SEMÁNTICO:
+   - Cualquier concepto relacionado con kW contratados o potencia máxica → categoría potencia_*
+   - Cualquier concepto de energía consumida (kWh) → categoría energia_*
+   - "Peaje" / "acceso a redes" / "distribución" → potencia_peaje o energia_peaje
+   - "Cargo" / "cargo regulado" → potencia_cargo o energia_cargo
+   - "Comercialización" → potencia_comercializacion o energia_comercializacion
+   - "Bono social" / "financiación bono" → bono_social
+   - "Impuesto" / "IE" / "5,11%" → impuesto_electrico
+   - "Alquiler" / "contador" / "equipo medida" → alquiler_equipos
+   - "Exceso potencia" / "reactiva" / "penalización" → exceso_potencia
+   - "Excedente" / "autoconsumo vertido" / "compensación" → compensacion_excedentes (negativo)
+   - "IVA" / "IGIC" → iva
+   - Cualquier otra línea → otro (nunca la omitas)
+
+   REGLA DE ORO: Aunque no reconozcas el formato, el total de rawLineItems (sin IVA) SIEMPRE
+   debe cuadrar con la base imponible, y con IVA con el total factura. Si no cuadra, hay
+   líneas que no has extraído — búscalas.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 B. PVPC VS. MERCADO LIBRE — CÓMO DISTINGUIRLOS Y EXTRAER
