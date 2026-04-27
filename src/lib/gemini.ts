@@ -73,8 +73,10 @@ function getApiKey(): string | null {
  * response is cached for the process lifetime to avoid repeated probing.
  */
 const CANDIDATE_MODELS = [
-  'gemini-2.5-flash',               // primary — only model working for new API keys (2025)
-  'gemini-2.5-pro',                 // pro variant (higher cost, better for complex docs)
+  'gemini-2.5-flash',               // primary — works for new API keys (2025)
+  'gemini-flash-latest',            // alias → resolves to latest flash (fallback if 2.5 is overloaded)
+  'gemini-2.5-flash-lite',          // lite — lower demand, good for fallback
+  'gemini-2.5-pro',                 // pro variant (higher cost, better accuracy)
   'gemini-2.0-flash',               // legacy — only available for older keys
   'gemini-2.0-flash-lite',          // legacy lite
   'gemini-1.5-flash',               // legacy fallback
@@ -82,9 +84,13 @@ const CANDIDATE_MODELS = [
 ]
 
 let _cachedModel: string | null = null
+// Track 503 "high demand" errors separately — the key is valid but models are overloaded
+let _lastOverloadedAt = 0
 
 async function getWorkingModel(apiKey: string): Promise<string> {
   if (_cachedModel) return _cachedModel
+
+  let anyOverloaded = false
 
   for (const model of CANDIDATE_MODELS) {
     try {
@@ -97,28 +103,52 @@ async function getWorkingModel(apiKey: string): Promise<string> {
             contents: [{ parts: [{ text: 'Reply with exactly: {"ok":true}' }] }],
             generationConfig: { temperature: 0, maxOutputTokens: 10 },
           }),
-          signal: AbortSignal.timeout(5000),
+          signal: AbortSignal.timeout(8000),
         }
       )
-      // 401 means the API key itself is invalid — no point trying other models
+      // 401/403 means the API key itself is invalid — no point trying other models
       if (res.status === 401 || res.status === 403) {
         const d = await res.json().catch(() => ({}))
-        const msg = d?.error?.message || 'Unauthorized'
+        const msg = d?.error?.message || 'API key invalid or unauthorized'
         throw new GeminiError(msg, res.status, false)
+      }
+      // 429/503 = overloaded / rate limited — try next model, remember for error message
+      if (res.status === 429 || res.status === 503) {
+        anyOverloaded = true
+        console.warn(`[Gemini] Model ${model} overloaded (${res.status}), trying next`)
+        continue
       }
       if (res.ok) {
         const d = await res.json()
-        if (d.candidates?.[0]?.content?.parts?.[0]?.text) {
+        const text = d.candidates?.[0]?.content?.parts?.[0]?.text
+        if (text) {
           console.log(`[Gemini] Using model: ${model}`)
           _cachedModel = model
+          _lastOverloadedAt = 0
           return model
         }
+        // response ok but no text (e.g. gemini-2.5-pro returning empty) — check body for overload hint
+        const reason = d.candidates?.[0]?.finishReason
+        if (reason === 'OVERLOAD' || reason === 'OTHER') {
+          anyOverloaded = true
+          continue
+        }
       }
+      // Any other non-ok status (404, model not found, deprecated) → try next
     } catch (e) {
       // Re-throw auth errors immediately — no point retrying with a bad key
       if (e instanceof GeminiError && (e.status === 401 || e.status === 403)) throw e
-      // Otherwise try next model
+      // Otherwise (network error, timeout) try next model
     }
+  }
+
+  if (anyOverloaded) {
+    _lastOverloadedAt = Date.now()
+    throw new GeminiError(
+      'Gemini sobrecargado por alta demanda. Inténtalo de nuevo en unos minutos.',
+      503,
+      true, // retryable
+    )
   }
 
   throw new GeminiError('No Gemini model available. Check API key and quota.', 0, false)

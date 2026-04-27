@@ -854,16 +854,18 @@ async function processAndNotify(
     // analyzeDocument catches all Gemini errors and returns { error: '...' } silently.
     // Without this check the bot just shows "No pude leer" with no hint of the real cause.
     if (analyzed.error) {
-      const errLower = (analyzed.error || '').toLowerCase()
-      const isKeyIssue = /api.?key|unauthorized|401|403|invalid/i.test(analyzed.error)
+      const isKeyIssue = /api.?key|unauthorized|401|403|invalid.*key|key.*invalid/i.test(analyzed.error)
+      const isOverload = /sobrecarg|high demand|503|overload|try again later/i.test(analyzed.error)
       const isQuota = /quota|rate.?limit|429|resource.?exhaust/i.test(analyzed.error)
-      let userMsg = `⚠️ <b>Error de Gemini AI</b>\n\n<code>${analyzed.error}</code>\n\n`
-      if (isKeyIssue) {
-        userMsg += '🔑 La <b>GEMINI_API_KEY</b> en Vercel parece inválida o expirada.\nActualízala en Vercel → Settings → Environment Variables y haz un nuevo deploy.'
+      let userMsg: string
+      if (isOverload) {
+        userMsg = `⏳ <b>Gemini AI sobrecargado</b>\n\nLos servidores de Google están con alta demanda ahora mismo. Espera 1-2 minutos y reenvía el documento.`
+      } else if (isKeyIssue) {
+        userMsg = `🔑 <b>Error de API Key</b>\n\n<code>${analyzed.error}</code>\n\nActualiza la <b>GEMINI_API_KEY</b> en Vercel → Settings → Environment Variables y haz un nuevo deploy.`
       } else if (isQuota) {
-        userMsg += '⏳ Se ha agotado la cuota de la API de Gemini. Espera unos minutos o revisa el plan en Google AI Studio.'
+        userMsg = `⏳ <b>Cuota agotada</b>\n\nSe ha agotado la cuota de Gemini. Espera unos minutos o revisa el plan en Google AI Studio.`
       } else {
-        userMsg += 'Revisa los logs de Vercel para más detalles.'
+        userMsg = `⚠️ <b>Error de Gemini AI</b>\n\n<code>${analyzed.error}</code>`
       }
       await sendMessage(chatId, userMsg)
       return
