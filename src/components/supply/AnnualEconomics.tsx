@@ -3762,7 +3762,14 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
   const [busyDelete, setBusyDelete] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
-  const withEco = invoices.filter(hasUsableData)
+  // Sort by billing period ascending (oldest invoice first = left column)
+  const withEco = invoices
+    .filter(hasUsableData)
+    .sort((a, b) => {
+      const da = a.period_start || a.period_end || a.created_at || ''
+      const db = b.period_start || b.period_end || b.created_at || ''
+      return da.localeCompare(db)
+    })
   const withoutEco = invoices.filter(inv => !hasUsableData(inv))
   const supplyName = withEco.length > 0 ? getEco(withEco[0])?.titular : undefined
   const isGas = isGasSupply(invoices, propSupplyType)

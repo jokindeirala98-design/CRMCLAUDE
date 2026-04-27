@@ -425,7 +425,10 @@ REGLAS CRÍTICAS DE EXTRACCIÓN (V3.0) — APLICAN A FACTURAS DE LUZ Y GAS
    - holder_cif_nif: CIF o NIF del titular tal como aparece.
    - supply_address: DIRECCIÓN COMPLETA del punto de suministro (calle, número, CP, municipio).
    - comercializadora: nombre EXACTO de la empresa emisora de la factura (Naturgy, Endesa, Galp, TotalEnergies, Axpo, Iberdrola, Repsol, EDP, Holaluz, Audax, etc.). OBLIGATORIO — siempre está impreso en la factura (logo, cabecera o pie de página).
-   - tariff: tarifa exacta (2.0TD, 3.0TD, 6.1TD, RL.1, RL.2, etc.).
+   - tariff: tarifa de acceso exacta (2.0TD, 3.0TD, 6.1TD, RL.1, RL.2, etc.).
+     ⚠️ "Libre", "Mercado Libre", "PVPC" o "TUR" son el TIPO DE MERCADO, NO la tarifa.
+     Busca siempre el código de tarifa de acceso (2.0TD, 3.0TD…). Si la factura dice
+     "Tarifa 2.0TD - Mercado Libre", el campo tariff = "2.0TD", nunca "Libre".
 
 2. **FACTURAS DE ANULACIÓN / ABONOS:** Si la factura es rectificativa o abono, devuelve TODOS los valores en NEGATIVO.
 

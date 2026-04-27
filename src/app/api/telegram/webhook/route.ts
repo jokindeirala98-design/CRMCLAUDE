@@ -269,6 +269,25 @@ export async function GET() {
 async function handleMessage(msg: TelegramMessage) {
   const chatId = msg.chat.id
   const text = (msg.text || '').trim()
+  const nowMs = Date.now()
+
+  // ── Deferred 2.0TD comparativa ───────────────────────────────────────────
+  // After a batch upload, fire ONE comparativa when the user sends any text
+  // message (or when a new file arrives >45s after the last invoice).
+  // File messages are checked inside handleDocumentFile; here we handle text.
+  if (!msg.document && !msg.photo) {
+    try {
+      const preConvo = await getConvo(chatId)
+      const pc = preConvo?.data?.pending_comparativa
+      if (pc && (nowMs - (pc.stored_at || 0)) > 45_000) {
+        fireDeferredComparativa(chatId, pc).catch(console.error)
+        await setConvo(chatId, preConvo!.step || 'idle', {
+          ...preConvo!.data,
+          pending_comparativa: null,
+        })
+      }
+    } catch { /* never block message handling */ }
+  }
 
   if (text.startsWith('/')) {
     return handleCommand(msg, text)
@@ -720,6 +739,14 @@ async function handleDocumentFile(msg: TelegramMessage) {
     const lastNotifAt = convo.data?.last_notif_at || 0
     const fileCount = (convo.data?.pending_file_count || 0) + 1
 
+    // ── Deferred comparativa: fire if new file arrives >45s after previous batch ──
+    // This handles the edge case where user sends another file after a long pause
+    const pendingComp = convo.data?.pending_comparativa
+    if (pendingComp && (now - (pendingComp.stored_at || 0)) > 45_000) {
+      fireDeferredComparativa(chatId, pendingComp).catch(console.error)
+      convo.data.pending_comparativa = null  // will be cleared when setConvo runs below
+    }
+
     if (now - lastNotifAt > DEBOUNCE_MS) {
       await setConvo(chatId, convo.step, { ...(convo.data || {}), last_notif_at: now, pending_file_count: 1 })
       sendMessage(chatId, `📥 Recibido ✓ — Procesando automáticamente...`).catch(() => {})
@@ -825,6 +852,57 @@ async function handleDocumentFile(msg: TelegramMessage) {
     console.error('[Telegram] Document processing error:', err)
     return sendMessage(chatId, `❌ Error procesando documento: ${err.message || 'Error desconocido'}\nInténtalo de nuevo.`)
   }
+}
+
+/* ─── Deferred 2.0TD comparativa ──────────────────────────────────────────── */
+/**
+ * Fires a previously deferred 2.0TD comparativa.
+ * Called once all invoices in a batch have been integrated (batch-upload aware).
+ */
+async function fireDeferredComparativa(chatId: number, pc: Record<string, any>) {
+  const tariffLabels: Record<string, string> = {
+    tramos: '⏰ Tramos Horarios',
+    '24h': '☀️ Precio Fijo 24h',
+    mercado: '📈 Precio Mercado',
+  }
+  const orderedTariffs: string[] = pc.orderedTariffs || ['tramos', '24h', 'mercado']
+  const savingsMap: Record<string, number> = pc.savingsMap || {}
+
+  const ordered = orderedTariffs.map((key, i) => ({
+    num: i + 1, key,
+    label: tariffLabels[key] || key,
+    saving: savingsMap[key] ?? 0,
+  }))
+  ordered.sort((a, b) => b.saving - a.saving)
+  ordered.forEach((o, i) => { o.num = i + 1 })
+
+  const lines = ordered.map(o => {
+    const yr = Math.round(o.saving)
+    const mo = Math.round(o.saving / 12)
+    const sign = yr >= 0 ? '+' : ''
+    const star = o.num === 1 ? ' ⭐' : ''
+    return `<b>${o.num}. ${o.label}${star}</b>\n   Ahorro: ${sign}${yr}€/año (${sign}${mo}€/mes)`
+  }).join('\n\n')
+
+  await sendMessage(chatId,
+    `📊 <b>Comparativa Voltis 2.0TD — ${pc.titular || ''}</b>\n\n` +
+    `${lines}\n\n` +
+    `Responde <b>1</b>, <b>2</b> o <b>3</b> para recibir la comparativa Excel de esa tarifa.`
+  )
+
+  await setConvo(chatId, 'waiting_tariff_choice', {
+    orderedTariffs: ordered.map(o => o.key),
+    titular: pc.titular,
+    cups: pc.cups,
+    consumoP1: pc.consumoP1, consumoP2: pc.consumoP2, consumoP3: pc.consumoP3,
+    potenciaP1: pc.potenciaP1, potenciaP2: pc.potenciaP2, potenciaP3: pc.potenciaP3,
+    currentEnergyPrice: pc.currentEnergyPrice,
+    currentEnergyPriceP1: pc.currentEnergyPriceP1,
+    currentEnergyPriceP2: pc.currentEnergyPriceP2,
+    currentEnergyPriceP3: pc.currentEnergyPriceP3,
+    currentPowerP1: pc.currentPowerP1, currentPowerP2: pc.currentPowerP2,
+    supplyUrl: pc.supplyUrl,
+  })
 }
 
 /**
@@ -974,11 +1052,16 @@ async function processAndNotify(
         const is2TD = /^2\.?0?TD/i.test(invoiceTariff) || invoiceTariff === '2TD'
 
         if (is2TD && result.supply_id) {
-          // Fire-and-forget: generate and send 3 Excel comparativas via bot
+          // ── Batch-upload aware comparativa ───────────────────────────────────
+          // Pre-compute savings now but DON'T send yet.
+          // Store params in convo as pending_comparativa.
+          // fireDeferredComparativa() is called when:
+          //   • user sends any text >45s after the last invoice, OR
+          //   • a new file arrives >45s after the last invoice.
+          // This way 12 invoices sent in one go produce exactly 1 comparativa at the end.
           ;(async () => {
             try {
               const supabase2td = createBotSupabase()
-              // Fetch supply SIPS data for consumo/potencia
               const { data: supplyData } = await supabase2td
                 .from('supplies')
                 .select('consumption_data, cups')
@@ -991,25 +1074,15 @@ async function processAndNotify(
               const consumoP1 = Number(cp.P1) || 0
               const consumoP2 = Number(cp.P2) || 0
               const consumoP3 = Number(cp.P3) || 0
-              if (!consumoP1 && !consumoP2 && !consumoP3) {
-                // No SIPS data yet — skip comparativa
-                return
-              }
+              if (!consumoP1 && !consumoP2 && !consumoP3) return // no SIPS yet
 
-              // Potencia: for 2.0TD SIPS stores P1 = punta, P3 = valle.
-              // P2 is often a SIPS artifact (e.g. 3W → 0.003 kW after /1000).
-              // Send P3 explicitly; the comparativa API will use it directly for valle.
               const potenciaP1 = Number(pp.P1) || 0
               const potenciaP3 = Number(pp.P3) || 0
-              // potenciaP2: first valid (≥ 0.1 kW) value from P2-P6 — fallback for valley
               const potenciaP2 = (['P2', 'P3', 'P4', 'P5', 'P6'] as const)
                 .map(k => Number(pp[k]) || 0)
                 .find(v => v >= 0.1) ?? potenciaP1
 
-              // Current energy price from invoice — extract per-period when available
               const eco = analyzed.economics as any
-
-              // Per-period prices from consumo[] (Caso 2 = por_periodo, Caso 3 = promocionadas)
               const consumoArr: any[] = eco?.consumo || []
               const epPeriod: Record<string, { kwhSum: number; eurSum: number }> = {}
               for (const c of consumoArr) {
@@ -1026,7 +1099,6 @@ async function processAndNotify(
               const epP2 = epPeriod.P2?.kwhSum > 0 ? epPeriod.P2.eurSum / epPeriod.P2.kwhSum : 0
               const epP3 = epPeriod.P3?.kwhSum > 0 ? epPeriod.P3.eurSum / epPeriod.P3.kwhSum : 0
 
-              // Flat fallback: costeMedioKwhNeto or total/kWh
               const currentEnergyPrice =
                 Number(eco?.costeMedioKwhNeto) ||
                 Number(eco?.costeMedioKwh) ||
@@ -1035,14 +1107,10 @@ async function processAndNotify(
                   const ten = Number(eco?.costeTotalConsumo) || Number(eco?.costeNetoConsumo) || 0
                   return tkwh > 0 ? ten / tkwh : 0
                 })()
-
-              // Use per-period when available, otherwise flat
               const currentEnergyPriceP1 = epP1 > 0 ? epP1 : currentEnergyPrice
               const currentEnergyPriceP2 = epP2 > 0 ? epP2 : currentEnergyPrice
               const currentEnergyPriceP3 = epP3 > 0 ? epP3 : currentEnergyPrice
 
-              // Current power prices from invoice (€/kW·día per period)
-              // Path A: use potencia[] rebuilt array (precioKwDia may be null if Gemini didn't extract kw/dias)
               const potArr: any[] = eco?.potencia || []
               const potPrices: Record<string, number> = {}
               const normP = (raw: any) => { const m = String(raw||'').trim().match(/(?:P|[Pp]er[íi]odo\s*)?([1-6])$/i); return m ? `P${m[1]}` : null }
@@ -1055,7 +1123,6 @@ async function processAndNotify(
                 }
                 if (price > 0 && price < 5) potPrices[p] = price
               }
-              // Path B: if potencia[] prices still zero, sum precioUnitario from rawLineItems per period
               if (!potPrices.P1 && !potPrices.P2 && !potPrices.P3) {
                 const rawItems: any[] = eco?.rawLineItems || []
                 const potCats = ['potencia_peaje','potencia_cargo','potencia_comercializacion']
@@ -1073,30 +1140,14 @@ async function processAndNotify(
               const currentPowerP1 = potPrices.P1 || 0
               const currentPowerP2 = potPrices.P2 > 0 ? potPrices.P2 : (potPrices.P3 > 0 ? potPrices.P3 : potPrices.P1 || 0)
 
-              await sendMessage(chatId,
-                `📊 <b>Tarifa 2.0TD detectada</b>\n\n` +
-                `Generando comparativa de ahorro Voltis con las 3 opciones de tarifa...`
-              )
-
               const tariffKeys = ['tramos', '24h', 'mercado'] as const
-              const tariffLabels: Record<string, string> = {
-                tramos: '⏰ Tramos Horarios',
-                '24h': '☀️ Precio Fijo 24h',
-                mercado: '📈 Precio Mercado',
-              }
+              const { compute2TDSavings: computeSavings } = await import('@/lib/voltis-tariffs-2td')
 
-              // ── Compute savings for all 3 tariffs (no Excel yet) ────────────
-              const { compute2TDSavings: computeSavings, VOLTIS_TARIFFS_2TD: tariffs2TD } =
-                await import('@/lib/voltis-tariffs-2td')
-
-              // Determine if indexed tariff → use flat price for savings computation
               const isIndexedTariff = (() => {
-                // Simple heuristic: if all 3 per-period prices differ significantly, indexed
                 const eps = [currentEnergyPriceP1, currentEnergyPriceP2, currentEnergyPriceP3].filter(v => v > 0)
                 if (eps.length < 2) return false
                 const avg = eps.reduce((s, v) => s + v, 0) / eps.length
-                const spread = (Math.max(...eps) - Math.min(...eps)) / avg
-                return spread > 0.10
+                return (Math.max(...eps) - Math.min(...eps)) / avg > 0.10
               })()
               const ep4savings = isIndexedTariff
                 ? { P1: currentEnergyPrice, P2: currentEnergyPrice, P3: currentEnergyPrice }
@@ -1108,51 +1159,37 @@ async function processAndNotify(
                   const s = computeSavings(
                     { P1: consumoP1, P2: consumoP2, P3: consumoP3 },
                     { P1: potenciaP1, P2: potenciaP3 > 0.1 ? potenciaP3 : potenciaP2 },
-                    ep4savings,
-                    currentPowerP1,
-                    currentPowerP2,
-                    tariffKey,
+                    ep4savings, currentPowerP1, currentPowerP2, tariffKey,
                   )
                   savingsMap[tariffKey] = s.savings.totalAnnual
                 } catch { /* skip */ }
               }
 
-              // ── Send summary and ask user to pick a tariff ───────────────────
               const supplyUrl = `${appUrl}/supplies/${result.supply_id}`
               const ordered = tariffKeys.map((k, i) => ({
-                num: i + 1, key: k,
-                label: tariffLabels[k] || k,
-                saving: savingsMap[k] ?? 0,
+                num: i + 1, key: k, saving: savingsMap[k] ?? 0,
               }))
               ordered.sort((a, b) => b.saving - a.saving)
-              // Re-number after sorting
               ordered.forEach((o, i) => { o.num = i + 1 })
 
-              const lines = ordered.map(o => {
-                const yr = Math.round(o.saving)
-                const mo = Math.round(o.saving / 12)
-                const sign = yr >= 0 ? '+' : ''
-                const star = o.num === 1 ? ' ⭐' : ''
-                return `<b>${o.num}. ${o.label}${star}</b>\n   Ahorro: ${sign}${yr}€/año (${sign}${mo}€/mes)`
-              }).join('\n\n')
-
-              await sendMessage(chatId,
-                `📊 <b>Comparativa Voltis 2.0TD — ${clientName}</b>\n\n` +
-                `${lines}\n\n` +
-                `Responde <b>1</b>, <b>2</b> o <b>3</b> para recibir la comparativa Excel de esa tarifa.`
-              )
-
-              // ── Store params for later Excel generation ──────────────────────
-              await setConvo(chatId, 'waiting_tariff_choice', {
-                orderedTariffs: ordered.map(o => o.key),
-                titular: clientName,
-                cups: result.cups || supplyData?.cups || '',
-                consumoP1, consumoP2, consumoP3,
-                potenciaP1, potenciaP2, potenciaP3,
-                currentEnergyPrice,
-                currentEnergyPriceP1, currentEnergyPriceP2, currentEnergyPriceP3,
-                currentPowerP1, currentPowerP2,
-                supplyUrl,
+              // Store for deferred firing — overwrites previous invoice's params
+              // (last invoice in the batch wins, which is the most up-to-date)
+              const latestConvo = await getConvo(chatId)
+              await setConvo(chatId, latestConvo?.step || 'idle', {
+                ...(latestConvo?.data || {}),
+                pending_comparativa: {
+                  orderedTariffs: ordered.map(o => o.key),
+                  savingsMap,
+                  titular: clientName,
+                  cups: result.cups || supplyData?.cups || '',
+                  consumoP1, consumoP2, consumoP3,
+                  potenciaP1, potenciaP2, potenciaP3,
+                  currentEnergyPrice,
+                  currentEnergyPriceP1, currentEnergyPriceP2, currentEnergyPriceP3,
+                  currentPowerP1, currentPowerP2,
+                  supplyUrl,
+                  stored_at: Date.now(),
+                },
               })
             } catch (comp2tdErr: any) {
               console.error('[Telegram] 2TD comparativa block error:', comp2tdErr.message)
