@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/backup",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/health-gemini",
+      "schedule": "0 8 * * *"
     }
   ]
 }

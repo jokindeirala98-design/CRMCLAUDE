@@ -258,6 +258,82 @@ export async function callGemini(
   throw lastErr
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  CLAUDE (ANTHROPIC) FALLBACK                                              */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Calls Anthropic Claude as a fallback extractor when Gemini is unavailable.
+ * Uses the same prompt and image data — returns the raw JSON text string.
+ * Requires ANTHROPIC_API_KEY env var.
+ */
+async function callClaudeForExtraction(
+  prompt: string,
+  base64Data: string,
+  mimeType: string,
+  extraPages?: Array<{ base64Data: string; mimeType: string }>
+): Promise<string> {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY no configurada — no hay extractor de respaldo disponible.')
+
+  // Build the content array for Claude's messages API
+  const content: any[] = []
+
+  // Primary image
+  content.push({
+    type: 'image',
+    source: { type: 'base64', media_type: mimeType as any, data: base64Data },
+  })
+
+  // Extra pages (multi-page invoices)
+  if (extraPages?.length) {
+    const pageNote = extraPages.length === 1
+      ? 'NOTA: Se adjunta una segunda página de la misma factura. Analiza AMBAS páginas juntas.'
+      : `NOTA: Se adjuntan ${extraPages.length} páginas adicionales. Analiza TODAS las páginas juntas.`
+    content.push({ type: 'text', text: pageNote })
+    for (const page of extraPages) {
+      content.push({
+        type: 'image',
+        source: { type: 'base64', media_type: page.mimeType as any, data: page.base64Data },
+      })
+    }
+  }
+
+  content.push({
+    type: 'text',
+    text: 'Analiza el documento adjunto y extrae los datos siguiendo estrictamente las instrucciones del sistema. Devuelve SOLO JSON sin texto adicional.',
+  })
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-opus-4-5',
+      max_tokens: 16384,
+      system: prompt,
+      messages: [{ role: 'user', content }],
+    }),
+    signal: AbortSignal.timeout(90000),
+  })
+
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}))
+    const msg = d?.error?.message || `Claude API error ${res.status}`
+    throw new Error(msg)
+  }
+
+  const data = await res.json()
+  const text = data?.content?.[0]?.text || ''
+  if (!text) throw new Error('Claude devolvió respuesta vacía')
+
+  console.log('[Claude] Fallback extraction successful')
+  return text
+}
+
 /**
  * Translate raw Gemini errors to user-friendly Spanish messages.
  */
@@ -1669,7 +1745,23 @@ que un null. La única excepción es el CUPS — ahí null es mejor que inventar
       prompt = imageHints + prompt
     }
 
-    const content = await callGemini(prompt, base64Data, mimeType, 3, extraPages)
+    let content: string
+    let extractorUsed: 'gemini' | 'claude' = 'gemini'
+    try {
+      content = await callGemini(prompt, base64Data, mimeType, 3, extraPages)
+    } catch (geminiErr: any) {
+      // If Gemini fails with an auth/permanent error, fall back to Claude
+      const isPermanent = geminiErr instanceof GeminiError
+        ? !geminiErr.retryable
+        : /unauthorized|401|403|api.?key|No Gemini model/i.test(geminiErr?.message || '')
+      if (isPermanent && process.env.ANTHROPIC_API_KEY) {
+        console.warn('[Gemini] Permanent error — falling back to Claude:', geminiErr?.message)
+        content = await callClaudeForExtraction(prompt, base64Data, mimeType, extraPages)
+        extractorUsed = 'claude'
+      } else {
+        throw geminiErr
+      }
+    }
     const result = safeParseGeminiJSON(content)
 
     const detectedType: DocumentType = result.documentType || docType || 'otro'
@@ -1696,7 +1788,7 @@ que un null. La única excepción es el CUPS — ahí null es mejor que inventar
     }
 
     return {
-      mode: 'gemini',
+      mode: extractorUsed,
       documentType: detectedType,
       cups,
       supply_type: (['luz', 'gas', 'telefonia'].includes(extracted.supply_type) ? extracted.supply_type : undefined) as 'luz' | 'gas' | 'telefonia' | undefined,
