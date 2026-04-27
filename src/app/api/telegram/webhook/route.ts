@@ -846,7 +846,23 @@ async function processAndNotify(
   try {
     // Single Gemini call — classifies AND extracts all fields
     const analyzed = await analyzeDocument(base64, mimeType, undefined, extraPages.length ? extraPages : undefined)
-    const docType = analyzed.documentType
+    let docType = analyzed.documentType
+
+    // If Gemini returned 'otro'/'contrato' but extracted invoice-like data,
+    // treat it as a factura — Gemini sometimes misclassifies unusual invoice formats
+    const hasInvoiceData = !!(
+      analyzed.cups ||
+      analyzed.billing_period ||
+      analyzed.comercializadora ||
+      analyzed.economics?.consumoTotalKwh ||
+      analyzed.economics?.costeTotalConsumo ||
+      (analyzed.economics?.consumo?.length > 0)
+    )
+    if (docType !== 'factura' && hasInvoiceData) {
+      console.log(`[Telegram] Gemini said '${docType}' but found invoice data — forcing factura flow`)
+      docType = 'factura'
+      analyzed.documentType = 'factura'
+    }
 
     // Route non-invoice documents (DNI, bank cert, contract…) to client doc handler
     if (docType && docType !== 'factura') {
