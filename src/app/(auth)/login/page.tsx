@@ -31,9 +31,8 @@ export default function LoginPage() {
       return
     }
 
-    // Hard redirect ensures the browser sends the session cookie in the new request,
-    // avoiding the middleware race condition with router.push (client-side navigation)
-    window.location.href = '/panel'
+    router.refresh()
+    router.push('/panel')
   }
 
   return (
