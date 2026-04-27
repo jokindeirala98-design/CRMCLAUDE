@@ -12,6 +12,14 @@ export async function POST() {
 
   if (!token) return NextResponse.json({ error: 'No TELEGRAM_BOT_TOKEN' }, { status: 500 })
 
+  // Debug: show env presence (not the actual values)
+  const debugEnv = {
+    hasBotToken: !!token,
+    hasSecret: !!secret,
+    secretLength: secret?.length ?? 0,
+    appUrl,
+  }
+
   // Step 1: Delete the existing webhook first (Telegram doesn't update secret_token on an already-set webhook)
   const deleteRes = await fetch(`https://api.telegram.org/bot${token}/deleteWebhook`, {
     method: 'POST',
@@ -39,5 +47,5 @@ export async function POST() {
   const infoRes = await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`)
   const info = await infoRes.json()
 
-  return NextResponse.json({ deleteWebhook: deleteData, setWebhook: data, webhookInfo: info.result })
+  return NextResponse.json({ debugEnv, deleteWebhook: deleteData, setWebhook: data, webhookInfo: info.result })
 }
