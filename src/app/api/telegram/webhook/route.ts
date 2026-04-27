@@ -4,7 +4,7 @@ import {
   downloadFile, sendDocument, inlineKeyboard, button, createBotSupabase,
 } from '@/lib/telegram'
 import { processTelegramInboxItem } from '@/lib/telegram-process'
-import { analyzeDocument } from '@/lib/gemini'
+import { analyzeDocument, analyzeInvoice } from '@/lib/gemini'
 import { normalizeCups } from '@/lib/utils/cups'
 import { fetchSipsForCups } from '@/lib/sips'
 import { normalizeTariff } from '@/lib/consumption-utils'
@@ -844,33 +844,14 @@ async function processAndNotify(
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
 
   try {
-    // Single Gemini call — classifies AND extracts all fields
-    const analyzed = await analyzeDocument(base64, mimeType, undefined, extraPages.length ? extraPages : undefined)
-    let docType = analyzed.documentType
+    // Use analyzeInvoice directly — the bot is exclusively for invoices.
+    // analyzeDocument (general classifier) was returning 'otro' for many electricity
+    // bills and extracting no data. analyzeInvoice uses the invoice-specific prompt
+    // and always extracts CUPS, tariff, holder, economics etc.
+    const analyzed = await analyzeInvoice(base64, mimeType, extraPages.length ? extraPages : undefined)
+    analyzed.documentType = 'factura'
 
-    // The Telegram bot is used almost exclusively for invoices.
-    // Only route to the non-invoice handler when Gemini is CERTAIN it's a specific
-    // non-invoice doc type AND extracted the relevant identifier for it.
-    // Everything else (including 'otro', 'contrato', or misclassified invoices)
-    // goes to the invoice flow, which already knows how to match clients by CUPS/name.
-    const isDefinitelyNonInvoice =
-      (docType === 'cif'  && analyzed.cif) ||
-      (docType === 'nif'  && analyzed.nif) ||
-      (docType === 'iban' && analyzed.iban)
-
-    if (isDefinitelyNonInvoice) {
-      await handleNonInvoiceDocResult(chatId, inboxId, analyzed, user)
-      return
-    }
-
-    // Force factura for everything else (Gemini sometimes misclassifies electricity bills)
-    if (docType !== 'factura') {
-      console.log(`[Telegram] Gemini classified as '${docType}' — forcing invoice flow`)
-      analyzed.documentType = 'factura'
-    }
-
-    // Guard: if Gemini returned completely empty data (API key expired / bad response),
-    // show a clear error instead of creating garbage records in the DB
+    // Guard: if Gemini returned completely empty data (API key issue or unreadable doc)
     const hasAnyData = !!(
       analyzed.cups ||
       analyzed.holder_name ||
@@ -885,10 +866,10 @@ async function processAndNotify(
     if (!hasAnyData) {
       await sendMessage(chatId,
         '⚠️ <b>No pude leer la factura.</b>\n\n' +
-        'Gemini no extrajo ningún dato. Posibles causas:\n' +
-        '• La clave GEMINI_API_KEY está caducada — actualízala en Vercel\n' +
-        '• El documento es ilegible o de muy baja calidad\n\n' +
-        'Prueba reenviándolo como <b>archivo PDF</b> (no como foto). Si persiste, actualiza la API key.'
+        'El documento no contiene datos legibles. Comprueba que:\n' +
+        '• Es un PDF de calidad (no una foto de baja resolución)\n' +
+        '• La GEMINI_API_KEY en Vercel es válida y está activa\n\n' +
+        'Prueba reenviando como archivo PDF adjunto (📎).'
       )
       return
     }
