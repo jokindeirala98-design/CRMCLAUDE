@@ -239,8 +239,16 @@ export async function processTelegramInboxItem(
         }
 
         // Create new client if not found
+        // Never use filename as client name — it produces garbage like "photo.jpg"
+        const rawClientName = identity.full_name || identity.company_name || identity.account_holder || null
+        if (!identityClientId && !rawClientName) {
+          // Can't identify who this is — skip silently rather than create garbage record
+          console.warn(`[TelegramProcess] Identity doc found (${identity.documentType}) but no name extractable — skipping client creation`)
+          await supabase.from('telegram_inbox').update({ status: 'pending_confirm', processed_at: new Date().toISOString() }).eq('id', inboxId)
+          return { ok: true, skipped: true }
+        }
         if (!identityClientId) {
-          const clientName = identity.full_name || identity.company_name || identity.account_holder || item.file_name || 'Cliente Telegram'
+          const clientName = rawClientName || 'Cliente Telegram'
           const isParticular = identity.documentType === 'dni'
           const clientPayload = {
             name: clientName,

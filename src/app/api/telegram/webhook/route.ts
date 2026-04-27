@@ -869,12 +869,36 @@ async function processAndNotify(
       analyzed.documentType = 'factura'
     }
 
+    // Guard: if Gemini returned completely empty data (API key expired / bad response),
+    // show a clear error instead of creating garbage records in the DB
+    const hasAnyData = !!(
+      analyzed.cups ||
+      analyzed.holder_name ||
+      analyzed.tariff ||
+      analyzed.comercializadora ||
+      analyzed.billing_period ||
+      analyzed.economics?.consumoTotalKwh ||
+      analyzed.economics?.costeTotalConsumo ||
+      (analyzed.economics?.consumo?.length > 0) ||
+      (analyzed.economics?.rawLineItems?.length > 0)
+    )
+    if (!hasAnyData) {
+      await sendMessage(chatId,
+        '⚠️ <b>No pude leer la factura.</b>\n\n' +
+        'Gemini no extrajo ningún dato. Posibles causas:\n' +
+        '• La clave GEMINI_API_KEY está caducada — actualízala en Vercel\n' +
+        '• El documento es ilegible o de muy baja calidad\n\n' +
+        'Prueba reenviándolo como <b>archivo PDF</b> (no como foto). Si persiste, actualiza la API key.'
+      )
+      return
+    }
+
     // Invoice flow — pass pre-analyzed data to skip 2nd Gemini call
     const result = await processTelegramInboxItem(
       inboxId,
       base64,
       mimeType,
-      { file_url: '', file_type: mimeType.includes('pdf') ? 'pdf' : 'image', file_name: 'photo.jpg', user_id: user.userId },
+      { file_url: '', file_type: mimeType.includes('pdf') ? 'pdf' : 'image', file_name: fileName, user_id: user.userId },
       extraPages.length > 0 ? extraPages : undefined,
       analyzed,
     )
