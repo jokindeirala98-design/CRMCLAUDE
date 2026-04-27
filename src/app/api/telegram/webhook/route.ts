@@ -893,12 +893,16 @@ async function processAndNotify(
       return
     }
 
-    // Invoice flow — pass pre-analyzed data to skip 2nd Gemini call
+    // Invoice flow — fetch real filename from inbox (never hardcode 'photo.jpg')
+    const { data: inboxMeta } = await createBotSupabase()
+      .from('telegram_inbox').select('file_name').eq('id', inboxId).single()
+    const realFileName = inboxMeta?.file_name || 'factura.pdf'
+
     const result = await processTelegramInboxItem(
       inboxId,
       base64,
       mimeType,
-      { file_url: '', file_type: mimeType.includes('pdf') ? 'pdf' : 'image', file_name: fileName, user_id: user.userId },
+      { file_url: '', file_type: mimeType.includes('pdf') ? 'pdf' : 'image', file_name: realFileName, user_id: user.userId },
       extraPages.length > 0 ? extraPages : undefined,
       analyzed,
     )

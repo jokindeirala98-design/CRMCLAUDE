@@ -196,9 +196,12 @@ export async function processTelegramInboxItem(
   // 3b. Identity document detection — if no CUPS/tariff found by invoice extractor,
   //      try the identity extractor. If it recognises the doc (DNI/CIF/cert bancario),
   //      save the file URL to the client's profile and return early (no supply/invoice).
+  // SKIP when preAnalyzed is provided: the webhook already classified this as a factura.
+  // Running identity detection here would make a redundant Gemini call and could
+  // wrongly classify the invoice as a DNI/CIF, creating garbage "photo.jpg" clients.
   const quickCups = extractedData?.cups ? normalizeCups(extractedData.cups) : null
   const quickTariff = extractedData?.tariff || extractedData?.economics?.tarifa || null
-  if (!quickCups && !quickTariff && base64 && fileMime) {
+  if (!preAnalyzed && !quickCups && !quickTariff && base64 && fileMime) {
     try {
       const identity = await analyzeIdentityDocument(base64, fileMime)
       if (identity.documentType !== 'desconocido') {
