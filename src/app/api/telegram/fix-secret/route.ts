@@ -12,6 +12,15 @@ export async function POST() {
 
   if (!token) return NextResponse.json({ error: 'No TELEGRAM_BOT_TOKEN' }, { status: 500 })
 
+  // Step 1: Delete the existing webhook first (Telegram doesn't update secret_token on an already-set webhook)
+  const deleteRes = await fetch(`https://api.telegram.org/bot${token}/deleteWebhook`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ drop_pending_updates: false }),
+  })
+  const deleteData = await deleteRes.json()
+
+  // Step 2: Re-register with secret_token
   const body: Record<string, unknown> = {
     url: `${appUrl}/api/telegram/webhook`,
     allowed_updates: ['message', 'callback_query'],
@@ -30,5 +39,5 @@ export async function POST() {
   const infoRes = await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`)
   const info = await infoRes.json()
 
-  return NextResponse.json({ setWebhook: data, webhookInfo: info.result })
+  return NextResponse.json({ deleteWebhook: deleteData, setWebhook: data, webhookInfo: info.result })
 }
