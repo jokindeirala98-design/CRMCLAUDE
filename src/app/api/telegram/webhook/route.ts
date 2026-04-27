@@ -848,26 +848,25 @@ async function processAndNotify(
     const analyzed = await analyzeDocument(base64, mimeType, undefined, extraPages.length ? extraPages : undefined)
     let docType = analyzed.documentType
 
-    // If Gemini returned 'otro'/'contrato' but extracted invoice-like data,
-    // treat it as a factura — Gemini sometimes misclassifies unusual invoice formats
-    const hasInvoiceData = !!(
-      analyzed.cups ||
-      analyzed.billing_period ||
-      analyzed.comercializadora ||
-      analyzed.economics?.consumoTotalKwh ||
-      analyzed.economics?.costeTotalConsumo ||
-      (analyzed.economics?.consumo?.length > 0)
-    )
-    if (docType !== 'factura' && hasInvoiceData) {
-      console.log(`[Telegram] Gemini said '${docType}' but found invoice data — forcing factura flow`)
-      docType = 'factura'
-      analyzed.documentType = 'factura'
-    }
+    // The Telegram bot is used almost exclusively for invoices.
+    // Only route to the non-invoice handler when Gemini is CERTAIN it's a specific
+    // non-invoice doc type AND extracted the relevant identifier for it.
+    // Everything else (including 'otro', 'contrato', or misclassified invoices)
+    // goes to the invoice flow, which already knows how to match clients by CUPS/name.
+    const isDefinitelyNonInvoice =
+      (docType === 'cif'  && analyzed.cif) ||
+      (docType === 'nif'  && analyzed.nif) ||
+      (docType === 'iban' && analyzed.iban)
 
-    // Route non-invoice documents (DNI, bank cert, contract…) to client doc handler
-    if (docType && docType !== 'factura') {
+    if (isDefinitelyNonInvoice) {
       await handleNonInvoiceDocResult(chatId, inboxId, analyzed, user)
       return
+    }
+
+    // Force factura for everything else (Gemini sometimes misclassifies electricity bills)
+    if (docType !== 'factura') {
+      console.log(`[Telegram] Gemini classified as '${docType}' — forcing invoice flow`)
+      analyzed.documentType = 'factura'
     }
 
     // Invoice flow — pass pre-analyzed data to skip 2nd Gemini call
