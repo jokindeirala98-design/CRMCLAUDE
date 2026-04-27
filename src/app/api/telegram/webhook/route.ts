@@ -850,6 +850,25 @@ async function processAndNotify(
     const analyzed = await analyzeDocument(base64, mimeType, undefined, extraPages.length ? extraPages : undefined)
     const docType = analyzed.documentType // 'factura' | 'nif' | 'cif' | 'iban' | 'contrato' | 'otro'
 
+    // ── Surface Gemini API errors immediately (invalid key, quota, etc.) ──────
+    // analyzeDocument catches all Gemini errors and returns { error: '...' } silently.
+    // Without this check the bot just shows "No pude leer" with no hint of the real cause.
+    if (analyzed.error) {
+      const errLower = (analyzed.error || '').toLowerCase()
+      const isKeyIssue = /api.?key|unauthorized|401|403|invalid/i.test(analyzed.error)
+      const isQuota = /quota|rate.?limit|429|resource.?exhaust/i.test(analyzed.error)
+      let userMsg = `⚠️ <b>Error de Gemini AI</b>\n\n<code>${analyzed.error}</code>\n\n`
+      if (isKeyIssue) {
+        userMsg += '🔑 La <b>GEMINI_API_KEY</b> en Vercel parece inválida o expirada.\nActualízala en Vercel → Settings → Environment Variables y haz un nuevo deploy.'
+      } else if (isQuota) {
+        userMsg += '⏳ Se ha agotado la cuota de la API de Gemini. Espera unos minutos o revisa el plan en Google AI Studio.'
+      } else {
+        userMsg += 'Revisa los logs de Vercel para más detalles.'
+      }
+      await sendMessage(chatId, userMsg)
+      return
+    }
+
     // ── Step 2: route identity documents (DNI, CIF, IBAN) immediately ────────
     const isDefinitelyNonInvoice = (
       (docType === 'nif' && (analyzed.nif || analyzed.holder_cif_nif)) ||
