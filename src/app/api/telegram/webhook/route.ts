@@ -1413,6 +1413,24 @@ async function handleNonInvoiceDocResult(
     )
   }
 
+  // Priority 3 found via session — ask for confirmation before silently saving
+  if (!foundViaDoc) {
+    await supabase.from('telegram_inbox').update({ status: 'pending_confirm' }).eq('id', inboxId)
+    return sendMessage(chatId,
+      `📎 <b>${docTypeLabel(docType)} recibido</b>\n\n` +
+      `No encontré datos de cliente en el documento.\n` +
+      `¿Pertenece a <b>${clientName}</b> (cliente activo)?`,
+      {
+        replyMarkup: inlineKeyboard([
+          [
+            button(`✅ Sí, es de ${clientName}`, `assoc_doc:${clientId}:${inboxId}:${docType}`),
+          ],
+          [button('❌ Otro cliente', `cancel_doc:${inboxId}`)],
+        ]),
+      }
+    )
+  }
+
   // 2 — Update client fields based on document type
   const patch: Record<string, any> = { updated_at: new Date().toISOString() }
   let savedFields: string[] = []
@@ -1793,6 +1811,21 @@ async function handleCallback(cb: CallbackQuery) {
           await clearConvo(chatId)
           await sendMessage(chatId, `⏳ Creando suministro para <b>${fullName}</b>...\n🔌 <code>${cupsValue}</code>`)
           return createSupplyFromCups(chatId, cupsValue, cupsClientId, fullName, user, appUrl, supabase)
+        }
+
+      case 'cancel_doc':
+        {
+          // User said "Otro cliente" — keep inbox pending and ask for the client name
+          const [cancelInboxId] = params
+          if (cancelInboxId) {
+            await createBotSupabase().from('telegram_inbox')
+              .update({ status: 'pending_confirm' })
+              .eq('id', cancelInboxId)
+          }
+          await answerCallback(cb.id, '✏️ Escribe el nombre del cliente')
+          return sendMessage(chatId,
+            `✏️ Escribe el nombre del cliente al que pertenece este documento.`
+          )
         }
 
       case 'cancel':
