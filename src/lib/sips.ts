@@ -219,6 +219,15 @@ export async function fetchSipsData(cups: string, token: string): Promise<SipsDa
       P5: Number(raw.PotenciasContratadasEnWP5 || 0) / 1000,
       P6: Number(raw.PotenciasContratadasEnWP6 || 0) / 1000,
     }
+    // Sanity-check: SIPS sometimes stores artifact values like 3 (Watts) for periods
+    // that should be 0 in a 2.0TD. After dividing by 1000 this becomes 0.003 kW —
+    // clearly wrong. Discard any value < 0.05 kW that is also < 1% of P1.
+    const p1Ref = rawPotW.P1
+    for (const k of ['P2', 'P3', 'P4', 'P5', 'P6'] as const) {
+      if (rawPotW[k] > 0 && rawPotW[k] < 0.05 && (p1Ref === 0 || rawPotW[k] < p1Ref * 0.01)) {
+        rawPotW[k] = 0
+      }
+    }
     const hasRawPotencia = Object.values(rawPotW).some(v => v > 0)
     if (hasRawPotencia) {
       if (!result.potenciaContratada) {

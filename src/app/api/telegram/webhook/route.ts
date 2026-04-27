@@ -900,11 +900,12 @@ async function processAndNotify(
 
               // Potencia: for 2.0TD SIPS may store valle in P2, P3, or higher periods.
               // Some distributors only populate P1 in the /info endpoint.
-              // Scan P2–P6 for the first non-zero value; fall back to P1 if all zero.
+              // Scan P2–P6 for the first value >= 0.1 kW (minimum realistic contracted power).
+              // Values < 0.1 kW are SIPS artifacts (e.g., 3W stored as 3 → 0.003 kW after /1000).
               const potenciaP1 = Number(pp.P1) || 0
               const potenciaP2 = (['P2', 'P3', 'P4', 'P5', 'P6'] as const)
                 .map(k => Number(pp[k]) || 0)
-                .find(v => v > 0) ?? potenciaP1
+                .find(v => v >= 0.1) ?? potenciaP1
 
               // Current energy price from invoice (€/kWh avg)
               const eco = analyzed.economics as any

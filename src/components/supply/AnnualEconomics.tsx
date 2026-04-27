@@ -2775,9 +2775,10 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
     // con la misma potencia en todos los periodos, habitual en 2.0TD residencial).
     const pc = potenciaContratada as any
     const potP1 = Number(pc.P1) || 0
+    // Only accept values >= 0.1 kW — SIPS artifacts like 3W → 0.003 kW must be ignored
     const potP2 = (['P2', 'P3', 'P4', 'P5', 'P6'] as const)
       .map(k => Number(pc[k]) || 0)
-      .find(v => v > 0) ?? potP1
+      .find(v => v >= 0.1) ?? potP1
     if (!consumoP1 && !consumoP2 && !consumoP3) return null
 
     const currentEnergyPrice = summaryStats.precioPromedio

@@ -1006,6 +1006,7 @@ function toNum(v: any): number {
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 const round4 = (n: number) => Math.round(n * 10000) / 10000
+const round6 = (n: number) => Math.round(n * 1000000) / 1000000
 
 /**
  * Aggressive fuzzy key for deduplicating otrosConceptos.
@@ -1251,12 +1252,21 @@ function rebuildFromRawLineItems(rawLineItems: LineItem[], eco: any): any {
     const kwRow = potenciaPeajes.find(i => i.periodo === p) || potenciaCargos.find(i => i.periodo === p)
     const dias = kwRow?.dias || null
     const kw = kwRow?.kw || null
-    const precioKwDia = kw && dias ? total / (kw * dias) : null
+
+    // Prefer summed precioUnitario from raw items (exact value Gemini read from invoice).
+    // Summing peaje + cargo + comer gives the combined €/kW·día without rounding loss.
+    // Fall back to total/(kw*dias) only when precioUnitario is unavailable.
+    const rawPrecioSum =
+      potenciaPeajes.filter(i => i.periodo === p).reduce((s, i) => s + (Number(i.precioUnitario) || 0), 0) +
+      potenciaCargos.filter(i => i.periodo === p).reduce((s, i) => s + (Number(i.precioUnitario) || 0), 0) +
+      potenciaComer.filter(i => i.periodo === p).reduce((s, i) => s + (Number(i.precioUnitario) || 0), 0)
+    const precioKwDia = rawPrecioSum > 0 ? rawPrecioSum : (kw && dias ? total / (kw * dias) : null)
+
     potencia.push({
       periodo: p,
       kw,
       dias,
-      precioKwDia: precioKwDia != null ? round4(precioKwDia) : null,
+      precioKwDia: precioKwDia != null ? round6(precioKwDia) : null,
       total: round2(total),
     })
   }
