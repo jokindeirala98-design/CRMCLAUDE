@@ -73,12 +73,12 @@ function getApiKey(): string | null {
  * response is cached for the process lifetime to avoid repeated probing.
  */
 const CANDIDATE_MODELS = [
-  'gemini-2.5-flash',           // confirmed working for new API keys
-  'gemini-flash-latest',         // alias - fallback
-  'gemini-3-flash-preview',      // next gen when available
-  'gemini-3.1-flash-lite-preview',
-  'gemini-2.5-flash-lite',
-  'gemini-pro-latest',
+  'gemini-2.5-flash-preview-04-17', // latest 2.5 flash (Apr 2025)
+  'gemini-2.5-flash',               // stable alias when released
+  'gemini-2.0-flash',               // confirmed stable
+  'gemini-2.0-flash-lite',          // lighter version, lower quota
+  'gemini-1.5-flash',               // fallback stable
+  'gemini-1.5-pro',                 // fallback pro
 ]
 
 let _cachedModel: string | null = null
@@ -100,6 +100,12 @@ async function getWorkingModel(apiKey: string): Promise<string> {
           signal: AbortSignal.timeout(5000),
         }
       )
+      // 401 means the API key itself is invalid — no point trying other models
+      if (res.status === 401 || res.status === 403) {
+        const d = await res.json().catch(() => ({}))
+        const msg = d?.error?.message || 'Unauthorized'
+        throw new GeminiError(msg, res.status, false)
+      }
       if (res.ok) {
         const d = await res.json()
         if (d.candidates?.[0]?.content?.parts?.[0]?.text) {
@@ -108,12 +114,14 @@ async function getWorkingModel(apiKey: string): Promise<string> {
           return model
         }
       }
-    } catch {
-      // try next
+    } catch (e) {
+      // Re-throw auth errors immediately — no point retrying with a bad key
+      if (e instanceof GeminiError && (e.status === 401 || e.status === 403)) throw e
+      // Otherwise try next model
     }
   }
 
-  throw new Error('No Gemini model available. Check API key and quota.')
+  throw new GeminiError('No Gemini model available. Check API key and quota.', 0, false)
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
@@ -256,7 +264,9 @@ export async function callGemini(
 function getUserFriendlyError(err: any): string {
   const raw: string = err?.message || String(err || 'Error desconocido')
   if (!raw) return 'Error desconocido al analizar la factura.'
-  if (/api.?key|GEMINI_API_KEY/i.test(raw)) return 'Configuración de IA inválida. Contacta al administrador.'
+  if (/api.?key|GEMINI_API_KEY/i.test(raw)) return 'Clave de API de Gemini inválida. Actualízala en Vercel → Settings → Environment Variables (GEMINI_API_KEY).'
+  if (/unauthorized|401/i.test(raw)) return 'Clave de API de Gemini caducada o inválida. Ve a aistudio.google.com, genera una nueva clave y actualízala en Vercel → Settings → Environment Variables (GEMINI_API_KEY).'
+  if (/No Gemini model available/i.test(raw)) return 'Clave de API de Gemini caducada o inválida. Ve a aistudio.google.com, genera una nueva clave y actualízala en Vercel → Settings → Environment Variables (GEMINI_API_KEY).'
   if (/quota|rate.?limit|429/i.test(raw)) return 'Demasiadas peticiones a la IA. Espera un minuto y vuelve a intentarlo.'
   if (/503|overload|unavailable|high demand/i.test(raw)) return 'El servicio de IA está saturado. Inténtalo de nuevo en unos segundos.'
   if (/timeout|abort/i.test(raw)) return 'La IA tardó demasiado en responder. Vuelve a intentarlo con un archivo más pequeño si persiste.'
