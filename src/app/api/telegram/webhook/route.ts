@@ -1085,77 +1085,75 @@ async function processAndNotify(
                 mercado: '📈 Precio Mercado',
               }
 
-              // Track savings per tariff to determine winner
-              const savingsMap: Record<string, number> = {}
+              // ── Compute savings for all 3 tariffs (no Excel yet) ────────────
+              const { compute2TDSavings: computeSavings, VOLTIS_TARIFFS_2TD: tariffs2TD } =
+                await import('@/lib/voltis-tariffs-2td')
 
+              // Determine if indexed tariff → use flat price for savings computation
+              const isIndexedTariff = (() => {
+                // Simple heuristic: if all 3 per-period prices differ significantly, indexed
+                const eps = [currentEnergyPriceP1, currentEnergyPriceP2, currentEnergyPriceP3].filter(v => v > 0)
+                if (eps.length < 2) return false
+                const avg = eps.reduce((s, v) => s + v, 0) / eps.length
+                const spread = (Math.max(...eps) - Math.min(...eps)) / avg
+                return spread > 0.10
+              })()
+              const ep4savings = isIndexedTariff
+                ? { P1: currentEnergyPrice, P2: currentEnergyPrice, P3: currentEnergyPrice }
+                : { P1: currentEnergyPriceP1, P2: currentEnergyPriceP2, P3: currentEnergyPriceP3 }
+
+              const savingsMap: Record<string, number> = {}
               for (const tariffKey of tariffKeys) {
                 try {
-                  const res = await fetch(`${appUrl}/api/comparativa-2td`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      titular: clientName,
-                      cups: result.cups || supplyData?.cups || '',
-                      tariffKey,
-                      consumoP1, consumoP2, consumoP3,
-                      potenciaP1, potenciaP2, potenciaP3,
-                      currentEnergyPrice,
-                      currentEnergyPriceP1,
-                      currentEnergyPriceP2,
-                      currentEnergyPriceP3,
-                      currentPowerP1,
-                      currentPowerP2,
-                    }),
-                  })
-                  if (!res.ok) throw new Error(`API error ${res.status}`)
-                  const arrayBuf = await res.arrayBuffer()
-                  const buf = Buffer.from(arrayBuf)
-                  const fileName = `Comparativa_Voltis_${tariffKey}_${(clientName || 'cliente').replace(/\s+/g, '_')}.xlsx`
-                  await sendDocument(
-                    chatId,
-                    buf,
-                    fileName,
-                    `${tariffLabels[tariffKey]} — comparativa ahorro Voltis 2.0TD`,
+                  const s = computeSavings(
+                    { P1: consumoP1, P2: consumoP2, P3: consumoP3 },
+                    { P1: potenciaP1, P2: potenciaP3 > 0.1 ? potenciaP3 : potenciaP2 },
+                    ep4savings,
+                    currentPowerP1,
+                    currentPowerP2,
+                    tariffKey,
                   )
-
-                  // Calculate savings server-side for winner detection
-                  try {
-                    const { compute2TDSavings, VOLTIS_TARIFFS_2TD } = await import('@/lib/voltis-tariffs-2td')
-                    const s = compute2TDSavings(
-                      { P1: consumoP1, P2: consumoP2, P3: consumoP3 },
-                      { P1: potenciaP1, P2: potenciaP2 },
-                      { P1: currentEnergyPriceP1, P2: currentEnergyPriceP2, P3: currentEnergyPriceP3 },
-                      currentPowerP1,
-                      currentPowerP2,
-                      tariffKey,
-                    )
-                    savingsMap[tariffKey] = s.savings.totalAnnual
-                  } catch { /* skip if import fails */ }
-                } catch (excelErr: any) {
-                  console.error(`[Telegram] 2TD comparativa ${tariffKey} error:`, excelErr.message)
-                }
+                  savingsMap[tariffKey] = s.savings.totalAnnual
+                } catch { /* skip */ }
               }
 
-              // Send summary with winner tariff and link to supply in CRM
+              // ── Send summary and ask user to pick a tariff ───────────────────
               const supplyUrl = `${appUrl}/supplies/${result.supply_id}`
-              const entries = Object.entries(savingsMap).filter(([, v]) => v > 0)
-              if (entries.length > 0) {
-                entries.sort((a, b) => b[1] - a[1])
-                const [winnerKey, winnerSaving] = entries[0]
-                const winnerLabel = tariffLabels[winnerKey] || winnerKey
-                const savingMonth = (winnerSaving / 12).toFixed(0)
-                const savingYear = winnerSaving.toFixed(0)
-                await sendMessage(chatId,
-                  `🏆 <b>Tarifa más óptima: ${winnerLabel}</b>\n\n` +
-                  `💰 Ahorro estimado: <b>${savingMonth}€/mes</b> (${savingYear}€/año)\n\n` +
-                  `📄 Ver comparativa completa y generar PDF:\n` +
-                  `<a href="${supplyUrl}">Abrir suministro en CRM →</a>`
-                )
-              } else {
-                await sendMessage(chatId,
-                  `📊 Comparativas generadas. Ver PDF en CRM:\n<a href="${supplyUrl}">Abrir suministro →</a>`
-                )
-              }
+              const ordered = tariffKeys.map((k, i) => ({
+                num: i + 1, key: k,
+                label: tariffLabels[k] || k,
+                saving: savingsMap[k] ?? 0,
+              }))
+              ordered.sort((a, b) => b.saving - a.saving)
+              // Re-number after sorting
+              ordered.forEach((o, i) => { o.num = i + 1 })
+
+              const lines = ordered.map(o => {
+                const yr = Math.round(o.saving)
+                const mo = Math.round(o.saving / 12)
+                const sign = yr >= 0 ? '+' : ''
+                const star = o.num === 1 ? ' ⭐' : ''
+                return `<b>${o.num}. ${o.label}${star}</b>\n   Ahorro: ${sign}${yr}€/año (${sign}${mo}€/mes)`
+              }).join('\n\n')
+
+              await sendMessage(chatId,
+                `📊 <b>Comparativa Voltis 2.0TD — ${clientName}</b>\n\n` +
+                `${lines}\n\n` +
+                `Responde <b>1</b>, <b>2</b> o <b>3</b> para recibir la comparativa Excel de esa tarifa.`
+              )
+
+              // ── Store params for later Excel generation ──────────────────────
+              await setConvo(chatId, 'waiting_tariff_choice', {
+                orderedTariffs: ordered.map(o => o.key),
+                titular: clientName,
+                cups: result.cups || supplyData?.cups || '',
+                consumoP1, consumoP2, consumoP3,
+                potenciaP1, potenciaP2, potenciaP3,
+                currentEnergyPrice,
+                currentEnergyPriceP1, currentEnergyPriceP2, currentEnergyPriceP3,
+                currentPowerP1, currentPowerP2,
+                supplyUrl,
+              })
             } catch (comp2tdErr: any) {
               console.error('[Telegram] 2TD comparativa block error:', comp2tdErr.message)
             }
@@ -2092,6 +2090,62 @@ async function handleConvoStep(msg: TelegramMessage, convo: ConversationState) {
   if (text === '/cancelar' || text === '/cancel') {
     await clearConvo(chatId)
     return sendMessage(chatId, '✅ Cancelado.')
+  }
+
+  // ── Tariff picker: user replies 1 / 2 / 3 to select a comparativa ──────────
+  if (convo.step === 'waiting_tariff_choice') {
+    const choice = text.trim()
+    const choiceNum = parseInt(choice, 10)
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
+    const d = convo.data
+
+    const orderedTariffs: string[] = d.orderedTariffs || []
+    if (![1, 2, 3].includes(choiceNum) || choiceNum > orderedTariffs.length) {
+      return sendMessage(chatId,
+        `Por favor responde <b>1</b>, <b>2</b> o <b>3</b> para elegir la tarifa.`
+      )
+    }
+
+    const tariffKey = orderedTariffs[choiceNum - 1] as string
+    await clearConvo(chatId)
+    await sendMessage(chatId, `⏳ Generando comparativa Excel...`)
+
+    try {
+      const res = await fetch(`${appUrl}/api/comparativa-2td`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          titular: d.titular,
+          cups: d.cups,
+          tariffKey,
+          consumoP1: d.consumoP1, consumoP2: d.consumoP2, consumoP3: d.consumoP3,
+          potenciaP1: d.potenciaP1, potenciaP2: d.potenciaP2, potenciaP3: d.potenciaP3,
+          currentEnergyPrice: d.currentEnergyPrice,
+          currentEnergyPriceP1: d.currentEnergyPriceP1,
+          currentEnergyPriceP2: d.currentEnergyPriceP2,
+          currentEnergyPriceP3: d.currentEnergyPriceP3,
+          currentPowerP1: d.currentPowerP1,
+          currentPowerP2: d.currentPowerP2,
+        }),
+      })
+      if (!res.ok) throw new Error(`API error ${res.status}`)
+      const arrayBuf = await res.arrayBuffer()
+      const buf = Buffer.from(arrayBuf)
+      const tariffLabelsLocal: Record<string, string> = {
+        tramos: '📊 Tramos Horarios', '24h': '⏰ Tarifa 24H Fija', mercado: '📈 Precio Mercado',
+      }
+      const fileName = `Comparativa_Voltis_${tariffKey}_${(d.titular || 'cliente').replace(/\s+/g, '_')}.xlsx`
+      await sendDocument(chatId, buf, fileName,
+        `${tariffLabelsLocal[tariffKey] || tariffKey} — comparativa ahorro Voltis 2.0TD\n\n` +
+        `📋 Ver suministro en CRM: ${d.supplyUrl}`
+      )
+    } catch (err: any) {
+      console.error('[Telegram] tariff_choice Excel error:', err.message)
+      await sendMessage(chatId,
+        `❌ Error generando el Excel. Puedes verlo en el CRM:\n${d.supplyUrl}`
+      )
+    }
+    return
   }
 
   if (convo.step === 'await_cups_client') {

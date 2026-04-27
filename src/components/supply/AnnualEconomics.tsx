@@ -2804,10 +2804,13 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
     // con la misma potencia en todos los periodos, habitual en 2.0TD residencial).
     const pc = potenciaContratada as any
     const potP1 = Number(pc.P1) || 0
-    // Only accept values >= 0.1 kW — SIPS artifacts like 3W → 0.003 kW must be ignored
-    const potP2 = (['P2', 'P3', 'P4', 'P5', 'P6'] as const)
-      .map(k => Number(pc[k]) || 0)
-      .find(v => v >= 0.1) ?? potP1
+    // For 2.0TD: SIPS always stores punta in P1 and valle in P3.
+    // Use P3 directly; only fall back to scanning P2/P4-P6 (≥0.1 kW) if P3 is missing,
+    // and use P1 as last resort. This matches the comparativa-2td API's valleKw logic.
+    const potP3sips = Number(pc.P3) || 0
+    const potP2 = potP3sips > 0.1 ? potP3sips
+      : (['P2', 'P4', 'P5', 'P6'] as const).map(k => Number(pc[k]) || 0).find(v => v >= 0.1)
+      ?? potP1
     if (!consumoP1 && !consumoP2 && !consumoP3) return null
 
     // ── Compute per-period weighted average energy prices ──────────────────
@@ -2872,10 +2875,16 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
     // the comparativa API so it can use it directly (P2 may be a SIPS artifact).
     const potencia = { P1: potP1, P2: potP2, P3: Number(pc.P3) || 0 }
 
+    // For savings computation: indexed tariffs use flat weighted average (same as
+    // comparativa-2td API rule for caso 3). Per-period tariffs use their actual prices.
+    const ep4Savings = isIndexed
+      ? { P1: currentEnergyPrice, P2: currentEnergyPrice, P3: currentEnergyPrice }
+      : currentEnergyPrices
+
     const results = (Object.keys(VOLTIS_TARIFFS_2TD) as VoltisKey2TD[]).map(key => ({
       key,
       tariff: VOLTIS_TARIFFS_2TD[key],
-      result: compute2TDSavings(consumo, potencia, currentEnergyPrices, currentPowerP1, currentPowerP2, key),
+      result: compute2TDSavings(consumo, potencia, ep4Savings, currentPowerP1, currentPowerP2, key),
     }))
 
     // Sort by best saving (highest first)
