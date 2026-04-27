@@ -31,6 +31,9 @@ export default function LoginPage() {
       return
     }
 
+    // router.refresh() forces Next.js to re-run middleware with the new session cookie
+    // before navigating, preventing the infinite loading / redirect loop
+    router.refresh()
     router.push('/panel')
   }
 
