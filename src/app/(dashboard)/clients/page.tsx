@@ -130,11 +130,11 @@ export default function ClientsPage() {
       const [{ data: clientData }, { data: commercialData }] = await Promise.all([
         supabase
           .from('clients')
-          .select(`*, commercial:users_profile!commercial_id(id, full_name, email), supplies(*)`)
+          .select(`*, commercial:users_profile!commercial_id(id, full_name, nickname, email), supplies(*)`)
           .order('created_at', { ascending: false }),
         supabase
           .from('users_profile')
-          .select('id, full_name, email, role')
+          .select('id, full_name, nickname, email, role')
           .eq('active', true)
           .in('role', ['commercial', 'admin']),
       ])
@@ -473,11 +473,11 @@ export default function ClientsPage() {
                       <div className="flex items-center gap-1.5">
                         <div className="w-5 h-5 rounded-full bg-brand flex items-center justify-center flex-shrink-0">
                           <span className="text-volt text-[9px] font-bold">
-                            {(client.commercial?.full_name || client.commercial?.email || '?').charAt(0).toUpperCase()}
+                            {(client.commercial?.nickname || client.commercial?.full_name || client.commercial?.email || '?').charAt(0).toUpperCase()}
                           </span>
                         </div>
                         <span className="text-[10px] text-ink-3 truncate max-w-[90px]">
-                          {getUserInitials(client.commercial?.full_name || client.commercial?.email)}
+                          {client.commercial?.nickname || getUserInitials(client.commercial?.full_name || client.commercial?.email)}
                         </span>
                       </div>
                       <Badge variant={supplyCount > 0 ? 'info' : 'default'} hideDot>

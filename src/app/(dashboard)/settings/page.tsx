@@ -25,6 +25,7 @@ export default function SettingsPage() {
   const [editingRole, setEditingRole] = useState<string>('')
   const [profile, setProfile] = useState({
     full_name: '',
+    nickname: '',
     email: '',
     phone: '',
   })
@@ -66,6 +67,7 @@ export default function SettingsPage() {
   const [inviteForm, setInviteForm] = useState({
     email: '',
     full_name: '',
+    nickname: '',
     password: '',
     role: 'commercial',
     permissions: { ...DEFAULT_PERMISSIONS },
@@ -161,6 +163,7 @@ export default function SettingsPage() {
     if (user) {
       setProfile({
         full_name: user.full_name || '',
+        nickname: (user as any).nickname || '',
         email: user.email || '',
         phone: user.phone || '',
       })
@@ -219,6 +222,7 @@ export default function SettingsPage() {
       .from('users_profile')
       .update({
         full_name: profile.full_name,
+        nickname: profile.nickname || null,
         phone: profile.phone,
       })
       .eq('id', user.id)
@@ -240,6 +244,7 @@ export default function SettingsPage() {
         body: JSON.stringify({
           email: inviteForm.email,
           full_name: inviteForm.full_name,
+          nickname: inviteForm.nickname || null,
           role: inviteForm.role,
           permissions: inviteForm.permissions,
           ...(inviteForm.password ? { password: inviteForm.password } : {}),
@@ -255,6 +260,7 @@ export default function SettingsPage() {
       setInviteForm({
         email: '',
         full_name: '',
+        nickname: '',
         password: '',
         role: 'commercial',
         permissions: { ...DEFAULT_PERMISSIONS },
@@ -351,6 +357,21 @@ export default function SettingsPage() {
     }
   }
 
+  const handleCancelInvitation = async (invitationId: string) => {
+    if (!confirm('¿Cancelar esta invitación?')) return
+    try {
+      const supabase = createClient()
+      await supabase.from('notifications').delete().eq('id', invitationId)
+      setPendingInvitations(prev => prev.filter(i => i.id !== invitationId))
+      toast('success', 'Invitación cancelada')
+    } catch {
+      toast('error', 'Error al cancelar la invitación')
+    }
+  }
+
+  // Helper: display name for a team member (nickname > full_name > email)
+  const displayName = (item: any) => item.nickname || item.full_name || item.email
+
   const teamColumns = [
     {
       key: 'full_name',
@@ -358,9 +379,14 @@ export default function SettingsPage() {
       render: (item: any) => (
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-brand flex items-center justify-center">
-            <span className="text-white text-xs font-bold">{getUserInitials(item.full_name || item.email)?.charAt(0)}</span>
+            <span className="text-white text-xs font-bold">{(item.nickname || item.full_name || item.email || '?').charAt(0).toUpperCase()}</span>
           </div>
-          <span className="text-sm font-medium text-ink">{getUserInitials(item.full_name || item.email)}</span>
+          <div>
+            <p className="text-sm font-medium text-ink">{item.full_name || item.email}</p>
+            {item.nickname && (
+              <p className="text-xs text-brand font-medium">@{item.nickname}</p>
+            )}
+          </div>
         </div>
       ),
     },
@@ -506,11 +532,18 @@ export default function SettingsPage() {
         {/* Profile */}
         <Card>
           <h3 className="font-sans font-semibold text-base text-ink mb-4">Mi perfil</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <Input
               label="Nombre completo"
               value={profile.full_name}
               onChange={(e) => setProfile({ ...profile, full_name: e.target.value })}
+            />
+            <Input
+              label="Apodo / Alias"
+              value={profile.nickname}
+              onChange={(e) => setProfile({ ...profile, nickname: e.target.value })}
+              placeholder="Ej: Jokin, Alex..."
+              hint="Aparece en tarjetas de clientes y equipo"
             />
             <Input
               label="Email"
@@ -668,12 +701,19 @@ export default function SettingsPage() {
             </p>
 
             <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Input
                   label="Nombre completo"
                   value={inviteForm.full_name}
                   onChange={(e) => setInviteForm({ ...inviteForm, full_name: e.target.value })}
                   placeholder="Ana García"
+                />
+                <Input
+                  label="Apodo / Alias"
+                  value={inviteForm.nickname}
+                  onChange={(e) => setInviteForm({ ...inviteForm, nickname: e.target.value })}
+                  placeholder="Ana, Anita..."
+                  hint="Se muestra en tarjetas de clientes"
                 />
                 <Input
                   label="Email (usuario)"

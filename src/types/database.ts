@@ -33,6 +33,7 @@ export type ExtractionStatus = 'pending' | 'processing' | 'completed' | 'failed'
 export interface UserProfile {
   id: string
   full_name: string
+  nickname: string | null   // apodo/alias visible en el CRM (ej. "Alex", "Jokin")
   email: string
   phone: string | null
   role: UserRole

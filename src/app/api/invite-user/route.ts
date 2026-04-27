@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Parse body
-    const { email, full_name, role = 'commercial', permissions = {}, password } = await req.json()
+    const { email, full_name, nickname, role = 'commercial', permissions = {}, password } = await req.json()
     if (!email || !full_name) {
       return NextResponse.json({ error: 'email y full_name son obligatorios' }, { status: 400 })
     }
@@ -96,6 +96,7 @@ export async function POST(req: NextRequest) {
         id: userId,
         email,
         full_name,
+        nickname: nickname || null,
         role,
         permissions,
         active: !!password,   // active immediately if password was set; pending if invite sent
