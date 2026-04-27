@@ -50,7 +50,8 @@ export const IVA = 1.21
 export function compute2TDSavings(
   consumo: { P1: number; P2: number; P3: number },
   potencia: { P1: number; P2: number },
-  currentEnergyPrice: number,
+  /** Per-period energy prices OR a single number (flat price, backward-compat) */
+  currentEnergyPriceOrPrices: number | { P1: number; P2: number; P3: number },
   currentPowerP1: number,
   currentPowerP2: number,
   tariffKey: VoltisKey2TD,
@@ -58,8 +59,16 @@ export function compute2TDSavings(
   const t = VOLTIS_TARIFFS_2TD[tariffKey]
   const totalKwh = consumo.P1 + consumo.P2 + consumo.P3
 
+  // Support both flat price (legacy) and per-period prices
+  const ep = typeof currentEnergyPriceOrPrices === 'number'
+    ? { P1: currentEnergyPriceOrPrices, P2: currentEnergyPriceOrPrices, P3: currentEnergyPriceOrPrices }
+    : currentEnergyPriceOrPrices
+
   // ── Current annual costs (ex-IVA) ──────────────────────────────────────────
-  const currentEnergyNet = totalKwh * currentEnergyPrice
+  // Use per-period prices: each period's consumption × its own price
+  const currentEnergyNet = consumo.P1 * ep.P1 + consumo.P2 * ep.P2 + consumo.P3 * ep.P3
+  // Keep flat version for KPI display (weighted average)
+  const currentEnergyPrice = totalKwh > 0 ? currentEnergyNet / totalKwh : ep.P1
   const currentPowerNet  = potencia.P1 * currentPowerP1 * 365
                          + potencia.P2 * currentPowerP2 * 365
 

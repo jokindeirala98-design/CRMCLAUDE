@@ -1731,9 +1731,15 @@ function open2TDComparisonPDF(params: {
   titular: string; cups: string; tariffKey: VoltisKey2TD
   consumo: { P1: number; P2: number; P3: number }
   potencia: { P1: number; P2: number }
-  currentEnergyPrice: number; currentPowerP1: number; currentPowerP2: number
+  /** Per-period energy prices. If uniform (Caso 1 or 3), all three will be equal. */
+  currentEnergyPrices: { P1: number; P2: number; P3: number }
+  currentPowerP1: number; currentPowerP2: number
+  energyPricingFormat?: string
+  isIndexed?: boolean
 }) {
-  const { titular, cups, tariffKey, consumo, potencia, currentEnergyPrice, currentPowerP1, currentPowerP2 } = params
+  const { titular, cups, tariffKey, consumo, potencia, currentEnergyPrices, currentPowerP1, currentPowerP2, energyPricingFormat, isIndexed } = params
+  // Backward-compat alias used in pre-compute
+  const currentEnergyPrice = (currentEnergyPrices.P1 + currentEnergyPrices.P2 + currentEnergyPrices.P3) / 3
   const tariff = VOLTIS_TARIFFS_2TD[tariffKey]
   const f = (v: number, d = 2) => v.toLocaleString('es-ES', { minimumFractionDigits: d, maximumFractionDigits: d })
 
@@ -1748,9 +1754,10 @@ function open2TDComparisonPDF(params: {
   const M10 = N10 / 12
 
   const totalKwh = consumo.P1 + consumo.P2 + consumo.P3
-  const J27 = consumo.P1 * currentEnergyPrice
-  const K27 = consumo.P2 * currentEnergyPrice
-  const L27 = consumo.P3 * currentEnergyPrice
+  // Use per-period prices for accuracy (Caso 2 = por_periodo, Caso 3 = promocionadas weighted avg)
+  const J27 = consumo.P1 * currentEnergyPrices.P1
+  const K27 = consumo.P2 * currentEnergyPrices.P2
+  const L27 = consumo.P3 * currentEnergyPrices.P3
   const N26 = (J27 + K27 + L27) * 1.21
   const J33 = consumo.P1 * tariff.energy.P1
   const K33 = consumo.P2 * tariff.energy.P2
@@ -2046,9 +2053,9 @@ function open2TDComparisonPDF(params: {
     ${C(Math.round(consumo.P2).toLocaleString('es-ES'),1,`font-weight:bold;font-size:9pt;text-align:center;`)}
     ${C(Math.round(consumo.P3).toLocaleString('es-ES'),1,`font-weight:bold;font-size:9pt;text-align:center;`)}
     ${em(1)}
-    ${C(f(currentEnergyPrice,4),1,`font-weight:bold;font-size:10pt;text-align:center;`)}
-    ${C(f(currentEnergyPrice,4),1,`font-weight:bold;font-size:10pt;text-align:center;`)}
-    ${C(f(currentEnergyPrice,4),1,`font-weight:bold;font-size:10pt;text-align:center;`)}
+    ${C(f(currentEnergyPrices.P1,4),1,`font-weight:bold;font-size:10pt;text-align:center;`)}
+    ${C(f(currentEnergyPrices.P2,4),1,`font-weight:bold;font-size:10pt;text-align:center;`)}
+    ${C(f(currentEnergyPrices.P3,4),1,`font-weight:bold;font-size:10pt;text-align:center;`)}
     ${em(7)}
     ${C('MENSUAL',1,`color:#404040;font-weight:bold;font-size:9pt;text-align:center;`)}
     ${C('ANUAL',1,`color:#404040;font-weight:bold;font-size:9pt;text-align:center;`)}
@@ -2781,7 +2788,61 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
       .find(v => v >= 0.1) ?? potP1
     if (!consumoP1 && !consumoP2 && !consumoP3) return null
 
-    const currentEnergyPrice = summaryStats.precioPromedio
+    // ── Compute per-period weighted average energy prices ──────────────────
+    // Aggregate kWh × price per period across all invoices to get accurate
+    // per-period prices (handles Caso 2 = por_periodo, Caso 3 = promocionadas,
+    // and Caso 4 = indexed tariff detection).
+    const periodWsum: Record<string, number> = { P1: 0, P2: 0, P3: 0 }
+    const periodKwh:  Record<string, number> = { P1: 0, P2: 0, P3: 0 }
+    const periodPrices: number[][] = { P1: [], P2: [], P3: [] } as any
+
+    for (const inv of validInvoices) {
+      const eco = (inv.economics_data || inv.invoice_json?.economics || inv.extracted_data?.economics) as any
+      if (!eco?.consumo?.length) continue
+      for (const c of eco.consumo) {
+        const p = c.periodo as 'P1' | 'P2' | 'P3'
+        if (!['P1', 'P2', 'P3'].includes(p)) continue
+        const kwh = Number(c.kwh) || 0
+        const precio = Number(c.precioKwh) || 0
+        if (kwh <= 0 || precio <= 0) continue
+        periodWsum[p] += kwh * precio
+        periodKwh[p]  += kwh
+        ;(periodPrices as any)[p].push(precio)
+      }
+    }
+
+    // Weighted average per period (fall back to overall average if no data for that period)
+    const fallbackPrice = summaryStats.precioPromedio
+    const priceP1 = periodKwh.P1 > 0 ? periodWsum.P1 / periodKwh.P1 : fallbackPrice
+    const priceP2 = periodKwh.P2 > 0 ? periodWsum.P2 / periodKwh.P2 : fallbackPrice
+    const priceP3 = periodKwh.P3 > 0 ? periodWsum.P3 / periodKwh.P3 : fallbackPrice
+
+    // ── Caso 4 detection: indexed tariff ──────────────────────────────────
+    // If prices for the SAME period vary significantly across invoices (>10% spread),
+    // the client is on an indexed (PVPC-like) tariff.
+    const isIndexed = (['P1', 'P2', 'P3'] as const).some(p => {
+      const prices = (periodPrices as any)[p] as number[]
+      if (prices.length < 2) return false
+      const avg = prices.reduce((s, v) => s + v, 0) / prices.length
+      const spread = (Math.max(...prices) - Math.min(...prices)) / avg
+      return spread > 0.10  // >10% variation = indexed
+    })
+
+    // Detect energyPricingFormat from the majority of invoices
+    const formats = validInvoices.map(inv => {
+      const eco = (inv.economics_data || inv.invoice_json?.economics || inv.extracted_data?.economics) as any
+      return eco?.energyPricingFormat as string | undefined
+    }).filter(Boolean)
+    const majorityFormat = formats.length > 0
+      ? formats.sort((a, b) => formats.filter(v => v === b).length - formats.filter(v => v === a).length)[0]
+      : undefined
+
+    const currentEnergyPrices = { P1: priceP1, P2: priceP2, P3: priceP3 }
+    // For backward compat: single average used in the overview KPI
+    const currentEnergyPrice = periodKwh.P1 + periodKwh.P2 + periodKwh.P3 > 0
+      ? (periodWsum.P1 + periodWsum.P2 + periodWsum.P3) / (periodKwh.P1 + periodKwh.P2 + periodKwh.P3)
+      : fallbackPrice
+
     const { P1: currentPowerP1, P2: currentPowerP2 } = extractCurrentPowerPrices(validInvoices)
 
     const consumo  = { P1: consumoP1, P2: consumoP2, P3: consumoP3 }
@@ -2790,13 +2851,18 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
     const results = (Object.keys(VOLTIS_TARIFFS_2TD) as VoltisKey2TD[]).map(key => ({
       key,
       tariff: VOLTIS_TARIFFS_2TD[key],
-      result: compute2TDSavings(consumo, potencia, currentEnergyPrice, currentPowerP1, currentPowerP2, key),
+      result: compute2TDSavings(consumo, potencia, currentEnergyPrices, currentPowerP1, currentPowerP2, key),
     }))
 
     // Sort by best saving (highest first)
     results.sort((a, b) => b.result.savings.totalAnnual - a.result.savings.totalAnnual)
 
-    return { results, consumo, potencia, currentEnergyPrice, currentPowerP1, currentPowerP2 }
+    return {
+      results, consumo, potencia,
+      currentEnergyPrice, currentEnergyPrices,
+      currentPowerP1, currentPowerP2,
+      isIndexed, energyPricingFormat: isIndexed ? 'indexado' : (majorityFormat || 'precio_unico'),
+    }
   }, [is2TD, consumoPeriodos, potenciaContratada, summaryStats.precioPromedio, validInvoices])
 
   // ESC key to exit fullscreen report
@@ -3459,7 +3525,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
                       {/* Download buttons */}
                       <div className="flex gap-2 mt-3 pt-3" style={{ borderTop: '1px solid #D9D0BA' }}>
                         <button
-                          onClick={() => open2TDComparisonPDF({ titular, cups, tariffKey: item.key, consumo: comp2TDData.consumo, potencia: comp2TDData.potencia, currentEnergyPrice: comp2TDData.currentEnergyPrice, currentPowerP1: comp2TDData.currentPowerP1, currentPowerP2: comp2TDData.currentPowerP2 })}
+                          onClick={() => open2TDComparisonPDF({ titular, cups, tariffKey: item.key, consumo: comp2TDData.consumo, potencia: comp2TDData.potencia, currentEnergyPrices: comp2TDData.currentEnergyPrices, currentPowerP1: comp2TDData.currentPowerP1, currentPowerP2: comp2TDData.currentPowerP2, energyPricingFormat: comp2TDData.energyPricingFormat, isIndexed: comp2TDData.isIndexed })}
                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition hover:opacity-80"
                           style={{ background: '#6B8068', color: '#FBF7EE' }}>
                           <FileText className="w-3.5 h-3.5" /> PDF
@@ -3479,6 +3545,11 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
                                   potenciaP1: comp2TDData.potencia.P1,
                                   potenciaP2: comp2TDData.potencia.P2,
                                   currentEnergyPrice: comp2TDData.currentEnergyPrice,
+                                  currentEnergyPriceP1: comp2TDData.currentEnergyPrices.P1,
+                                  currentEnergyPriceP2: comp2TDData.currentEnergyPrices.P2,
+                                  currentEnergyPriceP3: comp2TDData.currentEnergyPrices.P3,
+                                  energyPricingFormat: comp2TDData.energyPricingFormat,
+                                  isIndexed: comp2TDData.isIndexed,
                                   currentPowerP1: comp2TDData.currentPowerP1,
                                   currentPowerP2: comp2TDData.currentPowerP2,
                                 }),

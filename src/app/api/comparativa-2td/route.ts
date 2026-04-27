@@ -113,16 +113,26 @@ export async function POST(req: NextRequest) {
       consumoP1 = 0, consumoP2 = 0, consumoP3 = 0,
       potenciaP1 = 0, potenciaP2 = 0,
       currentEnergyPrice = 0,
+      currentEnergyPriceP1, currentEnergyPriceP2, currentEnergyPriceP3,
       currentPowerP1 = 0, currentPowerP2 = 0,
     } = body as {
       titular: string; cups: string; tariffKey: VoltisKey2TD
       consumoP1: number; consumoP2: number; consumoP3: number
       potenciaP1: number; potenciaP2: number
-      currentEnergyPrice: number; currentPowerP1: number; currentPowerP2: number
+      currentEnergyPrice: number
+      currentEnergyPriceP1?: number; currentEnergyPriceP2?: number; currentEnergyPriceP3?: number
+      currentPowerP1: number; currentPowerP2: number
     }
 
     if (!VOLTIS_TARIFFS_2TD[tariffKey]) {
       return NextResponse.json({ error: 'Invalid tariffKey' }, { status: 400 })
+    }
+
+    // Support per-period prices (new) or flat price (legacy)
+    const ep = {
+      P1: currentEnergyPriceP1 ?? currentEnergyPrice,
+      P2: currentEnergyPriceP2 ?? currentEnergyPrice,
+      P3: currentEnergyPriceP3 ?? currentEnergyPrice,
     }
 
     const tariff  = VOLTIS_TARIFFS_2TD[tariffKey]
@@ -130,7 +140,7 @@ export async function POST(req: NextRequest) {
     const potencia = { P1: potenciaP1, P2: potenciaP2 }
     const totalKwh = consumoP1 + consumoP2 + consumoP3
 
-    compute2TDSavings(consumo, potencia, currentEnergyPrice, currentPowerP1, currentPowerP2, tariffKey)
+    compute2TDSavings(consumo, potencia, ep, currentPowerP1, currentPowerP2, tariffKey)
 
     // ── Pre-compute formula result values ──────────────────────────────────────
     // POTENCIA section
@@ -143,10 +153,10 @@ export async function POST(req: NextRequest) {
     const N10 = K7 - K14
     const M10 = N10 / 12
 
-    // ENERGIA section
-    const J27 = consumoP1 * currentEnergyPrice
-    const K27 = consumoP2 * currentEnergyPrice
-    const L27 = consumoP3 * currentEnergyPrice
+    // ENERGIA section — use per-period prices
+    const J27 = consumoP1 * ep.P1
+    const K27 = consumoP2 * ep.P2
+    const L27 = consumoP3 * ep.P3
     const N26 = (J27 + K27 + L27) * 1.21
     const J33 = consumoP1 * tariff.energy.P1
     const K33 = consumoP2 * tariff.energy.P2
@@ -353,9 +363,9 @@ export async function POST(req: NextRequest) {
     sc(ws, 28, B, consumoP1,         { bold: true, size: 11, color: CLR.ink, align: 'center', numFmt: '#,##0' })
     sc(ws, 28, C, consumoP2,         { bold: true, size: 11, color: CLR.ink, align: 'center', numFmt: '#,##0' })
     sc(ws, 28, D, consumoP3,         { bold: true, size: 11, color: CLR.ink, align: 'center', numFmt: '#,##0' })
-    sc(ws, 28, F, currentEnergyPrice,{ bold: true, size: 12, color: CLR.ink, align: 'center', numFmt: '#,##0.0000' })
-    sc(ws, 28, G, currentEnergyPrice,{ bold: true, size: 12, color: CLR.ink, align: 'center', numFmt: '#,##0.0000' })
-    sc(ws, 28, H, currentEnergyPrice,{ bold: true, size: 12, color: CLR.ink, align: 'center', numFmt: '#,##0.0000' })
+    sc(ws, 28, F, ep.P1,{ bold: true, size: 12, color: CLR.ink, align: 'center', numFmt: '#,##0.0000' })
+    sc(ws, 28, G, ep.P2,{ bold: true, size: 12, color: CLR.ink, align: 'center', numFmt: '#,##0.0000' })
+    sc(ws, 28, H, ep.P3,{ bold: true, size: 12, color: CLR.ink, align: 'center', numFmt: '#,##0.0000' })
     sc(ws, 28, P, 'MENSUAL', { bold: true, size: 11, color: CLR.ink3, align: 'center' })
     sc(ws, 28, Q, 'ANUAL',   { bold: true, size: 11, color: CLR.ink3, align: 'center' })
 

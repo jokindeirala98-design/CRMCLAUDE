@@ -907,8 +907,27 @@ async function processAndNotify(
                 .map(k => Number(pp[k]) || 0)
                 .find(v => v >= 0.1) ?? potenciaP1
 
-              // Current energy price from invoice (€/kWh avg)
+              // Current energy price from invoice — extract per-period when available
               const eco = analyzed.economics as any
+
+              // Per-period prices from consumo[] (Caso 2 = por_periodo, Caso 3 = promocionadas)
+              const consumoArr: any[] = eco?.consumo || []
+              const epPeriod: Record<string, { kwhSum: number; eurSum: number }> = {}
+              for (const c of consumoArr) {
+                const p = String(c.periodo || '').toUpperCase()
+                if (!['P1','P2','P3'].includes(p)) continue
+                const kwh = Number(c.kwh) || 0
+                const precio = Number(c.precioKwh) || 0
+                if (kwh <= 0 || precio <= 0) continue
+                if (!epPeriod[p]) epPeriod[p] = { kwhSum: 0, eurSum: 0 }
+                epPeriod[p].kwhSum += kwh
+                epPeriod[p].eurSum += kwh * precio
+              }
+              const epP1 = epPeriod.P1?.kwhSum > 0 ? epPeriod.P1.eurSum / epPeriod.P1.kwhSum : 0
+              const epP2 = epPeriod.P2?.kwhSum > 0 ? epPeriod.P2.eurSum / epPeriod.P2.kwhSum : 0
+              const epP3 = epPeriod.P3?.kwhSum > 0 ? epPeriod.P3.eurSum / epPeriod.P3.kwhSum : 0
+
+              // Flat fallback: costeMedioKwhNeto or total/kWh
               const currentEnergyPrice =
                 Number(eco?.costeMedioKwhNeto) ||
                 Number(eco?.costeMedioKwh) ||
@@ -917,6 +936,11 @@ async function processAndNotify(
                   const ten = Number(eco?.costeTotalConsumo) || Number(eco?.costeNetoConsumo) || 0
                   return tkwh > 0 ? ten / tkwh : 0
                 })()
+
+              // Use per-period when available, otherwise flat
+              const currentEnergyPriceP1 = epP1 > 0 ? epP1 : currentEnergyPrice
+              const currentEnergyPriceP2 = epP2 > 0 ? epP2 : currentEnergyPrice
+              const currentEnergyPriceP3 = epP3 > 0 ? epP3 : currentEnergyPrice
 
               // Current power prices from invoice (€/kW·día per period)
               // Path A: use potencia[] rebuilt array (precioKwDia may be null if Gemini didn't extract kw/dias)
@@ -974,6 +998,9 @@ async function processAndNotify(
                       consumoP1, consumoP2, consumoP3,
                       potenciaP1, potenciaP2,
                       currentEnergyPrice,
+                      currentEnergyPriceP1,
+                      currentEnergyPriceP2,
+                      currentEnergyPriceP3,
                       currentPowerP1,
                       currentPowerP2,
                     }),

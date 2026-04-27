@@ -802,27 +802,47 @@ E2. EXCESO DE POTENCIA — DETECCIÓN:
      el mayor importe (evita doble conteo).
 
 E3. TARIFA 2.0TD (doméstica — reforma tarifaria 2021, sustituye a 2.0A/2.0DHA/2.1A/2.1DHA):
-   - SIEMPRE tiene DOS periodos: P1 (punta, caro) y P2 (valle, barato). Nunca P3–P6.
-   - Potencia: P1 y P2 (mismo kW contratado en ambos es habitual en doméstico).
-   - Energía: P1 y P2.
+   - Potencia: P1 (punta) y P2 (valle). El kW contratado suele ser el mismo en ambos.
+   - Energía: el término de energía puede presentarse en 4 formatos distintos. DETECTA el
+     formato y aplica la lógica correspondiente. Añade "energyPricingFormat" al JSON.
 
-   NOMENCLATURA VARIABLE — según comercializadora pueden aparecer así:
-   ┌──────────────────────────────────────────────┬─────┐
-   │ En la factura                                │ → ? │
-   ├──────────────────────────────────────────────┼─────┤
-   │ "Horas NO promocionadas" / "No promocionadas"│ → P1│
-   │ "Horas promocionadas" / "Promocionadas"      │ → P2│
-   │ "Punta" / "Período punta" / "Hora punta"     │ → P1│
-   │ "Valle" / "Período valle" / "Hora valle"     │ → P2│
-   │ "P1" (explícito)                             │ → P1│
-   │ "P2" (explícito)                             │ → P2│
-   │ "Precio fijo de energía" (único precio flat) │ → P1│
-   └──────────────────────────────────────────────┴─────┘
-   REGLA: si ves UN SOLO precio de energía (factura 2.0TD básica) → ponlo en P1.
-          si ves DOS precios (DH o Plan X horas) → el caro = P1, el barato = P2.
+   ══ CASO 1 — Precio único (tarifa plana) ══════════════════════════════
+   Detección: solo hay UN precio €/kWh para toda la energía, sin distinción de franjas.
+   Acción: pon ese precio en P1. En consumo[] emite UNA entrada P1 con todo el kWh.
+   rawLineItems: category = "energia_comercializacion", periodo = "P1".
+   energyPricingFormat = "precio_unico"
 
-   Iberdrola "Plan Elige X horas": "Horas no promocionadas" = P1, "Horas promocionadas" = P2.
-   El periodo promocionado = las X horas baratas elegidas por el cliente = P2 (valle).
+   ══ CASO 2 — Precios por período explícitos (P1/P2 o P1/P2/P3) ════════
+   Detección: la factura desglosa precios distintos por P1, P2 (y quizás P3).
+   Palabras clave: "P1", "P2", "Punta", "Valle", "Llano".
+   Acción: asigna cada precio directamente a su período. NO calcules nada.
+   rawLineItems: periodo = "P1" / "P2" / "P3" según la factura.
+   energyPricingFormat = "por_periodo"
+
+   ══ CASO 3 — Horas promocionadas / No promocionadas ═══════════════════
+   Detección: aparecen los términos "Horas promocionadas" y "Horas no promocionadas"
+   (Iberdrola "Plan Elige X horas" y similares). Hay DOS franjas con precios distintos.
+   Nomenclatura:
+     "Horas NO promocionadas" → category="energia_no_promocionada"  (precio caro, pocas horas)
+     "Horas promocionadas"    → category="energia_promocionada"     (precio barato, más horas)
+   Acción: emite AMBAS líneas en rawLineItems con sus kWh y precio exactos tal como
+   aparecen en la factura. NO calcules la media aquí — el CRM lo hace.
+   En consumo[] emite DOS entradas: periodo="P1" (no promoc.) y periodo="P2" (promoc.).
+   Usa los kWh y el precioKwh tal como aparecen en cada franja.
+   energyPricingFormat = "promocionadas"
+
+   Ejemplo (Iberdrola): "28,69 kWh × 0,261846 €/kWh" (no promoc.) + "83,31 kWh × 0,143935 €/kWh" (promoc.)
+   → rawLineItems: [{category:"energia_no_promocionada", kwh:28.69, precioUnitario:0.261846, total:7.51},
+                    {category:"energia_promocionada",    kwh:83.31, precioUnitario:0.143935, total:11.99}]
+   → consumo: [{periodo:"P1", kwh:28.69, precioKwh:0.261846, total:7.51},
+               {periodo:"P2", kwh:83.31, precioKwh:0.143935, total:11.99}]
+
+   energyPricingFormat = "promocionadas"
+
+   ══ NOTA POTENCIA en 2.0TD ═══════════════════════════════════════════
+   - La potencia siempre tiene P1 (punta) y P2 (valle) con el mismo kW contratado.
+   - Si la factura solo muestra UN kW y un precio: ese kW aplica a P1 y P2.
+   - Si muestra DOS kW (pueden ser iguales): P1=punta, P2=llano/valle.
 
 E4. TARIFA 3.0TD (pequeña/mediana empresa):
    - 6 periodos de potencia y 6 de energía. kW contratado puede ser diferente por periodo.
@@ -1016,6 +1036,7 @@ FORMATO JSON DE RESPUESTA PARA FACTURAS
         { "concepto": "BONO SOCIAL", "total": 0.35 }
       ],
       "totalFactura": 123.45,
+      "energyPricingFormat": "precio_unico" | "por_periodo" | "promocionadas",
       "gasPricing": null,
       "rawLineItems": [
         { "description": "Energía Precio horario 4.663 kWh x 0,129447 €/kWh", "category": "energia_comercializacion", "periodo": null, "kwh": 4663, "kw": null, "dias": null, "precioUnitario": 0.129447, "total": 603.61 },
@@ -1239,11 +1260,65 @@ function rebuildFromRawLineItems(rawLineItems: LineItem[], eco: any): any {
     return out
   }
 
+  // ── CASO 3: HORAS PROMOCIONADAS / NO PROMOCIONADAS (Iberdrola Plan Elige X horas) ────
+  // When the invoice uses "horas_no_promocionada" / "horas_promocionada" categories,
+  // compute the weighted average price and store it on all periods.
+  // Also store the raw breakdown in energyPricingOriginal for audit traceability.
+  const noPromoItems = byCat('energia_no_promocionada')
+  const promoItems = byCat('energia_promocionada')
+  const hasPromoFormat = noPromoItems.length > 0 || promoItems.length > 0
+
+  if (hasPromoFormat) {
+    const kwhNoPromo = noPromoItems.reduce((s, i) => s + i.kwh, 0)
+    const kwhPromo = promoItems.reduce((s, i) => s + i.kwh, 0)
+    const totalNoPromo = noPromoItems.reduce((s, i) => s + i.total, 0)
+    const totalPromo = promoItems.reduce((s, i) => s + i.total, 0)
+    const totalKwhPromo = kwhNoPromo + kwhPromo
+    const totalEnergyPromo = totalNoPromo + totalPromo
+
+    // Weighted average price = Σ(kWh_i × precio_i) / Σ(kWh_i)
+    const precioNoPromo = noPromoItems.length > 0 && kwhNoPromo > 0
+      ? noPromoItems.reduce((s, i) => s + i.kwh * (i.precioUnitario || (i.kwh > 0 ? i.total / i.kwh : 0)), 0) / kwhNoPromo
+      : 0
+    const precioPromo = promoItems.length > 0 && kwhPromo > 0
+      ? promoItems.reduce((s, i) => s + i.kwh * (i.precioUnitario || (i.kwh > 0 ? i.total / i.kwh : 0)), 0) / kwhPromo
+      : 0
+
+    const precioPonderado = totalKwhPromo > 0
+      ? (kwhNoPromo * precioNoPromo + kwhPromo * precioPromo) / totalKwhPromo
+      : 0
+
+    // Store the individual period data (P1 = no promo = punta, P2 = promo = valle)
+    out.consumo = []
+    if (kwhNoPromo > 0) {
+      out.consumo.push({ periodo: 'P1', kwh: round2(kwhNoPromo), precioKwh: round6(precioNoPromo), total: round2(totalNoPromo) })
+    }
+    if (kwhPromo > 0) {
+      out.consumo.push({ periodo: 'P2', kwh: round2(kwhPromo), precioKwh: round6(precioPromo), total: round2(totalPromo) })
+    }
+    out.consumoTotalKwh = round2(totalKwhPromo)
+    out.costeBrutoConsumo = round2(totalEnergyPromo)
+    out.descuentoEnergia = 0
+    out.costeNetoConsumo = round2(totalEnergyPromo)
+    out.costeTotalConsumo = round2(totalEnergyPromo)
+    // costeMedioKwhNeto = weighted average of both tranches
+    out.costeMedioKwhNeto = round6(precioPonderado)
+    out.costeMedioKwh = out.costeMedioKwhNeto
+    // Store original breakdown for audit
+    out.energyPricingFormat = 'promocionadas'
+    out.energyPricingOriginal = {
+      no_promocionadas: { kwh: round2(kwhNoPromo), precioKwh: round6(precioNoPromo), total: round2(totalNoPromo) },
+      promocionadas:    { kwh: round2(kwhPromo),   precioKwh: round6(precioPromo),   total: round2(totalPromo) },
+      precioPonderado:  round6(precioPonderado),
+    }
+    // Continue with potencia and otros (fall through — don't return early)
+  }
+
   // ── ENERGY ────────────────────────────────────────────────────────────
-  const energiaComer = byCat('energia_comercializacion')
-  const energiaPeajes = byCat('energia_peaje')
-  const energiaCargos = byCat('energia_cargo')
-  const descEnergiaItems = byCat('descuento_energia')
+  const energiaComer = hasPromoFormat ? [] : byCat('energia_comercializacion')
+  const energiaPeajes = hasPromoFormat ? [] : byCat('energia_peaje')
+  const energiaCargos = hasPromoFormat ? [] : byCat('energia_cargo')
+  const descEnergiaItems = hasPromoFormat ? [] : byCat('descuento_energia')
 
   // kWh per period comes from peajes/cargos lines OR from consolidated
   // energia_comercializacion lines with periodo (ACCIONA 6.1TD style).
@@ -1308,12 +1383,15 @@ function rebuildFromRawLineItems(rawLineItems: LineItem[], eco: any): any {
   const descuentoEnergia = Math.abs(sumTotal(descEnergiaItems))
   const costeNetoConsumo = costeBrutoConsumo - descuentoEnergia
 
-  out.consumo = consumo
-  out.consumoTotalKwh = round2(totalKwh)
-  out.costeBrutoConsumo = round2(costeBrutoConsumo)
-  out.descuentoEnergia = round2(descuentoEnergia)
-  out.costeNetoConsumo = round2(costeNetoConsumo)
-  out.costeTotalConsumo = round2(costeNetoConsumo)
+  // Only overwrite energy fields if NOT already handled by Caso 3 (promocionadas)
+  if (!hasPromoFormat) {
+    out.consumo = consumo
+    out.consumoTotalKwh = round2(totalKwh)
+    out.costeBrutoConsumo = round2(costeBrutoConsumo)
+    out.descuentoEnergia = round2(descuentoEnergia)
+    out.costeNetoConsumo = round2(costeNetoConsumo)
+    out.costeTotalConsumo = round2(costeNetoConsumo)
+  }
 
   // ── POWER ─────────────────────────────────────────────────────────────
   const potenciaPeajes = byCat('potencia_peaje')
