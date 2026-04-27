@@ -1297,8 +1297,12 @@ async function handleClientActivation(chatId: number, text: string, user: { user
   }
 
   if (clients.length > 1 && clients.length <= 6) {
-    const rows = clients.map((c: any) => [
-      button(`${c.alias ? c.alias + ' — ' : ''}${c.name}${c.cif_nif ? ` (${c.cif_nif})` : ''}`, `set_client:${c.id}:${c.name.substring(0, 40)}`)
+    // Store options in convo — callback_data has 64-byte limit, UUIDs alone are 36 bytes
+    await setConvo(chatId, 'pick_client_activate', {
+      pickOptions: clients.map((c: any) => ({ id: c.id, name: c.name })),
+    })
+    const rows = clients.map((c: any, i: number) => [
+      button(`${c.alias ? c.alias + ' — ' : ''}${c.name.substring(0, 40)}`, `pick:${i}`)
     ])
     rows.push([button('❌ Cancelar', 'cancel')])
     return sendMessage(chatId,
@@ -1432,9 +1436,14 @@ async function handleNonInvoiceDocResult(
       // Auto-activate this client
       await setConvo(chatId, 'client_active', { clientModeId: clientId, clientModeName: clientName })
     } else if (matches && matches.length > 1) {
-      // Ambiguous — ask user to pick
-      const rows = matches.map((c: any) => [
-        button(c.name, `assoc_doc:${c.id}:${inboxId}:${docType}`)
+      // Ambiguous — store options in convo, use short pick:N callbacks
+      await setConvo(chatId, 'pick_doc_client', {
+        pickOptions: matches.map((c: any) => ({ id: c.id, name: c.name })),
+        pendingInboxId: inboxId,
+        pendingDocType: docType,
+      })
+      const rows = matches.slice(0, 5).map((c: any, i: number) => [
+        button(c.name.substring(0, 40), `pick:${i}`)
       ])
       rows.push([button('❌ Cancelar', 'cancel')])
       await supabase.from('telegram_inbox').update({ status: 'pending_confirm' }).eq('id', inboxId)
@@ -1474,18 +1483,23 @@ async function handleNonInvoiceDocResult(
   }
 
   // Priority 3 found via session — ask for confirmation before silently saving
+  // Store data in convo (not in callback_data — Telegram has 64-byte limit)
   if (!foundViaDoc) {
     await supabase.from('telegram_inbox').update({ status: 'pending_confirm' }).eq('id', inboxId)
+    await setConvo(chatId, 'pending_doc_confirm', {
+      pendingInboxId: inboxId,
+      pendingDocType: docType,
+      pendingClientId: clientId,
+      pendingClientName: clientName,
+    })
     return sendMessage(chatId,
       `📎 <b>${docTypeLabel(docType)} recibido</b>\n\n` +
       `No encontré datos de cliente en el documento.\n` +
-      `¿Pertenece a <b>${clientName}</b> (cliente activo)?`,
+      `¿Pertenece a <b>${clientName}</b>?`,
       {
         replyMarkup: inlineKeyboard([
-          [
-            button(`✅ Sí, es de ${clientName}`, `assoc_doc:${clientId}:${inboxId}:${docType}`),
-          ],
-          [button('❌ Otro cliente', `cancel_doc:${inboxId}`)],
+          [button(`✅ Sí`, `doc_confirm`)],
+          [button('❌ Otro cliente', `doc_cancel`)],
         ]),
       }
     )
@@ -1873,19 +1887,110 @@ async function handleCallback(cb: CallbackQuery) {
           return createSupplyFromCups(chatId, cupsValue, cupsClientId, fullName, user, appUrl, supabase)
         }
 
-      case 'cancel_doc':
+      case 'doc_confirm':
         {
-          // User said "Otro cliente" — keep inbox pending and ask for the client name
-          const [cancelInboxId] = params
-          if (cancelInboxId) {
+          // User confirmed the session client for a non-invoice doc
+          const convo = await getConvo(chatId)
+          const d = convo?.data || {}
+          if (!d.pendingInboxId || !d.pendingClientId) {
+            await answerCallback(cb.id, 'Sesión expirada')
+            return sendMessage(chatId, '⏱ La sesión expiró. Por favor reenvía el documento.')
+          }
+          await answerCallback(cb.id, 'Guardando...')
+          const supabase = createBotSupabase()
+          await supabase.from('telegram_inbox').update({
+            status: 'processed', processed_at: new Date().toISOString()
+          }).eq('id', d.pendingInboxId)
+          // Restore client_active so subsequent docs go to same client
+          await setConvo(chatId, 'client_active', {
+            clientModeId: d.pendingClientId,
+            clientModeName: d.pendingClientName,
+          })
+          return sendMessage(chatId,
+            `📎 <b>${docTypeLabel(d.pendingDocType)} guardado</b>\n\n` +
+            `👤 <b>${d.pendingClientName}</b>\n✅ documento archivado`
+          )
+        }
+
+      case 'doc_cancel':
+        {
+          // User said "Otro cliente" — clear pending data and ask for client name
+          const convo = await getConvo(chatId)
+          const d = convo?.data || {}
+          if (d.pendingInboxId) {
             await createBotSupabase().from('telegram_inbox')
               .update({ status: 'pending_confirm' })
-              .eq('id', cancelInboxId)
+              .eq('id', d.pendingInboxId)
           }
+          await clearConvo(chatId)
           await answerCallback(cb.id, '✏️ Escribe el nombre del cliente')
-          return sendMessage(chatId,
-            `✏️ Escribe el nombre del cliente al que pertenece este documento.`
-          )
+          return sendMessage(chatId, `✏️ Escribe el nombre del cliente para este documento.`)
+        }
+
+      case 'pick':
+        {
+          // Generic pick:N — reads convo state to determine what we're picking
+          const idx = parseInt(params[0] || '0', 10)
+          const convo = await getConvo(chatId)
+          const d = convo?.data || {}
+          const options = d.pickOptions || []
+          const chosen = options[idx]
+          if (!chosen) {
+            await answerCallback(cb.id, 'Opción no válida')
+            return
+          }
+          await answerCallback(cb.id, `✅ ${chosen.name}`)
+          const supabase = createBotSupabase()
+
+          if (convo?.step === 'pick_client_activate') {
+            // Activate client mode
+            await setConvo(chatId, 'client_active', { clientModeId: chosen.id, clientModeName: chosen.name })
+            return sendMessage(chatId,
+              `✅ <b>Cliente activo: ${chosen.name}</b>\n\n` +
+              `Envía sus documentos. Escribe <b>"ya"</b> cuando termines.`
+            )
+          }
+
+          if (convo?.step === 'pick_doc_client') {
+            // Associate a pending non-invoice doc to the chosen client
+            const { pendingInboxId, pendingDocType } = d
+            if (!pendingInboxId) return sendMessage(chatId, '⏱ Sesión expirada.')
+            const { data: inboxRow } = await supabase.from('telegram_inbox')
+              .select('file_url').eq('id', pendingInboxId).single()
+            const patch: Record<string, any> = { updated_at: new Date().toISOString() }
+            if (pendingDocType === 'iban' && inboxRow?.file_url) patch.iban_file_url = inboxRow.file_url
+            else if (pendingDocType === 'cif' && inboxRow?.file_url) patch.cif_file_url = inboxRow.file_url
+            else if (pendingDocType === 'nif' && inboxRow?.file_url) patch.nif_file_url = inboxRow.file_url
+            if (Object.keys(patch).length > 1) await supabase.from('clients').update(patch).eq('id', chosen.id)
+            await supabase.from('telegram_inbox').update({
+              status: 'processed', processed_at: new Date().toISOString()
+            }).eq('id', pendingInboxId)
+            await setConvo(chatId, 'client_active', { clientModeId: chosen.id, clientModeName: chosen.name })
+            return sendMessage(chatId,
+              `✅ <b>${chosen.name}</b>\n${docTypeLabel(pendingDocType)} guardado correctamente.`
+            )
+          }
+
+          if (convo?.step === 'pick_cups_client') {
+            // Assign a CUPS to the chosen client
+            const { pendingCups } = d
+            if (!pendingCups) return sendMessage(chatId, '⏱ Sesión expirada.')
+            const user = await getLinkedUser(chatId)
+            if (!user) return sendMessage(chatId, '🔒 Vincula tu cuenta con /vincular')
+            const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
+            await setConvo(chatId, 'client_active', { clientModeId: chosen.id, clientModeName: chosen.name })
+            await sendMessage(chatId, `⏳ Creando suministro para <b>${chosen.name}</b>...\n🔌 <code>${pendingCups}</code>`)
+            return createSupplyFromCups(chatId, pendingCups, chosen.id, chosen.name, user, appUrl, supabase)
+          }
+
+          return sendMessage(chatId, '⏱ Sesión expirada. Intenta de nuevo.')
+        }
+
+      case 'cancel_doc':
+        {
+          await clearConvo(chatId)
+          await answerCallback(cb.id, '✏️ Escribe el nombre del cliente')
+          return sendMessage(chatId, `✏️ Escribe el nombre del cliente para este documento.`)
         }
 
       case 'cancel':
@@ -1936,9 +2041,14 @@ async function handleConvoStep(msg: TelegramMessage, convo: ConversationState) {
       return createSupplyFromCups(chatId, cups, c.id, c.name, linkedUser, appUrl, supabase)
     }
 
-    // Multiple clients — show buttons
-    const rows = clients.slice(0, 6).map((c: any) => [
-      button(`${c.name}${c.cif_nif ? ` (${c.cif_nif})` : ''}`, `cups_client:${c.id}:${encodeURIComponent(c.name.substring(0, 30))}:${cups}`)
+    // Multiple clients — store in convo, use short pick:N callbacks
+    const pickClients = clients.slice(0, 5)
+    await setConvo(chatId, 'pick_cups_client', {
+      pickOptions: pickClients.map((c: any) => ({ id: c.id, name: c.name })),
+      pendingCups: cups,
+    })
+    const rows = pickClients.map((c: any, i: number) => [
+      button(`${c.name.substring(0, 35)}${c.cif_nif ? ` (${c.cif_nif})` : ''}`, `pick:${i}`)
     ])
     rows.push([button('❌ Cancelar', 'cancel')])
     return sendMessage(chatId,
