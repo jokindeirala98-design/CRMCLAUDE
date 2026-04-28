@@ -112,6 +112,8 @@ interface Props {
   gasHistory?: GasHistoryPeriod[]
   /** Auto-open the report/informe view on mount (e.g. from Telegram deep link) */
   initialView?: 'tabla' | 'informe'
+  /** Maxímetro history for power adjustment detection */
+  maximetroHistory?: any[]
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -273,6 +275,27 @@ function getEco(inv: InvoiceRow): BillEconomics | null {
 /** Does this invoice have usable data (economics or at least total_amount)? */
 function hasUsableData(inv: InvoiceRow): boolean {
   return getEco(inv) !== null
+}
+
+/** Returns which periods have maxímetro deviations > threshold from contracted power */
+function getMaximetroDeviations(
+  maximetroHistory: any[] | undefined,
+  potenciaContratada: Record<string, number> | undefined,
+  threshold = 0.15
+): Array<{ period: string; contracted: number; avgMaxi: number; deviation: number }> {
+  if (!maximetroHistory?.length || !potenciaContratada) return []
+  const periods = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6']
+  const result: Array<{ period: string; contracted: number; avgMaxi: number; deviation: number }> = []
+  for (const p of periods) {
+    const contracted = Number(potenciaContratada[p]) || 0
+    if (contracted <= 0) continue
+    const values = maximetroHistory.map((h: any) => Number(h[p]) || 0).filter(v => v > 0)
+    if (!values.length) continue
+    const avgMaxi = values.reduce((s, v) => s + v, 0) / values.length
+    const deviation = Math.abs(avgMaxi - contracted) / contracted
+    if (deviation > threshold) result.push({ period: p, contracted, avgMaxi, deviation })
+  }
+  return result
 }
 
 /**
@@ -2457,7 +2480,7 @@ function GasReportView({ invoices, supplyName, onBack, gasHistory }: {
 
 // ─── Report View ─────────────────────────────────────────────────────────────
 
-function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaContratada, consumoPeriodos, initialYear }: {
+function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaContratada, consumoPeriodos, initialYear, maximetroHistory }: {
   invoices: InvoiceRow[]
   supplyName?: string
   onBack: () => void
@@ -2465,6 +2488,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
   potenciaContratada?: Record<string, number>
   consumoPeriodos?: Record<string, number>
   initialYear?: number | 'all'
+  maximetroHistory?: any[]
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [selectedYear, setSelectedYear] = useState<number | 'all'>(initialYear ?? 'all')
@@ -2485,7 +2509,27 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
   const [show2TDModal, setShow2TDModal] = useState(false)
   const [downloading2TD, setDownloading2TD] = useState<VoltisKey2TD | null>(null)
   const [elecChartMode, setElecChartMode] = useState<'eur' | 'kwh'>('eur')
+  const [showPowerAdjust, setShowPowerAdjust] = useState(false)
+  const [adjustedPotencia, setAdjustedPotencia] = useState<Record<string, number> | null>(null)
+  const [powerAdjustInputs, setPowerAdjustInputs] = useState<Record<string, string>>({})
   const toggleReveal = (id: string) => setRevealedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+
+  const openComparativa2TD = () => {
+    const deviations = getMaximetroDeviations(maximetroHistory, potenciaContratada)
+    if (deviations.length > 0 && !adjustedPotencia) {
+      // Pre-fill inputs with contracted values
+      const inputs: Record<string, string> = {}
+      const periods = ['P1','P2','P3','P4','P5','P6']
+      periods.forEach(p => {
+        const v = potenciaContratada?.[p]
+        if (v && v > 0) inputs[p] = String(v)
+      })
+      setPowerAdjustInputs(inputs)
+      setShowPowerAdjust(true)
+    } else {
+      setShow2TDModal(true)
+    }
+  }
 
   const isAnnual = selectedMonths.size === 12
 
@@ -2835,8 +2879,9 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
   // ── 2.0TD Comparison data ───────────────────────────────────────────────────
   const is2TD = is2TDTariff(tarifa !== '—' ? tarifa : null)
 
+  const effectivePotencia = adjustedPotencia ?? potenciaContratada
   const comp2TDData = useMemo(() => {
-    if (!is2TD || !consumoPeriodos || !potenciaContratada) return null
+    if (!is2TD || !consumoPeriodos || !effectivePotencia) return null
     const consumoP1 = Number(consumoPeriodos.P1) || 0
     const consumoP2 = Number(consumoPeriodos.P2) || 0
     const consumoP3 = Number(consumoPeriodos.P3) || 0
@@ -2844,7 +2889,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
     // Algunos distribuidores solo populan P1 en el endpoint /info — usamos el primer
     // valor no-cero de P2..P6, y si todos son 0 usamos P1 como fallback (contrato
     // con la misma potencia en todos los periodos, habitual en 2.0TD residencial).
-    const pc = potenciaContratada as any
+    const pc = effectivePotencia as any
     const potP1 = Number(pc.P1) || 0
     // For 2.0TD: SIPS always stores punta in P1 and valle in P3.
     // Use P3 directly; only fall back to scanning P2/P4-P6 (≥0.1 kW) if P3 is missing,
@@ -2947,7 +2992,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
       currentPowerP1, currentPowerP2,
       isIndexed, energyPricingFormat: isIndexed ? 'indexado' : (majorityFormat || 'precio_unico'),
     }
-  }, [is2TD, consumoPeriodos, potenciaContratada, summaryStats.precioPromedio, validInvoices])
+  }, [is2TD, consumoPeriodos, effectivePotencia, summaryStats.precioPromedio, validInvoices])
 
   // ESC key to exit fullscreen report
   useEffect(() => {
@@ -3364,7 +3409,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
             </button>
             {is2TD && comp2TDData && (
               <button
-                onClick={() => setShow2TDModal(true)}
+                onClick={() => openComparativa2TD()}
                 className="flex items-center gap-2 px-8 py-3 rounded-full text-sm font-black tracking-widest uppercase transition hover:scale-105"
                 style={{ background: 'linear-gradient(135deg, #C7F24A, #a8d940)', boxShadow: '0 12px 30px -8px rgba(199,242,74,0.4)', color: '#2D3A33' }}>
                 <Sparkles className="w-4 h-4" /> COMPARATIVA VOLTIS 2.0TD
@@ -3544,6 +3589,79 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ── Power Adjustment Modal ─────────────────────────────────────────── */}
+      {showPowerAdjust && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.5)' }}>
+          <div className="rounded-2xl p-6 max-w-md w-full shadow-2xl" style={{ background: '#FBF7EE', border: '1px solid #E5DCC9' }}>
+            <h3 className="text-lg font-black text-[#2D3A33] mb-1">Ajuste de potencias</h3>
+            <p className="text-sm text-[#5A6B5F] mb-4">
+              Los maxímetros registran desviaciones {'>'} 15% en los siguientes periodos. ¿Quieres ajustar las potencias para la comercializadora propuesta?
+            </p>
+            {/* Deviation summary */}
+            <div className="rounded-xl p-3 mb-4 space-y-1" style={{ background: '#F0EBE1' }}>
+              {getMaximetroDeviations(maximetroHistory, potenciaContratada).map(d => (
+                <div key={d.period} className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-[#2D3A33]">{d.period}</span>
+                  <span className="text-[#8A9A8E]">Contratado: <strong>{d.contracted.toFixed(1)} kW</strong></span>
+                  <span className="text-[#8A9A8E]">Maxímetro: <strong>{d.avgMaxi.toFixed(1)} kW</strong></span>
+                  <span className={Math.abs(d.deviation) > 0.15 ? 'text-orange-600 font-bold' : 'text-[#6B8068]'}>
+                    {d.deviation > 0 ? '+' : ''}{(d.deviation * 100).toFixed(0)}%
+                  </span>
+                </div>
+              ))}
+            </div>
+            {/* Power inputs */}
+            <div className="space-y-2 mb-5">
+              <p className="text-[10px] font-bold tracking-widest text-[#8A9A8E]">POTENCIAS PARA NUEVA COMERCIALIZADORA (kW)</p>
+              <div className="grid grid-cols-3 gap-2">
+                {Object.entries(powerAdjustInputs).map(([p, val]) => (
+                  <div key={p} className="flex flex-col gap-1">
+                    <label className="text-[10px] font-bold text-[#5A6B5F]">{p}</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={val}
+                      onChange={e => setPowerAdjustInputs(prev => ({ ...prev, [p]: e.target.value }))}
+                      className="w-full px-2 py-1.5 rounded-lg text-sm border text-[#2D3A33] outline-none focus:border-[#6B8068]"
+                      style={{ background: '#fff', border: '1px solid #D9D0BC' }}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setShowPowerAdjust(false)
+                  setShow2TDModal(true)
+                }}
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold transition hover:opacity-80"
+                style={{ background: '#E5DCC9', color: '#5A6B5F' }}
+              >
+                No, usar actuales
+              </button>
+              <button
+                onClick={() => {
+                  const adjusted: Record<string, number> = {}
+                  Object.entries(powerAdjustInputs).forEach(([p, v]) => {
+                    const n = parseFloat(v)
+                    if (!isNaN(n) && n > 0) adjusted[p] = n
+                  })
+                  setAdjustedPotencia(adjusted)
+                  setShowPowerAdjust(false)
+                  setShow2TDModal(true)
+                }}
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-white transition hover:opacity-90"
+                style={{ background: 'linear-gradient(135deg, #6B8068, #5A6E58)', color: '#FBF7EE' }}
+              >
+                Sí, ajustar potencias
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ═══════════ MODAL 4: Comparativa Voltis 2.0TD ═══════════ */}
       <AnimatePresence>
@@ -3831,7 +3949,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated, supplyType: propSupplyType, potenciaContratada, consumoPeriodos, clientName, gasHistory, initialView }: Props) {
+export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated, supplyType: propSupplyType, potenciaContratada, consumoPeriodos, clientName, gasHistory, initialView, maximetroHistory }: Props) {
   const [view, setView] = useState<'tabla' | 'informe'>(initialView ?? 'tabla')
   const [busyRescan, setBusyRescan] = useState<string | null>(null)
   const [busyDelete, setBusyDelete] = useState<string | null>(null)
@@ -4006,7 +4124,7 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
   if (view === 'informe') {
     const reportNode = isGas
       ? <GasReportView invoices={invoices} supplyName={supplyName} onBack={() => setView('tabla')} gasHistory={gasHistory} />
-      : <ReportView invoices={invoices} supplyName={supplyName || clientName} onBack={() => setView('tabla')} onInvoicesUpdated={onInvoicesUpdated} potenciaContratada={potenciaContratada} consumoPeriodos={consumoPeriodos} initialYear={selectedYear} />
+      : <ReportView invoices={invoices} supplyName={supplyName || clientName} onBack={() => setView('tabla')} onInvoicesUpdated={onInvoicesUpdated} potenciaContratada={potenciaContratada} consumoPeriodos={consumoPeriodos} initialYear={selectedYear} maximetroHistory={maximetroHistory} />
     // Portal to document.body so fixed positioning escapes framer-motion's transform context
     if (typeof document !== 'undefined') return createPortal(reportNode, document.body)
     return reportNode
@@ -4047,70 +4165,24 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
       </div>
       {withoutEco.length > 0 && <ReExtractBanner invoices={withoutEco} onDone={onInvoicesUpdated} />}
 
-      {/* ── Filtro año × mes ──────────────────────────────────────────────── */}
-      {withEco.length > 0 && (availableYears.length > 1 || availableMonths.length > 1) && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-6 py-3 border-b border-[#E5DCC9]" style={{ background: '#F9F5EC' }}>
-
-          {/* ── Año (solo si hay más de un año) ── */}
-          {availableYears.length > 1 && (
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[10px] font-bold tracking-widest text-[#8A9A8E]">AÑO</span>
-              {(['all', ...availableYears] as const).map(yr => (
-                <button
-                  key={yr}
-                  onClick={() => selectYear(yr as number | 'all')}
-                  className="px-3 py-1 rounded-full text-xs font-bold transition-all"
-                  style={{
-                    background: selectedYear === yr ? '#6B8068' : '#E5DCC9',
-                    color: selectedYear === yr ? '#FBF7EE' : '#5A6B5F',
-                  }}
-                >
-                  {yr === 'all' ? 'Global' : yr}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* ── Separador ── */}
-          {availableYears.length > 1 && availableMonths.length > 1 && (
-            <div className="w-px h-5 bg-[#D9D0BC]" />
-          )}
-
-          {/* ── Meses disponibles en el contexto año seleccionado ── */}
-          {availableMonths.length > 1 && (
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[10px] font-bold tracking-widest text-[#8A9A8E]">MES</span>
-              {availableMonths.map(m => {
-                const active = selectedMonths.has(m)
-                return (
-                  <button
-                    key={m}
-                    onClick={() => toggleMonth(m)}
-                    title={['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][m]}
-                    className="w-7 h-7 rounded-full text-xs font-bold transition-all"
-                    style={{
-                      background: active ? (isGas ? '#ea580c' : '#6B8068') : '#E5DCC9',
-                      color: active ? '#FBF7EE' : '#5A6B5F',
-                    }}
-                  >
-                    {m + 1}
-                  </button>
-                )
-              })}
-              {selectedMonths.size > 0 && (
-                <button
-                  onClick={() => setSelectedMonths(new Set())}
-                  className="px-2 py-1 rounded-full text-[10px] text-[#8A9A8E] hover:text-[#5A6B5F] transition-all"
-                  style={{ background: '#E5DCC9' }}
-                >
-                  ✕ limpiar
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* ── Contador ── */}
-          <span className="ml-auto text-[10px] text-[#8A9A8E] whitespace-nowrap">
+      {/* ── Filtro año ──────────────────────────────────────────────────────── */}
+      {withEco.length > 0 && availableYears.length > 1 && (
+        <div className="flex items-center justify-center gap-x-3 gap-y-2 px-6 py-3 border-b border-[#E5DCC9] flex-wrap" style={{ background: '#F9F5EC' }}>
+          <span className="text-[10px] font-bold tracking-widest text-[#8A9A8E]">AÑO</span>
+          {(['all', ...availableYears] as const).map(yr => (
+            <button
+              key={yr}
+              onClick={() => selectYear(yr as number | 'all')}
+              className="px-3 py-1 rounded-full text-xs font-bold transition-all"
+              style={{
+                background: selectedYear === yr ? '#6B8068' : '#E5DCC9',
+                color: selectedYear === yr ? '#FBF7EE' : '#5A6B5F',
+              }}
+            >
+              {yr === 'all' ? 'Global' : yr}
+            </button>
+          ))}
+          <span className="text-[10px] text-[#8A9A8E] whitespace-nowrap ml-3">
             {filteredEco.length} de {withEco.length} factura{withEco.length !== 1 ? 's' : ''}
           </span>
         </div>

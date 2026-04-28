@@ -114,6 +114,9 @@ export default function SupplyDetailPage() {
   const [docsOverlayOpen, setDocsOverlayOpen] = useState(false)
   const [technicalModalOpen, setTechnicalModalOpen] = useState(false)
   const [economicStudyOpen, setEconomicStudyOpen] = useState(false)
+  const [powerAdjustForStudyOpen, setPowerAdjustForStudyOpen] = useState(false)
+  const [studyAdjustedPowers, setStudyAdjustedPowers] = useState<number[] | null>(null)
+  const [studyPowerInputs, setStudyPowerInputs] = useState<Record<string, string>>({})
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const [zipProgress, setZipProgress] = useState<DownloadProgress | null>(null)
@@ -1263,7 +1266,28 @@ export default function SupplyDetailPage() {
 
                   {/* ─── Estudio económico comparativo ─── */}
                   <button
-                    onClick={(e) => { e.stopPropagation(); setEconomicStudyOpen(true) }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      const maxiHist: any[] = supply?.consumption_data?.maximetroHistory || []
+                      const potContr: any = supply?.consumption_data?.potenciaContratada || {}
+                      const periods = ['P1','P2','P3','P4','P5','P6']
+                      const hasDeviation = periods.some(p => {
+                        const contracted = Number(potContr[p]) || 0
+                        if (contracted <= 0) return false
+                        const vals = maxiHist.map((h: any) => Number(h[p]) || 0).filter(v => v > 0)
+                        if (!vals.length) return false
+                        const avg = vals.reduce((s: number, v: number) => s + v, 0) / vals.length
+                        return Math.abs(avg - contracted) / contracted > 0.15
+                      })
+                      if (hasDeviation && !studyAdjustedPowers) {
+                        const inputs: Record<string, string> = {}
+                        periods.forEach(p => { const v = Number(potContr[p]); if (v > 0) inputs[p] = String(v) })
+                        setStudyPowerInputs(inputs)
+                        setPowerAdjustForStudyOpen(true)
+                      } else {
+                        setEconomicStudyOpen(true)
+                      }
+                    }}
                     className="flex items-center gap-1.5 px-3 py-0.5 rounded-md text-[11px] font-bold bg-ok/10 text-ok hover:bg-ok hover:text-white transition-all shadow-sm border border-ok/20"
                   >
                     <TrendingUp className="w-3.5 h-3.5" />
@@ -2045,6 +2069,7 @@ export default function SupplyDetailPage() {
             gasHistory={supply.consumption_data?.gasHistory}
             clientName={supply.client?.name || supply.cups || ''}
             initialView={searchParams.get('view') === 'informe' ? 'informe' : undefined}
+            maximetroHistory={supply.consumption_data?.maximetroHistory}
             onInvoicesUpdated={async () => {
               const supabase = createClient()
               const { data } = await supabase
@@ -2731,6 +2756,61 @@ export default function SupplyDetailPage() {
         />
       )}
 
+      {/* Power adjustment dialog for economic study */}
+      {powerAdjustForStudyOpen && supply && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.6)' }}>
+          <div className="rounded-2xl p-6 max-w-md w-full shadow-2xl" style={{ background: '#FBF7EE', border: '1px solid #E5DCC9' }}>
+            <h3 className="text-lg font-black text-[#2D3A33] mb-1">Ajuste de potencias</h3>
+            <p className="text-sm text-[#5A6B5F] mb-4">
+              Los maxímetros detectan desviaciones &gt; 15% en algún periodo. ¿Quieres ajustar potencias para la comercializadora propuesta?
+            </p>
+            <div className="space-y-2 mb-5">
+              <p className="text-[10px] font-bold tracking-widest text-[#8A9A8E]">POTENCIAS PARA NUEVA COMERCIALIZADORA (kW)</p>
+              <div className="grid grid-cols-3 gap-2">
+                {Object.entries(studyPowerInputs).map(([p, val]) => (
+                  <div key={p} className="flex flex-col gap-1">
+                    <label className="text-[10px] font-bold text-[#5A6B5F]">{p}</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={val}
+                      onChange={e => setStudyPowerInputs(prev => ({ ...prev, [p]: e.target.value }))}
+                      className="w-full px-2 py-1.5 rounded-lg text-sm border text-[#2D3A33] outline-none focus:border-[#6B8068]"
+                      style={{ background: '#fff', border: '1px solid #D9D0BC' }}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setPowerAdjustForStudyOpen(false); setStudyAdjustedPowers(null); setEconomicStudyOpen(true) }}
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold transition"
+                style={{ background: '#E5DCC9', color: '#5A6B5F' }}
+              >
+                No, usar actuales
+              </button>
+              <button
+                onClick={() => {
+                  const adjusted = ['P1','P2','P3','P4','P5','P6'].map(p => {
+                    const n = parseFloat(studyPowerInputs[p] || '0')
+                    return isNaN(n) ? 0 : n
+                  })
+                  setStudyAdjustedPowers(adjusted)
+                  setPowerAdjustForStudyOpen(false)
+                  setEconomicStudyOpen(true)
+                }}
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-white transition"
+                style={{ background: 'linear-gradient(135deg, #6B8068, #5A6E58)', color: '#FBF7EE' }}
+              >
+                Sí, ajustar potencias
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {economicStudyOpen && supply && (
         <EconomicStudyModal
           supplyId={supply.id}
@@ -2754,7 +2834,7 @@ export default function SupplyDetailPage() {
             }
             return periods
           })()}
-          powersByPeriod={(() => {
+          powersByPeriod={studyAdjustedPowers ?? (() => {
             const cd = supply.consumption_data as any
             if (!cd) return []
             const keys = ['P1','P2','P3','P4','P5','P6']
@@ -2809,7 +2889,7 @@ export default function SupplyDetailPage() {
             }
             return 0
           })()}
-          onClose={() => setEconomicStudyOpen(false)}
+          onClose={() => { setEconomicStudyOpen(false); setStudyAdjustedPowers(null) }}
         />
       )}
     </div>
