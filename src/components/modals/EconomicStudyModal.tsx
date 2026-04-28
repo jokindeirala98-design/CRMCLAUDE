@@ -153,12 +153,12 @@ function open2TDPdf(params: {
 // ─── Subcomponent: 2.0TD Comparison View ────────────────────────────────────
 
 function Comparativa2TDView({
-  cups, clientName, supplyId, autoSave, accessToken,
+  cups, clientName, supplyId, autoSave,
   consumo, potencia,
   currentEnergyPrice, currentPowerP1, currentPowerP2,
 }: {
   cups: string; clientName: string
-  supplyId?: string; autoSave?: boolean; accessToken?: string | null
+  supplyId?: string; autoSave?: boolean
   consumo: { P1: number; P2: number; P3: number }
   potencia: { P1: number; P2: number }
   currentEnergyPrice: number; currentPowerP1: number; currentPowerP2: number
@@ -295,10 +295,7 @@ function Comparativa2TDView({
                       autoSave && supplyId
                         ? fetch(`/api/supplies/${supplyId}/economic-study`, {
                             method: 'POST',
-                            headers: {
-                              'Content-Type': 'application/json',
-                              ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
-                            },
+                            headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
                               save: true,
                               save_only: true,
@@ -397,18 +394,9 @@ export function EconomicStudyModal({
     setError('')
     setGenerating(true)
     try {
-      let accessToken: string | null = null
-      try {
-        const raw = localStorage.getItem('voltis-auth')
-        if (raw) accessToken = JSON.parse(raw)?.access_token ?? null
-      } catch {}
-
       const res = await fetch(`/api/supplies/${supplyId}/economic-study`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           nueva_comercializadora: nuevaComercializadora,
           precios_nuevos: preciosNuevos.slice(0, periodCount).map(p => parseFloat(p)),
@@ -489,7 +477,6 @@ export function EconomicStudyModal({
               clientName={clientName}
               supplyId={supplyId}
               autoSave={autoSave}
-              accessToken={(() => { try { const r = localStorage.getItem('voltis-auth'); return r ? JSON.parse(r)?.access_token ?? null : null } catch { return null } })()}
               consumo={consumo2TD}
               potencia={potencia2TD}
               currentEnergyPrice={currentAvgEnergyPrice}

@@ -159,14 +159,21 @@ function detectMonthCols(ws: ExcelJS.Worksheet, rowMap: Map<string, ExcelJS.Row>
     })
     if (cols.length > 0) return cols
   }
-  const firstRow = ws.getRow(1)
-  const cols: number[] = []
-  firstRow.eachCell({ includeEmpty: false }, (cell, colNum) => {
-    if (colNum <= 1) return
-    const str = String(cell.value ?? '').trim().toLowerCase()
-    if (Object.keys(MONTHS_MAP).some(m => str.startsWith(m)) || /\d{4}/.test(str)) cols.push(colNum)
-  })
-  return cols
+  // Try rows 1 and 2 — row 2 is the header row in the CUPS-variant transposed format
+  // (A1="CUPS", A2="Concepto/Periodo", months in row 2 cols 2+)
+  for (const rowNum of [1, 2]) {
+    const row = ws.getRow(rowNum)
+    const cols: number[] = []
+    row.eachCell({ includeEmpty: false }, (cell, colNum) => {
+      if (colNum <= 1) return
+      const str = String(cell.value ?? '').trim().toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      // Only match actual month names — avoid false positives from CUPS strings
+      if (Object.keys(MONTHS_MAP).some(m => str.startsWith(m))) cols.push(colNum)
+    })
+    if (cols.length > 0) return cols
+  }
+  return []
 }
 
 /** Parse Excel in label-based format (real electricity invoices) */
@@ -184,8 +191,13 @@ function parseLabelBased(ws: ExcelJS.Worksheet, fileName: string): ParsedSupplyF
   const invoices: ParsedInvoice[] = []
 
   for (const col of monthCols) {
-    const rawStart = getRow(rowMap, 'Fecha Inicio')?.getCell(col).value
-    const rawEnd   = getRow(rowMap, 'Fecha Fin')?.getCell(col).value
+    let rawStart: any = getRow(rowMap, 'Fecha Inicio')?.getCell(col).value
+    const rawEnd: any = getRow(rowMap, 'Fecha Fin')?.getCell(col).value
+    // Fallback: when no explicit "Fecha Inicio" row, derive the date from the
+    // column header (month name in row 1 or row 2 — covers both transposed variants)
+    if (!rawStart) {
+      rawStart = ws.getRow(1).getCell(col).value || ws.getRow(2).getCell(col).value
+    }
     let periodStart = parseIsoDate(rawStart)
     let periodEnd   = parseIsoDate(rawEnd)
     if (periodStart && !periodEnd) periodEnd = lastDayOfMonth(periodStart)
@@ -285,16 +297,31 @@ async function parseExcelFile(buffer: Buffer, fileName: string, targetCups?: str
   await wb.xlsx.load(buffer as any)
 
   // ── Detect Iberdrola transposed / multi-sheet format ──────────────────────
-  // Signature: every sheet has A1 = "Concepto / Periodo" (or similar)
-  // and row 1 has month names as column headers (no CUPS row).
+  // Signature A (standard): A1 = "Concepto / Periodo", row 1 cols 2+ = month names
+  // Signature B (CUPS-header variant): A1 = "CUPS", A2 = "Concepto / Periodo",
+  //   row 1 cols 2+ = CUPS values, row 2 cols 2+ = month names
   const isTransposedSheet = (ws: ExcelJS.Worksheet): boolean => {
     const a1 = normLabel(s(ws.getCell(1, 1).value))
-    if (!a1.includes('concepto') && !a1.includes('periodo') && !a1.includes('periodo')) return false
-    // Confirm at least one month name in row 1 cols 2+
-    for (let c = 2; c <= Math.min(ws.columnCount || 14, 14); c++) {
-      const h = s(ws.getCell(1, c).value).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
-      if (Object.keys(MONTHS_MAP).some(m => h.startsWith(m))) return true
+
+    // Signature A: standard transposed
+    if (a1.includes('concepto') || a1.includes('periodo')) {
+      for (let c = 2; c <= Math.min(ws.columnCount || 14, 14); c++) {
+        const h = s(ws.getCell(1, c).value).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+        if (Object.keys(MONTHS_MAP).some(m => h.startsWith(m))) return true
+      }
     }
+
+    // Signature B: CUPS-header variant (A1="CUPS", A2="Concepto / Periodo", months in row 2)
+    if (a1 === 'cups') {
+      const a2 = normLabel(s(ws.getCell(2, 1).value))
+      if (a2.includes('concepto') || a2.includes('periodo')) {
+        for (let c = 2; c <= Math.min(ws.columnCount || 14, 14); c++) {
+          const h = s(ws.getCell(2, c).value).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+          if (Object.keys(MONTHS_MAP).some(m => h.startsWith(m))) return true
+        }
+      }
+    }
+
     return false
   }
 

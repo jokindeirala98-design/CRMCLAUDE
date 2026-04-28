@@ -20,6 +20,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { getBOEPrices, normalizeTariff } from '@/lib/boe-prices'
 import ExcelJS from 'exceljs'
 import path from 'path'
@@ -775,17 +776,9 @@ export async function POST(
       return NextResponse.json({ error: 'nueva_comercializadora y precios_nuevos son obligatorios' }, { status: 400 })
     }
 
-    // ── Auth: verify token from Authorization header
-    const authHeader = req.headers.get('Authorization')
-    const token = authHeader?.replace('Bearer ', '').trim()
-
-    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-    const anonClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
-    const { data: { user } } = await anonClient.auth.getUser(token)
+    // ── Auth: cookie-based session (same as import-from-excel) ──────────────
+    const authClient = createServerSupabaseClient()
+    const { data: { user } } = await authClient.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     // Use service-role client for data ops (bypasses RLS)
