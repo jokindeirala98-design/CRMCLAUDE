@@ -2199,7 +2199,7 @@ function GasReportView({ invoices, supplyName, onBack, gasHistory }: {
 
       const gc = (eco as any).gasConsumption as any
       return {
-        id: inv.id, monthIndex: month,
+        id: inv.id, monthIndex: month, yearIndex: year,
         mes: year > 0 ? `${CANONICAL_MONTHS_FULL[month]?.toUpperCase() || '—'} ${year}` : '—',
         tarifa: (eco as any).tarifaRL || eco.tarifa || inv.extracted_data?.tariff || '—',
         kwh, costeBruto: eco.costeBrutoConsumo || 0,
@@ -2212,7 +2212,7 @@ function GasReportView({ invoices, supplyName, onBack, gasHistory }: {
         iva,
         terminoFijo, impuesto, alquiler, total: eur,
       }
-    }).sort((a, b) => a.monthIndex - b.monthIndex)
+    }).sort((a, b) => ((a.yearIndex ?? 0) * 12 + a.monthIndex) - ((b.yearIndex ?? 0) * 12 + b.monthIndex))
 
     const avgPrice = totalKwh > 0 ? totalEnergyNet / totalKwh : 0
     const tariff = tData[0]?.tarifa || '—'
@@ -2738,13 +2738,13 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
       })
 
       return {
-        id: inv.id, mes: mesLabel, monthIndex: month, totalKwh, avgPrice, totalFactura,
+        id: inv.id, mes: mesLabel, monthIndex: month, yearIndex: year, totalKwh, avgPrice, totalFactura,
         kwhByPeriod, pricesByPeriod, periodSpend,
         eco, inv, // keep refs for modals
         energia, potencia, impuestos, otrosTotal,
         fileName: inv.file_url?.split('/').pop() || inv.id.slice(0, 8),
       }
-    }).sort((a, b) => a.monthIndex - b.monthIndex)
+    }).sort((a, b) => ((a.yearIndex ?? 0) * 12 + a.monthIndex) - ((b.yearIndex ?? 0) * 12 + b.monthIndex))
 
     // Per-period average price stats (for Modal 3)
     const avgPriceStats = activePeriods.map(p => {
@@ -3761,6 +3761,7 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
   const [busyRescan, setBusyRescan] = useState<string | null>(null)
   const [busyDelete, setBusyDelete] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [selectedYear, setSelectedYear] = useState<number | 'all'>('all')
 
   // Sort by billing period ascending (oldest invoice first = left column)
   const withEco = invoices
@@ -3771,6 +3772,26 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
       return da.localeCompare(db)
     })
   const withoutEco = invoices.filter(inv => !hasUsableData(inv))
+
+  // Derive the list of years present across all invoices with data
+  const availableYears: number[] = (() => {
+    const yrs = new Set<number>()
+    for (const inv of withEco) {
+      const { start, end } = getInvoiceDates(inv)
+      const { year } = getAssignedMonth(start, end)
+      if (year > 0) yrs.add(year)
+    }
+    return [...yrs].sort()
+  })()
+
+  // Invoices visible in the FileTable (all years or just the selected one)
+  const filteredEco = selectedYear === 'all'
+    ? withEco
+    : withEco.filter(inv => {
+        const { start, end } = getInvoiceDates(inv)
+        const { year } = getAssignedMonth(start, end)
+        return year === selectedYear
+      })
   const supplyName = withEco.length > 0 ? getEco(withEco[0])?.titular : undefined
   const isGas = isGasSupply(invoices, propSupplyType)
 
@@ -3921,9 +3942,37 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
         </button>
       </div>
       {withoutEco.length > 0 && <ReExtractBanner invoices={withoutEco} onDone={onInvoicesUpdated} />}
+
+      {/* ── Year filter — only shown when invoices span multiple years ── */}
+      {availableYears.length > 1 && (
+        <div className="flex items-center gap-2 px-6 py-3 border-b border-[#E5DCC9]" style={{ background: '#F9F5EC' }}>
+          <span className="text-[10px] font-bold tracking-widest text-[#8A9A8E] mr-1">AÑO</span>
+          <button
+            onClick={() => setSelectedYear('all')}
+            className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${selectedYear === 'all' ? 'text-white shadow-sm' : 'text-[#5A6B5F] hover:bg-[#D9D0BC]'}`}
+            style={selectedYear === 'all' ? { background: '#6B8068' } : { background: '#E5DCC9' }}
+          >
+            Todos
+          </button>
+          {availableYears.map(yr => (
+            <button
+              key={yr}
+              onClick={() => setSelectedYear(yr)}
+              className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${selectedYear === yr ? 'text-white shadow-sm' : 'text-[#5A6B5F] hover:bg-[#D9D0BC]'}`}
+              style={selectedYear === yr ? { background: '#6B8068' } : { background: '#E5DCC9' }}
+            >
+              {yr}
+            </button>
+          ))}
+          <span className="ml-2 text-[10px] text-[#8A9A8E]">
+            {filteredEco.length} factura{filteredEco.length !== 1 ? 's' : ''}
+          </span>
+        </div>
+      )}
+
       {withEco.length > 0 ? (
         <FileTable
-          invoices={withEco}
+          invoices={filteredEco}
           onRescan={handleRescan}
           onDelete={handleDelete}
           busyRescan={busyRescan}
