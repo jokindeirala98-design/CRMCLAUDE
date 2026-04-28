@@ -3761,9 +3761,11 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
   const [busyRescan, setBusyRescan] = useState<string | null>(null)
   const [busyDelete, setBusyDelete] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  // ── Filtro año × mes (2 dimensiones) ────────────────────────────────────
   const [selectedYear, setSelectedYear] = useState<number | 'all'>('all')
+  const [selectedMonths, setSelectedMonths] = useState<Set<number>>(new Set()) // 0-indexed (Jan=0)
 
-  // Sort by billing period ascending (oldest invoice first = left column)
+  // Sort all invoices with extracted data by billing period ascending
   const withEco = invoices
     .filter(hasUsableData)
     .sort((a, b) => {
@@ -3773,25 +3775,52 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
     })
   const withoutEco = invoices.filter(inv => !hasUsableData(inv))
 
-  // Derive the list of years present across all invoices with data
+  // Helper: get year from an invoice
+  const invYear = (inv: InvoiceRow) => {
+    const { start, end } = getInvoiceDates(inv)
+    return getAssignedMonth(start, end).year
+  }
+  // Helper: get month (0-indexed) from an invoice
+  const invMonth = (inv: InvoiceRow) => {
+    const { start, end } = getInvoiceDates(inv)
+    return getAssignedMonth(start, end).month
+  }
+
+  // Years available across all invoices
   const availableYears: number[] = (() => {
     const yrs = new Set<number>()
-    for (const inv of withEco) {
-      const { start, end } = getInvoiceDates(inv)
-      const { year } = getAssignedMonth(start, end)
-      if (year > 0) yrs.add(year)
-    }
+    for (const inv of withEco) { const y = invYear(inv); if (y > 0) yrs.add(y) }
     return [...yrs].sort()
   })()
 
-  // Invoices visible in the FileTable (all years or just the selected one)
-  const filteredEco = selectedYear === 'all'
+  // Invoices passing the YEAR filter (base for the month filter)
+  const yearBaseEco = selectedYear === 'all'
     ? withEco
-    : withEco.filter(inv => {
-        const { start, end } = getInvoiceDates(inv)
-        const { year } = getAssignedMonth(start, end)
-        return year === selectedYear
-      })
+    : withEco.filter(inv => invYear(inv) === selectedYear)
+
+  // Months with data in the current year context
+  const availableMonths: number[] = (() => {
+    const mths = new Set<number>()
+    for (const inv of yearBaseEco) { const m = invMonth(inv); if (m >= 0 && m <= 11) mths.add(m) }
+    return [...mths].sort((a, b) => a - b)
+  })()
+
+  // Final invoices after both filters
+  const filteredEco = selectedMonths.size === 0
+    ? yearBaseEco
+    : yearBaseEco.filter(inv => selectedMonths.has(invMonth(inv)))
+
+  const selectYear = (yr: number | 'all') => {
+    setSelectedYear(yr)
+    setSelectedMonths(new Set()) // reset months when year changes
+  }
+  const toggleMonth = (m: number) => {
+    setSelectedMonths(prev => {
+      const next = new Set(prev)
+      next.has(m) ? next.delete(m) : next.add(m)
+      return next
+    })
+  }
   const supplyName = withEco.length > 0 ? getEco(withEco[0])?.titular : undefined
   const isGas = isGasSupply(invoices, propSupplyType)
 
@@ -3943,29 +3972,71 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
       </div>
       {withoutEco.length > 0 && <ReExtractBanner invoices={withoutEco} onDone={onInvoicesUpdated} />}
 
-      {/* ── Year filter — only shown when invoices span multiple years ── */}
-      {availableYears.length > 1 && (
-        <div className="flex items-center gap-2 px-6 py-3 border-b border-[#E5DCC9]" style={{ background: '#F9F5EC' }}>
-          <span className="text-[10px] font-bold tracking-widest text-[#8A9A8E] mr-1">AÑO</span>
-          <button
-            onClick={() => setSelectedYear('all')}
-            className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${selectedYear === 'all' ? 'text-white shadow-sm' : 'text-[#5A6B5F] hover:bg-[#D9D0BC]'}`}
-            style={selectedYear === 'all' ? { background: '#6B8068' } : { background: '#E5DCC9' }}
-          >
-            Todos
-          </button>
-          {availableYears.map(yr => (
-            <button
-              key={yr}
-              onClick={() => setSelectedYear(yr)}
-              className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${selectedYear === yr ? 'text-white shadow-sm' : 'text-[#5A6B5F] hover:bg-[#D9D0BC]'}`}
-              style={selectedYear === yr ? { background: '#6B8068' } : { background: '#E5DCC9' }}
-            >
-              {yr}
-            </button>
-          ))}
-          <span className="ml-2 text-[10px] text-[#8A9A8E]">
-            {filteredEco.length} factura{filteredEco.length !== 1 ? 's' : ''}
+      {/* ── Filtro año × mes ──────────────────────────────────────────────── */}
+      {withEco.length > 0 && (availableYears.length > 1 || availableMonths.length > 1) && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-6 py-3 border-b border-[#E5DCC9]" style={{ background: '#F9F5EC' }}>
+
+          {/* ── Año (solo si hay más de un año) ── */}
+          {availableYears.length > 1 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[10px] font-bold tracking-widest text-[#8A9A8E]">AÑO</span>
+              {(['all', ...availableYears] as const).map(yr => (
+                <button
+                  key={yr}
+                  onClick={() => selectYear(yr as number | 'all')}
+                  className="px-3 py-1 rounded-full text-xs font-bold transition-all"
+                  style={{
+                    background: selectedYear === yr ? '#6B8068' : '#E5DCC9',
+                    color: selectedYear === yr ? '#FBF7EE' : '#5A6B5F',
+                  }}
+                >
+                  {yr === 'all' ? 'Global' : yr}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* ── Separador ── */}
+          {availableYears.length > 1 && availableMonths.length > 1 && (
+            <div className="w-px h-5 bg-[#D9D0BC]" />
+          )}
+
+          {/* ── Meses disponibles en el contexto año seleccionado ── */}
+          {availableMonths.length > 1 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[10px] font-bold tracking-widest text-[#8A9A8E]">MES</span>
+              {availableMonths.map(m => {
+                const active = selectedMonths.has(m)
+                return (
+                  <button
+                    key={m}
+                    onClick={() => toggleMonth(m)}
+                    title={['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][m]}
+                    className="w-7 h-7 rounded-full text-xs font-bold transition-all"
+                    style={{
+                      background: active ? (isGas ? '#ea580c' : '#6B8068') : '#E5DCC9',
+                      color: active ? '#FBF7EE' : '#5A6B5F',
+                    }}
+                  >
+                    {m + 1}
+                  </button>
+                )
+              })}
+              {selectedMonths.size > 0 && (
+                <button
+                  onClick={() => setSelectedMonths(new Set())}
+                  className="px-2 py-1 rounded-full text-[10px] text-[#8A9A8E] hover:text-[#5A6B5F] transition-all"
+                  style={{ background: '#E5DCC9' }}
+                >
+                  ✕ limpiar
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* ── Contador ── */}
+          <span className="ml-auto text-[10px] text-[#8A9A8E] whitespace-nowrap">
+            {filteredEco.length} de {withEco.length} factura{withEco.length !== 1 ? 's' : ''}
           </span>
         </div>
       )}
