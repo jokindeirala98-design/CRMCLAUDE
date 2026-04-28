@@ -277,11 +277,54 @@ interface ParsedSupplyFile {
   invoices: ParsedInvoice[]
 }
 
-/** Parsea un Excel de facturas — detecta automáticamente el formato (label-based o fixed-position) */
-async function parseExcelFile(buffer: Buffer, fileName: string): Promise<ParsedSupplyFile> {
+/** Parsea un Excel de facturas — detecta automáticamente el formato (label-based o fixed-position)
+ *  @param targetCups  CUPS de respaldo si el Excel no lo contiene (ej. Iberdrola transposed)
+ */
+async function parseExcelFile(buffer: Buffer, fileName: string, targetCups?: string): Promise<ParsedSupplyFile> {
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.load(buffer as any)
 
+  // ── Detect Iberdrola transposed / multi-sheet format ──────────────────────
+  // Signature: every sheet has A1 = "Concepto / Periodo" (or similar)
+  // and row 1 has month names as column headers (no CUPS row).
+  const isTransposedSheet = (ws: ExcelJS.Worksheet): boolean => {
+    const a1 = normLabel(s(ws.getCell(1, 1).value))
+    if (!a1.includes('concepto') && !a1.includes('periodo') && !a1.includes('periodo')) return false
+    // Confirm at least one month name in row 1 cols 2+
+    for (let c = 2; c <= Math.min(ws.columnCount || 14, 14); c++) {
+      const h = s(ws.getCell(1, c).value).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+      if (Object.keys(MONTHS_MAP).some(m => h.startsWith(m))) return true
+    }
+    return false
+  }
+
+  // Check if ALL populated sheets look like the transposed format
+  const allTransposed = wb.worksheets.length > 0 && wb.worksheets.every(ws => {
+    // Skip empty or purely structural sheets
+    if (ws.rowCount < 5) return true
+    return isTransposedSheet(ws)
+  }) && wb.worksheets.some(ws => ws.rowCount >= 5 && isTransposedSheet(ws))
+
+  if (allTransposed) {
+    // Multi-sheet label-based: merge invoices from all sheets
+    const allInvoices: ParsedInvoice[] = []
+    let cups = '', titular = '', compania = '', tarifa = ''
+    for (const ws of wb.worksheets) {
+      if (ws.rowCount < 5) continue
+      const parsed = parseLabelBased(ws, fileName)
+      if (!cups && parsed.cups) cups = parsed.cups
+      if (!titular && parsed.titular) titular = parsed.titular
+      if (!compania && parsed.compania) compania = parsed.compania
+      if (!tarifa && parsed.tarifa) tarifa = parsed.tarifa
+      allInvoices.push(...parsed.invoices)
+    }
+    // Sort chronologically
+    allInvoices.sort((a, b) => a.fechaInicio.localeCompare(b.fechaInicio))
+    const fallbackCups = targetCups?.trim().toUpperCase() || ''
+    return { fileName, cups: cups || fallbackCups, titular, compania, tarifa, invoices: allInvoices }
+  }
+
+  // ── Standard single-sheet format ──────────────────────────────────────────
   const ws = wb.getWorksheet('Facturas') || wb.worksheets[0]
   if (!ws) throw new Error(`${fileName}: no se encontró ninguna hoja de cálculo`)
 
@@ -300,13 +343,15 @@ async function parseExcelFile(buffer: Buffer, fileName: string): Promise<ParsedS
 
   if (hasLabelCUPS && !b3IsCups) {
     // Label-based format (real electricity invoice Excel)
-    return parseLabelBased(ws, fileName)
+    const parsed = parseLabelBased(ws, fileName)
+    if (!parsed.cups && targetCups) parsed.cups = targetCups.trim().toUpperCase()
+    return parsed
   }
 
   // ── Fixed-position parser (VOLTIS template) ───────────────────────────────
   const gc = (row: number, col: number): any => ws.getCell(row, col).value
 
-  const cups    = s(gc(3, 2))
+  const cups    = s(gc(3, 2)) || (targetCups?.trim().toUpperCase() || '')
   const titular = s(gc(4, 2))
   const compania = s(gc(5, 2))
   const tarifa  = normalizeTariff(s(gc(6, 2)))
@@ -405,13 +450,14 @@ async function processFile(
   resolvedClientId: string,
   newClientName: string,
   supabase: any,
-  userId?: string
+  userId?: string,
+  targetCups?: string,
 ): Promise<{ fileName: string; cups?: string; ok: boolean; invoicesCreated?: number; invoicesSkipped?: number; isNew?: boolean; tarifa?: string; supplyId?: string; error?: string }> {
   const fileName = file.name
   try {
     const arrayBuffer = await file.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)
-    const parsed = await parseExcelFile(buffer, fileName)
+    const parsed = await parseExcelFile(buffer, fileName, targetCups)
     const annualData = buildAnnualConsumptionData(parsed)
 
     // ── Find or create supply ────────────────────────────────────────────────
@@ -672,6 +718,7 @@ export async function POST(req: NextRequest) {
     const formData = await req.formData()
     const clientId      = formData.get('clientId')      as string | null
     const newClientName = (formData.get('newClientName') as string | null)?.trim() || ''
+    const targetCups    = (formData.get('targetCups')   as string | null)?.trim().toUpperCase() || ''
     const files = formData.getAll('files') as File[]
 
     if (!files.length) {
@@ -730,7 +777,7 @@ export async function POST(req: NextRequest) {
     for (let i = 0; i < files.length; i += BATCH_SIZE) {
       const batch = files.slice(i, i + BATCH_SIZE)
       const settled = await Promise.allSettled(
-        batch.map(file => processFile(file, finalClientId, newClientName, supabase, user.id))
+        batch.map(file => processFile(file, finalClientId, newClientName, supabase, user.id, targetCups))
       )
       for (const r of settled) {
         results.push(

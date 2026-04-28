@@ -199,11 +199,12 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
       const fd = new FormData()
       if (clientId) fd.append('clientId', clientId)
       if (!clientId && newClientName.trim()) fd.append('newClientName', newClientName.trim())
+      // Pass CUPS so the API can match/create the right supply (needed for Excels without CUPS row)
+      if (cupsInput.trim()) fd.append('targetCups', cupsInput.trim().toUpperCase())
       for (const { file } of xlsxFiles) fd.append('files', file)
 
       const res = await fetch('/api/supplies/import-from-excel', {
         method: 'POST',
-        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
         body: fd,
       })
       const data = await res.json()
