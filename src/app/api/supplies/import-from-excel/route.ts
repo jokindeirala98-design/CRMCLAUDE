@@ -32,6 +32,7 @@ import ExcelJS from 'exceljs'
 import { fetchSipsForCups } from '@/lib/sips'
 import { normalizeTariff as normalizeTariffLib } from '@/lib/consumption-utils'
 import { ensurePendingPrescoring } from '@/lib/ensurePrescoring'
+import { createServerSupabaseClient } from '@/lib/supabase/server'
 
 export const maxDuration = 300
 
@@ -656,18 +657,16 @@ async function processFile(
 
 export async function POST(req: NextRequest) {
   try {
-    // Auth check
+    // Auth check — use cookie-based server client (Supabase SSR stores session in cookies, not localStorage)
+    const authClient = createServerSupabaseClient()
+    const { data: { user } } = await authClient.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+    // Service role client for DB operations
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
-
-    const authHeader = req.headers.get('Authorization')
-    const token = authHeader?.replace('Bearer ', '').trim()
-    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-    const { data: { user } } = await supabase.auth.getUser(token)
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     // Parse multipart form
     const formData = await req.formData()
