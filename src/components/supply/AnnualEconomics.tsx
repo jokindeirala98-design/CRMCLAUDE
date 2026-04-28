@@ -2214,7 +2214,12 @@ function GasReportView({ invoices, supplyName, onBack, gasHistory }: {
       }
     }).sort((a, b) => ((a.yearIndex ?? 0) * 12 + a.monthIndex) - ((b.yearIndex ?? 0) * 12 + b.monthIndex))
 
-    const avgPrice = totalKwh > 0 ? totalEnergyNet / totalKwh : 0
+    // avgPrice always from last 12 invoices (most recent), not the full history
+    const last12Gas = tData.slice(-12)
+    const last12GasKwh = last12Gas.reduce((s, r) => s + r.kwh, 0)
+    const last12GasNet = last12Gas.reduce((s, r) => s + r.costeNeto, 0)
+    const avgPrice = last12GasKwh > 0 ? last12GasNet / last12GasKwh : (totalKwh > 0 ? totalEnergyNet / totalKwh : 0)
+
     const tariff = tData[0]?.tarifa || '—'
 
     const pData = [
@@ -2673,7 +2678,8 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
     }
 
     // PRECIO PROMEDIO = coste total energía / consumo total kWh
-    const precioPromedio = totals.kwh > 0 ? totals.energetic / totals.kwh : 0
+    // Computed after tData is built; placeholder until tData is ready (overridden below)
+    const precioPromedioGlobal = totals.kwh > 0 ? totals.energetic / totals.kwh : 0
 
     const pData = [
       { label: 'CONSUMO ENERGÍA', value: totals.energetic, color: '#3b82f6' },
@@ -2746,10 +2752,18 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
       }
     }).sort((a, b) => ((a.yearIndex ?? 0) * 12 + a.monthIndex) - ((b.yearIndex ?? 0) * 12 + b.monthIndex))
 
-    // Per-period average price stats (for Modal 3)
+    // Last 12 invoices (most recent) — used for price averages
+    const last12 = tData.slice(-12)
+
+    // PRECIO PROMEDIO from last 12 invoices only (regardless of year filter)
+    const last12Kwh = last12.reduce((s, r) => s + r.totalKwh, 0)
+    const last12Energy = last12.reduce((s, r) => s + r.energia, 0)
+    const precioPromedio = last12Kwh > 0 ? last12Energy / last12Kwh : precioPromedioGlobal
+
+    // Per-period average price stats (for Modal 3) — always from last 12 invoices
     const avgPriceStats = activePeriods.map(p => {
       let totalKwhP = 0, totalEurP = 0
-      tData.forEach(r => {
+      last12.forEach(r => {
         totalKwhP += r.kwhByPeriod[p] || 0
         totalEurP += r.periodSpend[p]?.eur || 0
       })
