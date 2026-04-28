@@ -657,21 +657,17 @@ async function processFile(
 export async function POST(req: NextRequest) {
   try {
     // Auth check
-    const authHeader = req.headers.get('Authorization')
-    const token = authHeader?.replace('Bearer ', '').trim()
-    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-    const anonClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
-    const { data: { user } } = await anonClient.auth.getUser(token)
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
+
+    const authHeader = req.headers.get('Authorization')
+    const token = authHeader?.replace('Bearer ', '').trim()
+    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+    const { data: { user } } = await supabase.auth.getUser(token)
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     // Parse multipart form
     const formData = await req.formData()
