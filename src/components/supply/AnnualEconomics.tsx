@@ -2457,15 +2457,17 @@ function GasReportView({ invoices, supplyName, onBack, gasHistory }: {
 
 // ─── Report View ─────────────────────────────────────────────────────────────
 
-function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaContratada, consumoPeriodos }: {
+function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaContratada, consumoPeriodos, initialYear }: {
   invoices: InvoiceRow[]
   supplyName?: string
   onBack: () => void
   onInvoicesUpdated: () => void
   potenciaContratada?: Record<string, number>
   consumoPeriodos?: Record<string, number>
+  initialYear?: number | 'all'
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const [selectedYear, setSelectedYear] = useState<number | 'all'>(initialYear ?? 'all')
   const [selectedMonths, setSelectedMonths] = useState<Set<number>>(new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]))
   const [dragAnchor, setDragAnchor] = useState<number | null>(null)
   // Keyboard state lives in a ref to avoid stale closures in the keydown listener
@@ -2486,6 +2488,12 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
   const toggleReveal = (id: string) => setRevealedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
 
   const isAnnual = selectedMonths.size === 12
+
+  // Change year: reset months to all when year changes
+  const selectYearInReport = (yr: number | 'all') => {
+    setSelectedYear(yr)
+    setSelectedMonths(new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]))
+  }
 
   const toggleMonth = (monthIdx: number) => {
     setSelectedMonths(prev => {
@@ -2625,26 +2633,49 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
   const validInvoices = useMemo(() => invoices.filter(hasUsableData), [invoices])
   const invalidInvoices = useMemo(() => invoices.filter(inv => !hasUsableData(inv)), [invoices])
 
-  // Which months actually have data (for highlighting month selector)
+  // Available years across all valid invoices (for year pills inside the report)
+  const availableYears = useMemo(() => {
+    const yrs = new Set<number>()
+    validInvoices.forEach(inv => {
+      const { start, end } = getInvoiceDates(inv)
+      const { year } = getAssignedMonth(start, end)
+      if (year > 0) yrs.add(year)
+    })
+    return Array.from(yrs).sort()
+  }, [validInvoices])
+
+  // Which months actually have data for the selected year (for highlighting month selector)
   const monthsWithData = useMemo(() => {
     const months = new Set<number>()
-    validInvoices.forEach(inv => {
+    const yearBase = selectedYear === 'all'
+      ? validInvoices
+      : validInvoices.filter(inv => {
+          const { start, end } = getInvoiceDates(inv)
+          return getAssignedMonth(start, end).year === selectedYear
+        })
+    yearBase.forEach(inv => {
       const { start, end } = getInvoiceDates(inv)
       const { month } = getAssignedMonth(start, end)
       if (month >= 0 && month <= 11) months.add(month)
     })
     return months
-  }, [validInvoices])
+  }, [validInvoices, selectedYear])
 
-  // Filtered invoices by selected months
-  const filteredInvoices = useMemo(() =>
-    validInvoices.filter(inv => {
+  // Filtered invoices by selected year AND selected months
+  const filteredInvoices = useMemo(() => {
+    let base = validInvoices
+    if (selectedYear !== 'all') {
+      base = base.filter(inv => {
+        const { start, end } = getInvoiceDates(inv)
+        return getAssignedMonth(start, end).year === selectedYear
+      })
+    }
+    return base.filter(inv => {
       const { start, end } = getInvoiceDates(inv)
       const { month } = getAssignedMonth(start, end)
       return selectedMonths.has(month)
-    }),
-    [validInvoices, selectedMonths]
-  )
+    })
+  }, [validInvoices, selectedYear, selectedMonths])
 
   // Supply info — computed early so useMemo below can use activePeriods
   const firstEco = validInvoices.length > 0 ? getEco(validInvoices[0]) : null
@@ -2752,18 +2783,15 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
       }
     }).sort((a, b) => ((a.yearIndex ?? 0) * 12 + a.monthIndex) - ((b.yearIndex ?? 0) * 12 + b.monthIndex))
 
-    // Last 12 invoices (most recent) — used for price averages
-    const last12 = tData.slice(-12)
+    // PRECIO PROMEDIO from the currently filtered range (what's being displayed in the report)
+    const filteredKwh = tData.reduce((s, r) => s + r.totalKwh, 0)
+    const filteredEnergy = tData.reduce((s, r) => s + r.energia, 0)
+    const precioPromedio = filteredKwh > 0 ? filteredEnergy / filteredKwh : precioPromedioGlobal
 
-    // PRECIO PROMEDIO from last 12 invoices only (regardless of year filter)
-    const last12Kwh = last12.reduce((s, r) => s + r.totalKwh, 0)
-    const last12Energy = last12.reduce((s, r) => s + r.energia, 0)
-    const precioPromedio = last12Kwh > 0 ? last12Energy / last12Kwh : precioPromedioGlobal
-
-    // Per-period average price stats (for Modal 3) — always from last 12 invoices
+    // Per-period average price stats (for Modal 3) — from the filtered range
     const avgPriceStats = activePeriods.map(p => {
       let totalKwhP = 0, totalEurP = 0
-      last12.forEach(r => {
+      tData.forEach(r => {
         totalKwhP += r.kwhByPeriod[p] || 0
         totalEurP += r.periodSpend[p]?.eur || 0
       })
@@ -2835,7 +2863,16 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
     const periodKwh:  Record<string, number> = { P1: 0, P2: 0, P3: 0 }
     const periodPrices: number[][] = { P1: [], P2: [], P3: [] } as any
 
-    for (const inv of validInvoices) {
+    // Always use last 12 invoices (most recent) for comparativa price calculation
+    const last12ForStudy = [...validInvoices].sort((a, b) => {
+      const { start: sa, end: ea } = getInvoiceDates(a)
+      const { start: sb, end: eb } = getInvoiceDates(b)
+      const { month: ma, year: ya } = getAssignedMonth(sa, ea)
+      const { month: mb, year: yb } = getAssignedMonth(sb, eb)
+      return (ya * 12 + ma) - (yb * 12 + mb)
+    }).slice(-12)
+
+    for (const inv of last12ForStudy) {
       const eco = (inv.economics_data || inv.invoice_json?.economics || inv.extracted_data?.economics) as any
       if (!eco?.consumo?.length) continue
       for (const c of eco.consumo) {
@@ -2970,8 +3007,31 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
         )}
 
         {/* Month selector (screen only) - Fixed at viewport top (portal context, no page header above) */}
-        <div className="fixed top-0 inset-x-0 z-[205] flex items-center gap-2 py-4 px-8 flex-wrap justify-center no-print"
+        <div className="fixed top-0 inset-x-0 z-[205] flex flex-col gap-1.5 py-3 px-8 no-print"
           style={{ background: 'rgba(244,238,226,0.92)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', borderBottom: '1px solid #E5DCC9' }}>
+
+          {/* Year pills — only shown when there are multiple years */}
+          {availableYears.length > 1 && (
+            <div className="flex items-center justify-center gap-1.5 flex-wrap">
+              <span className="text-[10px] font-bold tracking-widest text-[#8A9A8E] mr-1">AÑO</span>
+              {(['all', ...availableYears] as const).map(yr => (
+                <button
+                  key={yr}
+                  onClick={() => selectYearInReport(yr as number | 'all')}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition ${
+                    selectedYear === yr
+                      ? 'bg-[#2D3A33] text-[#FBF7EE]'
+                      : 'bg-[#EDE8DC] text-[#5A6B5F] hover:bg-[#E5DCC9]'
+                  }`}>
+                  {yr === 'all' ? 'GLOBAL' : yr}
+                </button>
+              ))}
+              <div className="w-px h-4 bg-[#E5DCC9] mx-1" />
+            </div>
+          )}
+
+          {/* Month buttons row */}
+          <div className="flex items-center gap-2 flex-wrap justify-center">
           <button onClick={selectAllMonths}
             className={`px-4 py-2 rounded-xl text-sm font-bold transition ${isAnnual ? 'bg-[#2D3A33] text-[#FBF7EE]' : 'bg-[#EDE8DC] text-[#5A6B5F] hover:bg-[#E5DCC9]'}`}>
             ANUAL
@@ -3002,10 +3062,11 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
               </button>
             )
           })}
-        </div>
+          </div>{/* end month buttons row */}
+        </div>{/* end fixed top bar */}
 
-        {/* Spacer so content isn't hidden behind the fixed month selector (~68px tall) */}
-        <div className="h-[68px] no-print" />
+        {/* Spacer so content isn't hidden behind the fixed header (taller when year pills show) */}
+        <div className={availableYears.length > 1 ? 'h-[100px] no-print' : 'h-[68px] no-print'} />
 
         {/* ════════════════════════════════════════════════════════════════
             SCENE 1 — PORTADA (matches standalone exactly)
@@ -3945,7 +4006,7 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
   if (view === 'informe') {
     const reportNode = isGas
       ? <GasReportView invoices={invoices} supplyName={supplyName} onBack={() => setView('tabla')} gasHistory={gasHistory} />
-      : <ReportView invoices={invoices} supplyName={supplyName || clientName} onBack={() => setView('tabla')} onInvoicesUpdated={onInvoicesUpdated} potenciaContratada={potenciaContratada} consumoPeriodos={consumoPeriodos} />
+      : <ReportView invoices={invoices} supplyName={supplyName || clientName} onBack={() => setView('tabla')} onInvoicesUpdated={onInvoicesUpdated} potenciaContratada={potenciaContratada} consumoPeriodos={consumoPeriodos} initialYear={selectedYear} />
     // Portal to document.body so fixed positioning escapes framer-motion's transform context
     if (typeof document !== 'undefined') return createPortal(reportNode, document.body)
     return reportNode
