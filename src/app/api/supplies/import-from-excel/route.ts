@@ -461,26 +461,42 @@ async function processFile(
     const annualData = buildAnnualConsumptionData(parsed)
 
     // ── Find or create supply ────────────────────────────────────────────────
-    const { data: existingSupply } = await supabase
-      .from('supplies')
-      .select('id, consumption_data')
-      .eq('cups', parsed.cups)
-      .limit(1)
-      .single()
+    // Priority 1: find by CUPS exact match
+    let { data: existingSupply } = parsed.cups
+      ? await supabase.from('supplies').select('id, consumption_data').eq('cups', parsed.cups).limit(1).single()
+      : { data: null }
+
+    // Priority 2: if no CUPS match, find this client's luz supply that has NO CUPS yet
+    // (handles pre-created supplies that just need the CUPS + data filled in)
+    let isNoCupsUpgrade = false
+    if (!existingSupply && parsed.cups && resolvedClientId) {
+      const { data: noCupsSupply } = await supabase
+        .from('supplies')
+        .select('id, consumption_data')
+        .eq('client_id', resolvedClientId)
+        .eq('type', 'luz')
+        .or('cups.is.null,cups.eq.')
+        .limit(1)
+        .single()
+
+      if (noCupsSupply) {
+        existingSupply = noCupsSupply
+        isNoCupsUpgrade = true
+      }
+    }
 
     let supplyId: string
 
     if (existingSupply) {
       supplyId = existingSupply.id
-      await supabase
-        .from('supplies')
-        .update({
-          consumption_data: annualData,
-          tariff: parsed.tarifa,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', supplyId)
+      await supabase.from('supplies').update({
+        ...(isNoCupsUpgrade ? { cups: parsed.cups } : {}),  // set CUPS if this was a no-CUPS supply
+        consumption_data: annualData,
+        tariff: parsed.tarifa,
+        updated_at: new Date().toISOString(),
+      }).eq('id', supplyId)
     } else {
+      // Priority 3: create new supply
       const { data: newSupply, error: supplyErr } = await supabase
         .from('supplies')
         .insert({
@@ -509,14 +525,12 @@ async function processFile(
             .limit(1)
             .single()
           if (raced) {
-            // Merge our consumption data into the winner supply and continue
             await supabase.from('supplies').update({
               consumption_data: annualData,
               tariff: parsed.tarifa,
               updated_at: new Date().toISOString(),
             }).eq('id', raced.id)
             supplyId = raced.id
-            // Mark as "existing" so SIPS isn't re-triggered
             ;(existingSupply as any) = raced
           } else {
             return { fileName, cups: parsed.cups, ok: false, error: 'Error de conflicto al crear suministro' }
@@ -529,8 +543,9 @@ async function processFile(
       }
     }
 
-    // ── SIPS fetch + power study (fire and forget, only for new supplies) ────
-    if (!existingSupply) {
+    // ── SIPS fetch + power study (fire and forget) ────────────────────────────
+    // Runs for: new supplies + supplies that were upgraded from no-CUPS state
+    if (!existingSupply || isNoCupsUpgrade) {
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
       void fetchSipsForCups(parsed.cups, 'luz').then(async (sipsData) => {
         if (!sipsData) return

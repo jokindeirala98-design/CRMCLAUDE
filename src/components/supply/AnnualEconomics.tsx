@@ -2693,7 +2693,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
     const tData = filteredInvoices.map(inv => {
       const eco = getEco(inv)!
       const { start, end } = getInvoiceDates(inv)
-      const { month } = getAssignedMonth(start, end)
+      const { month, year } = getAssignedMonth(start, end)
       const mesLabel = getMonthYear(end || start)
       const totalKwh = eco.consumoTotalKwh || 0
       const energia = eco.costeTotalConsumo || eco.costeNetoConsumo || 0  // net
