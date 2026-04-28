@@ -2733,7 +2733,15 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
 
   // All computed data
   const { chartData, pieData, summaryStats, tableData, excessData, totalExcessAmount, hasExcesses, averagePriceStats } = useMemo(() => {
-    const allMonthly = getMonthlyAggregatedData(validInvoices)
+    // ── Year-only filter for the bar chart (shows all 12 month buckets of the selected year) ──
+    const yearFilteredInvoices = selectedYear === 'all'
+      ? validInvoices
+      : validInvoices.filter(inv => {
+          const { start, end } = getInvoiceDates(inv)
+          return getAssignedMonth(start, end).year === selectedYear
+        })
+
+    const allMonthly = getMonthlyAggregatedData(yearFilteredInvoices)
     const cData = allMonthly.map(m => ({
       ...m,
       totalFactura: selectedMonths.has(m.monthIndex) ? m.totalFactura : 0,
@@ -2744,26 +2752,10 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
       billsCount: selectedMonths.has(m.monthIndex) ? m.billsCount : 0,
     }))
 
-    const totals = {
-      energetic: cData.reduce((s, m) => s + m.energia, 0),
-      power: cData.reduce((s, m) => s + m.potencia, 0),
-      global: cData.reduce((s, m) => s + m.totalFactura, 0),
-      kwh: cData.reduce((s, m) => s + m.totalKwh, 0),
-      others: cData.reduce((s, m) => s + m.otros, 0),
-    }
-
-    // PRECIO PROMEDIO = coste total energía / consumo total kWh
-    // Computed after tData is built; placeholder until tData is ready (overridden below)
-    const precioPromedioGlobal = totals.kwh > 0 ? totals.energetic / totals.kwh : 0
-
-    const pData = [
-      { label: 'CONSUMO ENERGÍA', value: totals.energetic, color: '#3b82f6' },
-      { label: 'POTENCIA', value: totals.power, color: '#8b5cf6' },
-      { label: 'IMPUESTOS Y OTROS', value: totals.others, color: '#10b981' },
-      { label: 'OTROS', value: Math.max(0, totals.global - totals.energetic - totals.power - totals.others), color: '#f59e0b' },
-    ]
-
-    const avgEnergyPrice = totals.kwh > 0 ? totals.energetic / totals.kwh : 0
+    // Preliminary avg price from cData for estimated period prices inside tData
+    const prelimKwh = cData.reduce((s, m) => s + m.totalKwh, 0)
+    const prelimEnergy = cData.reduce((s, m) => s + m.energia, 0)
+    const avgEnergyPrice = prelimKwh > 0 ? prelimEnergy / prelimKwh : 0
 
     const tData = filteredInvoices.map(inv => {
       const eco = getEco(inv)!
@@ -2827,10 +2819,28 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
       }
     }).sort((a, b) => ((a.yearIndex ?? 0) * 12 + a.monthIndex) - ((b.yearIndex ?? 0) * 12 + b.monthIndex))
 
-    // PRECIO PROMEDIO from the currently filtered range (what's being displayed in the report)
-    const filteredKwh = tData.reduce((s, r) => s + r.totalKwh, 0)
-    const filteredEnergy = tData.reduce((s, r) => s + r.energia, 0)
-    const precioPromedio = filteredKwh > 0 ? filteredEnergy / filteredKwh : precioPromedioGlobal
+    // ── Totals from tData (year+month filtered) so KPIs match the selection ──
+    const totals = {
+      energetic: tData.reduce((s, r) => s + r.energia, 0),
+      power: tData.reduce((s, r) => s + r.potencia, 0),
+      global: tData.reduce((s, r) => s + r.totalFactura, 0),
+      kwh: tData.reduce((s, r) => s + r.totalKwh, 0),
+      others: tData.reduce((s, r) => s + r.otrosTotal, 0),
+    }
+
+    // Pie chart from filtered totals
+    const pData = [
+      { label: 'CONSUMO ENERGÍA', value: totals.energetic, color: '#3b82f6' },
+      { label: 'POTENCIA', value: totals.power, color: '#8b5cf6' },
+      { label: 'IMPUESTOS Y OTROS', value: totals.others, color: '#10b981' },
+      { label: 'OTROS', value: Math.max(0, totals.global - totals.energetic - totals.power - totals.others), color: '#f59e0b' },
+    ]
+
+    // PRECIO PROMEDIO from the filtered range
+    const filteredKwh = totals.kwh
+    const filteredEnergy = totals.energetic
+    const precioPromedioGlobal = filteredKwh > 0 ? filteredEnergy / filteredKwh : 0
+    const precioPromedio = precioPromedioGlobal
 
     // Per-period average price stats (for Modal 3) — from the filtered range
     const avgPriceStats = activePeriods.map(p => {
@@ -2861,7 +2871,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
       hasExcesses: totalExcess > 0,
       averagePriceStats: avgPriceStats,
     }
-  }, [validInvoices, filteredInvoices, selectedMonths, activePeriods])
+  }, [validInvoices, filteredInvoices, selectedYear, selectedMonths, activePeriods])
 
   const avgPriceAll = tableData.length > 0 ? tableData.reduce((s, r) => s + r.avgPrice, 0) / tableData.length : 0
 
