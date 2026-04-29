@@ -416,6 +416,15 @@ export async function processTelegramInboxItem(
 
   // 8. Create new client if no match
   let clientType: string = 'empresa'
+
+  // Best available fiscal address from this invoice — prefer address WITH postal code
+  const hasPostalCode = (s?: string | null) => !!s && /\b\d{5}\b/.test(s)
+  const invoiceFiscalAddress =
+    [extractedData?.fiscal_address, extractedData?.supply_address].find(hasPostalCode) ||
+    extractedData?.fiscal_address ||
+    extractedData?.supply_address ||
+    null
+
   if (!clientId) {
     const clientName = holderName && holderName !== 'No detectado'
       ? holderName
@@ -435,6 +444,7 @@ export async function processTelegramInboxItem(
       type: clientType,
       commercial_id: item.user_id,
       cif_nif: holderCif || null,
+      fiscal_address: invoiceFiscalAddress || null,  // populate from invoice on creation
       marketing_consent: false,
     }
 
@@ -466,13 +476,20 @@ export async function processTelegramInboxItem(
     clientId = newClient.id
     console.log(`[TelegramProcess] Created new client: ${clientName} (${clientId}) type=${clientType}`)
   } else {
-    // Fetch existing client type for ayuntamiento detection
+    // Fetch existing client type and fiscal_address
     const { data: existingClient } = await supabase
       .from('clients')
-      .select('type')
+      .select('type, fiscal_address')
       .eq('id', clientId)
       .single()
     clientType = existingClient?.type || 'empresa'
+    // Back-fill fiscal_address on existing client if currently empty
+    if (!existingClient?.fiscal_address && invoiceFiscalAddress) {
+      await supabase.from('clients')
+        .update({ fiscal_address: invoiceFiscalAddress })
+        .eq('id', clientId)
+      console.log(`[TelegramProcess] Back-filled fiscal_address for client ${clientId}: ${invoiceFiscalAddress}`)
+    }
   }
 
   // 8b. If we matched client by CIF/name (not by CUPS), look for an existing supply

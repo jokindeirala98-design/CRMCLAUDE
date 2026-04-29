@@ -153,12 +153,33 @@ export async function ensurePendingPrescoring(
     const consumoAnual = consumoAnualNum > 0 ? consumoAnualNum : null
 
     const poblacion = sips?.municipio || (supply.type === 'gas' ? (sips?.localidad || null) : null)
+
+    // Prefer addresses that contain a postal code (5-digit number) — they are more complete.
+    // For Nieves Energy format: fiscal_address = "Calle X, NUM 2" (no CP), supply_address = full with CP.
+    // For Excel imports: neither field exists in extracted_data (it only has economics+source).
+    const hasPostalCode = (s?: string | null) => !!s && /\b\d{5}\b/.test(s)
+    const candidates = [
+      client?.fiscal_address,
+      extracted?.fiscal_address,
+      extracted?.supply_address,   // often has CP+city when fiscal_address doesn't
+      extracted?.billing_address,
+      supply.address,
+    ]
+    // Pick first candidate WITH a postal code; fall back to first non-empty candidate
     const direccionFiscal =
-      client?.fiscal_address ||
-      extracted?.fiscal_address ||
-      extracted?.billing_address ||
-      supply.address ||
+      candidates.find(hasPostalCode) ||
+      candidates.find(c => c && c.trim().length > 0) ||
       null
+
+    // Back-fill clients.fiscal_address if it's currently empty and we found a good address
+    if (direccionFiscal && !client?.fiscal_address) {
+      supabase.from('clients')
+        .update({ fiscal_address: direccionFiscal })
+        .eq('id', client?.id)
+        .then(({ error }: { error: any }) => {
+          if (error) console.warn('[ensurePrescoring] failed to back-fill fiscal_address', error.message)
+        })
+    }
 
     const payload = {
       supply_id: supplyId,
