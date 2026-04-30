@@ -101,27 +101,36 @@ export default function ClientsPage() {
   const [confirmDeleteSupplyId, setConfirmDeleteSupplyId] = useState<string | null>(null)
   const [deletingSupply, setDeletingSupply] = useState(false)
   const [modalTariffFilter, setModalTariffFilter] = useState('')
+  const [modalTypeFilter, setModalTypeFilter] = useState('')   // 'luz' | 'gas' | ''
+  const [modalSearch, setModalSearch] = useState('')
   const nameInputRef = useRef<HTMLInputElement>(null)
+  const modalSearchRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
 
-  // Keyboard tariff filter for client modal — capture phase to avoid global search
+  // Auto-focus search when modal opens for clients with many supplies
+  // Also handle Escape to close modal
+  useEffect(() => {
+    if (!selectedClient) return
+    const supplyCount = selectedClient.supplies?.length || 0
+    if (supplyCount > 10) {
+      // Slight delay so the modal renders first
+      const t = setTimeout(() => modalSearchRef.current?.focus(), 80)
+      return () => clearTimeout(t)
+    }
+  }, [selectedClient?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!selectedClient) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setSelectedClient(null); setModalTariffFilter(''); return }
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
-      if (e.key === 'Backspace') {
-        e.stopPropagation(); e.preventDefault()
-        setModalTariffFilter(prev => prev.slice(0, -1))
-        return
-      }
-      if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        e.stopPropagation(); e.preventDefault()
-        setModalTariffFilter(prev => prev + e.key)
+      if (e.key === 'Escape') {
+        setSelectedClient(null)
+        setModalTariffFilter('')
+        setModalTypeFilter('')
+        setModalSearch('')
       }
     }
-    window.addEventListener('keydown', onKey, { capture: true })
-    return () => window.removeEventListener('keydown', onKey, { capture: true })
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
   }, [selectedClient])
 
   useEffect(() => {
@@ -547,7 +556,7 @@ export default function ClientsPage() {
         <>
           <div
             className="fixed inset-0 bg-ink/50 z-[100] backdrop-blur-sm"
-            onClick={() => { setSelectedClient(null); setEditingSupplyName(null); setModalTariffFilter('') }}
+            onClick={() => { setSelectedClient(null); setEditingSupplyName(null); setModalTariffFilter(''); setModalTypeFilter(''); setModalSearch('') }}
           />
           <div className="fixed inset-0 z-[101] flex items-center justify-center p-4 pointer-events-none">
             <div
@@ -577,17 +586,13 @@ export default function ClientsPage() {
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
-                    {modalTariffFilter && (
-                      <button
-                        onClick={() => setModalTariffFilter('')}
-                        className="flex items-center gap-1 px-2 py-1 rounded-lg bg-brand/10 text-brand text-xs font-mono font-semibold hover:bg-brand/20 transition-colors"
-                      >
-                        {modalTariffFilter.toUpperCase()}
-                        <X className="w-3 h-3" />
-                      </button>
+                    {(modalTariffFilter || modalTypeFilter || modalSearch) && (
+                      <span className="text-[10px] text-brand font-medium">
+                        Filtrado
+                      </span>
                     )}
                     <button
-                      onClick={() => { setSelectedClient(null); setEditingSupplyName(null); setModalTariffFilter('') }}
+                      onClick={() => { setSelectedClient(null); setEditingSupplyName(null); setModalTariffFilter(''); setModalTypeFilter(''); setModalSearch('') }}
                       className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-bg-2 transition-colors"
                     >
                       <X className="w-4 h-4 text-ink-3" />
@@ -661,9 +666,120 @@ export default function ClientsPage() {
 
               {/* Supplies */}
               <div className="px-5 py-4">
-                <h3 className="label-mono text-ink-4 mb-3">
-                  Suministros ({selectedClient.supplies?.length || 0})
-                </h3>
+                {/* Header + filters — only when >10 supplies */}
+                {(selectedClient.supplies?.length || 0) > 10 ? (() => {
+                  // Derive unique tariff groups from the supplies
+                  const tariffGroups = Array.from(
+                    new Set(
+                      (selectedClient.supplies || [])
+                        .map((s: any) => {
+                          const t = (s.tariff || '').trim()
+                          if (t.startsWith('6.4')) return '6.4TD'
+                          if (t.startsWith('6.3')) return '6.3TD'
+                          if (t.startsWith('6.2')) return '6.2TD'
+                          if (t.startsWith('6.1')) return '6.1TD'
+                          if (t.startsWith('6')) return '6.xTD'
+                          if (t.startsWith('3.0') || t.startsWith('30')) return '3.0TD'
+                          if (t.startsWith('2.0') || t.startsWith('20')) return '2.0TD'
+                          return t || null
+                        })
+                        .filter(Boolean)
+                    )
+                  ) as string[]
+                  const hasGas = (selectedClient.supplies || []).some((s: any) => s.type === 'gas')
+                  const hasLuz = (selectedClient.supplies || []).some((s: any) => s.type === 'luz')
+
+                  return (
+                    <div className="mb-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <h3 className="label-mono text-ink-4">
+                          Suministros ({selectedClient.supplies?.length || 0})
+                        </h3>
+                        {(modalTariffFilter || modalTypeFilter || modalSearch) && (
+                          <button
+                            onClick={() => { setModalTariffFilter(''); setModalTypeFilter(''); setModalSearch('') }}
+                            className="text-[10px] text-ink-3 hover:text-err transition-colors"
+                          >
+                            Limpiar filtros
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Search bar */}
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-4" />
+                        <input
+                          ref={modalSearchRef}
+                          type="text"
+                          value={modalSearch}
+                          onChange={e => setModalSearch(e.target.value)}
+                          placeholder="Buscar CUPS o nombre..."
+                          className="w-full pl-8 pr-3 py-1.5 text-xs bg-bg-2 border border-line rounded-lg outline-none focus:border-brand/50 transition-colors font-mono placeholder:font-sans placeholder:text-ink-4"
+                        />
+                        {modalSearch && (
+                          <button
+                            onClick={() => setModalSearch('')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-4 hover:text-ink"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Type + tariff filter pills */}
+                      <div className="flex flex-wrap gap-1.5">
+                        {hasLuz && hasGas && (
+                          <>
+                            <button
+                              onClick={() => setModalTypeFilter(modalTypeFilter === 'luz' ? '' : 'luz')}
+                              className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border transition-colors ${
+                                modalTypeFilter === 'luz'
+                                  ? 'bg-amber-100 border-amber-300 text-amber-700'
+                                  : 'bg-bg-2 border-line text-ink-3 hover:border-line-2'
+                              }`}
+                            >
+                              <Zap className="w-2.5 h-2.5" /> Luz
+                            </button>
+                            <button
+                              onClick={() => setModalTypeFilter(modalTypeFilter === 'gas' ? '' : 'gas')}
+                              className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border transition-colors ${
+                                modalTypeFilter === 'gas'
+                                  ? 'bg-orange-100 border-orange-300 text-orange-700'
+                                  : 'bg-bg-2 border-line text-ink-3 hover:border-line-2'
+                              }`}
+                            >
+                              <Flame className="w-2.5 h-2.5" /> Gas
+                            </button>
+                            <div className="w-px h-4 bg-line self-center" />
+                          </>
+                        )}
+                        {tariffGroups.map(tg => {
+                          // Normalize for comparison: "2.0TD" → "20"
+                          const tgNorm = tg.replace(/\./g, '').replace('TD','').toUpperCase()
+                          const filterNorm = modalTariffFilter.replace(/\./g, '').replace('TD','').toUpperCase()
+                          const active = filterNorm !== '' && tgNorm.startsWith(filterNorm)
+                          return (
+                            <button
+                              key={tg}
+                              onClick={() => setModalTariffFilter(active ? '' : tg)}
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold border transition-colors ${
+                                active
+                                  ? 'bg-brand/15 border-brand/30 text-brand'
+                                  : 'bg-bg-2 border-line text-ink-3 hover:border-line-2'
+                              }`}
+                            >
+                              {tg}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })() : (
+                  <h3 className="label-mono text-ink-4 mb-3">
+                    Suministros ({selectedClient.supplies?.length || 0})
+                  </h3>
+                )}
 
                 {(!selectedClient.supplies || selectedClient.supplies.length === 0) ? (
                   <div className="text-center py-8">
@@ -671,14 +787,37 @@ export default function ClientsPage() {
                     <p className="text-sm font-medium text-ink-3">Aún no hay suministros</p>
                     <p className="text-xs text-ink-4 mt-0.5">Crea el primero para empezar a operar.</p>
                   </div>
-                ) : (
+                ) : (() => {
+                  // Combined filter logic
+                  const modalFiltered = selectedClient.supplies.filter((s: any) => {
+                    if (modalTypeFilter && s.type !== modalTypeFilter) return false
+                    if (modalTariffFilter) {
+                      // Normalize both sides: remove dots and TD suffix for comparison
+                      const t = (s.tariff || '').replace(/\./g, '').replace('TD','').toUpperCase()
+                      const f = modalTariffFilter.replace(/\./g, '').replace('TD','').toUpperCase()
+                      if (!t.startsWith(f)) return false
+                    }
+                    if (modalSearch) {
+                      const q = modalSearch.toLowerCase()
+                      if (
+                        !s.cups?.toLowerCase().includes(q) &&
+                        !s.name?.toLowerCase().includes(q) &&
+                        !s.tariff?.toLowerCase().includes(q)
+                      ) return false
+                    }
+                    return true
+                  })
+
+                  return (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    {(modalTariffFilter
-                      ? selectedClient.supplies.filter((s: any) =>
-                          (s.tariff || '').replace(/\s/g,'').toUpperCase().startsWith(modalTariffFilter.toUpperCase())
-                        )
-                      : selectedClient.supplies
-                    ).map((supply: any) => {
+                    {modalFiltered.length === 0 ? (
+                      <div className="col-span-2 text-center py-6">
+                        <p className="text-xs text-ink-3">Ningún suministro coincide con los filtros.</p>
+                        <button onClick={() => { setModalTariffFilter(''); setModalTypeFilter(''); setModalSearch('') }} className="mt-2 text-xs text-brand hover:underline">
+                          Limpiar filtros
+                        </button>
+                      </div>
+                    ) : modalFiltered.map((supply: any) => {
                       const SIcon = supplyTypeIcons[supply.type] || Zap
                       const isEditing = editingSupplyName === supply.id
 
@@ -782,7 +921,8 @@ export default function ClientsPage() {
                       )
                     })}
                   </div>
-                )}
+                  )
+                })()}
               </div>
             </div>
           </div>
