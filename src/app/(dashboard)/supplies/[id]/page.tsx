@@ -182,25 +182,27 @@ export default function SupplyDetailPage() {
         .select('id, name, cups, type, status, tariff')
         .eq('client_id', data.client_id)
         .order('created_at', { ascending: true })
-      // Sort siblings: Luz first then Gas, within each group by tariff ascending (2.0 → 3.0 → 6.x → RL1...)
-      const sorted = (siblings || []).slice().sort((a, b) => {
-        const typeOrder = (t: string) => t === 'luz' ? 0 : t === 'gas' ? 1 : 2
-        const tDiff = typeOrder(a.type) - typeOrder(b.type)
-        if (tDiff !== 0) return tDiff
-        // Within same type: tariff ascending by numeric prefix then alphabetical
-        const tariffKey = (s: any) => {
-          const t = (s.tariff || '').trim().toUpperCase()
-          if (t.startsWith('2.0') || t.startsWith('20')) return '20'
-          if (t.startsWith('3.0') || t.startsWith('30')) return '30'
-          if (t.startsWith('6.1') || t.startsWith('61')) return '61'
-          if (t.startsWith('6.2') || t.startsWith('62')) return '62'
-          if (t.startsWith('6.3') || t.startsWith('63')) return '63'
-          if (t.startsWith('6.4') || t.startsWith('64')) return '64'
-          if (t.startsWith('6'))   return '60'
-          return t // gas tariffs (RL1, RL2...) sort alphabetically
+      // Sort: Luz first (6.4→6.1→3.0→2.0), then Gas (RL4→RL3→RL2→RL1) — always highest first
+      const supplyPriority = (s: any): number => {
+        const t = (s.tariff || '').trim().toUpperCase()
+        if (s.type !== 'gas') {
+          if (t.startsWith('6.4')) return 164
+          if (t.startsWith('6.3')) return 163
+          if (t.startsWith('6.2')) return 162
+          if (t.startsWith('6.1')) return 161
+          if (t.startsWith('6'))   return 160
+          if (t.startsWith('3'))   return 140
+          if (t.startsWith('2'))   return 120
+          return 100
         }
-        return tariffKey(a).localeCompare(tariffKey(b))
-      })
+        // Gas: RL4 > RL3 > RL2 > RL1
+        if (t.includes('4')) return 84
+        if (t.includes('3')) return 83
+        if (t.includes('2')) return 82
+        if (t.includes('1')) return 81
+        return 80
+      }
+      const sorted = (siblings || []).slice().sort((a, b) => supplyPriority(b) - supplyPriority(a))
       setSiblingSupplies(sorted)
     }
 
@@ -1263,25 +1265,46 @@ export default function SupplyDetailPage() {
             {/* CUPS chips for sibling supplies */}
             {siblingSupplies.length > 1 && (
               <div className="pt-3 mt-3 border-t border-line-2-variant/10">
+                <div className="space-y-2 mb-2">
+                  {(() => {
+                    // Group chips by tariff label (supplies already sorted by priority)
+                    const groups: { label: string; items: typeof siblingSupplies }[] = []
+                    for (const s of siblingSupplies) {
+                      const label = s.tariff?.trim() || (s.type === 'gas' ? 'Gas' : 'Luz')
+                      const last = groups[groups.length - 1]
+                      if (last && last.label === label) last.items.push(s)
+                      else groups.push({ label, items: [s] })
+                    }
+                    return groups.map(({ label, items }) => (
+                      <div key={label}>
+                        <p className="text-[8px] font-mono font-bold text-ink-4 tracking-widest uppercase mb-1">
+                          {label} <span className="opacity-50">({items.length})</span>
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {items.map((s) => {
+                            const isCurrent = s.id === id
+                            return (
+                              <button
+                                key={s.id}
+                                onClick={(e) => { e.stopPropagation(); if (!isCurrent) router.push(`/supplies/${s.id}`) }}
+                                className={`px-2 py-0.5 rounded-md text-[11px] font-mono font-semibold transition-colors ${
+                                  isCurrent
+                                    ? 'bg-primary/15 text-brand ring-1 ring-primary/30'
+                                    : 'bg-bg-2 text-ink-3 hover:bg-primary/10 hover:text-brand'
+                                }`}
+                                title={s.cups || 'Sin CUPS'}
+                              >
+                                {s.name || (s.cups ? `…${s.cups.slice(-4)}` : '?')}
+                                {isCurrent && ' ✓'}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ))
+                  })()}
+                </div>
                 <div className="flex flex-wrap gap-1.5">
-                  {siblingSupplies.map((s) => {
-                    const isCurrent = s.id === id
-                    return (
-                      <button
-                        key={s.id}
-                        onClick={(e) => { e.stopPropagation(); if (!isCurrent) router.push(`/supplies/${s.id}`) }}
-                        className={`px-2 py-0.5 rounded-md text-[11px] font-mono font-semibold transition-colors ${
-                          isCurrent
-                            ? 'bg-primary/15 text-brand ring-1 ring-primary/30'
-                            : 'bg-bg-2 text-ink-3 hover:bg-primary/10 hover:text-brand'
-                        }`}
-                        title={s.cups || 'Sin CUPS'}
-                      >
-                        {s.name || (s.cups ? `…${s.cups.slice(-4)}` : '?')}
-                        {isCurrent && ' ✓'}
-                      </button>
-                    )
-                  })}
 
                   {/* ─── Estudio económico comparativo ─── */}
                   <button

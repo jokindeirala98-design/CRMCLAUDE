@@ -12,14 +12,14 @@ interface Props {
   onRowDeleted: () => void
 }
 
-type SortKey = 'cups' | 'tariff' | 'supply_type' | 'comercializadora' | 'consumo_total' | 'validation_status'
+type SortKey = 'cups' | 'comercializadora' | 'consumo_total' | 'validation_status'
 type SortDir = 'asc' | 'desc'
 
 export default function ConsumptionTable({ rows, onRowUpdated, onRowDeleted }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValues, setEditValues] = useState<Partial<ConsumptionSnapshot>>({})
-  const [sortKey, setSortKey] = useState<SortKey>('tariff')
-  const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [sortKey, setSortKey] = useState<SortKey | null>(null)
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [search, setSearch] = useState('')
   const [filterTariff, setFilterTariff] = useState<string>('all')
   const [filterType, setFilterType] = useState<string>('all')
@@ -35,9 +35,17 @@ export default function ConsumptionTable({ rows, onRowUpdated, onRowDeleted }: P
     return sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
   }
 
-  // Tariff priority for sorting: 6.x > 3.0 > 2.0 > others
-  function tariffPriority(t: string | null | undefined): number {
-    if (!t) return 0
+  // Combined priority: luz (6.x > 3.0 > 2.0) always before gas (RL4 > RL3 > RL2 > RL1)
+  function rowPriority(r: ConsumptionSnapshot): number {
+    const t = (r.tariff || '').trim().toUpperCase()
+    if (r.supply_type === 'gas') {
+      if (t.includes('4')) return 14
+      if (t.includes('3')) return 13
+      if (t.includes('2')) return 12
+      if (t.includes('1')) return 11
+      return 10
+    }
+    // luz
     if (t.startsWith('6.4')) return 64
     if (t.startsWith('6.3')) return 63
     if (t.startsWith('6.2')) return 62
@@ -50,7 +58,7 @@ export default function ConsumptionTable({ rows, onRowUpdated, onRowDeleted }: P
     return 5
   }
 
-  // Filter & sort
+  // Filter & sort — tariff+type is ALWAYS the primary sort (descending = highest first)
   const filtered = rows
     .filter(r => {
       if (search) {
@@ -62,11 +70,15 @@ export default function ConsumptionTable({ rows, onRowUpdated, onRowDeleted }: P
       return true
     })
     .sort((a, b) => {
+      // Primary: tariff+type, always descending (highest tariff first)
+      const primDiff = rowPriority(b) - rowPriority(a)
+      if (primDiff !== 0) return primDiff
+      // Secondary: user-selected column
+      if (!sortKey) return 0
       const dir = sortDir === 'asc' ? 1 : -1
       if (sortKey === 'consumo_total') return (rowTotal(a) - rowTotal(b)) * dir
-      if (sortKey === 'tariff') return (tariffPriority(a.tariff) - tariffPriority(b.tariff)) * dir
-      const av = a[sortKey] ?? ''
-      const bv = b[sortKey] ?? ''
+      const av = (a as any)[sortKey] ?? ''
+      const bv = (b as any)[sortKey] ?? ''
       return String(av).localeCompare(String(bv)) * dir
     })
 
@@ -189,12 +201,10 @@ export default function ConsumptionTable({ rows, onRowUpdated, onRowDeleted }: P
               <th className="sticky left-0 bg-bg-2 z-10 px-3 py-2 text-left font-semibold cursor-pointer" onClick={() => toggleSort('cups')}>
                 <span className="flex items-center gap-1">CUPS <SortIcon field="cups" /></span>
               </th>
-              <th className="px-3 py-2 text-left font-semibold cursor-pointer" onClick={() => toggleSort('tariff')}>
-                <span className="flex items-center gap-1">Tarifa <SortIcon field="tariff" /></span>
+              <th className="px-3 py-2 text-left font-semibold" title="Orden fijo: 6.1 → 3.0 → 2.0 → RL4 → RL1">
+                <span className="flex items-center gap-1">Tarifa <ChevronDown className="w-3 h-3 opacity-30" /></span>
               </th>
-              <th className="px-3 py-2 text-left font-semibold cursor-pointer" onClick={() => toggleSort('supply_type')}>
-                <span className="flex items-center gap-1">Tipo <SortIcon field="supply_type" /></span>
-              </th>
+              <th className="px-3 py-2 text-left font-semibold">Tipo</th>
               <th className="px-3 py-2 text-left font-semibold cursor-pointer" onClick={() => toggleSort('comercializadora')}>
                 <span className="flex items-center gap-1">Comercializadora <SortIcon field="comercializadora" /></span>
               </th>

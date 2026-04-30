@@ -197,24 +197,32 @@ export default function ClientDetailPage() {
     n >= 1000 ? `${(n / 1000).toLocaleString('es-ES', { maximumFractionDigits: 1 })} MWh/año`
               : `${n.toLocaleString('es-ES', { maximumFractionDigits: 0 })} kWh/año`
 
-  // Tariff priority: 6.x > 3.0 > 2.0 > others
-  function tariffPriority(t: string): number {
+  // Tariff priority: luz (6.x > 3.0 > 2.0) always before gas (RL4 > RL1)
+  function tariffPriority(t: string, type?: string): number {
     if (!t) return 0
-    if (t.startsWith('6.4')) return 64
-    if (t.startsWith('6.3')) return 63
-    if (t.startsWith('6.2')) return 62
-    if (t.startsWith('6.1')) return 61
-    if (t.startsWith('6'))   return 60
-    if (t.startsWith('3.0')) return 40
-    if (t.startsWith('3'))   return 39
-    if (t.startsWith('2.0')) return 20
-    if (t.startsWith('2'))   return 19
+    const tu = t.trim().toUpperCase()
+    if (type === 'gas') {
+      if (tu.includes('4')) return 14
+      if (tu.includes('3')) return 13
+      if (tu.includes('2')) return 12
+      if (tu.includes('1')) return 11
+      return 10
+    }
+    if (tu.startsWith('6.4')) return 64
+    if (tu.startsWith('6.3')) return 63
+    if (tu.startsWith('6.2')) return 62
+    if (tu.startsWith('6.1')) return 61
+    if (tu.startsWith('6'))   return 60
+    if (tu.startsWith('3.0')) return 40
+    if (tu.startsWith('3'))   return 39
+    if (tu.startsWith('2.0')) return 20
+    if (tu.startsWith('2'))   return 19
     return 5
   }
 
-  // Sorted copy of supplies: tariff descending (6.1 → 3.0 → 2.0), then consumption descending
+  // Sorted copy of supplies: luz before gas, tariff descending (6.1 → 3.0 → 2.0 → RL4 → RL1), then consumption descending
   const sortedSupplies: any[] = [...(client.supplies || [])].sort((a, b) => {
-    const tp = tariffPriority(b.tariff ?? '') - tariffPriority(a.tariff ?? '')
+    const tp = tariffPriority(b.tariff ?? '', b.type) - tariffPriority(a.tariff ?? '', a.type)
     if (tp !== 0) return tp
     return getSupplyAnnualConsumption(b) - getSupplyAnnualConsumption(a)
   })
