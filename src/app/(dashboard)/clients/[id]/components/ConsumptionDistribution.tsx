@@ -24,6 +24,7 @@ export default function ConsumptionDistribution({ clientId, supplies }: Props) {
   const [showMenu, setShowMenu] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [syncingSips, setSyncingSips] = useState(false)
+  const [sipsProgress, setSipsProgress] = useState<{ processed: number; total: number; synced: number } | null>(null)
   const [sipsResult, setSipsResult] = useState<{ synced: number; total: number } | null>(null)
 
   const fetchRows = useCallback(async () => {
@@ -113,29 +114,45 @@ export default function ConsumptionDistribution({ clientId, supplies }: Props) {
     setSyncing(false)
   }
 
-  // Batch SIPS sync for all supplies of this client, then rebuild snapshots
+  // Batch SIPS sync — paginated loop to avoid Vercel timeouts
   const syncSips = async (force = false) => {
     setSyncingSips(true)
     setSipsResult(null)
+    setSipsProgress(null)
+
+    const PAGE = 15
+    let offset = 0
+    let totalSynced = 0
+    let total = 0
+
     try {
-      // Step 1: fetch SIPS for supplies without data (or all if force=true)
-      const res = await fetch('/api/batch-sips-sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ client_id: clientId, force }),
-      })
-      const data = await res.json()
-      if (res.ok) {
-        setSipsResult({ synced: data.synced, total: data.total })
-      } else {
-        console.error('[syncSips] batch-sips-sync error:', data.error)
+      while (true) {
+        const res = await fetch('/api/batch-sips-sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ client_id: clientId, force, offset, limit: PAGE }),
+        })
+        const data = await res.json()
+
+        if (!res.ok) {
+          console.error('[syncSips] error:', data.error)
+          break
+        }
+
+        totalSynced += data.synced
+        total = data.total
+        offset = data.processed
+        setSipsProgress({ processed: data.processed, total: data.total, synced: totalSynced })
+
+        if (data.done) break
       }
+
+      setSipsResult({ synced: totalSynced, total })
     } catch (e) {
       console.error('[syncSips]', e)
     }
 
-    // Step 2: always rebuild snapshots (catches any case where batch-sips-sync
-    // internal sync-consumption call failed or was skipped)
+    // Always rebuild snapshots after all chunks are done
     try {
       await fetch('/api/sync-consumption', {
         method: 'POST',
@@ -146,9 +163,9 @@ export default function ConsumptionDistribution({ clientId, supplies }: Props) {
       console.error('[syncSips] sync-consumption error:', e)
     }
 
-    // Step 3: refresh rows from DB
     await fetchRows()
     setSyncingSips(false)
+    setSipsProgress(null)
   }
 
   // Export to Excel
@@ -206,8 +223,10 @@ export default function ConsumptionDistribution({ clientId, supplies }: Props) {
           </p>
           {syncingSips && (
             <span className="flex items-center gap-1 text-xs text-amber-600">
-              <span className="animate-spin w-3 h-3 border border-amber-500 border-t-transparent rounded-full" />
-              Sincronizando SIPS...
+              <span className="animate-spin w-3 h-3 border border-amber-500 border-t-transparent rounded-full inline-block" />
+              {sipsProgress
+                ? `SIPS ${sipsProgress.processed}/${sipsProgress.total}...`
+                : 'Sincronizando SIPS...'}
             </span>
           )}
           {sipsResult && !syncingSips && (

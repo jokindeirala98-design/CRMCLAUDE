@@ -1,29 +1,37 @@
 /**
  * POST /api/batch-sips-sync
  *
- * Dispara la sincronización de SIPS para todos los suministros de un cliente
- * que aún no tienen datos SIPS (o fuerza todos si force=true).
- * Después de actualizar supplies, llama a /api/sync-consumption para
- * reconstruir los consumption_snapshots.
+ * Sincroniza SIPS para los suministros de luz de un cliente.
+ * Soporta paginación para evitar timeouts de Vercel.
  *
- * Body: { client_id: string, force?: boolean }
- * Response: { synced: number, skipped: number, errors: number, total: number }
+ * Body: { client_id: string, force?: boolean, offset?: number, limit?: number }
+ * Response: { synced, skipped, errors, processed, total, done }
+ *   - processed: cuántos procesó esta llamada
+ *   - total: total de supplies luz del cliente
+ *   - done: true si ya no quedan más
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { createClient } from '@supabase/supabase-js'
 import { fetchSipsForCups } from '@/lib/sips'
 import { cupsBase20 } from '@/lib/utils/cups'
 
-export const maxDuration = 300
+export const maxDuration = 60
 
-// Semaphore — how many SIPS calls to run in parallel
-const CONCURRENCY = 4
+const CONCURRENCY = 6
 
-async function runWithConcurrency<T>(
+// Service-role client (bypasses RLS, same as sync-consumption)
+function getServiceClient() {
+  const url  = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const key  = process.env.SUPABASE_SERVICE_ROLE_KEY
+           || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  return createClient(url, key)
+}
+
+async function runConcurrent<T>(
   items: T[],
   fn: (item: T) => Promise<void>,
-  limit: number
+  limit: number,
 ): Promise<void> {
   let idx = 0
   async function worker() {
@@ -32,42 +40,53 @@ async function runWithConcurrency<T>(
       await fn(items[i])
     }
   }
-  await Promise.all(Array.from({ length: limit }, worker))
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { client_id, force = false } = body
+    const { client_id, force = false, offset = 0, limit = 15 } = body
 
     if (!client_id) {
       return NextResponse.json({ error: 'client_id requerido' }, { status: 400 })
     }
 
-    const supabase = await createServerSupabaseClient()
+    const supabase = getServiceClient()
 
-    // Get all luz supplies for the client (column name is 'type', not 'supply_type')
+    // Count total luz supplies
+    const { count: totalCount } = await supabase
+      .from('supplies')
+      .select('id', { count: 'exact', head: true })
+      .eq('client_id', client_id)
+      .eq('type', 'luz')
+
+    const total = totalCount ?? 0
+
+    // Fetch the page
     const { data: supplies, error: supErr } = await supabase
       .from('supplies')
       .select('id, cups, tariff, consumption_data')
       .eq('client_id', client_id)
       .eq('type', 'luz')
+      .order('created_at', { ascending: true })
+      .range(offset, offset + limit - 1)
 
     if (supErr) {
       return NextResponse.json({ error: supErr.message }, { status: 500 })
     }
 
     if (!supplies || supplies.length === 0) {
-      return NextResponse.json({ synced: 0, skipped: 0, errors: 0, total: 0 })
+      return NextResponse.json({ synced: 0, skipped: 0, errors: 0, processed: 0, total, done: true })
     }
 
-    // Filter supplies that need SIPS (unless force=true)
+    // Skip supplies that already have SIPS data (unless force)
     const toSync = force
       ? supplies
       : supplies.filter(s => {
           const cd = s.consumption_data as any
-          // Skip if we already have potenciaContratada with at least P1
           if (cd?.potenciaContratada?.P1 && Number(cd.potenciaContratada.P1) > 0) return false
+          if (cd?.source === 'sips' && cd?.totalConsumptionKwh) return false
           return true
         })
 
@@ -75,17 +94,20 @@ export async function POST(req: NextRequest) {
     let skipped = supplies.length - toSync.length
     let errors = 0
 
-    console.log(`[batch-sips-sync] client=${client_id} total=${supplies.length} toSync=${toSync.length} force=${force}`)
+    console.log(`[batch-sips-sync] client=${client_id} offset=${offset} page=${supplies.length} toSync=${toSync.length} force=${force}`)
 
-    await runWithConcurrency(toSync, async (supply) => {
+    await runConcurrent(toSync, async (supply) => {
       if (!supply.cups) { errors++; return }
 
       const cups = cupsBase20(supply.cups) || supply.cups
       try {
         const sipsData = await fetchSipsForCups(cups, 'luz')
-        if (!sipsData) { errors++; return }
+        if (!sipsData) {
+          console.warn(`[batch-sips-sync] No SIPS data for ${cups}`)
+          errors++
+          return
+        }
 
-        // Merge SIPS data into consumption_data
         const existing = (supply.consumption_data as any) || {}
         const merged = {
           ...existing,
@@ -108,7 +130,6 @@ export async function POST(req: NextRequest) {
           sipsUpdatedAt: new Date().toISOString(),
         }
 
-        // Update tariff if SIPS has it and supply doesn't
         const updatePayload: any = { consumption_data: merged }
         if (sipsData.tariff && !supply.tariff) {
           updatePayload.tariff = sipsData.tariff
@@ -120,58 +141,38 @@ export async function POST(req: NextRequest) {
           .eq('id', supply.id)
 
         if (updErr) {
-          console.error(`[batch-sips-sync] Error updating supply ${supply.id}:`, updErr.message)
+          console.error(`[batch-sips-sync] DB update error ${supply.id}:`, updErr.message)
           errors++
         } else {
           console.log(`[batch-sips-sync] ✓ ${cups}`)
           synced++
         }
       } catch (e: any) {
-        console.error(`[batch-sips-sync] Error SIPS ${cups}:`, e.message)
+        console.error(`[batch-sips-sync] SIPS error ${cups}:`, e.message)
         errors++
       }
     }, CONCURRENCY)
 
-    // Rebuild consumption_snapshots by calling the existing sync-consumption endpoint
-    if (synced > 0) {
+    const processed = offset + supplies.length
+    const done = processed >= total
+
+    // After last chunk: rebuild consumption_snapshots
+    if (done && (synced > 0 || force)) {
       try {
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-        const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-
-        // Call sync-consumption directly using Supabase service role (mirrors the route logic)
-        const { createClient: createAdminClient } = await import('@supabase/supabase-js')
-        const adminSupabase = createAdminClient(supabaseUrl, serviceKey)
-
-        // Import and call the sync logic from our shared util
-        // Since we can't easily import a Next.js route handler, call via HTTP internally
         const host = req.headers.get('host') || 'localhost:3000'
-        const proto = host.startsWith('localhost') ? 'http' : 'https'
-        const syncRes = await fetch(`${proto}://${host}/api/sync-consumption`, {
+        const proto = host.includes('localhost') ? 'http' : 'https'
+        await fetch(`${proto}://${host}/api/sync-consumption`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            // Forward cookies for auth
-            'Cookie': req.headers.get('cookie') || '',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ client_id }),
         })
-        if (!syncRes.ok) {
-          const txt = await syncRes.text()
-          console.warn('[batch-sips-sync] sync-consumption returned', syncRes.status, txt)
-        } else {
-          console.log('[batch-sips-sync] consumption_snapshots rebuilt successfully')
-        }
+        console.log('[batch-sips-sync] sync-consumption triggered')
       } catch (e: any) {
-        console.error('[batch-sips-sync] sync-consumption error:', e.message)
+        console.warn('[batch-sips-sync] sync-consumption call failed:', e.message)
       }
     }
 
-    return NextResponse.json({
-      synced,
-      skipped,
-      errors,
-      total: supplies.length,
-    })
+    return NextResponse.json({ synced, skipped, errors, processed, total, done })
   } catch (e: any) {
     console.error('[batch-sips-sync] Fatal error:', e)
     return NextResponse.json({ error: e.message }, { status: 500 })
