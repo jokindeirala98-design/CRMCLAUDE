@@ -197,10 +197,27 @@ export default function ClientDetailPage() {
     n >= 1000 ? `${(n / 1000).toLocaleString('es-ES', { maximumFractionDigits: 1 })} MWh/año`
               : `${n.toLocaleString('es-ES', { maximumFractionDigits: 0 })} kWh/año`
 
-  // Sorted copy of supplies (highest annual consumption first)
-  const sortedSupplies: any[] = [...(client.supplies || [])].sort(
-    (a, b) => getSupplyAnnualConsumption(b) - getSupplyAnnualConsumption(a)
-  )
+  // Tariff priority: 6.x > 3.0 > 2.0 > others
+  function tariffPriority(t: string): number {
+    if (!t) return 0
+    if (t.startsWith('6.4')) return 64
+    if (t.startsWith('6.3')) return 63
+    if (t.startsWith('6.2')) return 62
+    if (t.startsWith('6.1')) return 61
+    if (t.startsWith('6'))   return 60
+    if (t.startsWith('3.0')) return 40
+    if (t.startsWith('3'))   return 39
+    if (t.startsWith('2.0')) return 20
+    if (t.startsWith('2'))   return 19
+    return 5
+  }
+
+  // Sorted copy of supplies: tariff descending (6.1 → 3.0 → 2.0), then consumption descending
+  const sortedSupplies: any[] = [...(client.supplies || [])].sort((a, b) => {
+    const tp = tariffPriority(b.tariff ?? '') - tariffPriority(a.tariff ?? '')
+    if (tp !== 0) return tp
+    return getSupplyAnnualConsumption(b) - getSupplyAnnualConsumption(a)
+  })
 
   // Filtered supplies by search query (CUPS or name)
   const filteredSupplies = supplySearch.trim()

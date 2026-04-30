@@ -18,8 +18,8 @@ type SortDir = 'asc' | 'desc'
 export default function ConsumptionTable({ rows, onRowUpdated, onRowDeleted }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValues, setEditValues] = useState<Partial<ConsumptionSnapshot>>({})
-  const [sortKey, setSortKey] = useState<SortKey>('cups')
-  const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const [sortKey, setSortKey] = useState<SortKey>('tariff')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [search, setSearch] = useState('')
   const [filterTariff, setFilterTariff] = useState<string>('all')
   const [filterType, setFilterType] = useState<string>('all')
@@ -35,6 +35,21 @@ export default function ConsumptionTable({ rows, onRowUpdated, onRowDeleted }: P
     return sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
   }
 
+  // Tariff priority for sorting: 6.x > 3.0 > 2.0 > others
+  function tariffPriority(t: string | null | undefined): number {
+    if (!t) return 0
+    if (t.startsWith('6.4')) return 64
+    if (t.startsWith('6.3')) return 63
+    if (t.startsWith('6.2')) return 62
+    if (t.startsWith('6.1')) return 61
+    if (t.startsWith('6'))   return 60
+    if (t.startsWith('3.0')) return 40
+    if (t.startsWith('3'))   return 39
+    if (t.startsWith('2.0')) return 20
+    if (t.startsWith('2'))   return 19
+    return 5
+  }
+
   // Filter & sort
   const filtered = rows
     .filter(r => {
@@ -48,9 +63,10 @@ export default function ConsumptionTable({ rows, onRowUpdated, onRowDeleted }: P
     })
     .sort((a, b) => {
       const dir = sortDir === 'asc' ? 1 : -1
+      if (sortKey === 'consumo_total') return (rowTotal(a) - rowTotal(b)) * dir
+      if (sortKey === 'tariff') return (tariffPriority(a.tariff) - tariffPriority(b.tariff)) * dir
       const av = a[sortKey] ?? ''
       const bv = b[sortKey] ?? ''
-      if (sortKey === 'consumo_total') return (rowTotal(a) - rowTotal(b)) * dir
       return String(av).localeCompare(String(bv)) * dir
     })
 

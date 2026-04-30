@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ChevronDown, FileSpreadsheet, Plus, Download, FileText, RefreshCw, Upload } from 'lucide-react'
+import { ChevronDown, FileSpreadsheet, Plus, Download, FileText, RefreshCw, Upload, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import ConsumptionStats from './ConsumptionStats'
@@ -23,6 +23,8 @@ export default function ConsumptionDistribution({ clientId, supplies }: Props) {
   const [showQuickEntry, setShowQuickEntry] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [syncingSips, setSyncingSips] = useState(false)
+  const [sipsResult, setSipsResult] = useState<{ synced: number; total: number } | null>(null)
 
   const fetchRows = useCallback(async () => {
     const supabase = createClient()
@@ -111,6 +113,29 @@ export default function ConsumptionDistribution({ clientId, supplies }: Props) {
     setSyncing(false)
   }
 
+  // Batch SIPS sync for all supplies of this client
+  const syncSips = async (force = false) => {
+    setSyncingSips(true)
+    setSipsResult(null)
+    try {
+      const res = await fetch('/api/batch-sips-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: clientId, force }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setSipsResult({ synced: data.synced, total: data.total })
+        await fetchRows()
+      } else {
+        console.error('[syncSips]', data.error)
+      }
+    } catch (e) {
+      console.error('[syncSips]', e)
+    }
+    setSyncingSips(false)
+  }
+
   // Export to Excel
   const exportExcel = async () => {
     const ExcelJS = (await import('exceljs')).default
@@ -160,9 +185,22 @@ export default function ConsumptionDistribution({ clientId, supplies }: Props) {
     <div className="space-y-4">
       {/* Toolbar */}
       <div className="flex items-center justify-between">
-        <p className="text-xs text-ink-3">
-          {rows.length} suministros registrados
-        </p>
+        <div className="flex items-center gap-2">
+          <p className="text-xs text-ink-3">
+            {rows.length} suministros registrados
+          </p>
+          {syncingSips && (
+            <span className="flex items-center gap-1 text-xs text-amber-600">
+              <span className="animate-spin w-3 h-3 border border-amber-500 border-t-transparent rounded-full" />
+              Sincronizando SIPS...
+            </span>
+          )}
+          {sipsResult && !syncingSips && (
+            <span className="text-xs text-green-600">
+              ✓ SIPS: {sipsResult.synced}/{sipsResult.total} actualizados
+            </span>
+          )}
+        </div>
 
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={fetchRows} title="Actualizar">
@@ -193,6 +231,17 @@ export default function ConsumptionDistribution({ clientId, supplies }: Props) {
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
                 <div className="absolute right-0 mt-1 w-56 bg-white rounded-xl shadow-lg border border-line-2-variant/15 py-1 z-20">
+                  <button
+                    onClick={() => { syncSips(); setShowMenu(false) }}
+                    disabled={syncingSips}
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-ink hover:bg-bg-2 transition-colors text-left"
+                  >
+                    <Zap className="w-4 h-4 text-amber-500" />
+                    <div>
+                      <p className="font-medium text-xs">Sincronizar SIPS</p>
+                      <p className="text-[10px] text-ink-3">Actualiza potencias y consumos SIPS</p>
+                    </div>
+                  </button>
                   <button
                     onClick={() => { syncFromInvoices(); setShowMenu(false) }}
                     disabled={syncing}
