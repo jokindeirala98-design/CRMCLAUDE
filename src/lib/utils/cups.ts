@@ -54,12 +54,32 @@ export function normalizeCups(cups: string | null | undefined): string | null {
   if (clean.length !== 20 && clean.length !== 22) return null
 
   // Strict validation: ES + 16 digits + 2 control letters [+ optional 2 suffix]
-  if (/^ES\d{16}[A-Z]{2}([A-Z0-9]{2})?$/.test(clean)) return clean
+  if (!/^ES[A-Z0-9]{18}([A-Z0-9]{2})?$/.test(clean)) return null
 
-  // Lenient validation (OCR may confuse O/0, l/1): ES + 18+ alphanumeric
-  if (/^ES[A-Z0-9]{18}([A-Z0-9]{2})?$/.test(clean)) return clean
+  // ── Supply point sanity check ──────────────────────────────────────────────
+  // The 12-character supply point identifier occupies positions 6–17.
+  // A real identifier always contains at least one non-zero digit.
+  // All-zero identifiers (e.g. "000000000000") are physically impossible and
+  // indicate an OCR/Gemini hallucination — reject them.
+  //
+  // Example of garbage: ES0020000000000000TW0P → supply point = "000000000000" → rejected
+  // Example of valid:   ES0021000006751517CW0F → supply point = "000006751517" → accepted
+  const pointId = clean.substring(6, 18)
+  if (/^0+$/.test(pointId)) {
+    console.warn(`[normalizeCups] Rejected CUPS with all-zero supply point identifier: ${clean}`)
+    return null
+  }
 
-  return null
+  // ── Distributor code sanity check ─────────────────────────────────────────
+  // Positions 2–5 hold the 4-digit distributor code (e.g. "0021" for I-DE Navarra).
+  // A distributor code of "0000" is never assigned — another hallucination signal.
+  const distCode = clean.substring(2, 6)
+  if (/^0+$/.test(distCode)) {
+    console.warn(`[normalizeCups] Rejected CUPS with all-zero distributor code: ${clean}`)
+    return null
+  }
+
+  return clean
 }
 
 /**

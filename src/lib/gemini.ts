@@ -784,7 +784,28 @@ A9. SWAP ENERGÍA / SWAP ENERGIA:
      una, extrae lo que puedas — el CUPS puede estar en la página no visible.
    - Totales: "Total base imponible", "IVA 21%", "Total factura" o "Total a pagar".
 
-A10. COMERCIALIZADORA DESCONOCIDA — MODO EXPERTO (aplica si no hay patrón en A1-A9):
+A10. ALUMBRA ENERGÍA / ALUMBRAENERGÍA (dos formatos del mismo comercializador):
+   Existen dos variantes de diseño para este comercializador:
+
+   FORMATO ANTIGUO ("alumbra ENERGÍA" con logo de mariposa):
+   - Layout en dos columnas: izquierda = DATOS DE LA FACTURA + DATOS DEL CONTRATO,
+     derecha = nombre del titular + DATOS DEL SUMINISTRO (tabla con fondo verde oscuro)
+   - El CUPS está en la tabla "DATOS DEL SUMINISTRO" (columna derecha), en la fila "CUPS:".
+   - Comercializadora: "alumbra" o "alumbra energía"
+
+   FORMATO NUEVO ("alumbraenergía" logo en negro, diseño rosa/blanco):
+   - Layout diferente: DATOS DE LA FACTURA (izquierda), DATOS DEL SUMINISTRO (tabla derecha con fondo rosa pálido)
+   - El CUPS está en la tabla "DATOS DEL SUMINISTRO", fila "CUPS:".
+   - Comercializadora: "alumbraenergía" o "alumbra energía"
+
+   ⚠️ REGLA ANTI-ALUCINACIÓN para Alumbra (aplica a ambos formatos):
+   - Lee el CUPS EXACTAMENTE como aparece impreso en el campo "CUPS:" de la factura.
+   - Si el campo CUPS no es claramente legible, deja cups vacío — NO inventes ni rellenes dígitos.
+   - NO confundas el "Contrato de Acceso" (número de 9 dígitos, ej: "211819906") con el CUPS.
+   - NO confundas el "Número del contador" (número de 8 dígitos, ej: "49504194") con el CUPS.
+   - El CUPS real tiene dígitos no nulos en su parte central — si ves muchos ceros seguidos, vuelve a leer.
+
+A11. COMERCIALIZADORA DESCONOCIDA — MODO EXPERTO (aplica si no hay patrón en A1-A10):
    Si la comercializadora no aparece en los patrones anteriores, actúa como un asesor
    energético senior y extrae los datos usando tu conocimiento del mercado eléctrico español:
 
