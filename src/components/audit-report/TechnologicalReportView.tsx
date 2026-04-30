@@ -723,7 +723,7 @@ export function TechnologicalReportView({
                     <span style={{ background: ACCENT_SOFT, color: ACCENT, padding: '2px 9px', borderRadius: 9999, fontSize: 9, fontFamily: 'monospace', fontWeight: 700 }}>{classified.electricity.length}</span>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    {classified.electricity.map((row, i) => <SupplyCard key={row.id} row={row} index={i} />)}
+                    {[...classified.electricity].sort((a, b) => rowTotal(b) - rowTotal(a)).map((row, i) => <SupplyCard key={row.id} row={row} index={i} />)}
                   </div>
                 </div>
               )}
@@ -736,7 +736,7 @@ export function TechnologicalReportView({
                     <span style={{ background: '#E6F4E8', color: GAS_COLORS[1], padding: '2px 9px', borderRadius: 9999, fontSize: 9, fontFamily: 'monospace', fontWeight: 700 }}>{classified.gas.length}</span>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    {classified.gas.map((row, i) => <SupplyCard key={row.id} row={row} index={i} />)}
+                    {[...classified.gas].sort((a, b) => rowTotal(b) - rowTotal(a)).map((row, i) => <SupplyCard key={row.id} row={row} index={i} />)}
                   </div>
                 </div>
               )}
@@ -785,6 +785,29 @@ export function TechnologicalReportView({
                   </div>
                 )}
               </div>
+
+              {/* Alert: supplies with no consumption data */}
+              {(() => {
+                const zeroRows = reportRows.filter(r => rowTotal(r) === 0)
+                if (zeroRows.length === 0) return null
+                return (
+                  <div className="flex items-start gap-3 mt-4 px-5 py-4 rounded-2xl no-print"
+                    style={{ background: '#FFF8E8', border: `1px solid #F0D080`, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                    <span style={{ fontSize: 16, flexShrink: 0 }}>⚠️</span>
+                    <div>
+                      <p style={{ fontSize: 12, fontWeight: 700, color: '#9A6500', marginBottom: 3 }}>
+                        {zeroRows.length} suministro{zeroRows.length > 1 ? 's' : ''} sin consumo anual registrado
+                      </p>
+                      <p style={{ fontSize: 11, color: '#9A6500', lineHeight: 1.5 }}>
+                        Los siguientes CUPS tienen consumo 0 y no están incluidos en el total:{' '}
+                        {zeroRows.slice(0, 5).map(r => r.cups?.slice(-6) || r.name || '?').join(', ')}
+                        {zeroRows.length > 5 ? ` y ${zeroRows.length - 5} más.` : '.'}
+                        {' '}Pulsa «Recargar» para actualizar datos SIPS.
+                      </p>
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
 
             {/* ════ SECTION: Resumen por Tarifa ════ */}
@@ -812,26 +835,26 @@ export function TechnologicalReportView({
               />
             </div>
 
-            {/* ════ SECTION: Consumo Total por Periodos — Electricidad ════ */}
-            {classified.electricity.length > 0 && (() => {
-              const allPeriods = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6']
-              const elecSums = sumPeriods(classified.electricity)
-              const periodTotal = allPeriods.reduce((s, p) => s + ((elecSums as any)[p.toLowerCase()] || 0), 0)
+            {/* ════ SECTION: Consumos 2.0TD (P1–P3) ════ */}
+            {classified.td20.length > 0 && (() => {
+              const periods = ['P1', 'P2', 'P3']
+              const sums = sumPeriods(classified.td20)
+              const periodTotal = periods.reduce((s, p) => s + ((sums as any)[p.toLowerCase()] || 0), 0)
+              const totalCon = classified.td20.reduce((s, r) => s + rowTotal(r), 0)
               if (periodTotal === 0) return null
-
-              const tableData = allPeriods.map(p => ({ p, val: (elecSums as any)[p.toLowerCase()] || 0 }))
+              const { fg: tagFg } = tariffTagStyle('2.0TD')
+              const tableData = periods.map(p => ({ p, val: (sums as any)[p.toLowerCase()] || 0 }))
               const chartData = tableData.filter(d => d.val > 0).map(d => ({ label: d.p, value: d.val }))
-
               return (
                 <div style={{ pageBreakBefore: 'always', breakBefore: 'page', paddingTop: '18mm' }}>
-                  <SectionTitle num={nextNum()} title="Consumo Total por Periodos — Electricidad"
-                    subtitle={`Agregado de ${classified.electricity.length} suministros eléctricos`} />
-
+                  <SectionTitle num={nextNum()} title="Consumos 2.0TD"
+                    subtitle={`${classified.td20.length} suministros · ${formatNumber(totalCon)} kWh totales`}
+                    color={tagFg} />
                   <DataTable
                     headers={[
                       { label: 'Periodo' },
                       { label: 'Consumo (kWh)', align: 'right' },
-                      { label: '% sobre Total', align: 'right', width: 130 },
+                      { label: '% sobre Total 2.0TD', align: 'right', width: 130 },
                     ]}
                     rows={tableData.map((row, i) => [
                       <span key="p" className="inline-flex items-center gap-2.5">
@@ -844,13 +867,12 @@ export function TechnologicalReportView({
                     ])}
                     footer={['TOTAL', formatNumber(periodTotal), '100,0 %']}
                   />
-
                   <div className="grid grid-cols-2 gap-8 mt-10" style={{ breakInside: 'avoid' }}>
                     <div className="flex flex-col items-center">
                       <p style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 600, color: TEXT_SOFT, marginBottom: 16, textAlign: 'center', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Distribución porcentual</p>
                       <DonutChart data={chartData} colors={RPT_PERIOD_COLORS} centerLabel={formatNumber(periodTotal)} centerSub="kWh total" />
                       <div className="mt-5 flex flex-wrap justify-center gap-2">
-                        {allPeriods.map((p, i) => (
+                        {periods.map((p, i) => (
                           <div key={p} className="inline-flex items-center gap-1.5"
                             style={{ background: PAPER, border: `1px solid ${BORDER}`, borderRadius: 9999, padding: '4px 9px', fontFamily: 'monospace', fontSize: 9, fontWeight: 600, color: TEXT_SOFT }}>
                             <PeriodDot color={RPT_PERIOD_COLORS[i]} /> {p}
@@ -867,34 +889,28 @@ export function TechnologicalReportView({
               )
             })()}
 
-            {/* ════ SECTION: Detalle por tarifa (2.0TD, 3.0TD, 6.1TD) ════ */}
-            {(['2.0TD', '3.0TD', '6.1TD'] as const).map(tarifaLabel => {
-              const tarifaRows = tarifaLabel === '2.0TD' ? classified.td20
-                : tarifaLabel === '3.0TD' ? classified.td30
-                : classified.td61
-              if (tarifaRows.length === 0) return null
-
-              const sums = sumPeriods(tarifaRows)
-              const periods = getPeriodsForLabel(tarifaLabel)
+            {/* ════ SECTION: Consumos 3.0TD + 6.1TD (P1–P6) ════ */}
+            {(classified.td30.length > 0 || classified.td61.length > 0) && (() => {
+              const combined = [...classified.td30, ...classified.td61]
+              const periods = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6']
+              const sums = sumPeriods(combined)
               const periodTotal = periods.reduce((s, p) => s + ((sums as any)[p.toLowerCase()] || 0), 0)
-              const totalCon = tarifaRows.reduce((s, r) => s + rowTotal(r), 0)
+              const totalCon = combined.reduce((s, r) => s + rowTotal(r), 0)
               if (periodTotal === 0) return null
-
               const tableData = periods.map(p => ({ p, val: (sums as any)[p.toLowerCase()] || 0 }))
               const chartData = tableData.filter(d => d.val > 0).map(d => ({ label: d.p, value: d.val }))
-              const { fg: tagFg } = tariffTagStyle(tarifaLabel)
-
+              const subtitle30 = classified.td30.length > 0 ? `${classified.td30.length} suministros 3.0TD` : ''
+              const subtitle61 = classified.td61.length > 0 ? `${classified.td61.length} suministros 6.1TD` : ''
+              const subtitleParts = [subtitle30, subtitle61].filter(Boolean).join(' · ')
               return (
-                <div key={tarifaLabel} style={{ pageBreakBefore: 'always', breakBefore: 'page', paddingTop: '18mm' }}>
-                  <SectionTitle num={nextNum()} title={`Consumos ${tarifaLabel}`}
-                    subtitle={`${tarifaRows.length} suministros · ${formatNumber(totalCon)} kWh totales`}
-                    color={tagFg} />
-
+                <div style={{ pageBreakBefore: 'always', breakBefore: 'page', paddingTop: '18mm' }}>
+                  <SectionTitle num={nextNum()} title="Consumos 3.0TD + 6.1TD"
+                    subtitle={`${subtitleParts} · ${formatNumber(totalCon)} kWh totales`} />
                   <DataTable
                     headers={[
                       { label: 'Periodo' },
                       { label: 'Consumo (kWh)', align: 'right' },
-                      { label: `% sobre Total ${tarifaLabel}`, align: 'right', width: 130 },
+                      { label: '% sobre Total 3.0+6.1', align: 'right', width: 130 },
                     ]}
                     rows={tableData.map((row, i) => [
                       <span key="p" className="inline-flex items-center gap-2.5">
@@ -907,11 +923,10 @@ export function TechnologicalReportView({
                     ])}
                     footer={['TOTAL', formatNumber(periodTotal), '100,0 %']}
                   />
-
-                  <div className="flex justify-center mt-10" style={{ breakInside: 'avoid' }}>
+                  <div className="grid grid-cols-2 gap-8 mt-10" style={{ breakInside: 'avoid' }}>
                     <div className="flex flex-col items-center">
-                      <p style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 600, color: TEXT_SOFT, marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Distribución porcentual</p>
-                      <DonutChart data={chartData} colors={RPT_PERIOD_COLORS} centerLabel={formatNumber(periodTotal)} centerSub="kWh" />
+                      <p style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 600, color: TEXT_SOFT, marginBottom: 16, textAlign: 'center', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Distribución porcentual</p>
+                      <DonutChart data={chartData} colors={RPT_PERIOD_COLORS} centerLabel={formatNumber(periodTotal)} centerSub="kWh total" />
                       <div className="mt-5 flex flex-wrap justify-center gap-2">
                         {periods.map((p, i) => (
                           <div key={p} className="inline-flex items-center gap-1.5"
@@ -921,10 +936,14 @@ export function TechnologicalReportView({
                         ))}
                       </div>
                     </div>
+                    <div className="flex flex-col items-center">
+                      <p style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 600, color: TEXT_SOFT, marginBottom: 16, textAlign: 'center', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Consumo por periodo (kWh)</p>
+                      <BarChartSVG data={chartData} colors={RPT_PERIOD_COLORS} width={340} height={240} />
+                    </div>
                   </div>
                 </div>
               )
-            })}
+            })()}
 
             {/* ════ SECTION: Gas ════ */}
             {classified.gas.length > 0 && (

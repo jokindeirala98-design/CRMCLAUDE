@@ -32,13 +32,29 @@ export function TechnicalAuditModal({ open, onClose, clientId, clientName }: Pro
     if (!open) return
     const supabase = createClient()
     
-    // Fetch snapshots
+    // Fetch snapshots — sorted client-side by tariff priority (6.1→3.0→2.0→RL4→RL1)
     const { data: snapshots } = await supabase
       .from('consumption_snapshots')
       .select('*')
       .eq('client_id', clientId)
-      .order('cups', { ascending: true })
-    setRows(snapshots || [])
+    const sorted = (snapshots || []).slice().sort((a: any, b: any) => {
+      const priority = (r: any): number => {
+        const t = (r.tariff || '').trim().toUpperCase()
+        if (r.supply_type === 'gas') {
+          if (t.includes('4')) return 14; if (t.includes('3')) return 13
+          if (t.includes('2')) return 12; if (t.includes('1')) return 11; return 10
+        }
+        if (t.startsWith('6.4')) return 64; if (t.startsWith('6.3')) return 63
+        if (t.startsWith('6.2')) return 62; if (t.startsWith('6.1')) return 61
+        if (t.startsWith('6')) return 60; if (t.startsWith('3.0')) return 40
+        if (t.startsWith('3')) return 39; if (t.startsWith('2.0')) return 20
+        if (t.startsWith('2')) return 19; return 5
+      }
+      const primDiff = priority(b) - priority(a)
+      if (primDiff !== 0) return primDiff
+      return (a.cups || '').localeCompare(b.cups || '')
+    })
+    setRows(sorted)
 
     // Check for existing report
     const { data: reports } = await supabase

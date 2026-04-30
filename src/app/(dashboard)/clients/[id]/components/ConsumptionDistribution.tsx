@@ -168,7 +168,21 @@ export default function ConsumptionDistribution({ clientId, supplies }: Props) {
     setSipsProgress(null)
   }
 
-  // Export to Excel
+  // Tariff priority helper (same logic as ConsumptionTable)
+  const tariffRowPriority = (r: ConsumptionSnapshot): number => {
+    const t = (r.tariff || '').trim().toUpperCase()
+    if (r.supply_type === 'gas') {
+      if (t.includes('4')) return 14; if (t.includes('3')) return 13
+      if (t.includes('2')) return 12; if (t.includes('1')) return 11; return 10
+    }
+    if (t.startsWith('6.4')) return 64; if (t.startsWith('6.3')) return 63
+    if (t.startsWith('6.2')) return 62; if (t.startsWith('6.1')) return 61
+    if (t.startsWith('6')) return 60; if (t.startsWith('3.0')) return 40
+    if (t.startsWith('3')) return 39; if (t.startsWith('2.0')) return 20
+    if (t.startsWith('2')) return 19; return 5
+  }
+
+  // Export to Excel — always sorted by tariff (6.1→3.0→2.0→RL4→RL1)
   const exportExcel = async () => {
     const ExcelJS = (await import('exceljs')).default
     const wb = new ExcelJS.Workbook()
@@ -181,7 +195,8 @@ export default function ConsumptionDistribution({ clientId, supplies }: Props) {
       'Consumo Total (kWh)', 'Estado', 'Observaciones',
     ])
 
-    rows.forEach(r => {
+    const sortedRows = [...rows].sort((a, b) => tariffRowPriority(b) - tariffRowPriority(a))
+    sortedRows.forEach(r => {
       ws.addRow([
         r.cups, r.tariff, r.supply_type === 'gas' ? 'Gas' : 'Electricidad',
         r.comercializadora, r.address,

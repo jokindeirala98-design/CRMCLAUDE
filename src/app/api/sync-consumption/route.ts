@@ -137,7 +137,9 @@ export async function POST(req: NextRequest) {
         const cp = sips.consumoPeriodos
         consumo_p1 = toNum(cp.P1); consumo_p2 = toNum(cp.P2); consumo_p3 = toNum(cp.P3)
         consumo_p4 = toNum(cp.P4); consumo_p5 = toNum(cp.P5); consumo_p6 = toNum(cp.P6)
-        consumo_total = toNum(sips.totalKwh) ?? toNum(sips.totalConsumptionKwh) ?? null
+        // Use period sum as consumo_total so it matches the supplies page calculation
+        const periodsSum = (consumo_p1||0)+(consumo_p2||0)+(consumo_p3||0)+(consumo_p4||0)+(consumo_p5||0)+(consumo_p6||0)
+        consumo_total = periodsSum > 0 ? periodsSum : (toNum(sips.totalKwh) ?? toNum(sips.totalConsumptionKwh) ?? null)
         source = 'sips'
       } else if (sips?.history && Array.isArray(sips.history) && sips.history.length > 0) {
         // Aggregate annual totals from history (P1-P6 per period)
