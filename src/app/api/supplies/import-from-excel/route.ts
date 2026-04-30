@@ -2,13 +2,24 @@
  * POST /api/supplies/import-from-excel
  *
  * Importa suministros e invoices desde Excel de facturas.
- * Soporta dos formatos automáticamente:
+ * Soporta tres formatos automáticamente:
  *
- * FORMATO A — Label-based (Excel real de facturas, ej. Iberdrola):
+ * FORMATO A — Label-based (Excel real de facturas, ej. Iberdrola, un suministro / una hoja):
  *   Col A: etiqueta ("CUPS", "Tarifa", "Potencia P1 (kW)", ...)
  *   Col B+: datos (una columna por mes)
  *
- * FORMATO B — Fixed-position (plantilla VOLTIS interna):
+ * FORMATO B — Multi-suministro (un suministro por hoja, ej. Excel Ayuntamiento Estella):
+ *   Cada hoja = un suministro diferente (CUPS distinto en B1).
+ *   Hoja: A1=CUPS / B1=cups_value / D1=nombre_ubicación
+ *         A2=Concepto / B2=Periodo / C2+=mes1, mes2, ...
+ *         A3=Compañía / C3+=iberdrola, ...
+ *         A4=Tarifa / C4+=2.0TD, ...
+ *         A5=Fecha Inicio / C5+=fechas
+ *         A6=Fecha Fin / C6+=fechas
+ *         (filas de consumo, potencia, totales con unidad en col B)
+ *   → Crea un supply independiente por cada hoja.
+ *
+ * FORMATO C — Fixed-position (plantilla VOLTIS interna):
  *   Fila 3:  CUPS
  *   Fila 4:  Titular
  *   Fila 5:  Compañía
@@ -22,6 +33,7 @@
  *   files: File[]           (uno o varios .xlsx)
  *   clientId: string        (UUID del cliente preseleccionado, opcional)
  *   newClientName: string   (nombre para crear/buscar cliente, opcional)
+ *   multiSupply: "true"     (forzar modo multi-suministro — auto-detectado si se omite)
  *
  * Response: { results: ImportResult[] }
  */
@@ -33,6 +45,7 @@ import { fetchSipsForCups } from '@/lib/sips'
 import { normalizeTariff as normalizeTariffLib } from '@/lib/consumption-utils'
 import { ensurePendingPrescoring } from '@/lib/ensurePrescoring'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { cupsBase20 } from '@/lib/utils/cups'
 
 export const maxDuration = 300
 
@@ -55,7 +68,7 @@ function normalizeTariff(raw: string): string {
   return map[t] || raw
 }
 
-// ── Label-based parser (Formato A) ────────────────────────────────────────────
+// ── Label-based parser (Formato A / B) ───────────────────────────────────────
 
 function normLabel(str: string): string {
   if (!str) return ''
@@ -176,18 +189,86 @@ function detectMonthCols(ws: ExcelJS.Worksheet, rowMap: Map<string, ExcelJS.Row>
   return []
 }
 
-/** Parse Excel in label-based format (real electricity invoices) */
+/**
+ * Resolve a period label row, supporting both standard unit-in-label format
+ * and the Iberdrola multi-supply format with period names in parentheses.
+ *
+ * Standard:  "Consumo P1 (kWh)"   "Potencia P1 (kW)"   "Potencia P1 (€)"
+ * Iberdrola: "Consumo P1 (Punta)" "Potencia P1 (Punta)" [kW/€ differ only by col B unit]
+ * Shorthand: "Consumo P1"         "Potencia P1"
+ */
+function getPeriodRow(
+  rowMap: Map<string, ExcelJS.Row>,
+  type: 'consumo' | 'potencia_kw' | 'potencia_eur',
+  pid: string,
+): ExcelJS.Row | undefined {
+  const p = pid // 'P1', 'P2', etc.
+  if (type === 'consumo') {
+    return (
+      getRow(rowMap, `Consumo ${p} kwh`)       ||   // "Consumo P1 kwh" (already norm)
+      getRow(rowMap, `Consumo ${p} (kWh)`)     ||   // explicit unit
+      getRow(rowMap, `Consumo ${p} (Punta)`)   ||   // 2.0TD period names
+      getRow(rowMap, `Consumo ${p} (Llano)`)   ||
+      getRow(rowMap, `Consumo ${p} (Valle)`)   ||
+      getRow(rowMap, `Consumo ${p}`)                // bare label (unit in col B)
+    )
+  }
+  if (type === 'potencia_kw') {
+    return (
+      getRow(rowMap, `Potencia ${p} kw`)       ||
+      getRow(rowMap, `Potencia ${p} (kW)`)     ||
+      getRow(rowMap, `Potencia ${p} (Punta)`)  ||
+      getRow(rowMap, `Potencia ${p} (Llano)`)  ||
+      getRow(rowMap, `Potencia ${p} (Valle)`)  ||
+      getRow(rowMap, `Potencia ${p}`)
+    )
+  }
+  // potencia_eur — same label as kW row in Iberdrola format; distinguishable only by col B
+  // The kW row is keyed first in buildRowMap (if !map.has(key)), so the € row is invisible.
+  // For totals we rely on TOTAL COSTE POTENCIA row instead, so return undefined here.
+  return undefined
+}
+
+function getPriceRow(rowMap: Map<string, ExcelJS.Row>, pid: string): ExcelJS.Row | undefined {
+  const p = pid
+  return (
+    getRow(rowMap, `Precio ${p} eur kwh`)       ||
+    getRow(rowMap, `Precio ${p} (€/kWh)`)       ||
+    getRow(rowMap, `Precio ${p} (Punta)`)        ||
+    getRow(rowMap, `Precio ${p} (Llano)`)        ||
+    getRow(rowMap, `Precio ${p} (Valle)`)        ||
+    getRow(rowMap, `Precio ${p}`)
+  )
+}
+
+/** Parse Excel in label-based format (real electricity invoice Excel) */
 function parseLabelBased(ws: ExcelJS.Worksheet, fileName: string): ParsedSupplyFile {
   const rowMap = buildRowMap(ws)
-
-  const cups = cellStr(getRow(rowMap, 'CUPS'), 2)
-  const rawTariff = cellStr(getRow(rowMap, 'Tarifa'), 2)
-  const tarifa = normalizeTariff(rawTariff || cellStr(getRow(rowMap, 'Tariff'), 2))
-  const comRow = getRow(rowMap, 'Compañia') ?? getRow(rowMap, 'Compania') ?? getRow(rowMap, 'Empresa') ?? getRow(rowMap, 'Comercializadora') ?? getRow(rowMap, 'Suministrador')
-  const compania = cellStr(comRow, 2)
-  const titular = cellStr(getRow(rowMap, 'Titular'), 2) || cellStr(getRow(rowMap, 'Nombre'), 2) || ''
-
   const monthCols = detectMonthCols(ws, rowMap)
+
+  // ── Static fields ──────────────────────────────────────────────────────────
+  // In some formats (Iberdrola multi-supply), static fields like tariff/company
+  // are in col B=unit, data from col C onwards. Use the first month col as fallback.
+  const staticCol = monthCols.length > 0 ? monthCols[0] : 2
+
+  const cupsRow = getRow(rowMap, 'CUPS')
+  const cups = cellStr(cupsRow, 2)
+  // Location name: stored in col D (4) of the CUPS row in Iberdrola multi-supply format
+  const locationName = cellStr(cupsRow, 4) || cellStr(cupsRow, 3) || ''
+
+  // Try col 2 first (standard format), then fall back to first data col
+  const rawTariff = cellStr(getRow(rowMap, 'Tarifa'), 2) || cellStr(getRow(rowMap, 'Tarifa'), staticCol)
+    || cellStr(getRow(rowMap, 'Tariff'), 2) || cellStr(getRow(rowMap, 'Tariff'), staticCol)
+  const tarifa = normalizeTariff(rawTariff)
+
+  const comRow = getRow(rowMap, 'Compañia') ?? getRow(rowMap, 'Compania') ?? getRow(rowMap, 'Empresa')
+    ?? getRow(rowMap, 'Comercializadora') ?? getRow(rowMap, 'Suministrador')
+  const compania = cellStr(comRow, 2) || cellStr(comRow, staticCol)
+
+  const titRow = getRow(rowMap, 'Titular') ?? getRow(rowMap, 'Nombre')
+  const titular = cellStr(titRow, 2) || cellStr(titRow, staticCol) || ''
+
+  // ── Per-month data ─────────────────────────────────────────────────────────
   const invoices: ParsedInvoice[] = []
 
   for (const col of monthCols) {
@@ -208,25 +289,43 @@ function parseLabelBased(ws: ExcelJS.Worksheet, fileName: string): ParsedSupplyF
     const potencia = []
     for (let p = 1; p <= 6; p++) {
       const pid = `P${p}`
-      const kw         = cellNum(getRow(rowMap, `Potencia ${pid} kw`), col) || cellNum(getRow(rowMap, `Potencia ${pid} (kW)`), col)
-      const precioKwDia= cellNum(getRow(rowMap, `Potencia ${pid} eur kw dia`), col) || cellNum(getRow(rowMap, `Potencia ${pid} (€/kW día)`), col)
-      const total      = cellNum(getRow(rowMap, `Potencia ${pid} eur`), col) || cellNum(getRow(rowMap, `Potencia ${pid} (€)`), col)
-      if (kw > 0 || total > 0) potencia.push({ periodo: pid, kw, precioKwDia, dias, total })
+      const kwRow = getPeriodRow(rowMap, 'potencia_kw', pid)
+      const kw    = cellNum(kwRow, col)
+      // For the total potencia cost per period, try the explicit label (standard format).
+      // In Iberdrola multi-supply format, the € row has the same label as kW row so it's not
+      // in rowMap; we rely on TOTAL COSTE POTENCIA for the global total instead.
+      const totalPot = cellNum(getRow(rowMap, `Potencia ${pid} eur`), col)
+        || cellNum(getRow(rowMap, `Potencia ${pid} (€)`), col)
+      if (kw > 0 || totalPot > 0) potencia.push({ periodo: pid, kw, precioKwDia: 0, dias, total: totalPot })
     }
 
     const consumo = []
     for (let p = 1; p <= 6; p++) {
-      const pid   = `P${p}`
-      const kwh   = cellNum(getRow(rowMap, `Consumo ${pid} kwh`), col) || cellNum(getRow(rowMap, `Consumo ${pid} (kWh)`), col)
-      const precio= cellNum(getRow(rowMap, `Precio ${pid} eur kwh`), col) || cellNum(getRow(rowMap, `Precio ${pid} (€/kWh)`), col)
-      const total = kwh > 0 && precio > 0 ? Math.round(kwh * precio * 100) / 100 : 0
+      const pid    = `P${p}`
+      const kwh    = cellNum(getPeriodRow(rowMap, 'consumo', pid), col)
+      const precio = cellNum(getPriceRow(rowMap, pid), col)
+      const total  = kwh > 0 && precio > 0 ? Math.round(kwh * precio * 100) / 100 : 0
       if (kwh > 0) consumo.push({ periodo: pid, kwh, precioKwh: precio, total })
     }
 
-    const consumoTotalKwh    = cellNum(getRow(rowMap, 'TOTAL CONSUMO (kWh)'), col) || cellNum(getRow(rowMap, 'total consumo kwh'), col) || consumo.reduce((a, c) => a + c.kwh, 0)
-    const costeTotalConsumo  = cellNum(getRow(rowMap, 'TOTAL COSTE CONSUMO (€)'), col) || cellNum(getRow(rowMap, 'total coste consumo eur'), col) || consumo.reduce((a, c) => a + c.total, 0)
-    const costeTotalPotencia = cellNum(getRow(rowMap, 'TOTAL COSTE POTENCIA (€)'), col) || cellNum(getRow(rowMap, 'total coste potencia eur'), col) || potencia.reduce((a, p) => a + p.total, 0)
-    const totalFactura       = cellNum(getRow(rowMap, 'TOTAL FACTURA (€)'), col) || cellNum(getRow(rowMap, 'total factura eur'), col)
+    const consumoTotalKwh    = cellNum(getRow(rowMap, 'TOTAL CONSUMO (kWh)'), col)
+      || cellNum(getRow(rowMap, 'total consumo kwh'), col)
+      || cellNum(getRow(rowMap, 'TOTAL CONSUMO'), col)
+      || consumo.reduce((a, c) => a + c.kwh, 0)
+
+    const costeTotalConsumo  = cellNum(getRow(rowMap, 'TOTAL COSTE CONSUMO (€)'), col)
+      || cellNum(getRow(rowMap, 'total coste consumo eur'), col)
+      || cellNum(getRow(rowMap, 'TOTAL COSTE CONSUMO'), col)
+      || consumo.reduce((a, c) => a + c.total, 0)
+
+    const costeTotalPotencia = cellNum(getRow(rowMap, 'TOTAL COSTE POTENCIA (€)'), col)
+      || cellNum(getRow(rowMap, 'total coste potencia eur'), col)
+      || cellNum(getRow(rowMap, 'TOTAL COSTE POTENCIA'), col)
+      || potencia.reduce((a, p) => a + p.total, 0)
+
+    const totalFactura = cellNum(getRow(rowMap, 'TOTAL FACTURA (€)'), col)
+      || cellNum(getRow(rowMap, 'total factura eur'), col)
+      || cellNum(getRow(rowMap, 'TOTAL FACTURA'), col)
 
     if (consumoTotalKwh === 0 && totalFactura === 0 && costeTotalConsumo === 0) continue
 
@@ -247,12 +346,39 @@ function parseLabelBased(ws: ExcelJS.Worksheet, fileName: string): ParsedSupplyF
       costeNetoConsumo:   costeTotalConsumo,
       costeTotalConsumo,
       costeTotalPotencia,
-      iva: 0, peajes: 0, impuestoElectrico: 0, alquiler: 0, otros: 0, ivaTotal: 0,
+      iva:              cellNum(getRow(rowMap, 'IVA %'), col)
+                      || cellNum(getRow(rowMap, 'IVA'), col),
+      peajes:           cellNum(getRow(rowMap, 'Financiacion Bono Social (€)'), col)
+                      + cellNum(getRow(rowMap, 'Bono Social (€)'), col)
+                      + cellNum(getRow(rowMap, 'Bono Social'), col)
+                      + cellNum(getRow(rowMap, 'Aportacion FNEE (€)'), col)
+                      + cellNum(getRow(rowMap, 'FNEE (€)'), col)
+                      + cellNum(getRow(rowMap, 'FNEE'), col),
+      impuestoElectrico: cellNum(getRow(rowMap, 'Impuesto Electrico (€)'), col)
+                       || cellNum(getRow(rowMap, 'Impuesto Electrico'), col)
+                       || cellNum(getRow(rowMap, 'Impuesto Eléctrico (€)'), col)
+                       || cellNum(getRow(rowMap, 'Impuesto Electrico'), col),
+      alquiler:         cellNum(getRow(rowMap, 'Alquiler Equipos de Medida (€)'), col)
+                      || cellNum(getRow(rowMap, 'Alquiler (€)'), col)
+                      || cellNum(getRow(rowMap, 'Alquiler Contadores (€)'), col)
+                      || cellNum(getRow(rowMap, 'Alquiler'), col),
+      otros:            cellNum(getRow(rowMap, 'Exceso de Potencia (€)'), col)
+                      + cellNum(getRow(rowMap, 'Exceso Potencia (€)'), col)
+                      + cellNum(getRow(rowMap, 'Exceso Potencia'), col)
+                      + cellNum(getRow(rowMap, 'Energia Reactiva (€)'), col)
+                      + cellNum(getRow(rowMap, 'Reactiva (€)'), col)
+                      + cellNum(getRow(rowMap, 'Reactiva'), col)
+                      + cellNum(getRow(rowMap, 'Compensacion Excedentes (€)'), col)
+                      + cellNum(getRow(rowMap, 'Compensacion Excedentes'), col),
+      ivaTotal:         cellNum(getRow(rowMap, 'IVA / IGIC (€)'), col)
+                      || cellNum(getRow(rowMap, 'IVA/IGIC (€)'), col)
+                      || cellNum(getRow(rowMap, 'IVA (€)'), col)
+                      || cellNum(getRow(rowMap, 'IVA / IGIC'), col),
       totalFactura,
     })
   }
 
-  return { fileName, cups, titular, compania, tarifa, invoices }
+  return { fileName, cups, titular, compania, tarifa, locationName: locationName || undefined, invoices }
 }
 
 const CUPS_RE = /^ES[A-Z0-9]{18,20}$/i
@@ -286,7 +412,56 @@ interface ParsedSupplyFile {
   titular: string
   compania: string
   tarifa: string
+  locationName?: string
   invoices: ParsedInvoice[]
+}
+
+// ── Transposed-sheet detection (module-level so it can be reused) ─────────────
+
+function isTransposedSheet(ws: ExcelJS.Worksheet): boolean {
+  const a1 = normLabel(s(ws.getCell(1, 1).value))
+
+  // Signature A: standard transposed (A1 = "Concepto / Periodo", months in row 1 cols 2+)
+  if (a1.includes('concepto') || a1.includes('periodo')) {
+    for (let c = 2; c <= Math.min(ws.columnCount || 14, 14); c++) {
+      const h = s(ws.getCell(1, c).value).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+      if (Object.keys(MONTHS_MAP).some(m => h.startsWith(m))) return true
+    }
+  }
+
+  // Signature B: CUPS-header variant (A1="CUPS", A2="Concepto / Periodo", months in row 2 cols 3+)
+  if (a1 === 'cups') {
+    const a2 = normLabel(s(ws.getCell(2, 1).value))
+    if (a2.includes('concepto') || a2.includes('periodo')) {
+      for (let c = 3; c <= Math.min(ws.columnCount || 16, 16); c++) {
+        const h = s(ws.getCell(2, c).value).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+        if (Object.keys(MONTHS_MAP).some(m => h.startsWith(m))) return true
+      }
+    }
+  }
+
+  return false
+}
+
+/**
+ * Detect if a multi-sheet workbook is in "multi-supply" mode:
+ * each sheet represents a DIFFERENT supply (different CUPS in B1).
+ */
+function isMultiSupplyWorkbook(wb: ExcelJS.Workbook): boolean {
+  const cupsSet = new Set<string>()
+  let transposedCount = 0
+  for (const ws of wb.worksheets) {
+    if (ws.rowCount < 5) continue
+    if (!isTransposedSheet(ws)) continue
+    transposedCount++
+    const a1 = normLabel(s(ws.getCell(1, 1).value))
+    if (a1 === 'cups') {
+      const b1 = s(ws.getCell(1, 2).value).toUpperCase()
+      if (CUPS_RE.test(b1)) cupsSet.add(b1)
+    }
+  }
+  // Multi-supply if there are ≥2 populated sheets and each has a distinct CUPS
+  return transposedCount >= 2 && cupsSet.size === transposedCount
 }
 
 /** Parsea un Excel de facturas — detecta automáticamente el formato (label-based o fixed-position)
@@ -296,46 +471,17 @@ async function parseExcelFile(buffer: Buffer, fileName: string, targetCups?: str
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.load(buffer as any)
 
-  // ── Detect Iberdrola transposed / multi-sheet format ──────────────────────
-  // Signature A (standard): A1 = "Concepto / Periodo", row 1 cols 2+ = month names
-  // Signature B (CUPS-header variant): A1 = "CUPS", A2 = "Concepto / Periodo",
-  //   row 1 cols 2+ = CUPS values, row 2 cols 2+ = month names
-  const isTransposedSheet = (ws: ExcelJS.Worksheet): boolean => {
-    const a1 = normLabel(s(ws.getCell(1, 1).value))
-
-    // Signature A: standard transposed
-    if (a1.includes('concepto') || a1.includes('periodo')) {
-      for (let c = 2; c <= Math.min(ws.columnCount || 14, 14); c++) {
-        const h = s(ws.getCell(1, c).value).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
-        if (Object.keys(MONTHS_MAP).some(m => h.startsWith(m))) return true
-      }
-    }
-
-    // Signature B: CUPS-header variant (A1="CUPS", A2="Concepto / Periodo", months in row 2)
-    if (a1 === 'cups') {
-      const a2 = normLabel(s(ws.getCell(2, 1).value))
-      if (a2.includes('concepto') || a2.includes('periodo')) {
-        for (let c = 2; c <= Math.min(ws.columnCount || 14, 14); c++) {
-          const h = s(ws.getCell(2, c).value).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
-          if (Object.keys(MONTHS_MAP).some(m => h.startsWith(m))) return true
-        }
-      }
-    }
-
-    return false
-  }
-
   // Check if ALL populated sheets look like the transposed format
   const allTransposed = wb.worksheets.length > 0 && wb.worksheets.every(ws => {
-    // Skip empty or purely structural sheets
     if (ws.rowCount < 5) return true
     return isTransposedSheet(ws)
   }) && wb.worksheets.some(ws => ws.rowCount >= 5 && isTransposedSheet(ws))
 
   if (allTransposed) {
-    // Multi-sheet label-based: merge invoices from all sheets
+    // Multi-sheet label-based: merge invoices from all sheets into ONE supply
+    // (used when the file represents multiple billing periods for the same supply)
     const allInvoices: ParsedInvoice[] = []
-    let cups = '', titular = '', compania = '', tarifa = ''
+    let cups = '', titular = '', compania = '', tarifa = '', locationName = ''
     for (const ws of wb.worksheets) {
       if (ws.rowCount < 5) continue
       const parsed = parseLabelBased(ws, fileName)
@@ -343,12 +489,14 @@ async function parseExcelFile(buffer: Buffer, fileName: string, targetCups?: str
       if (!titular && parsed.titular) titular = parsed.titular
       if (!compania && parsed.compania) compania = parsed.compania
       if (!tarifa && parsed.tarifa) tarifa = parsed.tarifa
+      if (!locationName && parsed.locationName) locationName = parsed.locationName
       allInvoices.push(...parsed.invoices)
     }
     // Sort chronologically
     allInvoices.sort((a, b) => a.fechaInicio.localeCompare(b.fechaInicio))
     const fallbackCups = targetCups?.trim().toUpperCase() || ''
-    return { fileName, cups: cups || fallbackCups, titular, compania, tarifa, invoices: allInvoices }
+    return { fileName, cups: cups || fallbackCups, titular, compania, tarifa,
+      locationName: locationName || undefined, invoices: allInvoices }
   }
 
   // ── Standard single-sheet format ──────────────────────────────────────────
@@ -356,8 +504,6 @@ async function parseExcelFile(buffer: Buffer, fileName: string, targetCups?: str
   if (!ws) throw new Error(`${fileName}: no se encontró ninguna hoja de cálculo`)
 
   // ── Auto-detect format ─────────────────────────────────────────────────────
-  // If cell A1 or any of rows 1-10 col A has the label "CUPS", use label-based parser.
-  // Otherwise fall back to fixed-position (VOLTIS internal template).
   let hasLabelCUPS = false
   for (let row = 1; row <= 20; row++) {
     const cellVal = s(ws.getCell(row, 1).value)
@@ -385,7 +531,6 @@ async function parseExcelFile(buffer: Buffer, fileName: string, targetCups?: str
 
   if (!cups) throw new Error(`${fileName}: no se encontró CUPS en la celda B3`)
 
-  // Find number of data columns
   let maxCol = 2
   while (ws.getCell(1, maxCol + 1).value !== null && ws.getCell(1, maxCol + 1).value !== undefined) {
     maxCol++
@@ -451,50 +596,74 @@ async function parseExcelFile(buffer: Buffer, fileName: string, targetCups?: str
   return { fileName, cups, titular, compania, tarifa, invoices }
 }
 
-/** Agrega consumo anual por periodo sumando todos los datos del Excel.
- *  NOTA: potenciaContratada NO se extrae del Excel — siempre se obtiene de SIPS.
- *  Los datos de consumo de las hojas Excel pueden no coincidir con los valores oficiales del distribuidor.
+/**
+ * Parse a multi-supply workbook: each sheet = one independent supply.
+ * Returns one ParsedSupplyFile per sheet.
  */
+async function parseMultiSheetAsSupplies(buffer: Buffer): Promise<ParsedSupplyFile[]> {
+  const wb = new ExcelJS.Workbook()
+  await wb.xlsx.load(buffer as any)
+
+  const results: ParsedSupplyFile[] = []
+  for (const ws of wb.worksheets) {
+    if (ws.rowCount < 5) continue
+    if (!isTransposedSheet(ws)) continue
+    const parsed = parseLabelBased(ws, ws.name)
+    if (!parsed.cups) {
+      console.warn(`[import-from-excel] Sheet "${ws.name}" has no CUPS — skipped`)
+      continue
+    }
+    results.push(parsed)
+  }
+  return results
+}
+
+/** Agrega consumo anual por periodo sumando todos los datos del Excel. */
 function buildAnnualConsumptionData(parsed: ParsedSupplyFile) {
   const consumoPeriodos: Record<string, number> = { P1: 0, P2: 0, P3: 0, P4: 0, P5: 0, P6: 0 }
-  // potenciaContratada is intentionally omitted here — it will be set from SIPS only
-
   for (const inv of parsed.invoices) {
     for (const c of inv.consumo) {
       consumoPeriodos[c.periodo] = (consumoPeriodos[c.periodo] || 0) + c.kwh
     }
-    // inv.potencia is stored in invoice extracted_data for billing reference,
-    // but is NOT aggregated into consumption_data.potenciaContratada
   }
-
   const totalKwh = Object.values(consumoPeriodos).reduce((a, b) => a + b, 0)
   return { consumoPeriodos, totalKwh }
 }
 
-/** Procesa un fichero Excel: crea/actualiza suministro, inserta facturas y garantiza fila de prescoring */
-async function processFile(
-  file: File,
+type SupplyImportResult = {
+  fileName: string
+  cups?: string
+  ok: boolean
+  invoicesCreated?: number
+  invoicesSkipped?: number
+  isNew?: boolean
+  tarifa?: string
+  supplyId?: string
+  locationName?: string
+  error?: string
+}
+
+/** Core logic: upsert supply + invoices for one ParsedSupplyFile */
+async function processSupply(
+  parsed: ParsedSupplyFile,
   resolvedClientId: string,
   newClientName: string,
   supabase: any,
   userId?: string,
-  targetCups?: string,
-): Promise<{ fileName: string; cups?: string; ok: boolean; invoicesCreated?: number; invoicesSkipped?: number; isNew?: boolean; tarifa?: string; supplyId?: string; error?: string }> {
-  const fileName = file.name
+): Promise<SupplyImportResult> {
+  const fileName = parsed.fileName
   try {
-    const arrayBuffer = await file.arrayBuffer()
-    const buffer = Buffer.from(arrayBuffer)
-    const parsed = await parseExcelFile(buffer, fileName, targetCups)
     const annualData = buildAnnualConsumptionData(parsed)
 
-    // ── Find or create supply ────────────────────────────────────────────────
-    // Priority 1: find by CUPS exact match
-    let { data: existingSupply } = parsed.cups
-      ? await supabase.from('supplies').select('id, consumption_data').eq('cups', parsed.cups).limit(1).single()
+    // ── Find or create supply (always use base-20 prefix for CUPS lookup) ────
+    const base20 = parsed.cups ? cupsBase20(parsed.cups) : null
+
+    let { data: existingSupply } = base20
+      ? await supabase.from('supplies').select('id, cups, consumption_data')
+          .ilike('cups', `${base20}%`).limit(1).maybeSingle()
       : { data: null }
 
-    // Priority 2: if no CUPS match, find this client's luz supply that has NO CUPS yet
-    // (handles pre-created supplies that just need the CUPS + data filled in)
+    // If no CUPS match, find this client's luz supply with no CUPS yet
     let isNoCupsUpgrade = false
     if (!existingSupply && parsed.cups && resolvedClientId) {
       const { data: noCupsSupply } = await supabase
@@ -504,7 +673,7 @@ async function processFile(
         .eq('type', 'luz')
         .or('cups.is.null,cups.eq.')
         .limit(1)
-        .single()
+        .maybeSingle()
 
       if (noCupsSupply) {
         existingSupply = noCupsSupply
@@ -516,47 +685,47 @@ async function processFile(
 
     if (existingSupply) {
       supplyId = existingSupply.id
-      await supabase.from('supplies').update({
-        ...(isNoCupsUpgrade ? { cups: parsed.cups } : {}),  // set CUPS if this was a no-CUPS supply
+      const patch: Record<string, any> = {
         consumption_data: annualData,
         tariff: parsed.tarifa,
         updated_at: new Date().toISOString(),
-      }).eq('id', supplyId)
+      }
+      if (isNoCupsUpgrade) patch.cups = parsed.cups
+      if (parsed.locationName && !existingSupply.name) patch.name = parsed.locationName
+      // Upgrade stored CUPS from 20→22 chars if we now have the longer form
+      if (parsed.cups && parsed.cups.length === 22 && existingSupply.cups?.length === 20) {
+        patch.cups = parsed.cups
+      }
+      await supabase.from('supplies').update(patch).eq('id', supplyId)
     } else {
-      // Priority 3: create new supply
+      const insertData: Record<string, any> = {
+        cups: parsed.cups,
+        client_id: resolvedClientId,
+        tariff: parsed.tarifa,
+        type: 'luz',
+        status: 'estudio_en_curso',
+        consumption_data: annualData,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }
+      if (parsed.locationName) insertData.name = parsed.locationName
+
       const { data: newSupply, error: supplyErr } = await supabase
         .from('supplies')
-        .insert({
-          cups: parsed.cups,
-          client_id: resolvedClientId,
-          tariff: parsed.tarifa,
-          type: 'luz',
-          status: 'estudio_en_curso',
-          consumption_data: annualData,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
+        .insert(insertData)
         .select('id')
         .single()
 
       if (supplyErr || !newSupply) {
-        // Race condition: another parallel file already inserted this CUPS
         const isUniqueConflict = supplyErr?.code === '23505'
           || supplyErr?.message?.includes('unique')
           || supplyErr?.message?.includes('duplicate')
-        if (isUniqueConflict) {
-          const { data: raced } = await supabase
-            .from('supplies')
-            .select('id, consumption_data')
-            .eq('cups', parsed.cups)
-            .limit(1)
-            .single()
+        if (isUniqueConflict && base20) {
+          const { data: raced } = await supabase.from('supplies').select('id, consumption_data')
+            .ilike('cups', `${base20}%`).limit(1).maybeSingle()
           if (raced) {
-            await supabase.from('supplies').update({
-              consumption_data: annualData,
-              tariff: parsed.tarifa,
-              updated_at: new Date().toISOString(),
-            }).eq('id', raced.id)
+            await supabase.from('supplies').update({ consumption_data: annualData, tariff: parsed.tarifa,
+              updated_at: new Date().toISOString() }).eq('id', raced.id)
             supplyId = raced.id
             ;(existingSupply as any) = raced
           } else {
@@ -571,7 +740,6 @@ async function processFile(
     }
 
     // ── SIPS fetch + power study (fire and forget) ────────────────────────────
-    // Runs for: new supplies + supplies that were upgraded from no-CUPS state
     if (!existingSupply || isNoCupsUpgrade) {
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
       void fetchSipsForCups(parsed.cups, 'luz').then(async (sipsData) => {
@@ -579,10 +747,7 @@ async function processFile(
         const sipsNormalizedTariff = sipsData.tariff ? (normalizeTariffLib(sipsData.tariff) || sipsData.tariff) : null
         const merged = {
           ...annualData,
-          // ⚠️ Override potenciaContratada with official SIPS value (takes priority over Excel)
-          // Excel values can be wrong (e.g. 1.3 kW when real contracted power is 13 kW)
           ...(sipsData.potenciaContratada ? { potenciaContratada: sipsData.potenciaContratada } : {}),
-          // Also override consumoPeriodos if SIPS has them (more accurate than Excel aggregation)
           ...(sipsData.consumoPeriodos ? { consumoPeriodos: sipsData.consumoPeriodos } : {}),
           source: 'excel_import_with_sips',
           fetched_at: new Date().toISOString(),
@@ -609,7 +774,7 @@ async function processFile(
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               cups: parsed.cups,
-              clientName: newClientName || 'Excel Import',
+              clientName: newClientName || parsed.locationName || 'Excel Import',
               potenciaContratada: sipsData.potenciaContratada,
               consumptionHistory: sipsData.consumptionHistory,
               maximetroHistory: sipsData.maximetroHistory || [],
@@ -617,9 +782,8 @@ async function processFile(
           })
           if (r.ok) {
             const studyResult = await r.json()
-            await supabase.from('supplies')
-              .update({ power_study_result: studyResult, updated_at: new Date().toISOString() })
-              .eq('id', supplyId)
+            await supabase.from('supplies').update({ power_study_result: studyResult,
+              updated_at: new Date().toISOString() }).eq('id', supplyId)
           }
         }
       }).catch((err: any) => console.warn('[import-from-excel] SIPS error (non-fatal):', err?.message))
@@ -627,26 +791,15 @@ async function processFile(
 
     // ── Find comercializadora (best-effort) ──────────────────────────────────
     if (parsed.compania) {
-      supabase
-        .from('comercializadoras')
-        .select('id')
-        .ilike('name', `%${parsed.compania}%`)
-        .limit(1)
-        .single()
+      supabase.from('comercializadoras').select('id').ilike('name', `%${parsed.compania}%`).limit(1).single()
         .then(({ data: comerc }: { data: any }) => {
-          if (comerc) {
-            supabase.from('supplies').update({ comercializadora_id: comerc.id }).eq('id', supplyId)
-          }
-        })
-        .catch(() => {})
+          if (comerc) supabase.from('supplies').update({ comercializadora_id: comerc.id }).eq('id', supplyId)
+        }).catch(() => {})
     }
 
     // ── Batch insert invoices ────────────────────────────────────────────────
-    // Fetch existing period pairs to deduplicate
     const { data: existingInvoices } = await supabase
-      .from('invoices')
-      .select('period_start, period_end')
-      .eq('supply_id', supplyId)
+      .from('invoices').select('period_start, period_end').eq('supply_id', supplyId)
 
     const existingPairs = new Set(
       (existingInvoices || []).map((i: any) => `${i.period_start}|${i.period_end}`)
@@ -707,9 +860,7 @@ async function processFile(
       const { error: invErr } = await supabase.from('invoices').insert(toInsert)
       if (!invErr) {
         invoicesCreated = toInsert.length
-        // Advance status: supplies with invoices → "Esperando informes"
-        await supabase
-          .from('supplies')
+        await supabase.from('supplies')
           .update({ status: 'estudio_en_curso', updated_at: new Date().toISOString() })
           .eq('id', supplyId)
           .in('status', ['estudio_en_curso', 'facturas_recibidas', 'primer_contacto'])
@@ -719,48 +870,93 @@ async function processFile(
     }
 
     // ── Prescoring ───────────────────────────────────────────────────────────
-    // Guarantee a prescoring row exists (idempotent — skips if already present,
-    // patches null fields if updateNulls=true). Always runs, even if 0 invoices.
-    await ensurePendingPrescoring(supabase, supplyId, {
-      userId: userId || 'system',
-      updateNulls: true,   // enrich existing row with invoice / SIPS data
-    })
+    await ensurePendingPrescoring(supabase, supplyId, { userId: userId || 'system', updateNulls: true })
 
     return {
       fileName,
       cups: parsed.cups,
       tarifa: parsed.tarifa,
       supplyId,
+      locationName: parsed.locationName,
       ok: true,
       invoicesCreated,
       invoicesSkipped,
       isNew: !existingSupply,
     }
-  } catch (fileErr: any) {
-    return { fileName, ok: false, error: fileErr.message }
+  } catch (err: any) {
+    return { fileName, ok: false, error: err.message }
   }
+}
+
+/** Procesa un fichero Excel de suministro único */
+async function processFile(
+  file: File,
+  resolvedClientId: string,
+  newClientName: string,
+  supabase: any,
+  userId?: string,
+  targetCups?: string,
+): Promise<SupplyImportResult> {
+  try {
+    const arrayBuffer = await file.arrayBuffer()
+    const buffer = Buffer.from(arrayBuffer)
+    const parsed = await parseExcelFile(buffer, file.name, targetCups)
+    return processSupply(parsed, resolvedClientId, newClientName, supabase, userId)
+  } catch (err: any) {
+    return { fileName: file.name, ok: false, error: err.message }
+  }
+}
+
+/** Procesa un fichero Excel multi-suministro (una hoja = un supply) */
+async function processMultiSheetFile(
+  file: File,
+  resolvedClientId: string,
+  newClientName: string,
+  supabase: any,
+  userId?: string,
+): Promise<SupplyImportResult[]> {
+  const arrayBuffer = await file.arrayBuffer()
+  const buffer = Buffer.from(arrayBuffer)
+  const allParsed = await parseMultiSheetAsSupplies(buffer)
+
+  const results: SupplyImportResult[] = []
+  // Process in batches of 5 to avoid overwhelming Supabase
+  const BATCH = 5
+  for (let i = 0; i < allParsed.length; i += BATCH) {
+    const batch = allParsed.slice(i, i + BATCH)
+    const settled = await Promise.allSettled(
+      batch.map(p => processSupply(p, resolvedClientId, newClientName, supabase, userId))
+    )
+    for (const r of settled) {
+      results.push(
+        r.status === 'fulfilled'
+          ? r.value
+          : { fileName: 'unknown', ok: false, error: (r.reason as any)?.message || 'Error desconocido' }
+      )
+    }
+  }
+  return results
 }
 
 // ── Route handler ──────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   try {
-    // Auth check — use cookie-based server client (Supabase SSR stores session in cookies, not localStorage)
+    // Auth check
     const authClient = createServerSupabaseClient()
     const { data: { user } } = await authClient.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    // Service role client for DB operations
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
 
-    // Parse multipart form
     const formData = await req.formData()
     const clientId      = formData.get('clientId')      as string | null
     const newClientName = (formData.get('newClientName') as string | null)?.trim() || ''
     const targetCups    = (formData.get('targetCups')   as string | null)?.trim().toUpperCase() || ''
+    const forceMulti    = formData.get('multiSupply') === 'true'
     const files = formData.getAll('files') as File[]
 
     if (!files.length) {
@@ -771,18 +967,12 @@ export async function POST(req: NextRequest) {
     let resolvedClientId: string | null = clientId || null
 
     if (!resolvedClientId && newClientName) {
-      // Try to find existing client by name
       const { data: existing } = await supabase
-        .from('clients')
-        .select('id')
-        .ilike('name', newClientName)
-        .limit(1)
-        .single()
+        .from('clients').select('id').ilike('name', newClientName).limit(1).single()
 
       if (existing) {
         resolvedClientId = existing.id
       } else {
-        // Auto-detect client type from name
         const autoType = /ayuntamiento/i.test(newClientName) ? 'ayuntamiento'
           : /comunidad\s+de\s+vecinos|copropiedad|junta\s+de\s+propietarios/i.test(newClientName) ? 'comunidad'
           : 'empresa'
@@ -811,22 +1001,42 @@ export async function POST(req: NextRequest) {
     }
 
     const finalClientId = resolvedClientId
-
-    // ── Process files in batches of 5 to avoid saturating Supabase connections
-    const BATCH_SIZE = 5
     const results: any[] = []
 
-    for (let i = 0; i < files.length; i += BATCH_SIZE) {
-      const batch = files.slice(i, i + BATCH_SIZE)
-      const settled = await Promise.allSettled(
-        batch.map(file => processFile(file, finalClientId, newClientName, supabase, user.id, targetCups))
-      )
-      for (const r of settled) {
-        results.push(
-          r.status === 'fulfilled'
-            ? r.value
-            : { fileName: 'unknown', ok: false, error: (r.reason as any)?.message || 'Error desconocido' }
-        )
+    for (const file of files) {
+      // Auto-detect multi-supply mode: peek at the workbook
+      let isMulti = forceMulti
+      if (!isMulti) {
+        try {
+          const ab = await file.arrayBuffer()
+          const wb = new ExcelJS.Workbook()
+          await wb.xlsx.load(Buffer.from(ab) as any)
+          isMulti = isMultiSupplyWorkbook(wb)
+        } catch {
+          isMulti = false
+        }
+      }
+
+      if (isMulti) {
+        const multiResults = await processMultiSheetFile(file, finalClientId, newClientName, supabase, user.id)
+        results.push(...multiResults)
+      } else {
+        // Standard single-supply per file, in batches of 5
+        const BATCH_SIZE = 5
+        const singleFiles = [file]
+        for (let i = 0; i < singleFiles.length; i += BATCH_SIZE) {
+          const batch = singleFiles.slice(i, i + BATCH_SIZE)
+          const settled = await Promise.allSettled(
+            batch.map(f => processFile(f, finalClientId, newClientName, supabase, user.id, targetCups))
+          )
+          for (const r of settled) {
+            results.push(
+              r.status === 'fulfilled'
+                ? r.value
+                : { fileName: 'unknown', ok: false, error: (r.reason as any)?.message || 'Error desconocido' }
+            )
+          }
+        }
       }
     }
 
