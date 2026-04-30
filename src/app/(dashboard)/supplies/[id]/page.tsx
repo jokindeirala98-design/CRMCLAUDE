@@ -182,7 +182,26 @@ export default function SupplyDetailPage() {
         .select('id, name, cups, type, status, tariff')
         .eq('client_id', data.client_id)
         .order('created_at', { ascending: true })
-      setSiblingSupplies(siblings || [])
+      // Sort siblings: Luz first then Gas, within each group by tariff ascending (2.0 → 3.0 → 6.x → RL1...)
+      const sorted = (siblings || []).slice().sort((a, b) => {
+        const typeOrder = (t: string) => t === 'luz' ? 0 : t === 'gas' ? 1 : 2
+        const tDiff = typeOrder(a.type) - typeOrder(b.type)
+        if (tDiff !== 0) return tDiff
+        // Within same type: tariff ascending by numeric prefix then alphabetical
+        const tariffKey = (s: any) => {
+          const t = (s.tariff || '').trim().toUpperCase()
+          if (t.startsWith('2.0') || t.startsWith('20')) return '20'
+          if (t.startsWith('3.0') || t.startsWith('30')) return '30'
+          if (t.startsWith('6.1') || t.startsWith('61')) return '61'
+          if (t.startsWith('6.2') || t.startsWith('62')) return '62'
+          if (t.startsWith('6.3') || t.startsWith('63')) return '63'
+          if (t.startsWith('6.4') || t.startsWith('64')) return '64'
+          if (t.startsWith('6'))   return '60'
+          return t // gas tariffs (RL1, RL2...) sort alphabetically
+        }
+        return tariffKey(a).localeCompare(tariffKey(b))
+      })
+      setSiblingSupplies(sorted)
     }
 
     // ── Auto-refresh SIPS if maxímetros or reactiva are missing (luz only) ──
