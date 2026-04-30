@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { analyzeInvoice } from '@/lib/gemini'
 import { analyzeIdentityDocument } from '@/lib/identityExtractor'
-import { normalizeCups } from '@/lib/utils/cups'
+import { normalizeCups, cupsBase20, sameCupsBase } from '@/lib/utils/cups'
 import { fetchSipsForCups } from '@/lib/sips'
 import { advanceSupplyPipeline } from '@/lib/supply-pipeline'
 import { ensurePendingPrescoring } from '@/lib/ensurePrescoring'
@@ -333,28 +333,38 @@ export async function processTelegramInboxItem(
     : 'luz'
 
   // 5. Try to find existing supply by CUPS
+  // IMPORTANT: match on the 20-char base CUPS (without the optional 2-char ICP/meter suffix).
+  // A 20-char CUPS and a 22-char CUPS that share the same first 20 chars are the SAME supply
+  // point. Using prefix matching (ILIKE 'base%') prevents duplicate supplies when one invoice
+  // has 'ES0021000006751517CW' and another has 'ES0021000006751517CW0F'.
   let supplyId: string | null = null
   let clientId: string | null = null
   let isExistingSupply = false
 
   if (cups && cups.length >= 20) {
+    const base20 = cupsBase20(cups)!
     const { data: existingSupplies } = await supabase
       .from('supplies')
       .select('id, client_id, cups, tariff, address, type, status')
-      .eq('cups', cups)
+      .ilike('cups', `${base20}%`)
       .limit(1)
 
     if (existingSupplies?.length) {
       supplyId = existingSupplies[0].id
       clientId = existingSupplies[0].client_id
       isExistingSupply = true
-      console.log(`[TelegramProcess] Found existing supply ${supplyId} for CUPS ${cups}`)
+      console.log(`[TelegramProcess] Found existing supply ${supplyId} for CUPS ${cups} (base: ${base20})`)
 
       // Patch any missing fields on the existing supply
       const existing = existingSupplies[0] as any
       const patch: Record<string, any> = {}
       if (tariff && !existing.tariff) patch.tariff = tariff
       if (address && !existing.address) patch.address = address
+      // Upgrade stored CUPS from 20-char to 22-char if we now have the full version
+      if (cups.length === 22 && existing.cups?.length === 20) {
+        patch.cups = cups
+        console.log(`[TelegramProcess] Upgrading CUPS from 20→22 chars: ${existing.cups} → ${cups}`)
+      }
       if (Object.keys(patch).length) {
         await supabase.from('supplies').update(patch).eq('id', supplyId)
         console.log(`[TelegramProcess] Patched existing supply ${supplyId}:`, patch)
@@ -511,8 +521,9 @@ export async function processTelegramInboxItem(
       .limit(10)
 
     if (clientSupplies?.length) {
-      // 1st priority: exact CUPS match (shouldn't happen here but safety net)
-      const exactMatch = cups ? clientSupplies.find(s => s.cups === cups) : null
+      // 1st priority: CUPS base-20 match (safety net — handles 20 vs 22-char variants)
+      // sameCupsBase('ES...CW', 'ES...CW0F') → true
+      const exactMatch = cups ? clientSupplies.find(s => s.cups && sameCupsBase(s.cups, cups)) : null
 
       // 2nd priority: supply without CUPS and same type → fill in the gap
       const noCupsMatch = clientSupplies.find(s => !s.cups && (s.type === supplyType || !s.type))

@@ -1,38 +1,50 @@
 /**
  * CUPS (Codigo Universal de Punto de Suministro) utilities
  *
- * Valid Spanish CUPS formats:
- *   Short (20 chars): ES + 16 digits + 2 control letters
- *   Long  (22 chars): ES + 16 digits + 2 control letters + 2 suffix chars (e.g. "0F")
+ * Canonical format: always 22 chars
+ *   ES (2) + distributor code (4) + 12-digit supply point + 2 control letters + 2 suffix (e.g. "0F")
  *
- * INVALID lengths: 19, 21, 23 chars — these are always truncated extractions.
+ * Other lengths handled:
+ *   20 chars → valid (older invoices omit the 2-char ICP/meter suffix)
+ *   24 chars → Gemini/OCR picked up 2 extra chars — strip last 2 → 22 chars
+ *   19, 21, 23 chars → always truncation errors, rejected
  *
- * DB storage: always store the FULL CUPS as it appears on the invoice (20 or 22 chars).
- * SIPS queries: use cupsBase20() to strip the suffix for API calls that need just 20 chars.
+ * IMPORTANT: a 20-char and 22-char CUPS that share the same first 20 chars are
+ * THE SAME supply point. Always use cupsBase20() when querying the DB so both
+ * variants match the same supply (ILIKE 'ES...base20...%').
+ *
+ * DB storage: store the longest version seen (prefer 22 over 20).
+ * SIPS queries: use cupsBase20() — the SIPS API only accepts the base 20-char form.
  */
 
-/** Full CUPS regex: 20 or 22 chars */
-const CUPS_REGEX_FULL = /^ES[A-Z0-9]{18}([A-Z0-9]{2})?$/
-
 /**
- * Normalize a CUPS code to its canonical form, preserving the full 20- or 22-char length.
+ * Normalize a CUPS code to its canonical form.
  *
- * - Trims whitespace and converts to uppercase
- * - Rejects CUPS with odd character count (19, 21, 23 chars) — always truncation errors
- * - Accepts 20 chars (standard) or 22 chars (with suffix like "0F")
- * - Returns null if the string is clearly not a valid CUPS
+ * Rules:
+ *   - Strips whitespace, converts to uppercase
+ *   - 24 chars → truncated to 22 (Gemini sometimes appends 2 extra characters)
+ *   - Rejects odd-length CUPS (19, 21, 23) — always OCR truncation errors
+ *   - Accepts 20 chars (standard without suffix) or 22 chars (with ICP suffix)
+ *   - Returns null if not a recognisable CUPS
  */
 export function normalizeCups(cups: string | null | undefined): string | null {
   if (!cups) return null
-  const clean = cups.trim().toUpperCase().replace(/\s+/g, '')
+  let clean = cups.trim().toUpperCase().replace(/\s+/g, '')
 
   if (!clean.startsWith('ES')) return null
   if (clean.length < 18 || clean.length > 24) return null
 
+  // 24 chars: OCR/Gemini sometimes captures 2 extra characters after the 22-char CUPS.
+  // Business rule: strip the last 2 to recover the canonical 22-char form.
+  if (clean.length === 24) {
+    clean = clean.substring(0, 22)
+    console.log(`[normalizeCups] Truncated 24-char CUPS to 22: ${clean}`)
+  }
+
   // Odd-length CUPS are always truncation errors (19, 21, 23 chars):
-  // A 21-char CUPS is a 22-char CUPS missing its last character.
-  // A 19-char CUPS is a 20-char CUPS missing its last character.
-  // Reject them — better to store null than a wrong CUPS that creates duplicate supplies.
+  //   21-char → 22-char with last char missing
+  //   19-char → 20-char with last char missing
+  // Reject — better to store null than a wrong CUPS that creates duplicate supplies.
   if (clean.length % 2 !== 0) {
     console.warn(`[normalizeCups] Rejected odd-length CUPS (${clean.length} chars, likely truncated): ${clean}`)
     return null
@@ -51,13 +63,29 @@ export function normalizeCups(cups: string | null | undefined): string | null {
 }
 
 /**
- * Return the 20-char base CUPS (strips the optional 2-char suffix).
- * Use this for SIPS API queries that only accept the base format.
+ * Return the 20-char base CUPS (strips the optional 2-char ICP/meter suffix).
+ *
+ * USE THIS for:
+ *   - All DB supply lookups: .ilike('cups', cupsBase20(cups) + '%')
+ *   - SIPS API queries (the SIPS API only accepts the 20-char base form)
+ *   - Comparing two CUPS that might differ only in their suffix
+ *
+ * Example: cupsBase20('ES0021000006751517CW0F') === cupsBase20('ES0021000006751517CW')
+ *          → both return 'ES0021000006751517CW'
  */
 export function cupsBase20(cups: string | null | undefined): string | null {
   const normalized = normalizeCups(cups)
   if (!normalized) return null
   return normalized.substring(0, 20)
+}
+
+/**
+ * True if two CUPS refer to the same supply point (ignoring the optional 2-char suffix).
+ */
+export function sameCupsBase(a: string | null | undefined, b: string | null | undefined): boolean {
+  const baseA = cupsBase20(a)
+  const baseB = cupsBase20(b)
+  return !!baseA && !!baseB && baseA === baseB
 }
 
 /**

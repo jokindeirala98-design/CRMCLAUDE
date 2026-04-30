@@ -5,7 +5,7 @@ import {
 } from '@/lib/telegram'
 import { processTelegramInboxItem } from '@/lib/telegram-process'
 import { analyzeDocument, analyzeInvoice } from '@/lib/gemini'
-import { normalizeCups } from '@/lib/utils/cups'
+import { normalizeCups, cupsBase20 } from '@/lib/utils/cups'
 import { fetchSipsForCups } from '@/lib/sips'
 import { normalizeTariff } from '@/lib/consumption-utils'
 
@@ -1217,10 +1217,13 @@ async function handleCupsText(chatId: number, cups: string, user: { userId: stri
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
 
   // 1. Check if supply already exists
+  // Use base-20 prefix match so both 20-char and 22-char variants of the same CUPS resolve
+  // to the same supply (e.g. ES0021000006751517CW and ES0021000006751517CW0F are the same point)
+  const cupsBase = cupsBase20(cups) || cups
   const { data: existing } = await supabase
     .from('supplies')
     .select('id, cups, tariff, type, status, client:clients(name)')
-    .eq('cups', cups)
+    .ilike('cups', `${cupsBase}%`)
     .limit(1)
     .maybeSingle()
 
@@ -1331,7 +1334,7 @@ async function createSupplyFromCups(
   if (supplyErr) {
     // Race condition: supply created between check and insert
     if (supplyErr.code === '23505' || supplyErr.message?.includes('unique') || supplyErr.message?.includes('duplicate')) {
-      const { data: conflict } = await supabase.from('supplies').select('id').eq('cups', cups).limit(1).single()
+      const { data: conflict } = await supabase.from('supplies').select('id').ilike('cups', `${cupsBase}%`).limit(1).single()
       return sendMessage(chatId,
         `ℹ️ El suministro ya existía (creado mientras procesaba).\n\n` +
         `<a href="${appUrl}/supplies/${conflict?.id}">Ver en CRM →</a>`
