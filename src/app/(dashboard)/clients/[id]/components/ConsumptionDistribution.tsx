@@ -113,11 +113,12 @@ export default function ConsumptionDistribution({ clientId, supplies }: Props) {
     setSyncing(false)
   }
 
-  // Batch SIPS sync for all supplies of this client
+  // Batch SIPS sync for all supplies of this client, then rebuild snapshots
   const syncSips = async (force = false) => {
     setSyncingSips(true)
     setSipsResult(null)
     try {
+      // Step 1: fetch SIPS for supplies without data (or all if force=true)
       const res = await fetch('/api/batch-sips-sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -126,13 +127,27 @@ export default function ConsumptionDistribution({ clientId, supplies }: Props) {
       const data = await res.json()
       if (res.ok) {
         setSipsResult({ synced: data.synced, total: data.total })
-        await fetchRows()
       } else {
-        console.error('[syncSips]', data.error)
+        console.error('[syncSips] batch-sips-sync error:', data.error)
       }
     } catch (e) {
       console.error('[syncSips]', e)
     }
+
+    // Step 2: always rebuild snapshots (catches any case where batch-sips-sync
+    // internal sync-consumption call failed or was skipped)
+    try {
+      await fetch('/api/sync-consumption', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: clientId }),
+      })
+    } catch (e) {
+      console.error('[syncSips] sync-consumption error:', e)
+    }
+
+    // Step 3: refresh rows from DB
+    await fetchRows()
     setSyncingSips(false)
   }
 
@@ -203,8 +218,14 @@ export default function ConsumptionDistribution({ clientId, supplies }: Props) {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={fetchRows} title="Actualizar">
-            <RefreshCw className="w-3.5 h-3.5" />
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => syncSips(false)}
+            disabled={syncingSips}
+            title="Recargar datos (sincroniza SIPS y reconstruye tabla)"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${syncingSips ? 'animate-spin' : ''}`} />
           </Button>
 
           {rows.length > 0 && (

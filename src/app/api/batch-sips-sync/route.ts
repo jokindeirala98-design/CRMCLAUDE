@@ -46,12 +46,12 @@ export async function POST(req: NextRequest) {
 
     const supabase = await createServerSupabaseClient()
 
-    // Get all luz supplies for the client
+    // Get all luz supplies for the client (column name is 'type', not 'supply_type')
     const { data: supplies, error: supErr } = await supabase
       .from('supplies')
       .select('id, cups, tariff, consumption_data')
       .eq('client_id', client_id)
-      .eq('supply_type', 'luz')
+      .eq('type', 'luz')
 
     if (supErr) {
       return NextResponse.json({ error: supErr.message }, { status: 500 })
