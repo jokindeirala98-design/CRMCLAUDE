@@ -282,6 +282,8 @@ export default function PrescoringsPage() {
   const [showExportMenu, setShowExportMenu] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [regenerating, setRegenerating] = useState(false)
+  const [regenResult, setRegenResult] = useState<string | null>(null)
   const exportMenuRef = useRef<HTMLDivElement>(null)
 
   const supabase = createClient()
@@ -406,6 +408,30 @@ export default function PrescoringsPage() {
       item.id === p.id ? { ...item, status: 'sent' as PrescoringStatus, sent_at: now, resolved_at: null } : item
     ))
     setSaving(null)
+  }
+
+  // ---- REGENERATE MISSING PRESCORINGS ----
+  const regenerateAll = async () => {
+    setRegenerating(true)
+    setRegenResult(null)
+    try {
+      const res = await fetch('/api/bulk-ensure-prescorings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setRegenResult(`✓ ${data.created} nuevos · ${data.skipped} omitidos`)
+        if (data.created > 0) await fetchData()
+      } else {
+        setRegenResult(`Error: ${data.error}`)
+      }
+    } catch (e: any) {
+      setRegenResult(`Error: ${e.message}`)
+    }
+    setRegenerating(false)
+    setTimeout(() => setRegenResult(null), 5000)
   }
 
   // ---- SEND ALL PENDING ----
@@ -539,6 +565,27 @@ export default function PrescoringsPage() {
                 <span className="sm:hidden">Todos</span>
               </button>
             )}
+
+            {/* Regenerate button */}
+            <div className="relative">
+              <button
+                onClick={regenerateAll}
+                disabled={regenerating}
+                className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold text-ink bg-bg-2 hover:bg-bg-2 rounded-lg transition-all"
+                title="Genera prescorings para suministros que aún no tienen uno"
+              >
+                {regenerating
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <RefreshCw className="w-3.5 h-3.5" />
+                }
+                <span className="hidden sm:inline">Regenerar</span>
+              </button>
+              {regenResult && (
+                <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-ambient-lg border border-line-2-variant/20 px-3 py-2 text-xs whitespace-nowrap z-20 text-ink">
+                  {regenResult}
+                </div>
+              )}
+            </div>
 
             {/* Export dropdown */}
             <div className="relative" ref={exportMenuRef}>
