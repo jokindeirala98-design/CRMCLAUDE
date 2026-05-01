@@ -3562,38 +3562,66 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
             onClick={() => setShowAvgPriceModal(false)}>
             <motion.div initial={{ scale: 0.95, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 20 }}
               className="rounded-2xl p-6 max-w-md w-full mx-4 max-h-[70vh] overflow-y-auto" style={glassStyle} onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-4">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-5">
                 <div>
-                  <h3 className="text-lg font-bold text-white">Precio Promedio</h3>
-                  <p className="text-white/40 text-xs">Media por periodo · {selectedMonths.size} meses seleccionados</p>
+                  <h3 className="text-lg font-bold text-[#2D3A33]">Precio Promedio</h3>
+                  <p className="text-[#8A9A8E] text-xs mt-0.5">
+                    Coste medio por periodo · {selectedMonths.size} {selectedMonths.size === 1 ? 'mes' : 'meses'}
+                  </p>
                 </div>
-                <button onClick={() => setShowAvgPriceModal(false)} className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20">
-                  <X className="w-4 h-4 text-white/60" />
+                <button
+                  onClick={() => setShowAvgPriceModal(false)}
+                  className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#E5DCC9]/60 transition-colors"
+                >
+                  <X className="w-4 h-4 text-[#5A6B5F]" />
                 </button>
               </div>
 
-              <div className="space-y-2 mb-4">
-                {averagePriceStats.map(ps => (
-                  <div key={ps.period} className="flex items-center justify-between px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08] transition">
+              {/* Period rows */}
+              <div className="space-y-1.5 mb-5">
+                {(averagePriceStats as any[]).map((ps: any) => (
+                  <div key={ps.period}
+                    className="flex items-center justify-between px-4 py-3 rounded-xl border transition-colors"
+                    style={{ background: '#FDFAF4', borderColor: '#E5DCC9' }}
+                  >
                     <div className="flex items-center gap-3">
-                      <span className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold" style={{ background: PERIOD_COLORS[ps.period] + '30', color: PERIOD_COLORS[ps.period] }}>{ps.period}</span>
-                      <span className="text-white/50 text-sm">{ps.totalKwh > 0 ? `${fmt(ps.totalKwh, 0)} kWh` : 'Sin consumo'}</span>
+                      <span className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0"
+                        style={{ background: (PERIOD_COLORS[ps.period] || '#6B8068') + '22', color: PERIOD_COLORS[ps.period] || '#6B8068' }}>
+                        {ps.period}
+                      </span>
+                      <span className="text-[#5A6B5F] text-sm">
+                        {ps.totalKwh > 0
+                          ? <>{fmt(ps.totalKwh, 0)} <span className="text-[#8A9A8E] text-xs">kWh</span></>
+                          : <span className="text-[#B0BDB5] italic text-xs">Sin consumo</span>
+                        }
+                      </span>
                     </div>
-                    <span className="text-white font-bold text-sm">{ps.totalKwh > 0 ? `${fmt(ps.avgPrice, 4)} €/kWh` : '—'}</span>
+                    <span className="text-[#2D3A33] font-bold text-sm tabular-nums">
+                      {ps.totalKwh > 0 ? `${fmt(ps.avgPrice, 4)} €/kWh` : '—'}
+                    </span>
                   </div>
                 ))}
               </div>
 
-              <div className="rounded-xl p-4 bg-teal-600/10 border border-teal-500/30">
-                <p className="text-teal-300 text-xs tracking-wider mb-1">PRECIO PROMEDIO TOTAL</p>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-white/50 text-xs">costeTotalConsumo ÷ consumoTotalKwh</p>
-                    <p className="text-white/30 text-xs mt-1">{fmt(summaryStats.energetic)} € ÷ {fmt(summaryStats.kwh, 0)} kWh</p>
+              {/* Footer: precio promedio total */}
+              <div className="rounded-xl p-4 border" style={{ background: '#EDF4F0', borderColor: '#B2D4C4' }}>
+                <p className="text-[#3A7A5E] text-[10px] font-bold tracking-[0.2em] uppercase mb-3">Precio Promedio Total</p>
+                <div className="flex items-end justify-between gap-4">
+                  <div className="space-y-1">
+                    <p className="text-[#5A6B5F] text-xs">
+                      <span className="font-medium text-[#2D3A33]">{fmt(summaryStats.energetic)} €</span>
+                      <span className="text-[#8A9A8E] mx-1.5">÷</span>
+                      <span className="font-medium text-[#2D3A33]">{fmt(summaryStats.kwh, 0)} kWh</span>
+                    </p>
+                    <p className="text-[#8A9A8E] text-[11px]">
+                      Coste energético ÷ consumo total
+                    </p>
                   </div>
-                  <p className="text-teal-400 text-2xl font-black">{fmt(summaryStats.precioPromedio, 4)}</p>
+                  <p className="text-[#3A7A5E] text-2xl font-black tabular-nums flex-shrink-0">
+                    {fmt(summaryStats.precioPromedio, 4)} <span className="text-sm font-normal text-[#5A8A72]">€/kWh</span>
+                  </p>
                 </div>
-                <p className="text-white/30 text-xs mt-2">{averagePriceStats.filter(p => p.totalKwh > 0).length} periodos con consumo</p>
               </div>
             </motion.div>
           </motion.div>

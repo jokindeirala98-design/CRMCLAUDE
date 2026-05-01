@@ -66,8 +66,9 @@ export async function POST(req: NextRequest) {
       ...(supply.consumption_data || {}),
       source: 'greening_sips',
       fetched_at: new Date().toISOString(),
-      consumoPeriodos: sipsData.consumoPeriodos,
-      potenciaContratada: sipsData.potenciaContratada,
+      // undefined means artifact was discarded — store null explicitly so it clears stale values
+      consumoPeriodos: sipsData.consumoPeriodos ?? null,
+      potenciaContratada: sipsData.potenciaContratada ?? null,
       totalKwh: bestTotalKwh,
       total: sipsData.totalConsumption,
       history: sipsData.consumptionHistory,
@@ -111,6 +112,14 @@ export async function POST(req: NextRequest) {
       snapshotUpdate.potencia_p4 = pp.P4 ?? null
       snapshotUpdate.potencia_p5 = pp.P5 ?? null
       snapshotUpdate.potencia_p6 = pp.P6 ?? null
+    } else {
+      // potenciaContratada was discarded as artifact — clear previously stored bad values
+      snapshotUpdate.potencia_p1 = null
+      snapshotUpdate.potencia_p2 = null
+      snapshotUpdate.potencia_p3 = null
+      snapshotUpdate.potencia_p4 = null
+      snapshotUpdate.potencia_p5 = null
+      snapshotUpdate.potencia_p6 = null
     }
 
     if (cp) {
@@ -122,11 +131,16 @@ export async function POST(req: NextRequest) {
       snapshotUpdate.consumo_p6 = cp.P6 ?? null
     }
 
-    if (sipsData.totalConsumptionKwh) {
-      snapshotUpdate.consumo_total = sipsData.totalConsumptionKwh
-    } else if (cp) {
+    // consumo_total: prefer consumoPeriodos sum (measured), fall back to ConsumoEstimado
+    if (cp) {
       const sum = (cp.P1||0) + (cp.P2||0) + (cp.P3||0) + (cp.P4||0) + (cp.P5||0) + (cp.P6||0)
-      if (sum > 0) snapshotUpdate.consumo_total = sum
+      if (sum > 0) {
+        snapshotUpdate.consumo_total = sum
+      } else if (sipsData.totalConsumptionKwh && sipsData.totalConsumptionKwh > 0) {
+        snapshotUpdate.consumo_total = sipsData.totalConsumptionKwh
+      }
+    } else if (sipsData.totalConsumptionKwh && sipsData.totalConsumptionKwh > 0) {
+      snapshotUpdate.consumo_total = sipsData.totalConsumptionKwh
     }
 
     if (sipsData.tariff) {

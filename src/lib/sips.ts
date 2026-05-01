@@ -219,12 +219,12 @@ export async function fetchSipsData(cups: string, token: string): Promise<SipsDa
       P5: Number(raw.PotenciasContratadasEnWP5 || 0) / 1000,
       P6: Number(raw.PotenciasContratadasEnWP6 || 0) / 1000,
     }
-    // Sanity-check: SIPS sometimes stores artifact values like 3 (Watts) for periods
-    // that should be 0 in a 2.0TD. After dividing by 1000 this becomes 0.003 kW —
-    // clearly wrong. Discard any value < 0.05 kW that is also < 1% of P1.
-    const p1Ref = rawPotW.P1
-    for (const k of ['P2', 'P3', 'P4', 'P5', 'P6'] as const) {
-      if (rawPotW[k] > 0 && rawPotW[k] < 0.05 && (p1Ref === 0 || rawPotW[k] < p1Ref * 0.01)) {
+    // Sanity-check: SIPS sometimes returns placeholder values (e.g. 35 W → 0.035 kW after ÷1000)
+    // for supplies where the distributor has no real data. In Spain the minimum contracted
+    // power for any tariff is ~1.15 kW (CNMC), so any value < 0.5 kW is an artifact.
+    // Zero out ALL periods — including P1 — if individually < 0.5 kW.
+    for (const k of ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'] as const) {
+      if (rawPotW[k] > 0 && rawPotW[k] < 0.5) {
         rawPotW[k] = 0
       }
     }
@@ -276,6 +276,29 @@ export async function fetchSipsData(cups: string, token: string): Promise<SipsDa
       const p4 = Math.round((entry.P4||0)/div), p5 = Math.round((entry.P5||0)/div), p6 = Math.round((entry.P6||0)/div)
       return { fecha: entry.Fecha, P1: p1, P2: p2, P3: p3, P4: p4, P5: p5, P6: p6, total: p1+p2+p3+p4+p5+p6 }
     })
+  }
+
+  // ── Final global sanity check on potenciaContratada ────────────────────────
+  // Even after per-period filtering, both endpoints (/info + raw) can agree on
+  // artifact values (e.g. all periods = 0.035 kW from the distributor placeholder).
+  // If the maximum contracted power across all periods is still < 0.5 kW, the entire
+  // block is unreliable — discard it so the UI shows "—" instead of misleading data.
+  if (result.potenciaContratada) {
+    const maxPot = Math.max(...Object.values(result.potenciaContratada))
+    if (maxPot > 0 && maxPot < 0.5) {
+      console.warn(`[SIPS] Discarding suspiciously small potenciaContratada (max ${maxPot} kW) for ${cups}`)
+      result.potenciaContratada = undefined
+    }
+  }
+
+  // ── Sanity check on consumoPeriodos ────────────────────────────────────────
+  // If all ConsumoPeriodos values are 0 AND ConsumoEstimado is also 0, clear
+  // consumoPeriodos so it doesn't overwrite valid data from ConsumosSips.
+  if (result.consumoPeriodos) {
+    const sumCP = Object.values(result.consumoPeriodos).reduce((s, v) => s + (Number(v) || 0), 0)
+    if (sumCP === 0) {
+      result.consumoPeriodos = undefined
+    }
   }
 
   return result
