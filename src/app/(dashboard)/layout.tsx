@@ -11,6 +11,49 @@ import { UploadProgress } from '@/components/ui/UploadProgress'
 import { motion, AnimatePresence } from 'framer-motion'
 import { usePathname } from 'next/navigation'
 
+// ── Arrow-key history navigation ─────────────────────────────────────────────
+// ← flecha izquierda → historia atrás  |  → flecha derecha → historia adelante
+// No se activa si el foco está en un campo editable o si hay modificadores.
+function useArrowKeyNavigation() {
+  const [hint, setHint] = useState<'back' | 'forward' | null>(null)
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>
+
+    const handler = (e: KeyboardEvent) => {
+      // Ignorar si hay modificadores (Ctrl, Alt, Meta, Shift)
+      if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return
+
+      // Ignorar si el foco está en un campo editable
+      const tag = (e.target as HTMLElement)?.tagName
+      const editable = (e.target as HTMLElement)?.isContentEditable
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || editable) return
+
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        window.history.back()
+        setHint('back')
+        clearTimeout(timer)
+        timer = setTimeout(() => setHint(null), 800)
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        window.history.forward()
+        setHint('forward')
+        clearTimeout(timer)
+        timer = setTimeout(() => setHint(null), 800)
+      }
+    }
+
+    window.addEventListener('keydown', handler)
+    return () => {
+      window.removeEventListener('keydown', handler)
+      clearTimeout(timer)
+    }
+  }, [])
+
+  return hint
+}
+
 // ── Fullscreen toggle ─────────────────────────────────────────────────────────
 // Doble clic en cualquier zona no interactiva ↔ pantalla completa (Fullscreen API).
 // Escape sale automáticamente (lo gestiona el navegador).
@@ -62,6 +105,7 @@ export default function DashboardLayout({
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const pathname = usePathname()
   const isFullscreen = useFullscreenOnDblClick()
+  const arrowHint = useArrowKeyNavigation()
 
   return (
     <AuthProvider>
@@ -91,6 +135,29 @@ export default function DashboardLayout({
           
           <GlobalSearch />
           <UploadProgress />
+
+          {/* Indicador de navegación con flechas ← → */}
+          <AnimatePresence>
+            {arrowHint && (
+              <motion.div
+                key={`arrow-${arrowHint}`}
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                transition={{ duration: 0.15 }}
+                style={{
+                  position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)',
+                  zIndex: 99998, pointerEvents: 'none',
+                  background: 'rgba(45,58,51,0.72)', backdropFilter: 'blur(8px)',
+                  color: '#E0E8DC', borderRadius: 10, padding: '6px 16px',
+                  fontSize: 12, fontFamily: 'monospace', fontWeight: 600,
+                  letterSpacing: '0.04em', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 8,
+                }}
+              >
+                {arrowHint === 'back' ? '← Atrás' : 'Adelante →'}
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Indicador de pantalla completa — aparece 2 s al entrar, luego desaparece */}
           <AnimatePresence>
