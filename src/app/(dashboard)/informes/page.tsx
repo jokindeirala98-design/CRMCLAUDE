@@ -111,6 +111,22 @@ function fmtKwh(val: number): string {
   return `${val.toLocaleString('es-ES', { maximumFractionDigits: 0 })} kWh/año`
 }
 
+/** Compute average energy price (€/kWh, IVA included) from processed invoices */
+function extractAvgEnergyPrice(invoices: PendingSupply['invoices']): number {
+  let totalKwh = 0, totalEnergy = 0
+  for (const inv of invoices) {
+    const eco = (inv.extracted_data as any)?.economics
+    if (!eco) continue
+    const kwh = Number(eco.consumoTotalKwh) || 0
+    // Use net cost: costeNetoConsumo (after discount), else costeTotalConsumo, else gross
+    const eur = Number(eco.costeNetoConsumo || eco.costeTotalConsumo || eco.costeBrutoConsumo) || 0
+    if (kwh > 0 && eur > 0) { totalKwh += kwh; totalEnergy += eur }
+  }
+  if (totalKwh <= 0) return 0
+  // costeTotalConsumo is net of energy; add IVA 21% to match what the comparativa expects
+  return totalEnergy / totalKwh
+}
+
 const PERIOD_KEYS_FE = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6']
 
 function extractConsumptionByPeriod(cd: Record<string, unknown> | null, periodCount: number): number[] {
@@ -522,6 +538,7 @@ export default function InformesPage() {
               getPeriodCount(economicStudySupply.tariff || '3.0TD'),
               economicStudySupply.power_study_result,
             )}
+            currentAvgEnergyPrice={extractAvgEnergyPrice(economicStudySupply.invoices)}
             autoSave={true}
             onClose={() => setEconomicStudySupply(null)}
             onSaved={() => {

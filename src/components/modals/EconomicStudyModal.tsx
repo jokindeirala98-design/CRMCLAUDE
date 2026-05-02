@@ -155,7 +155,7 @@ function open2TDPdf(params: {
 function Comparativa2TDView({
   cups, clientName, supplyId, autoSave,
   consumo, potencia,
-  currentEnergyPrice, currentPowerP1, currentPowerP2,
+  currentEnergyPrice: propsEnergyPrice, currentPowerP1, currentPowerP2,
 }: {
   cups: string; clientName: string
   supplyId?: string; autoSave?: boolean
@@ -164,8 +164,16 @@ function Comparativa2TDView({
   currentEnergyPrice: number; currentPowerP1: number; currentPowerP2: number
 }) {
   const [downloading, setDownloading] = useState<VoltisKey2TD | null>(null)
+  // When no invoice price is available, let the user type it manually
+  const [manualPrice, setManualPrice] = useState('')
 
   const totalKwh = consumo.P1 + consumo.P2 + consumo.P3
+  const hasSipsData = totalKwh > 0
+
+  // Effective energy price: from invoices if available, otherwise manual input
+  const currentEnergyPrice = propsEnergyPrice > 0
+    ? propsEnergyPrice
+    : (parseFloat(manualPrice.replace(',', '.')) || 0)
 
   const results = (Object.keys(VOLTIS_TARIFFS_2TD) as VoltisKey2TD[]).map(key => ({
     key,
@@ -173,18 +181,50 @@ function Comparativa2TDView({
     result: compute2TDSavings(consumo, potencia, currentEnergyPrice, currentPowerP1, currentPowerP2, key),
   })).sort((a, b) => b.result.savings.totalAnnual - a.result.savings.totalAnnual)
 
-  const hasEnoughData = totalKwh > 0 && currentEnergyPrice > 0
-
-  if (!hasEnoughData) {
+  // No SIPS data at all → hard stop
+  if (!hasSipsData) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-10 text-center px-6">
         <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: '#E5DCC9' }}>
           <Zap className="w-6 h-6" style={{ color: '#8A9A8E' }} />
         </div>
-        <p className="text-sm font-semibold" style={{ color: '#2D3A33' }}>Datos insuficientes</p>
+        <p className="text-sm font-semibold" style={{ color: '#2D3A33' }}>Sin datos de consumo SIPS</p>
         <p className="text-xs" style={{ color: '#5A6B5F' }}>
-          Necesitas datos de consumo SIPS y al menos una factura procesada para calcular el ahorro.
+          Importa los datos SIPS del suministro para calcular el ahorro estimado.
         </p>
+      </div>
+    )
+  }
+
+  // Has SIPS data but no invoice energy price → ask for manual price
+  if (propsEnergyPrice <= 0 && currentEnergyPrice <= 0) {
+    return (
+      <div className="px-6 py-8 space-y-5">
+        <div className="rounded-xl p-3 text-xs" style={{ background: '#E0E8DC', border: '1px solid #C8D8C4' }}>
+          <p style={{ color: '#5A6E58' }}>
+            <strong>Consumo SIPS:</strong> {Math.round(totalKwh).toLocaleString('es-ES')} kWh/año
+            (P1 {Math.round(consumo.P1).toLocaleString('es-ES')} · P2 {Math.round(consumo.P2).toLocaleString('es-ES')} · P3 {Math.round(consumo.P3).toLocaleString('es-ES')})
+          </p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold mb-2" style={{ color: '#2D3A33' }}>
+            Precio medio actual (€/kWh) <span style={{ color: '#8A9A8E' }}>— no hay facturas procesadas</span>
+          </p>
+          <div className="flex items-center gap-3">
+            <input
+              type="text"
+              value={manualPrice}
+              onChange={e => setManualPrice(e.target.value)}
+              placeholder="Ej: 0.1850"
+              className="flex-1 px-4 py-2.5 rounded-xl text-sm border outline-none font-mono"
+              style={{ borderColor: '#E5DCC9', background: '#FBF7EE', color: '#2D3A33' }}
+            />
+            <span className="text-sm font-bold" style={{ color: '#5A6B5F' }}>€/kWh</span>
+          </div>
+          <p className="text-[10px] mt-2" style={{ color: '#8A9A8E' }}>
+            Introduce el precio medio de energía actual (IVA incluido) para calcular el ahorro estimado.
+          </p>
+        </div>
       </div>
     )
   }

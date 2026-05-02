@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   Users, Zap, CreditCard, Euro, TrendingUp, AlertCircle,
   CheckCircle2, Clock, Activity, ChevronRight, FileBarChart2,
-  Circle, Check, Loader2,
+  Circle, Check, Loader2, ClipboardCheck,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Header } from '@/components/layout/Header'
@@ -93,7 +93,7 @@ function getRelativeTime(date: string | Date): string {
 // ---- Main Component ----
 export default function PanelPage() {
   const router = useRouter()
-  const { user } = useAuthStore()
+  const { user, hasPermission } = useAuthStore()
   const [loading, setLoading] = useState(true)
   const [loadingTasks, setLoadingTasks] = useState(true)
 
@@ -113,6 +113,10 @@ export default function PanelPage() {
   const [tasks, setTasks] = useState<TaskWithUser[]>([])
   const [notifications, setNotifications] = useState<NotificationWithMetadata[]>([])
   const [completedStudies, setCompletedStudies] = useState<any[]>([])
+
+  // Prescoring alert
+  const [pendingPrescoringCount, setPendingPrescoringCount] = useState(0)
+  const [prescoringAlertDismissed, setPrescoringAlertDismissed] = useState(false)
 
   // Fetch all metrics in parallel
   const fetchMetrics = useCallback(async () => {
@@ -202,6 +206,26 @@ export default function PanelPage() {
       setLoading(false)
     }
   }, [])
+
+  // Fetch pending prescorings count
+  const fetchPendingPrescorings = useCallback(async () => {
+    if (!hasPermission('prescorings')) return
+    const supabase = createClient()
+    try {
+      const { count } = await supabase
+        .from('prescorings')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'pending')
+      const newCount = count || 0
+      // If count increased (new prescoring added), un-dismiss the alert
+      setPendingPrescoringCount(prev => {
+        if (newCount > prev) setPrescoringAlertDismissed(false)
+        return newCount
+      })
+    } catch (error) {
+      console.error('Error fetching pending prescorings:', error)
+    }
+  }, [hasPermission])
 
   // Fetch tasks
   const fetchTasks = useCallback(async () => {
@@ -331,7 +355,21 @@ export default function PanelPage() {
     fetchMetrics()
     fetchTasks()
     fetchNotifications()
-  }, [fetchMetrics, fetchTasks, fetchNotifications])
+    fetchPendingPrescorings()
+  }, [fetchMetrics, fetchTasks, fetchNotifications, fetchPendingPrescorings])
+
+  // Realtime subscription for prescorings
+  useEffect(() => {
+    if (!hasPermission('prescorings')) return
+    const supabase = createClient()
+    const channel = supabase
+      .channel('prescorings-panel')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'prescorings' }, () => {
+        fetchPendingPrescorings()
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [hasPermission, fetchPendingPrescorings])
 
   // Metric cards config — colors map to semantic tokens
   const metricCards: MetricCard[] = [
@@ -508,7 +546,7 @@ export default function PanelPage() {
                     <div key={i} className="h-11 bg-bg-2 rounded-lg animate-pulse" />
                   ))}
                 </div>
-              ) : tasks.length === 0 ? (
+              ) : tasks.length === 0 && (pendingPrescoringCount === 0 || prescoringAlertDismissed) ? (
                 <div className="py-8 text-center">
                   <CheckCircle2 className="w-7 h-7 mx-auto mb-2 text-ink-4" />
                   <p className="text-sm font-medium text-ink-3">Aún no hay tareas pendientes</p>
@@ -516,6 +554,39 @@ export default function PanelPage() {
                 </div>
               ) : (
                 <div className="space-y-1.5">
+                  {/* Prescoring alert */}
+                  <AnimatePresence>
+                    {hasPermission('prescorings') && pendingPrescoringCount > 0 && !prescoringAlertDismissed && (
+                      <motion.div
+                        key="prescoring-alert"
+                        initial={{ opacity: 0, x: -8 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: 16, height: 0 }}
+                        className="p-3 rounded-lg border cursor-pointer transition-all bg-warn-container/50 border-warn/30 hover:bg-warn-container"
+                        onClick={() => router.push('/prescorings')}
+                      >
+                        <div className="flex items-start gap-2.5">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setPrescoringAlertDismissed(true) }}
+                            className="mt-0.5 flex-shrink-0 w-4.5 h-4.5 rounded-full border-2 border-warn hover:bg-warn flex items-center justify-center transition-all group/check"
+                            title="Marcar como hecho"
+                          >
+                            <Check className="w-2.5 h-2.5 text-transparent group-hover/check:text-white transition-colors" />
+                          </button>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-warn line-clamp-1 flex items-center gap-1.5">
+                              <ClipboardCheck className="w-3.5 h-3.5 flex-shrink-0" />
+                              Prescorings pendientes — {pendingPrescoringCount} por enviar
+                            </p>
+                            <p className="text-xs text-warn opacity-70 mt-0.5">
+                              Hay suministros esperando prescoring
+                            </p>
+                          </div>
+                          <ChevronRight className="w-3.5 h-3.5 text-warn opacity-50 flex-shrink-0 mt-0.5" />
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                   {tasks.map((task) => {
                     const ps = priorityStyles(task.priority)
                     return (
