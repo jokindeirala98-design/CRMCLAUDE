@@ -763,10 +763,20 @@ async function processSupply(
       void fetchSipsForCups(parsed.cups, 'luz').then(async (sipsData) => {
         if (!sipsData) return
         const sipsNormalizedTariff = sipsData.tariff ? (normalizeTariffLib(sipsData.tariff) || sipsData.tariff) : null
+        // When SIPS returns consumoPeriodos (annual breakdown by period), recalculate
+        // totalKwh from those values so it reflects the official SIPS annual figure,
+        // NOT the invoice-derived sum (which may cover fewer than 12 months).
+        const sipsConsumoPeriodos = sipsData.consumoPeriodos
+        const sipsTotalKwh = sipsConsumoPeriodos
+          ? Object.values(sipsConsumoPeriodos as Record<string, number>).reduce((a, b) => a + b, 0)
+          : null
+
         const merged = {
           ...annualData,
           ...(sipsData.potenciaContratada ? { potenciaContratada: sipsData.potenciaContratada } : {}),
-          ...(sipsData.consumoPeriodos ? { consumoPeriodos: sipsData.consumoPeriodos } : {}),
+          ...(sipsConsumoPeriodos ? { consumoPeriodos: sipsConsumoPeriodos } : {}),
+          // Override totalKwh with the authoritative SIPS annual sum
+          ...(sipsTotalKwh && sipsTotalKwh > 0 ? { totalKwh: sipsTotalKwh } : {}),
           source: 'excel_import_with_sips',
           fetched_at: new Date().toISOString(),
           sips_tariff: sipsData.tariff,
