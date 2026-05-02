@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Save } from 'lucide-react'
+import { ArrowLeft, Save, Loader2, Sparkles } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -10,6 +10,8 @@ import { Input, Select } from '@/components/ui/Input'
 import { FileUpload } from '@/components/ui/FileUpload'
 import { createClient } from '@/lib/supabase/client'
 import type { ClientType, ClientOrigin } from '@/types/database'
+
+type ExtractingField = 'nif' | 'cif' | 'iban' | null
 
 export default function EditClientPage() {
   const { id } = useParams()
@@ -36,16 +38,12 @@ export default function EditClientPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
-
-  useEffect(() => {
-    // Auto-run migration to add alias column (no-op if already exists)
-    fetch('/api/migrate-client-alias', { method: 'POST' }).catch(() => {})
-  }, [])
+  const [extracting, setExtracting] = useState<ExtractingField>(null)
+  const [extractMsg, setExtractMsg] = useState<string>('')
 
   useEffect(() => {
     const fetchData = async () => {
       const supabase = createClient()
-
       const [clientRes, comRes] = await Promise.all([
         supabase.from('clients').select('*').eq('id', id).single(),
         supabase.from('users_profile').select('id, full_name').eq('active', true).order('full_name'),
@@ -82,6 +80,61 @@ export default function EditClientPage() {
     fetchData()
   }, [id])
 
+  // ── Auto-extracción de datos de documentos ─────────────────────────────────
+  const extractFromFile = async (file: File, docType: ExtractingField) => {
+    if (!docType) return
+    setExtracting(docType)
+    setExtractMsg('Analizando documento...')
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => {
+          const result = reader.result as string
+          resolve(result.split(',')[1]) // strip data:...;base64, prefix
+        }
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+
+      const res = await fetch('/api/analyze-identity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_base64: base64, file_type: file.type, file_name: file.name }),
+      })
+      const data = await res.json()
+
+      if (data.error) throw new Error(data.error)
+
+      setForm(prev => {
+        const updated = { ...prev }
+        if (docType === 'nif' && data.dni && !prev.nif) {
+          updated.nif = data.dni
+          setExtractMsg(`NIF extraído: ${data.dni}`)
+        } else if (docType === 'cif' && data.cif && !prev.cif) {
+          updated.cif = data.cif
+          setExtractMsg(`CIF extraído: ${data.cif}`)
+        } else if (docType === 'iban' && data.iban && !prev.iban) {
+          updated.iban = data.iban
+          setExtractMsg(`IBAN extraído: ${data.iban}`)
+        } else {
+          setExtractMsg('No se encontró dato reconocible')
+        }
+        // Also fill address if empty
+        if (data.fiscal_address && !prev.fiscal_address) {
+          updated.fiscal_address = data.fiscal_address
+        }
+        return updated
+      })
+    } catch (err: any) {
+      console.error('Extraction error:', err)
+      setExtractMsg('No se pudo extraer automáticamente')
+    } finally {
+      setExtracting(null)
+      setTimeout(() => setExtractMsg(''), 4000)
+    }
+  }
+
+  // ── Guardar ────────────────────────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!form.name.trim()) {
@@ -90,38 +143,46 @@ export default function EditClientPage() {
     }
 
     setSaving(true)
+    setErrors({})
     try {
       const supabase = createClient()
       const cifNif = form.cif.trim() || form.nif.trim() || null
 
-      const { error } = await supabase
+      const basePayload = {
+        name: form.name.trim(),
+        type: form.type,
+        cif_nif: cifNif,
+        cif: form.cif.trim() || null,
+        cif_file_url: form.cif_file_url || null,
+        nif: form.nif.trim() || null,
+        nif_file_url: form.nif_file_url || null,
+        iban: form.iban.trim() || null,
+        iban_file_url: form.iban_file_url || null,
+        email: form.email.trim() || null,
+        phone: form.phone.trim() || null,
+        fiscal_address: form.fiscal_address.trim() || null,
+        origin: form.origin,
+        commercial_id: form.commercial_id,
+        marketing_consent: form.marketing_consent,
+        notes: form.notes.trim() || null,
+      }
+
+      // Try with alias first; if column doesn't exist yet, retry without it
+      let { error } = await supabase
         .from('clients')
-        .update({
-          name: form.name.trim(),
-          alias: form.alias.trim() || null,
-          type: form.type,
-          cif_nif: cifNif,
-          cif: form.cif.trim() || null,
-          cif_file_url: form.cif_file_url || null,
-          nif: form.nif.trim() || null,
-          nif_file_url: form.nif_file_url || null,
-          iban: form.iban.trim() || null,
-          iban_file_url: form.iban_file_url || null,
-          email: form.email.trim() || null,
-          phone: form.phone.trim() || null,
-          fiscal_address: form.fiscal_address.trim() || null,
-          origin: form.origin,
-          commercial_id: form.commercial_id,
-          marketing_consent: form.marketing_consent,
-          notes: form.notes.trim() || null,
-        })
+        .update({ ...basePayload, alias: form.alias.trim() || null })
         .eq('id', id)
+
+      if (error && (error.message?.includes('alias') || error.code === '42703')) {
+        const retry = await supabase.from('clients').update(basePayload).eq('id', id)
+        error = retry.error
+      }
 
       if (error) throw error
       router.push(`/clients/${id}`)
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error updating client:', err)
-      setErrors({ name: 'Error al actualizar. Intentalo de nuevo.' })
+      setErrors({ name: err.message || 'Error al actualizar. Intentalo de nuevo.' })
     } finally {
       setSaving(false)
     }
@@ -201,20 +262,41 @@ export default function EditClientPage() {
 
         {/* Documents: CIF, NIF, IBAN */}
         <Card>
-          <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-4">
-            Documentacion
-          </h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wider">
+              Documentacion
+            </h3>
+            {extracting && (
+              <span className="flex items-center gap-1.5 text-xs text-brand font-medium">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                {extractMsg}
+              </span>
+            )}
+            {!extracting && extractMsg && (
+              <span className="flex items-center gap-1.5 text-xs text-ok font-medium">
+                <Sparkles className="w-3.5 h-3.5" />
+                {extractMsg}
+              </span>
+            )}
+          </div>
+
           <div className="space-y-6">
+            {/* CIF */}
             <div>
               <p className="text-sm font-semibold text-ink mb-3">CIF</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input
-                  id="cif"
-                  label="Número CIF"
-                  placeholder="Ej: B12345678"
-                  value={form.cif}
-                  onChange={(e) => setForm((p) => ({ ...p, cif: e.target.value.toUpperCase() }))}
-                />
+                <div className="relative">
+                  <Input
+                    id="cif"
+                    label="Número CIF"
+                    placeholder="Ej: B12345678"
+                    value={form.cif}
+                    onChange={(e) => setForm((p) => ({ ...p, cif: e.target.value.toUpperCase() }))}
+                  />
+                  {extracting === 'cif' && (
+                    <Loader2 className="absolute right-3 top-9 w-4 h-4 animate-spin text-brand" />
+                  )}
+                </div>
                 <FileUpload
                   label="Adjuntar CIF"
                   bucket="documents"
@@ -222,23 +304,30 @@ export default function EditClientPage() {
                   currentUrl={form.cif_file_url || null}
                   onUploaded={(url) => setForm((p) => ({ ...p, cif_file_url: url }))}
                   onRemoved={() => setForm((p) => ({ ...p, cif_file_url: '' }))}
-                  hint="PDF, JPG o PNG (max 10MB)"
+                  onFileReady={(file) => extractFromFile(file, 'cif')}
+                  hint="PDF, JPG o PNG · se extrae el CIF automáticamente"
                 />
               </div>
             </div>
 
             <div className="border-t border-line-2-variant/20" />
 
+            {/* NIF */}
             <div>
               <p className="text-sm font-semibold text-ink mb-3">NIF</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input
-                  id="nif"
-                  label="Número NIF"
-                  placeholder="Ej: 12345678A"
-                  value={form.nif}
-                  onChange={(e) => setForm((p) => ({ ...p, nif: e.target.value.toUpperCase() }))}
-                />
+                <div className="relative">
+                  <Input
+                    id="nif"
+                    label="Número NIF"
+                    placeholder="Ej: 12345678A"
+                    value={form.nif}
+                    onChange={(e) => setForm((p) => ({ ...p, nif: e.target.value.toUpperCase() }))}
+                  />
+                  {extracting === 'nif' && (
+                    <Loader2 className="absolute right-3 top-9 w-4 h-4 animate-spin text-brand" />
+                  )}
+                </div>
                 <FileUpload
                   label="Adjuntar NIF"
                   bucket="documents"
@@ -246,23 +335,30 @@ export default function EditClientPage() {
                   currentUrl={form.nif_file_url || null}
                   onUploaded={(url) => setForm((p) => ({ ...p, nif_file_url: url }))}
                   onRemoved={() => setForm((p) => ({ ...p, nif_file_url: '' }))}
-                  hint="PDF, JPG o PNG (max 10MB)"
+                  onFileReady={(file) => extractFromFile(file, 'nif')}
+                  hint="PDF, JPG o PNG · se extrae el NIF automáticamente"
                 />
               </div>
             </div>
 
             <div className="border-t border-line-2-variant/20" />
 
+            {/* IBAN */}
             <div>
               <p className="text-sm font-semibold text-ink mb-3">Certificado de titularidad bancaria (IBAN)</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input
-                  id="iban"
-                  label="Número IBAN"
-                  placeholder="Ej: ES91 2100 0418 4502 0005 1332"
-                  value={form.iban}
-                  onChange={(e) => setForm((p) => ({ ...p, iban: e.target.value.toUpperCase() }))}
-                />
+                <div className="relative">
+                  <Input
+                    id="iban"
+                    label="Número IBAN"
+                    placeholder="Ej: ES91 2100 0418 4502 0005 1332"
+                    value={form.iban}
+                    onChange={(e) => setForm((p) => ({ ...p, iban: e.target.value.toUpperCase() }))}
+                  />
+                  {extracting === 'iban' && (
+                    <Loader2 className="absolute right-3 top-9 w-4 h-4 animate-spin text-brand" />
+                  )}
+                </div>
                 <FileUpload
                   label="Adjuntar certificado"
                   bucket="documents"
@@ -270,7 +366,8 @@ export default function EditClientPage() {
                   currentUrl={form.iban_file_url || null}
                   onUploaded={(url) => setForm((p) => ({ ...p, iban_file_url: url }))}
                   onRemoved={() => setForm((p) => ({ ...p, iban_file_url: '' }))}
-                  hint="PDF, JPG o PNG (max 10MB)"
+                  onFileReady={(file) => extractFromFile(file, 'iban')}
+                  hint="PDF, JPG o PNG · se extrae el IBAN automáticamente"
                 />
               </div>
             </div>

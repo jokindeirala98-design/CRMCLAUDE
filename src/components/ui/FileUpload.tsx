@@ -13,6 +13,7 @@ interface FileUploadProps {
   currentUrl?: string | null
   onUploaded: (url: string) => void
   onRemoved?: () => void
+  onFileReady?: (file: File) => void
   accept?: string
   className?: string
 }
@@ -25,6 +26,7 @@ export function FileUpload({
   currentUrl,
   onUploaded,
   onRemoved,
+  onFileReady,
   accept = '.pdf,.jpg,.jpeg,.png,.webp',
   className,
 }: FileUploadProps) {
@@ -44,6 +46,9 @@ export function FileUpload({
       setError('El archivo no puede superar 10MB')
       return
     }
+
+    // Fire callback so parent can extract data (e.g. NIF/CIF/IBAN) while upload runs
+    onFileReady?.(file)
 
     setUploading(true)
     setError('')
