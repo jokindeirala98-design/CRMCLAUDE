@@ -957,10 +957,16 @@ async function processMultiSheetFile(
 
 export async function POST(req: NextRequest) {
   try {
-    // Auth check
-    const authClient = createServerSupabaseClient()
-    const { data: { user } } = await authClient.auth.getUser()
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    // Auth check — browser session OR service-role key for admin/CLI imports
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+    const xServiceKey = req.headers.get('x-service-key') || ''
+    const isServiceKeyAuth = serviceKey && xServiceKey && xServiceKey === serviceKey
+
+    if (!isServiceKeyAuth) {
+      const authClient = createServerSupabaseClient()
+      const { data: { user } } = await authClient.auth.getUser()
+      if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
