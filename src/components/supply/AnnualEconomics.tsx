@@ -2875,6 +2875,16 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
 
   const avgPriceAll = tableData.length > 0 ? tableData.reduce((s, r) => s + r.avgPrice, 0) / tableData.length : 0
 
+  // SIPS official annual kWh (sum of consumoPeriodos from the grid operator).
+  // Only shown as reference — all calculations (price averages, monthly means, etc.)
+  // continue to use the actual invoice data.
+  const sipsTotalKwh = useMemo(() => {
+    if (!consumoPeriodos) return null
+    const total = Object.values(consumoPeriodos as Record<string, number>)
+      .reduce((a, b) => a + (Number(b) || 0), 0)
+    return total > 0 ? Math.round(total) : null
+  }, [consumoPeriodos])
+
   const spendTotals = useMemo((): Record<string, number> => {
     const totals: Record<string, number> = {}
     activePeriods.forEach(p => { totals[p] = 0 })
@@ -3176,11 +3186,25 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
 
             {/* Energía Total */}
             <motion.div custom={1} variants={kpiVariants} className="rounded-2xl p-8 text-center" style={kpiGlassStyle}>
-              <p className="text-[#8A9A8E] text-xs tracking-[0.3em] mb-3">ENERGÍA TOTAL CONSUMIDA</p>
+              <p className="text-[#8A9A8E] text-xs tracking-[0.3em] mb-3">
+                ENERGÍA CONSUMIDA EN FACTURAS
+                {summaryStats.docsCount < 12 && (
+                  <span className="ml-2 text-[10px] text-warn/80">({summaryStats.docsCount} fact.)</span>
+                )}
+              </p>
               <p className="text-[#2D3A33] text-5xl md:text-6xl font-black">
                 <CountUp value={summaryStats.kwh} decimals={0} duration={1.2} />
               </p>
               <p className="text-[#6B8068] text-sm mt-2 tracking-wider">kWh</p>
+              {sipsTotalKwh && sipsTotalKwh !== Math.round(summaryStats.kwh) && (
+                <div className="mt-3 pt-3 border-t border-[#6B8068]/20">
+                  <p className="text-[#8A9A8E] text-[10px] tracking-widest mb-0.5">CONSUMO REAL ANUAL (SIPS)</p>
+                  <p className="text-[#6B8068] text-lg font-bold">
+                    {sipsTotalKwh.toLocaleString('es-ES')} kWh
+                  </p>
+                  <p className="text-[#8A9A8E] text-[10px] mt-0.5">12 meses completos · dato oficial</p>
+                </div>
+              )}
             </motion.div>
 
             {/* Precio Promedio + Docs side by side */}
