@@ -2112,6 +2112,7 @@ export default function SupplyDetailPage() {
             clientName={supply.client?.name || supply.cups || ''}
             initialView={searchParams.get('view') === 'informe' ? 'informe' : undefined}
             maximetroHistory={supply.consumption_data?.maximetroHistory}
+            sipsHistory={supply.consumption_data?.history}
             onInvoicesUpdated={async () => {
               const supabase = createClient()
               const { data } = await supabase

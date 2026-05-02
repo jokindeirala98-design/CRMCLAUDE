@@ -114,6 +114,8 @@ interface Props {
   initialView?: 'tabla' | 'informe'
   /** Maxímetro history for power adjustment detection */
   maximetroHistory?: any[]
+  /** SIPS monthly consumption history — used to fill kWh matrix for months without invoices */
+  sipsHistory?: any[]
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -2896,6 +2898,78 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
     return totals
   }, [tableData, activePeriods])
 
+  // ── Canonical 12-month grid for matrices ─────────────────────────────────────
+  // Both the kWh matrix and € matrix always show the same months (the full range
+  // covered by the invoices + any missing months as empty rows). This ensures
+  // the two tables are always perfectly aligned.
+  // For the kWh matrix: months without invoices are filled from SIPS history.
+  const canonicalMatrixRows = useMemo(() => {
+    if (tableData.length === 0) return []
+
+    // Find min/max year-month index from invoice data
+    const ymValues = tableData.map(r => (r.yearIndex ?? 0) * 12 + r.monthIndex)
+    const minYM = Math.min(...ymValues)
+    const maxYM = Math.max(...ymValues)
+
+    // Map invoice rows by year-month key
+    const rowMap = new Map(tableData.map(r => [`${r.yearIndex ?? 0}-${r.monthIndex}`, r]))
+
+    // Build SIPS monthly history map (year-month → kWh total)
+    const sipsHistMap = new Map<string, number>()
+    if (sipsHistory?.length) {
+      for (const entry of sipsHistory) {
+        const raw = entry.fechaInicio || entry.date || entry.periodo || entry.start
+        if (!raw) continue
+        const d = new Date(raw)
+        if (isNaN(d.getTime())) continue
+        const key = `${d.getFullYear()}-${d.getMonth()}`
+        sipsHistMap.set(key, (sipsHistMap.get(key) || 0) + (Number(entry.kwh) || 0))
+      }
+    }
+
+    const emptyPeriods = Object.fromEntries(activePeriods.map(p => [p, 0]))
+    const emptySpend = Object.fromEntries(activePeriods.map(p => [p, { eur: 0, isEstimated: false }]))
+
+    const rows: (typeof tableData[0] & { isSipsOnly: boolean; sipsKwh: number })[] = []
+
+    for (let ym = minYM; ym <= maxYM; ym++) {
+      const year = Math.floor(ym / 12)
+      const month = ym % 12
+      const key = `${year}-${month}`
+      const existing = rowMap.get(key)
+
+      if (existing) {
+        rows.push({ ...existing, isSipsOnly: false, sipsKwh: 0 })
+      } else {
+        // Month in range but no invoice — fill kWh from SIPS history if available
+        const sipsKwh = sipsHistMap.get(key) || 0
+        const mesLabel = `${CANONICAL_MONTHS_FULL[month]?.toUpperCase() ?? '—'} ${year}`
+        rows.push({
+          id: `empty-${key}`,
+          mes: mesLabel,
+          monthIndex: month,
+          yearIndex: year,
+          totalKwh: sipsKwh,
+          kwhByPeriod: { ...emptyPeriods },
+          pricesByPeriod: { ...emptyPeriods },
+          periodSpend: { ...emptySpend } as any,
+          totalFactura: 0,
+          avgPrice: 0,
+          energia: 0,
+          potencia: 0,
+          impuestos: 0,
+          otrosTotal: 0,
+          fileName: '',
+          eco: null,
+          inv: null,
+          isSipsOnly: true,
+          sipsKwh,
+        } as any)
+      }
+    }
+    return rows
+  }, [tableData, sipsHistory, activePeriods])
+
   // ── 2.0TD Comparison data ───────────────────────────────────────────────────
   const is2TD = is2TDTariff(tarifa !== '—' ? tarifa : null)
 
@@ -3324,9 +3398,22 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
               <h3 className="text-3xl md:text-4xl font-black tracking-tight mb-6 text-[#2D3A33]">MATRIZ ENERGÉTICA MENSUAL (KWH)</h3>
             </div>
             <AuditMatrixTable
-              rows={tableData.map(r => ({ mes: r.mes, periods: r.kwhByPeriod as Record<string, unknown>, total: r.totalKwh }))}
-              renderCell={(row, p) => { const v = row.periods[p] as number; return v ? <span className="text-[#5A6B5F] text-sm">{fmt(v, 0)}</span> : <span className="text-[#8A9A8E] text-sm">-</span> }}
+              rows={canonicalMatrixRows.map(r => ({
+                mes: r.mes, periods: (r as any).kwhByPeriod as Record<string, unknown>,
+                total: (r as any).totalKwh, isSipsOnly: (r as any).isSipsOnly, sipsKwh: (r as any).sipsKwh,
+              }))}
+              renderCell={(row, p) => {
+                if ((row as any).isSipsOnly) return <span className="text-[#8A9A8E] text-sm">—</span>
+                const v = row.periods[p] as number
+                return v ? <span className="text-[#5A6B5F] text-sm">{fmt(v, 0)}</span> : <span className="text-[#8A9A8E] text-sm">—</span>
+              }}
               renderTotal={(row) => {
+                if ((row as any).isSipsOnly) {
+                  const sk = (row as any).sipsKwh as number
+                  return sk > 0
+                    ? <span className="text-[#8A9A8E] text-xs italic">{fmt(sk, 0)} <span className="text-[10px]">SIPS</span></span>
+                    : <span className="text-[#8A9A8E] text-sm">—</span>
+                }
                 const v = row.total as number
                 const allTotals = tableData.map(r => r.totalKwh)
                 const maxV = Math.max(...allTotals)
@@ -3337,10 +3424,10 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
               footerRow={
                 <div className="grid items-center py-4 px-4 border-t border-[#E5DCC9] bg-[#EDE8DC]"
                   style={{ gridTemplateColumns: `220px repeat(${activePeriods.length}, 1fr) 180px` }}>
-                  <span className="text-[#6B8068] font-black text-sm tracking-wider">TOTAL</span>
+                  <span className="text-[#6B8068] font-black text-sm tracking-wider">TOTAL FACTURAS</span>
                   {activePeriods.map(p => {
                     const total = tableData.reduce((s, r) => s + (r.kwhByPeriod[p] || 0), 0)
-                    return <span key={p} className="text-info font-bold text-sm">{total > 0 ? fmt(total, 0) : '-'}</span>
+                    return <span key={p} className="text-info font-bold text-sm">{total > 0 ? fmt(total, 0) : '—'}</span>
                   })}
                   <span className="text-info font-black text-sm">{fmt(summaryStats.kwh, 0)}</span>
                 </div>
@@ -3357,18 +3444,24 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
             </div>
             <AuditMatrixTable
               activePeriods={activePeriods}
-              rows={tableData.map(r => ({ id: r.id, mes: r.mes, periods: r.pricesByPeriod as Record<string, unknown>, total: r.avgPrice }))}
+              rows={canonicalMatrixRows.map(r => ({
+                id: (r as any).id, mes: r.mes,
+                periods: (r as any).pricesByPeriod as Record<string, unknown>,
+                total: (r as any).avgPrice, isSipsOnly: (r as any).isSipsOnly,
+              }))}
               renderCell={(row, p) => {
+                if ((row as any).isSipsOnly) return <span className="text-[#8A9A8E] text-sm">—</span>
                 const v = row.periods[p] as number
-                if (!v) return <span className="text-[#8A9A8E] text-sm">-</span>
+                if (!v) return <span className="text-[#8A9A8E] text-sm">—</span>
                 return <span className="text-[#5A6B5F] text-sm">{fmt(v, 4)}</span>
               }}
               renderTotal={(row) => {
+                if ((row as any).isSipsOnly) return <span className="text-[#8A9A8E] text-sm">—</span>
                 const v = row.total as number
                 if (!v) return <span className="text-[#8A9A8E] text-sm">—</span>
                 return <span className={`font-bold text-sm ${v > avgPriceAll ? 'text-err' : 'text-info'}`}>{fmt(v, 4)}</span>
               }}
-              onRowClick={(row) => setSelectedPriceBillId((row as any).id)}
+              onRowClick={(row) => !(row as any).isSipsOnly && setSelectedPriceBillId((row as any).id)}
             />
             <p className="text-[#8A9A8E] text-xs mt-3 text-center italic no-print">Haz click en una fila para ver el cálculo del precio medio</p>
           </motion.div>
@@ -3382,14 +3475,22 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
             </div>
             <AuditMatrixTable
               activePeriods={activePeriods}
-              rows={tableData.map(r => ({ id: r.id, mes: r.mes, periods: Object.fromEntries(activePeriods.map(p => [p, r.periodSpend[p]])) as Record<string, unknown>, total: r.totalFactura }))}
+              rows={canonicalMatrixRows.map(r => ({
+                id: (r as any).id, mes: r.mes,
+                periods: Object.fromEntries(activePeriods.map(p => [p, (r as any).periodSpend[p]])) as Record<string, unknown>,
+                total: (r as any).totalFactura, isSipsOnly: (r as any).isSipsOnly,
+              }))}
               renderCell={(row, p) => {
+                if ((row as any).isSipsOnly) return <span className="text-[#8A9A8E] text-sm">—</span>
                 const cell = row.periods[p] as { eur: number; isEstimated: boolean } | undefined
                 if (!cell || cell.eur === 0) return <span className="text-[#8A9A8E] text-sm">—</span>
                 return <span className={`text-sm ${cell.isEstimated ? 'text-yellow-400' : 'text-[#5A6B5F]'}`}>{fmt(cell.eur)}</span>
               }}
-              renderTotal={(row) => <span className="text-info font-bold text-sm">{fmt(row.total as number)} €</span>}
-              onRowClick={(row) => setSelectedBillId((row as any).id)}
+              renderTotal={(row) => {
+                if ((row as any).isSipsOnly) return <span className="text-[#8A9A8E] text-sm">—</span>
+                return <span className="text-info font-bold text-sm">{fmt(row.total as number)} €</span>
+              }}
+              onRowClick={(row) => !(row as any).isSipsOnly && setSelectedBillId((row as any).id)}
               footerRow={
                 <div className="grid items-center py-4 px-4 border-t border-[#E5DCC9] bg-[#EDE8DC]"
                   style={{ gridTemplateColumns: `220px repeat(${activePeriods.length}, 1fr) 180px` }}>
@@ -4011,7 +4112,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated, supplyType: propSupplyType, potenciaContratada, consumoPeriodos, clientName, gasHistory, initialView, maximetroHistory }: Props) {
+export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated, supplyType: propSupplyType, potenciaContratada, consumoPeriodos, clientName, gasHistory, initialView, maximetroHistory, sipsHistory }: Props) {
   const [view, setView] = useState<'tabla' | 'informe'>(initialView ?? 'tabla')
   const [busyRescan, setBusyRescan] = useState<string | null>(null)
   const [busyDelete, setBusyDelete] = useState<string | null>(null)

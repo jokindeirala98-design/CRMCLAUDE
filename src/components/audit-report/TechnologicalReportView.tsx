@@ -536,9 +536,10 @@ export function TechnologicalReportView({
         elecTotalPeriods,
       })
       setInformeBreve(generated)
+      setIsEditing(true)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // solo al montar — igual que pulsar "Generar automáticamente"
+  }, []) // solo al montar
 
   // Período dominante (el que más % tiene)
   const periodKeys = ['p1','p2','p3','p4','p5','p6'] as const
@@ -994,7 +995,6 @@ export function TechnologicalReportView({
             {/* ════ SECTION: Informe Breve ════ */}
             <div style={{ pageBreakBefore: 'always', breakBefore: 'page', paddingTop: '18mm' }}>
               <div className="flex items-end justify-between mb-10" style={{ breakInside: 'avoid', breakAfter: 'avoid' }}>
-                {/* Reutilizamos el layout del SectionTitle pero con botón a la derecha */}
                 <div className="flex items-start gap-5 flex-1">
                   <div style={{ width: 3, backgroundColor: ACCENT, borderRadius: 2, alignSelf: 'stretch', minHeight: 48, flexShrink: 0, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }} />
                   <div className="flex-1 pb-4" style={{ borderBottom: `1px solid ${BORDER}` }}>
@@ -1005,52 +1005,9 @@ export function TechnologicalReportView({
                     <p style={{ fontSize: 12, color: MUTED, marginTop: 5 }}>Resumen ejecutivo y conclusiones del estudio energético</p>
                   </div>
                 </div>
-                {/* Botón Generar — solo visible en pantalla */}
-                <button
-                  className="no-print"
-                  onClick={handleGenerateInforme}
-                  style={{
-                    marginLeft: 16,
-                    marginBottom: 14,
-                    padding: '8px 16px',
-                    borderRadius: 10,
-                    border: `1px solid ${ACCENT}`,
-                    background: ACCENT_SOFT,
-                    color: ACCENT,
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    whiteSpace: 'nowrap',
-                    flexShrink: 0,
-                  }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
-                  </svg>
-                  Generar automáticamente
-                </button>
               </div>
 
               <div style={{ border: `1px solid ${BORDER}`, borderRadius: 14, padding: '32px 36px', minHeight: 200, background: PAPER }}>
-                {!informeBreve && !isEditing && (
-                  /* Estado vacío — invitación a generar */
-                  <div className="flex flex-col items-center justify-center text-center" style={{ minHeight: 180, gap: 16 }}>
-                    <div style={{ width: 48, height: 48, borderRadius: 14, background: ACCENT_SOFT, display: 'flex', alignItems: 'center', justifyContent: 'center', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={ACCENT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
-                      </svg>
-                    </div>
-                    <div>
-                      <p style={{ fontSize: 13, fontWeight: 600, color: DARK, marginBottom: 6 }}>Sin texto todavía</p>
-                      <p style={{ fontSize: 12, color: MUTED, lineHeight: 1.6, maxWidth: 400 }}>
-                        Pulsa <strong style={{ color: ACCENT }}>"Generar automáticamente"</strong> para crear un resumen ejecutivo basado en los datos del informe, o usa <strong style={{ color: TEXT_SOFT }}>"Editar"</strong> en la barra superior para redactarlo manualmente.
-                      </p>
-                    </div>
-                  </div>
-                )}
-
                 {(informeBreve || isEditing) && (
                   <>
                     {isEditing ? (
