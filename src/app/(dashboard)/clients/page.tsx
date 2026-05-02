@@ -829,11 +829,18 @@ export default function ClientsPage() {
                           onClick={() => {
                             if (confirmDeleteSupplyId === supply.id || isEditing) return
                             setSelectedClient(null)
+                            // Insert the client detail page into history so ← returns here
+                            window.history.pushState(null, '', `/clients/${selectedClient!.id}`)
                             router.push(`/supplies/${supply.id}`)
                           }}
                           onKeyDown={(e) => {
                             if (confirmDeleteSupplyId === supply.id || isEditing) return
-                            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedClient(null); router.push(`/supplies/${supply.id}`) }
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              setSelectedClient(null)
+                              window.history.pushState(null, '', `/clients/${selectedClient!.id}`)
+                              router.push(`/supplies/${supply.id}`)
+                            }
                           }}
                           className="group/card relative bg-card border border-line rounded-xl hover:border-line-2 hover:shadow-ambient-sm transition-all duration-150 cursor-pointer overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
                         >
