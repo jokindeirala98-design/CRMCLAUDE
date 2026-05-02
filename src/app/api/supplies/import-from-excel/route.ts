@@ -965,10 +965,12 @@ export async function POST(req: NextRequest) {
     const xServiceKey = req.headers.get('x-service-key') || ''
     const isServiceKeyAuth = serviceKey && xServiceKey && xServiceKey === serviceKey
 
+    let user: { id: string } | null = null
     if (!isServiceKeyAuth) {
       const authClient = createServerSupabaseClient()
-      const { data: { user } } = await authClient.auth.getUser()
-      if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      const { data: { user: authUser } } = await authClient.auth.getUser()
+      if (!authUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      user = authUser
     }
 
     const supabase = createClient(
@@ -1006,7 +1008,7 @@ export async function POST(req: NextRequest) {
           .insert({
             name: newClientName,
             type: autoType,
-            commercial_id: user.id,
+            commercial_id: user?.id || null,
             origin: 'auditoria',
             marketing_consent: false,
           })
@@ -1046,7 +1048,7 @@ export async function POST(req: NextRequest) {
       }
 
       if (isMulti) {
-        const multiResults = await processMultiSheetFile(file, finalClientId, newClientName, supabase, user.id)
+        const multiResults = await processMultiSheetFile(file, finalClientId, newClientName, supabase, user?.id)
         results.push(...multiResults)
       } else {
         // Standard single-supply per file, in batches of 5
@@ -1055,7 +1057,7 @@ export async function POST(req: NextRequest) {
         for (let i = 0; i < singleFiles.length; i += BATCH_SIZE) {
           const batch = singleFiles.slice(i, i + BATCH_SIZE)
           const settled = await Promise.allSettled(
-            batch.map(f => processFile(f, finalClientId, newClientName, supabase, user.id, targetCups))
+            batch.map(f => processFile(f, finalClientId, newClientName, supabase, user?.id, targetCups))
           )
           for (const r of settled) {
             results.push(
