@@ -712,6 +712,9 @@ async function processSupply(
         patch.cups = parsed.cups
       }
       await supabase.from('supplies').update(patch).eq('id', supplyId)
+    } else if (resolvedClientId === '__cups_only__') {
+      // cupsOnly mode: don't create new supplies — skip sheets with no existing CUPS match
+      return { fileName, cups: parsed.cups, ok: false, error: 'CUPS not found in DB (cupsOnly mode — skipped)' }
     } else {
       const insertData: Record<string, any> = {
         cups: parsed.cups,
@@ -1017,11 +1020,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (!resolvedClientId) {
+    // cupsOnly=true: skip client requirement — only update supplies that already
+    // exist in the DB by CUPS. Useful for bulk re-imports of existing data.
+    const cupsOnly = formData.get('cupsOnly') === 'true'
+
+    if (!resolvedClientId && !cupsOnly) {
       return NextResponse.json({ error: 'No se pudo determinar el cliente. Especifica un nombre.' }, { status: 400 })
     }
 
-    const finalClientId = resolvedClientId
+    const finalClientId = resolvedClientId || '__cups_only__'
     const results: any[] = []
 
     for (const file of files) {
