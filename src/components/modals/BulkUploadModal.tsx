@@ -209,8 +209,11 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
       })
       const data = await res.json()
       if (!res.ok) { setXlsxErr(data.error || 'Error en la importación'); return }
-      setXlsxResults(data.results || [])
+      const results = data.results || []
+      const anyOk = results.some((r: any) => r.ok)
+      setXlsxResults(results)
       onCreated()
+      if (anyOk) setTimeout(() => onClose(), 1500)
     } catch (err: any) { setXlsxErr(err.message || 'Error desconocido') }
     finally { setXlsxImporting(false) }
   }
