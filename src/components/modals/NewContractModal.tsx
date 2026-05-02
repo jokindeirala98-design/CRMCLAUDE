@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { X, Upload, FileText, AlertTriangle, ExternalLink } from 'lucide-react'
+import { X, Upload, FileText, AlertTriangle, ExternalLink, CheckCircle2 } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
@@ -37,22 +37,48 @@ export function NewContractModal({ open, onClose, onCreated, preselectedClientId
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'ok' | 'error'>('idle')
   const [attachedFile, setAttachedFile] = useState<File | null>(null)
 
+  const todayISO = new Date().toISOString().split('T')[0]
+
   const [form, setForm] = useState({
     client_id: preselectedClientId || '',
     supply_id: preselectedSupplyId || '',
     comercializadora_id: '',
-    tramite: 'new',
+    tramite: 'change',
     servicio: 'electricity',
     producto: '',
     firmante: '',
     dni_firmante: '',
     consumo_anual: '',
     observaciones: '',
-    fecha_activacion: '',
-    voltis_contract_type: '' as '' | 'colaboracion' | 'propuesta',
+    fecha_activacion: todayISO,
+    voltis_contract_type: 'both' as 'both',
   })
 
   const isCompanyOrAyto = selectedClient?.type === 'empresa' || selectedClient?.type === 'ayuntamiento'
+
+  // Reset form each time modal opens with fresh today date
+  useEffect(() => {
+    if (!open) return
+    const today = new Date().toISOString().split('T')[0]
+    setForm({
+      client_id: preselectedClientId || '',
+      supply_id: preselectedSupplyId || '',
+      comercializadora_id: '',
+      tramite: 'change',
+      servicio: 'electricity',
+      producto: '',
+      firmante: '',
+      dni_firmante: '',
+      consumo_anual: '',
+      observaciones: '',
+      fecha_activacion: today,
+      voltis_contract_type: 'both',
+    })
+    setAttachedFile(null)
+    setSyncStatus('idle')
+    setSelectedClient(null)
+    setSelectedSupply(null)
+  }, [open, preselectedClientId, preselectedSupplyId])
 
   useEffect(() => {
     if (!open) return
@@ -95,23 +121,29 @@ export function NewContractModal({ open, onClose, onCreated, preselectedClientId
     fetchSupplies()
   }, [form.client_id, clients])
 
-  // Auto-fill supply data
+  // Map DB supply type → form servicio value
+  const mapSupplyType = (type: string): string => {
+    if (type === 'luz') return 'electricity'
+    if (type === 'gas') return 'gas'
+    if (type === 'telefonia') return 'telecom'
+    return 'electricity'
+  }
+
+  // Auto-fill supply data — always overrides when supply changes
   useEffect(() => {
     if (!form.supply_id) { setSelectedSupply(null); return }
     const supply = supplies.find(s => s.id === form.supply_id)
     setSelectedSupply(supply || null)
     if (supply) {
+      const cd = supply.consumption_data as any
+      const cp = cd?.consumoPeriodos || {}
+      const pSum = (Number(cp.P1)||0)+(Number(cp.P2)||0)+(Number(cp.P3)||0)+(Number(cp.P4)||0)+(Number(cp.P5)||0)+(Number(cp.P6)||0)
+      const kwh = pSum > 0 ? pSum : (Number(cd?.totalKwh) || 0)
       setForm(f => ({
         ...f,
-        servicio: supply.type || 'electricity',
-        producto: f.producto || supply.tariff || '',
-        consumo_anual: f.consumo_anual || (() => {
-          const cd = supply.consumption_data as any
-          const cp = cd?.consumoPeriodos || {}
-          const pSum = (Number(cp.P1)||0)+(Number(cp.P2)||0)+(Number(cp.P3)||0)+(Number(cp.P4)||0)+(Number(cp.P5)||0)+(Number(cp.P6)||0)
-          const kwh = pSum > 0 ? pSum : (Number(cd?.totalKwh) || 0)
-          return kwh > 0 ? String(Math.round(kwh)) : ''
-        })(),
+        servicio: mapSupplyType(supply.type),
+        producto: supply.tariff || '',
+        consumo_anual: kwh > 0 ? String(Math.round(kwh)) : '',
       }))
     }
   }, [form.supply_id, supplies])
@@ -392,33 +424,37 @@ export function NewContractModal({ open, onClose, onCreated, preselectedClientId
             </div>
           </div>
 
-          {/* ── Sección 3: Contrato Voltis (plantillas — próximamente) ── */}
+          {/* ── Sección 3: Contrato Voltis (siempre ambos) ── */}
           <div className="space-y-3">
             <p className="text-xs font-semibold text-ink-3 tracking-widest uppercase">Contrato Voltis</p>
             <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setForm(f => ({ ...f, voltis_contract_type: f.voltis_contract_type === 'colaboracion' ? '' : 'colaboracion' }))}
-                className={`p-4 rounded-xl border-2 text-left transition-all ${form.voltis_contract_type === 'colaboracion' ? 'border-info bg-info-container' : 'border-neutral/20 hover:border-info/30'}`}
-              >
-                <p className="font-semibold text-sm text-ink">Colaboración</p>
-                <p className="text-xs text-ink-3 mt-0.5">Contrato de colaboración Voltis</p>
-              </button>
-              <button
-                type="button"
-                onClick={() => setForm(f => ({ ...f, voltis_contract_type: f.voltis_contract_type === 'propuesta' ? '' : 'propuesta' }))}
-                className={`p-4 rounded-xl border-2 text-left transition-all ${form.voltis_contract_type === 'propuesta' ? 'border-info bg-info-container' : 'border-neutral/20 hover:border-info/30'}`}
-              >
-                <p className="font-semibold text-sm text-ink">Propuesta</p>
-                <p className="text-xs text-ink-3 mt-0.5">Propuesta de servicio Voltis</p>
-              </button>
-            </div>
-            {form.voltis_contract_type && (
-              <div className="flex items-center gap-2 px-3 py-2 bg-warn-container/50 rounded-lg border border-warn/20">
-                <AlertTriangle className="w-4 h-4 text-warn shrink-0" />
-                <p className="text-xs text-warn">Generación automática disponible cuando se suban las plantillas</p>
+              <div className="p-4 rounded-xl border-2 border-brand bg-brand/8 text-left">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <div className="w-4 h-4 rounded bg-brand flex items-center justify-center">
+                    <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                  <p className="font-semibold text-sm text-ink">Colaboración</p>
+                </div>
+                <p className="text-xs text-ink-3">Contrato de colaboración Voltis</p>
               </div>
-            )}
+              <div className="p-4 rounded-xl border-2 border-brand bg-brand/8 text-left">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <div className="w-4 h-4 rounded bg-brand flex items-center justify-center">
+                    <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                  <p className="font-semibold text-sm text-ink">Propuesta</p>
+                </div>
+                <p className="text-xs text-ink-3">Propuesta de servicio Voltis</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 px-3 py-2 bg-warn-container/50 rounded-lg border border-warn/20">
+              <AlertTriangle className="w-4 h-4 text-warn shrink-0" />
+              <p className="text-xs text-warn">Generación automática disponible cuando se suban las plantillas</p>
+            </div>
           </div>
 
           {/* Observaciones */}
