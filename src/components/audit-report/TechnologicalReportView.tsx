@@ -1007,23 +1007,25 @@ export function TechnologicalReportView({
                 </div>
               </div>
 
-              <div style={{ border: `1px solid ${BORDER}`, borderRadius: 14, padding: '32px 36px', minHeight: 200, background: PAPER }}>
-                {(informeBreve || isEditing) && (
-                  <>
-                    {isEditing ? (
-                      <textarea
-                        value={informeBreve}
-                        onChange={(e) => setInformeBreve(e.target.value)}
-                        className="w-full border rounded-[12px] p-5 text-sm outline-none resize-y leading-relaxed"
-                        style={{ minHeight: 280, borderColor: BORDER, color: TEXT_SOFT, background: SURFACE, fontFamily: 'inherit', fontSize: 13.5 }}
-                        placeholder="Redacta aquí el informe breve o pega el texto desde otro documento..."
-                      />
-                    ) : (
-                      <div style={{ fontSize: 13.5, color: TEXT_SOFT, lineHeight: 1.85, whiteSpace: 'pre-wrap' }}>
-                        {informeBreve}
-                      </div>
-                    )}
-                  </>
+              <div style={{ border: `1px solid ${BORDER}`, borderRadius: 14, padding: '32px 36px', minHeight: 200, background: PAPER, position: 'relative' }}>
+                {/* Texto real — siempre visible, especialmente en PDF/impresión */}
+                <div style={{ fontSize: 13.5, color: TEXT_SOFT, lineHeight: 1.85, whiteSpace: 'pre-wrap', minHeight: isEditing ? 280 : undefined }}>
+                  {informeBreve || (isEditing ? '' : <span style={{ color: MUTED, fontStyle: 'italic' }}>Sin texto todavía.</span>)}
+                </div>
+                {/* Textarea encima — solo visible en pantalla para editar */}
+                {isEditing && (
+                  <textarea
+                    value={informeBreve}
+                    onChange={(e) => setInformeBreve(e.target.value)}
+                    className="no-print w-full border rounded-[12px] p-5 text-sm outline-none resize-y leading-relaxed"
+                    style={{
+                      position: 'absolute', inset: '24px 28px',
+                      minHeight: 280,
+                      borderColor: BORDER, color: TEXT_SOFT,
+                      background: SURFACE, fontFamily: 'inherit', fontSize: 13.5,
+                    }}
+                    placeholder="Redacta aquí el informe breve..."
+                  />
                 )}
               </div>
             </div>
