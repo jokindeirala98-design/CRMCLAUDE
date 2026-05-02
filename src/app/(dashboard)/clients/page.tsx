@@ -107,6 +107,55 @@ export default function ClientsPage() {
   const modalSearchRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
 
+  // ── URL-synced modal helpers ──────────────────────────────────────────────
+  // openClient: opens the modal AND inserts an entry into browser history
+  // so ← from any child page returns here with the modal re-opened.
+  const openClient = useCallback((client: any) => {
+    setSelectedClient(client)
+    window.history.pushState({ clientId: client.id }, '', `/clients?c=${client.id}`)
+  }, [])
+
+  // closeModal: closes via X button — replaces the ?c= URL so it isn't re-opened on ←
+  const closeModal = useCallback(() => {
+    setSelectedClient(null)
+    setEditingSupplyName(null)
+    setModalTariffFilter('')
+    setModalTypeFilter('')
+    setModalSearch('')
+    window.history.replaceState(null, '', '/clients')
+  }, [])
+
+  // Restore modal from URL on first data load (e.g. after browser ← returns to /clients?c=ID)
+  useEffect(() => {
+    if (loading || !clients.length) return
+    const params = new URLSearchParams(window.location.search)
+    const clientId = params.get('c')
+    if (clientId && !selectedClient) {
+      const client = clients.find((c: any) => c.id === clientId)
+      if (client) setSelectedClient(client)
+    }
+  }, [loading]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Listen to popstate so browser back/forward restores or closes the modal
+  useEffect(() => {
+    const onPop = () => {
+      const params = new URLSearchParams(window.location.search)
+      const clientId = params.get('c')
+      if (clientId) {
+        const client = clients.find((c: any) => c.id === clientId)
+        setSelectedClient(client || null)
+      } else {
+        setSelectedClient(null)
+        setModalTariffFilter('')
+        setModalTypeFilter('')
+        setModalSearch('')
+      }
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [clients])
+  // ─────────────────────────────────────────────────────────────────────────
+
   // Auto-focus search when modal opens for clients with many supplies
   // Also handle Escape to close modal
   useEffect(() => {
@@ -122,16 +171,11 @@ export default function ClientsPage() {
   useEffect(() => {
     if (!selectedClient) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setSelectedClient(null)
-        setModalTariffFilter('')
-        setModalTypeFilter('')
-        setModalSearch('')
-      }
+      if (e.key === 'Escape') closeModal()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [selectedClient])
+  }, [selectedClient, closeModal])
 
   useEffect(() => {
     const fetchData = async () => {
@@ -203,7 +247,7 @@ export default function ClientsPage() {
       const supabase = createClient()
       await supabase.from('clients').delete().eq('id', selectedClient.id)
       setClients(prev => prev.filter(c => c.id !== selectedClient.id))
-      setSelectedClient(null)
+      closeModal()
       setConfirmDeleteClient(false)
     } catch (error) {
       console.error('Error deleting client:', error)
@@ -416,7 +460,7 @@ export default function ClientsPage() {
               return (
                 <div
                   key={client.id}
-                  onClick={() => setSelectedClient(client)}
+                  onClick={() => openClient(client)}
                   className="bg-card rounded-xl border border-line hover:border-line-2 hover:shadow-ambient-sm transition-all duration-150 cursor-pointer group overflow-hidden"
                 >
                   {/* Status accent line */}
@@ -508,7 +552,7 @@ export default function ClientsPage() {
               return (
                 <div
                   key={client.id}
-                  onClick={() => setSelectedClient(client)}
+                  onClick={() => openClient(client)}
                   className="flex items-center gap-3 px-4 py-3 bg-card border border-line rounded-xl hover:border-line-2 transition-all cursor-pointer group"
                 >
                   <div className="w-8 h-8 rounded-lg bg-brand/8 flex items-center justify-center flex-shrink-0">
@@ -556,7 +600,7 @@ export default function ClientsPage() {
         <>
           <div
             className="fixed inset-0 bg-ink/50 z-[100] backdrop-blur-sm"
-            onClick={() => { setSelectedClient(null); setEditingSupplyName(null); setModalTariffFilter(''); setModalTypeFilter(''); setModalSearch('') }}
+            onClick={closeModal}
           />
           <div className="fixed inset-0 z-[101] flex items-center justify-center p-4 pointer-events-none">
             <div
@@ -592,7 +636,7 @@ export default function ClientsPage() {
                       </span>
                     )}
                     <button
-                      onClick={() => { setSelectedClient(null); setEditingSupplyName(null); setModalTariffFilter(''); setModalTypeFilter(''); setModalSearch('') }}
+                      onClick={closeModal}
                       className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-bg-2 transition-colors"
                     >
                       <X className="w-4 h-4 text-ink-3" />
@@ -603,11 +647,11 @@ export default function ClientsPage() {
                 {/* Quick actions */}
                 {!confirmDeleteClient ? (
                   <div className="flex gap-2 mt-3">
-                    <Button size="sm" variant="secondary" onClick={() => { setSelectedClient(null); router.push(`/clients/${selectedClient.id}`) }}>
+                    <Button size="sm" variant="secondary" onClick={() => { closeModal(); router.push(`/clients/${selectedClient.id}`) }}>
                       Ver ficha completa
                       <ArrowRight className="w-3.5 h-3.5" />
                     </Button>
-                    <Button size="sm" variant="secondary" onClick={() => { setSelectedClient(null); router.push(`/clients/${selectedClient.id}/edit`) }}>
+                    <Button size="sm" variant="secondary" onClick={() => { closeModal(); router.push(`/clients/${selectedClient.id}/edit`) }}>
                       <Pencil className="w-3.5 h-3.5" />
                       Editar
                     </Button>
@@ -828,17 +872,13 @@ export default function ClientsPage() {
                           tabIndex={confirmDeleteSupplyId === supply.id || isEditing ? -1 : 0}
                           onClick={() => {
                             if (confirmDeleteSupplyId === supply.id || isEditing) return
-                            setSelectedClient(null)
-                            // Insert the client detail page into history so ← returns here
-                            window.history.pushState(null, '', `/clients/${selectedClient!.id}`)
+                            // URL already has ?c=CLIENT_ID — pressing ← will reopen this modal
                             router.push(`/supplies/${supply.id}`)
                           }}
                           onKeyDown={(e) => {
                             if (confirmDeleteSupplyId === supply.id || isEditing) return
                             if (e.key === 'Enter' || e.key === ' ') {
                               e.preventDefault()
-                              setSelectedClient(null)
-                              window.history.pushState(null, '', `/clients/${selectedClient!.id}`)
                               router.push(`/supplies/${supply.id}`)
                             }
                           }}
