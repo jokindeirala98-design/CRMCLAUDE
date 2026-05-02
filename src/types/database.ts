@@ -1,3 +1,31 @@
+export type ServiceContractType = 'porcentaje' | 'suscripcion'
+export type ServiceContractStatus = 'draft' | 'sent' | 'signed' | 'active' | 'expired'
+export type PaymentModality = 'A' | 'B' | 'C' | 'D'
+
+export interface ServiceContract {
+  id: string
+  client_id: string
+  contract_type: ServiceContractType
+  is_renewal: boolean
+  ahorro_confirmado: number | null
+  fee_percentage: number          // siempre 25 para tipo porcentaje
+  fee_amount: number | null       // calculado: ahorro_confirmado * fee_percentage/100
+  subscription_monthly: number | null  // para tipo suscripcion (default 19.99)
+  payment_modality: PaymentModality
+  start_date: string              // fecha inicio servicios
+  end_date: string | null         // start_date + 12 meses (auto)
+  representative_name: string | null   // Don/Doña (firmante del cliente)
+  representative_nif: string | null    // DNI del firmante
+  signing_location: string | null      // lugar de formalización (ciudad cliente)
+  status: ServiceContractStatus
+  proposal_url: string | null
+  contract_url: string | null
+  notes: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
 export type SupplyStatus =
   | 'primer_contacto'
   | 'facturas_recibidas'
@@ -62,11 +90,15 @@ export interface Client {
   origin: ClientOrigin
   marketing_consent: boolean
   notes: string | null
+  // Ahorro para generación de contratos
+  ahorro_sugerido: number | null          // suma automática de comparativas (referencia)
+  ahorro_pendiente_revision: boolean      // flag: el ahorro sugerido cambió desde la última confirmación
   created_at: string
   updated_at: string
   // Relations
   commercial?: UserProfile
   supplies?: Supply[]
+  service_contracts?: ServiceContract[]
 }
 
 export interface Comercializadora {
@@ -437,6 +469,7 @@ export interface Database {
       prescorings: TableDef<Prescoring>
       studies: TableDef<Study>
       contracts: TableDef<Contract>
+      service_contracts: TableDef<ServiceContract>
       subscriptions: TableDef<Subscription>
       billing: TableDef<Billing>
       comparatives: TableDef<Comparative>

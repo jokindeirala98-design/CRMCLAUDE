@@ -20,6 +20,7 @@ import { createClient } from '@/lib/supabase/client'
 import { formatDate, formatCurrency, calculateVAT, getUserInitials } from '@/lib/utils/format'
 import { getViewUrl } from '@/lib/utils/storage'
 import ConsumptionDistribution from './components/ConsumptionDistribution'
+import ContractSection from '@/components/clients/ContractSection'
 
 export default function ClientDetailPage() {
   const { id } = useParams()
@@ -48,7 +49,8 @@ export default function ClientDetailPage() {
         commercial:users_profile!commercial_id(full_name, email),
         supplies(*, comercializadora:comercializadoras(name), invoices(*)),
         contracts(*),
-        subscriptions(*)
+        subscriptions(*),
+        service_contracts(*)
       `)
       .eq('id', id)
       .single()
@@ -672,6 +674,9 @@ export default function ClientDetailPage() {
             />
           </div>
         )}
+
+        {/* ─── Contrato de Servicio Voltis ─── */}
+        <ContractSection client={client} onUpdate={fetchClient} />
 
         {/* ─── Subscription History ─── */}
         {client.subscriptions && client.subscriptions.length > 0 && (
