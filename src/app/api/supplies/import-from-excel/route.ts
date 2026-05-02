@@ -251,6 +251,20 @@ function parseLabelBased(ws: ExcelJS.Worksheet, fileName: string): ParsedSupplyF
   // are in col B=unit, data from col C onwards. Use the first month col as fallback.
   const staticCol = monthCols.length > 0 ? monthCols[0] : 2
 
+  // ── Secondary map for "Potencia Px €" rows (Estella/Iberdrola format) ─────
+  // buildRowMap only keeps the FIRST row per label. When "Potencia P1" appears
+  // twice (once kW, once €), the € row is lost. We recover it here by scanning
+  // for rows whose col A = "Potencia Px" AND col B normalises to "eur" (= €).
+  const potenciaEurMap = new Map<string, ExcelJS.Row>()
+  ws.eachRow((row) => {
+    const colA = normLabel(s(row.getCell(1).value))
+    const colB = normLabel(s(row.getCell(2).value))
+    // colB "€" normalises to "eur" via normLabel's € → eur replacement
+    if (/^potencia p\d$/.test(colA) && colB === 'eur') {
+      potenciaEurMap.set(colA, row) // e.g. "potencia p1" → € row
+    }
+  })
+
   const cupsRow = getRow(rowMap, 'CUPS')
   const cups = cellStr(cupsRow, 2)
   // Location name: stored in col D (4) of the CUPS row in Iberdrola multi-supply format
@@ -291,10 +305,11 @@ function parseLabelBased(ws: ExcelJS.Worksheet, fileName: string): ParsedSupplyF
       const pid = `P${p}`
       const kwRow = getPeriodRow(rowMap, 'potencia_kw', pid)
       const kw    = cellNum(kwRow, col)
-      // For the total potencia cost per period, try the explicit label (standard format).
-      // In Iberdrola multi-supply format, the € row has the same label as kW row so it's not
-      // in rowMap; we rely on TOTAL COSTE POTENCIA for the global total instead.
-      const totalPot = cellNum(getRow(rowMap, `Potencia ${pid} eur`), col)
+      // Per-period potencia cost: try explicit-label variants first, then the
+      // secondary map that captures "Potencia P1 €" rows with same col-A label.
+      const eurMapRow = potenciaEurMap.get(`potencia ${pid.toLowerCase()}`)
+      const totalPot = cellNum(eurMapRow, col)
+        || cellNum(getRow(rowMap, `Potencia ${pid} eur`), col)
         || cellNum(getRow(rowMap, `Potencia ${pid} (€)`), col)
       if (kw > 0 || totalPot > 0) potencia.push({ periodo: pid, kw, precioKwDia: 0, dias, total: totalPot })
     }
