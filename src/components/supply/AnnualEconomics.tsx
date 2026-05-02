@@ -2482,7 +2482,7 @@ function GasReportView({ invoices, supplyName, onBack, gasHistory }: {
 
 // ─── Report View ─────────────────────────────────────────────────────────────
 
-function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaContratada, consumoPeriodos, initialYear, maximetroHistory }: {
+function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaContratada, consumoPeriodos, initialYear, maximetroHistory, sipsHistory }: {
   invoices: InvoiceRow[]
   supplyName?: string
   onBack: () => void
@@ -2491,6 +2491,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
   consumoPeriodos?: Record<string, number>
   initialYear?: number | 'all'
   maximetroHistory?: any[]
+  sipsHistory?: any[]
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [selectedYear, setSelectedYear] = useState<number | 'all'>(initialYear ?? 'all')
@@ -4287,7 +4288,7 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
   if (view === 'informe') {
     const reportNode = isGas
       ? <GasReportView invoices={invoices} supplyName={supplyName} onBack={() => setView('tabla')} gasHistory={gasHistory} />
-      : <ReportView invoices={invoices} supplyName={supplyName || clientName} onBack={() => setView('tabla')} onInvoicesUpdated={onInvoicesUpdated} potenciaContratada={potenciaContratada} consumoPeriodos={consumoPeriodos} initialYear={selectedYear} maximetroHistory={maximetroHistory} />
+      : <ReportView invoices={invoices} supplyName={supplyName || clientName} onBack={() => setView('tabla')} onInvoicesUpdated={onInvoicesUpdated} potenciaContratada={potenciaContratada} consumoPeriodos={consumoPeriodos} initialYear={selectedYear} maximetroHistory={maximetroHistory} sipsHistory={sipsHistory} />
     // Portal to document.body so fixed positioning escapes framer-motion's transform context
     if (typeof document !== 'undefined') return createPortal(reportNode, document.body)
     return reportNode
