@@ -59,8 +59,15 @@ interface Props {
   onUpdate?: () => void
 }
 
+const CLIENT_TYPE_OPTIONS = [
+  { value: 'particular', label: 'Particular' },
+  { value: 'empresa', label: 'Empresa' },
+  { value: 'ayuntamiento', label: 'Ayuntamiento' },
+]
+
 const FIELD_DEFS: { key: keyof ClientRow; label: string; icon: any; required?: boolean }[] = [
   { key: 'name', label: 'Nombre', icon: UserIcon, required: true },
+  { key: 'type', label: 'Tipo de cliente', icon: UserIcon, required: true },
   { key: 'cif', label: 'CIF (empresa)', icon: Building2 },
   { key: 'nif', label: 'NIF / DNI', icon: UserIcon },
   { key: 'phone', label: 'Teléfono', icon: Phone, required: true },
@@ -370,17 +377,32 @@ export function ClientDetailModal({ clientId, isOpen, onClose, contextSupplyId, 
                       )}
                     </div>
                     {editing ? (
-                      <input
-                        type="text"
-                        value={(draft[key] as string) || ''}
-                        onChange={e => setDraft(prev => ({ ...prev, [key]: e.target.value }))}
-                        className="w-full px-2 py-1.5 text-sm bg-bg rounded-lg outline-none focus:ring-2 focus:ring-primary/30"
-                      />
+                      key === 'type' ? (
+                        <select
+                          value={(draft[key] as string) || 'empresa'}
+                          onChange={e => setDraft(prev => ({ ...prev, [key]: e.target.value }))}
+                          className="w-full px-2 py-1.5 text-sm bg-bg rounded-lg outline-none focus:ring-2 focus:ring-primary/30"
+                        >
+                          {CLIENT_TYPE_OPTIONS.map(o => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          value={(draft[key] as string) || ''}
+                          onChange={e => setDraft(prev => ({ ...prev, [key]: e.target.value }))}
+                          className="w-full px-2 py-1.5 text-sm bg-bg rounded-lg outline-none focus:ring-2 focus:ring-primary/30"
+                        />
+                      )
                     ) : (
                       <p className={`text-sm font-medium break-all ${
                         missing ? 'text-err font-semibold' : 'text-ink'
                       }`}>
-                        {value || (required ? 'Falta' : '—')}
+                        {key === 'type'
+                          ? (CLIENT_TYPE_OPTIONS.find(o => o.value === value)?.label || value || (required ? 'Falta' : '—'))
+                          : (value || (required ? 'Falta' : '—'))
+                        }
                       </p>
                     )}
                   </div>

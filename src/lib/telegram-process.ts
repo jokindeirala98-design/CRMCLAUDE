@@ -493,12 +493,23 @@ export async function processTelegramInboxItem(
       .eq('id', clientId)
       .single()
     clientType = existingClient?.type || 'empresa'
+
+    const existingPatch: Record<string, any> = {}
+
+    // Auto-correct type: if we now know the CIF starts with a digit (DNI) and client was stored as empresa
+    if (holderCif && /^\d/.test(holderCif.trim()) && existingClient?.type === 'empresa') {
+      existingPatch.type = 'particular'
+      clientType = 'particular'
+      console.log(`[TelegramProcess] Auto-corrected client ${clientId} type empresa → particular (DNI detected)`)
+    }
+
     // Back-fill fiscal_address on existing client if currently empty
     if (!existingClient?.fiscal_address && invoiceFiscalAddress) {
-      await supabase.from('clients')
-        .update({ fiscal_address: invoiceFiscalAddress })
-        .eq('id', clientId)
-      console.log(`[TelegramProcess] Back-filled fiscal_address for client ${clientId}: ${invoiceFiscalAddress}`)
+      existingPatch.fiscal_address = invoiceFiscalAddress
+    }
+
+    if (Object.keys(existingPatch).length > 0) {
+      await supabase.from('clients').update(existingPatch).eq('id', clientId)
     }
   }
 
