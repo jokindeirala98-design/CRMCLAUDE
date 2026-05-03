@@ -138,10 +138,10 @@ export default function ContractSection({ client, onUpdate }: Props) {
         const parts = client.fiscal_address.split(',')
         setSigningLocation(parts[parts.length - 1]?.trim() ?? '')
       }
-      // Pre-fill representative for particulares
-      if (client.type === 'particular') {
+      // Pre-fill representative for personas físicas (particular + autónomo)
+      if (['particular', 'autonomo'].includes(client.type)) {
         setRepresentativeName(client.name)
-        setRepresentativeNif(client.nif ?? '')
+        setRepresentativeNif(client.nif ?? client.cif_nif ?? '')
       }
     }
     setLoadingContract(false)
@@ -534,7 +534,7 @@ export default function ContractSection({ client, onUpdate }: Props) {
                     <button
                       onClick={async () => {
                         const repName = isNatural ? client.name : representativeName
-                        const repNif = isParticular ? (client.nif ?? client.cif_nif ?? '') : representativeNif
+                        const repNif = isNatural ? (client.nif ?? client.cif_nif ?? '') : representativeNif
                         const firstPaymentDate = new Date(startDateObj)
                         firstPaymentDate.setDate(firstPaymentDate.getDate() + 15)
                         const html = generateContratoHTML({

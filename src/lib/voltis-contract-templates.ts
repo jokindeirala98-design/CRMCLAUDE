@@ -365,6 +365,7 @@ export interface ContratoData {
   contractType: 'porcentaje' | 'suscripcion'
   paymentModality: 'A' | 'B' | 'C' | 'D'
   paymentSchedule: PaymentScheduleItem[]
+  isNatural?: boolean   // true para particular/autónomo → sin "en nombre y representación de"
   year?: number
 }
 
@@ -437,7 +438,10 @@ export function generateContratoHTML(d: ContratoData): string {
         <div class="party-grid">
           <div class="party">
             <div class="party-tag">De una parte<span class="role">El cliente</span></div>
-            <div class="party-body">Don/Doña <strong>${d.representativeName}</strong>, mayor de edad, con DNI <strong>${d.representativeNif || '___________'}</strong>, en nombre y representación de <strong>${d.clientName}</strong>, con CIF <strong>${d.clientCif || '___________'}</strong> y domicilio en <strong>${d.clientFiscalAddress || '________________________________'}</strong> <span class="alias">(en adelante «el Cliente»).</span></div>
+            <div class="party-body">${d.isNatural
+  ? `Don/Doña <strong>${d.representativeName}</strong>, mayor de edad, con DNI <strong>${d.representativeNif || '___________'}</strong>, en representación propia y domicilio en <strong>${d.clientFiscalAddress || '________________________________'}</strong> <span class="alias">(en adelante «el Cliente»).</span>`
+  : `Don/Doña <strong>${d.representativeName}</strong>, mayor de edad, con DNI <strong>${d.representativeNif || '___________'}</strong>, en nombre y representación de <strong>${d.clientName}</strong>, con CIF <strong>${d.clientCif || '___________'}</strong> y domicilio en <strong>${d.clientFiscalAddress || '________________________________'}</strong> <span class="alias">(en adelante «el Cliente»).</span>`
+}</div>
           </div>
           <div class="party">
             <div class="party-tag">De otra parte<span class="role">El asesor</span></div>
