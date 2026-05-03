@@ -126,6 +126,7 @@ export default function ContractsPage() {
     const repName = isNatural ? cl?.name : sc.representative_name
     const html = generatePropuestaHTML({
       clientName: cl?.name ?? '',
+      clientType: cl?.type,
       representativeName: repName ?? '',
       ahorroConfirmado: sc.ahorro_confirmado || null,
       feeAmount: sc.fee_amount ?? 0,
@@ -146,6 +147,7 @@ export default function ContractsPage() {
     const fee = sc.fee_amount ?? 0
     const html = generateContratoHTML({
       clientName: cl?.name ?? '',
+      clientType: cl?.type,
       clientCif: cl?.cif ?? cl?.cif_nif ?? '',
       clientFiscalAddress: cl?.fiscal_address ?? '',
       representativeName: repName ?? '',
@@ -183,6 +185,7 @@ export default function ContractsPage() {
 
     const htmlP = generatePropuestaHTML({
       clientName: cl?.name ?? '',
+      clientType: cl?.type,
       representativeName: repName ?? '',
       ahorroConfirmado: sc.ahorro_confirmado || null,
       feeAmount: fee,
@@ -191,6 +194,7 @@ export default function ContractsPage() {
     })
     const htmlC = generateContratoHTML({
       clientName: cl?.name ?? '',
+      clientType: cl?.type,
       clientCif: cl?.cif ?? cl?.cif_nif ?? '',
       clientFiscalAddress: cl?.fiscal_address ?? '',
       representativeName: repName ?? '',

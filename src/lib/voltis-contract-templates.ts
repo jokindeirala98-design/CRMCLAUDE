@@ -148,6 +148,7 @@ function addMonths(d: Date, m: number) {
 
 export interface PropuestaData {
   clientName: string
+  clientType?: string   // 'ayuntamiento' | 'empresa' | 'particular' | 'autonomo'
   representativeName: string
   ahorroConfirmado: number | null
   feeAmount: number
@@ -157,9 +158,28 @@ export interface PropuestaData {
   year?: number
 }
 
+/** Devuelve las etiquetas contextuales según el tipo de cliente */
+function entityLabels(clientType: string | undefined, clientName: string) {
+  const isAyto = clientType === 'ayuntamiento'
+  const isNatural = clientType === 'particular' || clientType === 'autonomo'
+  return {
+    // "colaboración entre Voltis Energía y X"
+    nombreDirecto: `<strong>${clientName}</strong>`,
+    // "de la empresa" / "del ayuntamiento" / "del cliente"
+    genitivo: isAyto ? 'del ayuntamiento' : isNatural ? 'del cliente' : 'de la empresa',
+    // "en su empresa" / "en el ayuntamiento" / "en su actividad"
+    enEntidad: isAyto ? `en ${clientName}` : isNatural ? 'en su actividad profesional' : 'en su empresa',
+    // "equipo de la empresa" / "equipo del ayuntamiento" / "equipo del cliente"
+    equipo: isAyto ? 'equipo del ayuntamiento' : isNatural ? 'equipo del cliente' : 'equipo de la empresa',
+    // "facturación de energía de la empresa" / "del ayuntamiento" / "del cliente"
+    facturacion: isAyto ? `facturación de energía del ayuntamiento` : isNatural ? 'facturación de energía del cliente' : 'facturación de energía de la empresa',
+  }
+}
+
 export function generatePropuestaHTML(d: PropuestaData): string {
   const year = d.year ?? new Date().getFullYear()
   const endDateStr = fmtDateLong(d.endDate)
+  const lbl = entityLabels(d.clientType, d.clientName)
   const ahorroStr = d.ahorroConfirmado ? fmtCurrency(d.ahorroConfirmado) : '—'
   const minutaStr = d.contractType === 'porcentaje'
     ? `${fmtCurrency(d.feeAmount)} € + IVA`
@@ -182,13 +202,13 @@ export function generatePropuestaHTML(d: PropuestaData): string {
           </div>
         </div>
         <p style="margin-top:8mm;font-size:11pt;line-height:1.6;color:var(--ink-2)">Apreciado/a <strong>${d.representativeName || d.clientName}</strong>,</p>
-        <p style="margin-top:3mm;font-size:11pt;line-height:1.6;color:var(--ink-2)">En relación con nuestra última reunión, le adjunto a continuación el detalle de la propuesta de colaboración entre <strong>Voltis Energía</strong> y su empresa.</p>
+        <p style="margin-top:3mm;font-size:11pt;line-height:1.6;color:var(--ink-2)">En relación con nuestra última reunión, le adjunto a continuación el detalle de la propuesta de colaboración entre <strong>Voltis Energía</strong> y ${lbl.nombreDirecto}.</p>
         <div style="margin-top:8mm">
           <div class="section-title">Objetivo del estudio</div>
           <div class="fees">
             <div>
               <div class="label">Ahorro estimado</div>
-              <div class="desc">El presente estudio significará, con total seguridad, un ahorro aproximado en el cómputo total de la facturación de energía de la empresa.</div>
+              <div class="desc">El presente estudio significará, con total seguridad, un ahorro aproximado en el cómputo total de la ${lbl.facturacion}.</div>
             </div>
             <div class="figure"><strong>${d.ahorroConfirmado ? fmtCurrency(d.ahorroConfirmado) : '—'}</strong><span class="pct">€/año</span></div>
           </div>
@@ -314,7 +334,7 @@ export function generatePropuestaHTML(d: PropuestaData): string {
       <div class="cover" style="flex:none">
         <div class="cover-eyebrow" style="margin-bottom:8mm">A su disposición</div>
         <h1 style="font-size:30pt">Quedamos a<br/>su <em>disposición</em></h1>
-        <p class="cover-sub" style="margin-top:6mm">Estaremos encantados de resolver cualquier duda que pudiera surgirle sobre el alcance de esta propuesta o sobre cómo implementarla en su empresa. No dude en contactar con nosotros a través de cualquiera de los canales habituales.</p>
+        <p class="cover-sub" style="margin-top:6mm">Estaremos encantados de resolver cualquier duda que pudiera surgirle sobre el alcance de esta propuesta o sobre cómo implementarla ${lbl.enEntidad}. No dude en contactar con nosotros a través de cualquiera de los canales habituales.</p>
         <div style="margin-top:10mm;display:grid;grid-template-columns:repeat(3,1fr);gap:6mm">
           <div class="pay-row" style="margin:0"><div class="label" style="font-family:var(--mono);font-size:8.5pt;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-ink);margin-bottom:2mm">Email</div><div style="font-family:var(--serif);font-size:13pt;color:var(--ink)">clientes@voltisenergia.com</div></div>
           <div class="pay-row" style="margin:0"><div class="label" style="font-family:var(--mono);font-size:8.5pt;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-ink);margin-bottom:2mm">Teléfono</div><div style="font-family:var(--serif);font-size:13pt;color:var(--ink)">747 474 360</div></div>
@@ -352,6 +372,7 @@ export interface PaymentScheduleItem { label: string; date: Date; amount: number
 
 export interface ContratoData {
   clientName: string
+  clientType?: string   // 'ayuntamiento' | 'empresa' | 'particular' | 'autonomo'
   clientCif: string
   clientFiscalAddress: string
   representativeName: string
@@ -422,6 +443,7 @@ export function generateContratoHTML(d: ContratoData): string {
   const today = new Date()
   const todayStr = fmtDateLong(today)
   const startStr = fmtDateLong(d.startDate)
+  const lbl = entityLabels(d.clientType, d.clientName)
   const firstPayStr = fmtDateLong(d.firstPaymentDate)
   const anchor = 'Contrato de prestación de servicios profesionales'
 
@@ -545,7 +567,7 @@ export function generateContratoHTML(d: ContratoData): string {
           <div class="clause-body">
             <h2>Obligaciones de las partes</h2>
             <div class="oblig-grid">
-              <div class="oblig-col"><h3>Obligaciones del Asesor</h3><ul class="cb-list"><li><span class="li-body">Prestar sus servicios de forma diligente.</span></li><li><span class="li-body">Presentar los documentos correspondientes en tiempo y forma ante el equipo de la empresa.</span></li><li><span class="li-body">Asesorar e informar periódicamente al <strong>Cliente</strong> de todos aquellos aspectos relacionados con sus asuntos.</span></li></ul></div>
+              <div class="oblig-col"><h3>Obligaciones del Asesor</h3><ul class="cb-list"><li><span class="li-body">Prestar sus servicios de forma diligente.</span></li><li><span class="li-body">Presentar los documentos correspondientes en tiempo y forma ante el ${lbl.equipo}.</span></li><li><span class="li-body">Asesorar e informar periódicamente al <strong>Cliente</strong> de todos aquellos aspectos relacionados con sus asuntos.</span></li></ul></div>
               <div class="oblig-col"><h3>Obligaciones del Cliente</h3><ul class="cb-list"><li><span class="li-body">Presentar los documentos que correspondan para la correcta prestación del servicio.</span></li><li><span class="li-body">Asistir a las reuniones y visitas necesarias para el asesoramiento.</span></li><li><span class="li-body">El pago de los servicios prestados con las condiciones acordadas en las cláusulas <strong>Cuarta</strong> y <strong>Quinta</strong> de este contrato.</span></li></ul></div>
             </div>
           </div>
