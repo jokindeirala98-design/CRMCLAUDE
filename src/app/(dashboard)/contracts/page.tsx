@@ -124,7 +124,7 @@ export default function ContractsPage() {
     const totalAhorro = contracts.reduce((s, c) => s + (c.ahorro_confirmado ?? 0), 0)
     const totalFee = contracts.reduce((s, c) => s + (c.fee_amount ?? (c.subscription_monthly ?? 0) * 12), 0)
     const cobrado = contracts.filter(c => c.paid).reduce((s, c) => s + (c.fee_amount ?? 0), 0)
-    const porCobrar = contracts.filter(c => !c.paid && c.status !== 'draft').reduce((s, c) => s + (c.fee_amount ?? 0), 0)
+    const porCobrar = contracts.filter(c => !c.paid).reduce((s, c) => s + (c.fee_amount ?? 0), 0)
     return { total: contracts.length, active: active.length, totalAhorro, totalFee, cobrado, porCobrar }
   }, [contracts])
 
