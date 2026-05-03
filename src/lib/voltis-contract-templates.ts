@@ -658,3 +658,26 @@ export async function generateAndDownloadPDF(html: string, _filename: string): P
   // Devolvemos el HTML como Blob para guardarlo en Supabase
   return new Blob([html], { type: 'text/html' })
 }
+
+/**
+ * Escribe HTML con auto-print en una ventana ya abierta.
+ * Usar cuando se necesita abrir varias ventanas desde un mismo click
+ * (los navegadores bloquean window.open() dentro de setTimeout/await).
+ */
+export function writePDFToWindow(w: Window, html: string): void {
+  const htmlWithAutoPrint = html.replace(
+    '</body>',
+    `<script>
+      (function() {
+        function doPrint() { window.focus(); window.print(); }
+        if (document.fonts && document.fonts.ready) {
+          document.fonts.ready.then(function() { setTimeout(doPrint, 400); });
+        } else {
+          window.onload = function() { setTimeout(doPrint, 600); };
+        }
+      })();
+    <\/script></body>`
+  )
+  w.document.write(htmlWithAutoPrint)
+  w.document.close()
+}

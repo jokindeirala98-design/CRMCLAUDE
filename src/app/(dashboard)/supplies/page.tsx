@@ -154,47 +154,60 @@ function SuppliesModal({ group, consumptionMap, onClose }: {
           </div>
         </div>
 
-        {/* Cards */}
-        <div className="overflow-y-auto flex-1 p-4 space-y-2">
+        {/* Cards — 2-column grid */}
+        <div className="overflow-y-auto flex-1 p-4">
           {visibleSupplies.length === 0 ? (
             <div className="text-center py-12 text-ink-3 text-sm">
               No hay suministros con tarifa <span className="font-mono font-semibold">{tariffFilter.toUpperCase()}</span>
             </div>
-          ) : visibleSupplies.map(supply => {
-            const kwh = consumptionMap[supply.id]
-            const tariff = formatTariff(supply.tariff)
-            const isGas = supply.type === 'gas'
-            return (
-              <button
-                key={supply.id}
-                onClick={() => { router.push(`/supplies/${supply.id}`); onClose() }}
-                className="w-full text-left bg-card border border-line rounded-2xl p-4 active:scale-[0.98] active:bg-bg-2 transition-all"
-              >
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <div className={cn('w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0',
-                    isGas ? 'bg-warn-container/40' : 'bg-info-container/40')}>
-                    <Zap className={cn('w-4 h-4', isGas ? 'text-warn' : 'text-info')} />
-                  </div>
-                  <div className="flex gap-1.5 flex-wrap justify-end">
-                    {tariff !== '-' && <Badge variant="info">{tariff}</Badge>}
-                    <StatusBadge status={supply.status ?? ''} />
-                  </div>
-                </div>
-                <p className="font-mono text-[10px] text-ink-3 truncate">{supply.cups || 'Sin CUPS'}</p>
-                {supply.name && <p className="text-sm font-semibold text-ink truncate mt-0.5">{supply.name}</p>}
-                {supply.address && (
-                  <div className="flex items-center gap-1 mt-1.5">
-                    <MapPin className="w-3 h-3 text-ink-3 flex-shrink-0" />
-                    <p className="text-xs text-ink-3 truncate">{supply.address}</p>
-                  </div>
-                )}
-                <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-line">
-                  <span className="text-xs text-ink-3">Consumo anual</span>
-                  <span className={cn('text-xs font-semibold', kwh ? 'text-ink' : 'text-ink-3')}>{fmtKwh(kwh)}</span>
-                </div>
-              </button>
-            )
-          })}
+          ) : (
+            <div className="grid grid-cols-2 gap-2.5">
+              {visibleSupplies.map(supply => {
+                const kwh = consumptionMap[supply.id]
+                const tariff = formatTariff(supply.tariff)
+                const isGas = supply.type === 'gas'
+                return (
+                  <button
+                    key={supply.id}
+                    onClick={() => { router.push(`/supplies/${supply.id}`); onClose() }}
+                    className="text-left bg-card border border-line rounded-2xl p-3.5 active:scale-[0.97] active:bg-bg-2 transition-all flex flex-col gap-2"
+                  >
+                    {/* Top: icon + tariff badge */}
+                    <div className="flex items-center justify-between gap-1">
+                      <div className={cn('w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0',
+                        isGas ? 'bg-warn-container/40' : 'bg-info-container/30')}>
+                        <Zap className={cn('w-3.5 h-3.5', isGas ? 'text-warn' : 'text-info')} />
+                      </div>
+                      {tariff !== '-' && (
+                        <span className={cn(
+                          'text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded-md tracking-wide',
+                          isGas ? 'bg-warn-container/30 text-warn' : 'bg-info-container/30 text-info'
+                        )}>{tariff}</span>
+                      )}
+                    </div>
+
+                    {/* CUPS */}
+                    <p className="font-mono text-[9.5px] text-ink-4 leading-tight break-all">
+                      {supply.cups ? supply.cups.substring(0, 22) : 'Sin CUPS'}
+                    </p>
+
+                    {/* Address (truncated) */}
+                    {supply.address && (
+                      <p className="text-[10px] text-ink-3 leading-snug line-clamp-2">{supply.address}</p>
+                    )}
+
+                    {/* Bottom: status + consumption */}
+                    <div className="mt-auto pt-2 border-t border-line flex items-center justify-between gap-1">
+                      <StatusBadge status={supply.status ?? ''} />
+                      <span className={cn('text-[9.5px] font-semibold tabular-nums', kwh ? 'text-ink-3' : 'text-ink-4')}>
+                        {fmtKwh(kwh)}
+                      </span>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </div>
 
         {/* Hint (desktop only) */}
@@ -647,26 +660,50 @@ export default function SuppliesPage() {
                         }
 
                         // Multi-supply group row
+                        const uniqueTariffs = Array.from(new Set(
+                          group.supplies.map(s => formatTariff(s.tariff)).filter(t => t !== '-')
+                        ))
+                        const hasGas = group.supplies.some(s => s.type === 'gas')
+                        const hasLuz = group.supplies.some(s => s.type !== 'gas')
+                        const tipoLabel = hasGas && hasLuz ? 'Luz + Gas' : hasGas ? 'Gas' : 'Luz'
+
                         return (
                           <tr key={group.clientId}
                             onClick={() => setOpenGroup(group)}
                             className={cn('group hover:bg-brand/5 cursor-pointer transition-colors',
                               !isLastGroup && 'border-b border-line')}>
-                            <td className="px-5 py-3.5" colSpan={2}>
+                            {/* CUPS col — repurposed for group name */}
+                            <td className="px-5 py-3.5">
                               <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium text-ink">{group.clientName}</span>
-                                <span className="text-[10px] font-semibold text-brand bg-brand/10 px-1.5 py-0.5 rounded-full">
+                                <span className="text-sm font-medium text-ink group-hover:text-brand transition-colors">{group.clientName}</span>
+                                <span className="text-[10px] font-bold text-brand bg-brand/10 px-1.5 py-0.5 rounded-full leading-none">
                                   {group.supplies.length}
                                 </span>
                               </div>
-                              {group.clientCif && <p className="text-xs text-ink-3">{group.clientCif}</p>}
+                              {group.clientCif && <p className="text-[11px] text-ink-3 mt-0.5">{group.clientCif}</p>}
                             </td>
-                            <td className="px-5 py-3.5 text-xs text-ink-3" colSpan={2}>
-                              {[...new Set(group.supplies.map(s => formatTariff(s.tariff)).filter(t => t !== '-'))].join(' · ')}
+                            {/* Cliente col — leave empty to keep alignment */}
+                            <td className="px-5 py-3.5" />
+                            {/* Tarifa col — badges */}
+                            <td className="px-5 py-3.5">
+                              <div className="flex flex-wrap gap-1">
+                                {uniqueTariffs.slice(0, 4).map(t => (
+                                  <Badge key={t} variant="info">{t}</Badge>
+                                ))}
+                                {uniqueTariffs.length > 4 && (
+                                  <span className="text-[10px] text-ink-3 font-mono self-center">+{uniqueTariffs.length - 4}</span>
+                                )}
+                              </div>
                             </td>
+                            {/* Tipo */}
+                            <td className="px-5 py-3.5">
+                              <span className="text-xs text-ink-3">{tipoLabel}</span>
+                            </td>
+                            {/* Consumo */}
                             <td className="px-5 py-3.5">
                               <span className="text-xs text-ink">{fmtKwh(group.totalKwh)}</span>
                             </td>
+                            {/* Estado → chevron */}
                             <td className="px-5 py-3.5">
                               <ChevronRight className="w-4 h-4 text-ink-3 group-hover:text-brand transition-colors" />
                             </td>
@@ -696,7 +733,7 @@ export default function SuppliesPage() {
       <BulkUploadModal
         open={showNewModal}
         onClose={() => setShowNewModal(false)}
-        onSuccess={fetchSupplies}
+        onCreated={fetchSupplies}
       />
     </div>
   )

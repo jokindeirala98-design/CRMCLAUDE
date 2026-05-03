@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/Button'
 import { NewContractModal } from '@/components/modals/NewContractModal'
 import { createClient } from '@/lib/supabase/client'
 import { formatDate, formatCurrency } from '@/lib/utils/format'
-import { generatePropuestaHTML, generateContratoHTML, generateAndDownloadPDF } from '@/lib/voltis-contract-templates'
+import { generatePropuestaHTML, generateContratoHTML, generateAndDownloadPDF, writePDFToWindow } from '@/lib/voltis-contract-templates'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -62,7 +62,9 @@ export default function ContractsPage() {
         subscription_monthly, payment_modality, start_date, end_date,
         status, paid, paid_at, proposal_url, contract_url, created_at,
         representative_name, representative_nif, signing_location,
-        client:clients(id, name, type, cif_nif, cif, nif, fiscal_address)
+        client:clients(id, name, type, cif_nif, cif, nif, fiscal_address,
+          commercial:users_profile!commercial_id(id, full_name, email)
+        )
       `)
       .order('created_at', { ascending: false })
     setContracts(data || [])
@@ -158,6 +160,53 @@ export default function ContractsPage() {
       isNatural,
     })
     await generateAndDownloadPDF(html, `Contrato_Voltis_${cl?.name ?? 'cliente'}.pdf`)
+  }
+
+  // Abre ambas ventanas síncronamente (antes de cualquier await)
+  // para que el bloqueador de popups del navegador las permita.
+  const descargarAmbos = async (sc: any) => {
+    const wP = window.open('', '_blank')
+    const wC = window.open('', '_blank')
+    if (!wP || !wC) {
+      alert('Activa las ventanas emergentes para este sitio y vuelve a intentarlo.')
+      return
+    }
+
+    const cl = sc.client
+    const isNatural = ['particular', 'autonomo'].includes(cl?.type)
+    const start = sc.start_date ? new Date(sc.start_date) : new Date()
+    const end = sc.end_date ? new Date(sc.end_date) : addM(start, 12)
+    const repName = isNatural ? cl?.name : sc.representative_name
+    const repNif = isNatural ? (cl?.nif ?? cl?.cif_nif ?? '') : sc.representative_nif
+    const fee = sc.fee_amount ?? 0
+    const firstPay = new Date(start); firstPay.setDate(firstPay.getDate() + 15)
+
+    const htmlP = generatePropuestaHTML({
+      clientName: cl?.name ?? '',
+      representativeName: repName ?? '',
+      ahorroConfirmado: sc.ahorro_confirmado || null,
+      feeAmount: fee,
+      startDate: start, endDate: end,
+      contractType: sc.contract_type,
+    })
+    const htmlC = generateContratoHTML({
+      clientName: cl?.name ?? '',
+      clientCif: cl?.cif ?? cl?.cif_nif ?? '',
+      clientFiscalAddress: cl?.fiscal_address ?? '',
+      representativeName: repName ?? '',
+      representativeNif: repNif ?? '',
+      signingLocation: sc.signing_location ?? '',
+      startDate: start, endDate: end, firstPaymentDate: firstPay,
+      ahorroConfirmado: sc.ahorro_confirmado || null,
+      feeAmount: fee,
+      contractType: sc.contract_type,
+      paymentModality: sc.payment_modality,
+      paymentSchedule: buildSched(sc.payment_modality, fee, start),
+      isNatural,
+    })
+
+    writePDFToWindow(wP, htmlP)
+    writePDFToWindow(wC, htmlC)
   }
 
   return (
@@ -304,7 +353,10 @@ export default function ContractsPage() {
                       </div>
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-ink truncate group-hover:text-brand transition">{cl?.name ?? '—'}</p>
-                        <p className="text-[10px] text-ink-3 truncate">{TYPE_LABEL[cl?.type] ?? cl?.type}</p>
+                        <p className="text-[10px] text-ink-3 truncate">
+                          {TYPE_LABEL[cl?.type] ?? cl?.type}
+                          {cl?.commercial?.full_name && <> · <span className="text-ink-4">{cl.commercial.full_name}</span></>}
+                        </p>
                       </div>
                     </div>
 
@@ -357,7 +409,7 @@ export default function ContractsPage() {
                     {/* Descargar + nav */}
                     <div className="flex items-center gap-1 shrink-0">
                       <button
-                        onClick={async () => { await genPropuesta(sc); setTimeout(() => genContrato(sc), 600) }}
+                        onClick={() => descargarAmbos(sc)}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium bg-brand/10 text-brand hover:bg-brand hover:text-white transition border border-brand/20"
                         title="Descargar propuesta y contrato"
                       >
@@ -387,7 +439,10 @@ export default function ContractsPage() {
                         </div>
                         <div className="min-w-0">
                           <p className="text-sm font-semibold text-ink truncate">{cl?.name ?? '—'}</p>
-                          <p className="text-[10px] text-ink-4 truncate">{TYPE_LABEL[cl?.type] ?? cl?.type}</p>
+                          <p className="text-[10px] text-ink-4 truncate">
+                            {TYPE_LABEL[cl?.type] ?? cl?.type}
+                            {cl?.commercial?.full_name && <> · {cl.commercial.full_name}</>}
+                          </p>
                         </div>
                       </div>
                       <ChevronRight className="w-4 h-4 text-ink-4 flex-shrink-0" onClick={() => cl?.id && router.push(`/clients/${cl.id}`)} />
@@ -436,7 +491,7 @@ export default function ContractsPage() {
                         }
                       </button>
                       <button
-                        onClick={async () => { await genPropuesta(sc); setTimeout(() => genContrato(sc), 600) }}
+                        onClick={() => descargarAmbos(sc)}
                         className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-medium bg-brand/10 text-brand border border-brand/20 flex-1 justify-center"
                       >
                         <Download className="w-3.5 h-3.5" />
