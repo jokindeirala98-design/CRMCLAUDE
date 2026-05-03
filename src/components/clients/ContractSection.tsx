@@ -9,7 +9,7 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatDate } from '@/lib/utils/format'
 import type { ServiceContract, PaymentModality, ServiceContractType } from '@/types/database'
-import { generatePropuestaHTML, generateContratoHTML, openInNewWindow } from '@/lib/voltis-contract-templates'
+import { generatePropuestaHTML, generateContratoHTML, generateAndDownloadPDF } from '@/lib/voltis-contract-templates'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -514,12 +514,12 @@ export default function ContractSection({ client, onUpdate }: Props) {
                           endDate: endDateObj,
                           contractType,
                         })
-                        openInNewWindow(html)
-                        // Guardar en storage
+                        const filename = `Propuesta_Voltis_${client.name.replace(/\s+/g, '_')}.pdf`
+                        const blob = await generateAndDownloadPDF(html, filename)
+                        // Guardar PDF en storage
                         const supabase = createClient()
-                        const path = `service_contracts/${client.id}/propuesta-${Date.now()}.html`
-                        const blob = new Blob([html], { type: 'text/html' })
-                        const { data: up } = await supabase.storage.from('documents').upload(path, blob, { contentType: 'text/html', upsert: false })
+                        const path = `service_contracts/${client.id}/propuesta-${Date.now()}.pdf`
+                        const { data: up } = await supabase.storage.from('documents').upload(path, blob, { contentType: 'application/pdf', upsert: false })
                         if (up) {
                           const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path)
                           await supabase.from('service_contracts').update({ proposal_url: urlData.publicUrl }).eq('id', contract.id)
@@ -554,12 +554,12 @@ export default function ContractSection({ client, onUpdate }: Props) {
                           paymentSchedule,
                           isNatural,
                         })
-                        openInNewWindow(html)
-                        // Guardar en storage
+                        const filename = `Contrato_Voltis_${client.name.replace(/\s+/g, '_')}.pdf`
+                        const blob = await generateAndDownloadPDF(html, filename)
+                        // Guardar PDF en storage
                         const supabase = createClient()
-                        const path = `service_contracts/${client.id}/contrato-${Date.now()}.html`
-                        const blob = new Blob([html], { type: 'text/html' })
-                        const { data: up } = await supabase.storage.from('documents').upload(path, blob, { contentType: 'text/html', upsert: false })
+                        const path = `service_contracts/${client.id}/contrato-${Date.now()}.pdf`
+                        const { data: up } = await supabase.storage.from('documents').upload(path, blob, { contentType: 'application/pdf', upsert: false })
                         if (up) {
                           const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path)
                           await supabase.from('service_contracts').update({ contract_url: urlData.publicUrl }).eq('id', contract.id)
