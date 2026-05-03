@@ -186,13 +186,18 @@ function SuppliesModal({ group, consumptionMap, onClose }: {
                       )}
                     </div>
 
+                    {/* Name */}
+                    {supply.name && (
+                      <p className="text-[11px] font-semibold text-ink leading-snug truncate">{supply.name}</p>
+                    )}
+
                     {/* CUPS */}
-                    <p className="font-mono text-[9.5px] text-ink-4 leading-tight break-all">
+                    <p className="font-mono text-[9px] text-ink-4 leading-tight break-all">
                       {supply.cups ? supply.cups.substring(0, 22) : 'Sin CUPS'}
                     </p>
 
-                    {/* Address (truncated) */}
-                    {supply.address && (
+                    {/* Address (truncated, only if no name to save space) */}
+                    {!supply.name && supply.address && (
                       <p className="text-[10px] text-ink-3 leading-snug line-clamp-2">{supply.address}</p>
                     )}
 
