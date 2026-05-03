@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   X, Upload, FileText, ExternalLink, CheckCircle2,
   Building2, Zap, Euro, Calendar, User, MapPin,
-  Printer, ChevronLeft, Loader2, Check, Info, AlertTriangle,
+  Printer, ChevronLeft, Loader2, Check, Info,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from '@/components/ui/Button'
@@ -14,6 +14,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/auth'
 import { formatCurrency } from '@/lib/utils/format'
 import type { ServiceContract, PaymentModality, ServiceContractType } from '@/types/database'
+import { generatePropuestaHTML, generateContratoHTML, openInNewWindow } from '@/lib/voltis-contract-templates'
 
 // ─── Shared types & helpers ───────────────────────────────────────────────────
 
@@ -397,8 +398,6 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
   const [savedContract, setSavedContract] = useState<ServiceContract | null>(null)
   const [loadingClient, setLoadingClient] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [showPropuesta, setShowPropuesta] = useState(false)
-  const [showContrato, setShowContrato] = useState(false)
 
   // Form fields
   const [clientId, setClientId] = useState(preselectedClientId || '')
@@ -662,16 +661,60 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
 
             {contractForPDF && representativeName && (
               <>
-                <button onClick={() => setShowPropuesta(true)} className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-line-2 bg-card text-ink text-xs font-semibold hover:bg-bg-2 transition-all">
+                <button
+                  onClick={() => {
+                    const startDateObj = new Date(startDate + 'T00:00:00')
+                    const endDateObj = addMonths(startDateObj, 12)
+                    const html = generatePropuestaHTML({
+                      clientName: selectedClient.name,
+                      representativeName,
+                      ahorroConfirmado: ahorroNum || null,
+                      feeAmount,
+                      startDate: startDateObj,
+                      endDate: endDateObj,
+                      contractType,
+                    })
+                    openInNewWindow(html)
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-line-2 bg-card text-ink text-xs font-semibold hover:bg-bg-2 transition-all"
+                >
                   <Printer className="w-3.5 h-3.5" /> Propuesta PDF
                 </button>
-                <button onClick={() => setShowContrato(true)} className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-line-2 bg-card text-ink text-xs font-semibold hover:bg-bg-2 transition-all">
+                <button
+                  onClick={() => {
+                    const startDateObj = new Date(startDate + 'T00:00:00')
+                    const endDateObj = addMonths(startDateObj, 12)
+                    const firstPaymentDate = new Date(startDateObj)
+                    firstPaymentDate.setDate(firstPaymentDate.getDate() + 15)
+                    const schedule = ahorroNum > 0 || contractType === 'suscripcion'
+                      ? buildPaymentSchedule(paymentModality, feeAmount, startDateObj)
+                      : []
+                    const html = generateContratoHTML({
+                      clientName: selectedClient.name,
+                      clientCif: selectedClient.cif ?? selectedClient.cif_nif ?? '',
+                      clientFiscalAddress: selectedClient.fiscal_address ?? '',
+                      representativeName,
+                      representativeNif,
+                      signingLocation,
+                      startDate: startDateObj,
+                      endDate: endDateObj,
+                      firstPaymentDate,
+                      ahorroConfirmado: ahorroNum || null,
+                      feeAmount,
+                      contractType,
+                      paymentModality,
+                      paymentSchedule: schedule,
+                    })
+                    openInNewWindow(html)
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-line-2 bg-card text-ink text-xs font-semibold hover:bg-bg-2 transition-all"
+                >
                   <FileText className="w-3.5 h-3.5" /> Contrato PDF
                 </button>
               </>
             )}
 
-            {savedContract && !showPropuesta && !showContrato && (
+            {savedContract && (
               <span className="flex items-center gap-1 text-xs text-ok font-semibold ml-1">
                 <CheckCircle2 className="w-3.5 h-3.5" /> Guardado
               </span>
@@ -680,226 +723,9 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
         </>
       )}
 
-      {/* PDF Modals */}
-      {showPropuesta && contractForPDF && selectedClient && (
-        <VoltisProModal client={selectedClient} contract={contractForPDF} feeAmount={feeAmount} endDate={endDateObj} onClose={() => setShowPropuesta(false)} />
-      )}
-      {showContrato && contractForPDF && selectedClient && (
-        <VoltisContratoModal client={selectedClient} contract={contractForPDF} feeAmount={feeAmount} paymentSchedule={paymentSchedule} startDate={startDateObj} endDate={endDateObj} onClose={() => setShowContrato(false)} />
-      )}
     </div>
   )
 }
 
-// ─── PDF Modals (inline) ──────────────────────────────────────────────────────
-
-function VoltisProModal({ client, contract, feeAmount, endDate, onClose }: {
-  client: any; contract: ServiceContract; feeAmount: number; endDate: Date; onClose: () => void
-}) {
-  const contactName = contract.representative_name || client.name
-  const endDateStr = endDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })
-
-  return (
-    <div className="fixed inset-0 z-[60] bg-black/60 flex flex-col">
-      <div className="no-print flex items-center justify-between px-6 py-3 bg-card border-b border-line">
-        <span className="text-sm font-semibold text-ink">Propuesta de colaboración — {client.name}</span>
-        <div className="flex gap-2">
-          <button onClick={() => window.print()} className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-brand text-white text-xs font-semibold hover:opacity-90"><Printer className="w-3.5 h-3.5" /> Generar PDF</button>
-          <button onClick={onClose} className="px-3 py-1.5 rounded-lg border border-line-2 text-xs font-semibold text-ink-3 hover:bg-bg-2">Cerrar</button>
-        </div>
-      </div>
-      <div className="flex-1 overflow-auto bg-[#f0ede6] p-8 print:p-0 print:bg-white">
-        <div id="propuesta-doc" style={{ width:'210mm',minHeight:'297mm',margin:'0 auto',background:'white',padding:'18mm 16mm',fontFamily:"'Times New Roman', serif",color:'#1a1a18',fontSize:'10.5pt',lineHeight:'1.6',boxShadow:'0 4px 32px rgba(0,0,0,0.15)' }}>
-          <div style={{ display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'8mm',borderBottom:'1px solid #e0ddd6',paddingBottom:'4mm' }}>
-            <div style={{ fontWeight:'bold',fontSize:'13pt',color:'#1a3a5c',letterSpacing:'1px' }}>⚡ Voltis Energía</div>
-            <div style={{ fontSize:'8pt',color:'#888',textAlign:'right' }}>PRC-{new Date().getFullYear()} · v1.0</div>
-          </div>
-          <div style={{ fontSize:'7.5pt',color:'#888',letterSpacing:'3px',textTransform:'uppercase',marginBottom:'6mm' }}>— PROPUESTA DE COLABORACIÓN</div>
-          <div style={{ marginBottom:'10mm' }}>
-            <div style={{ fontSize:'28pt',fontWeight:'normal',color:'#1a1a18',lineHeight:1.1 }}>Asesoría energética</div>
-            <div style={{ fontSize:'28pt',fontStyle:'italic',color:'#1a3a5c',lineHeight:1.1 }}>integral</div>
-            <div style={{ fontSize:'10pt',color:'#555',marginTop:'4mm' }}>Una propuesta a medida para optimizar el coste energético de {client.name}.</div>
-          </div>
-          <div style={{ borderTop:'1px solid #e0ddd6',borderBottom:'1px solid #e0ddd6',padding:'4mm 0',marginBottom:'8mm' }}>
-            <div style={{ fontSize:'7.5pt',color:'#888',letterSpacing:'2px',textTransform:'uppercase',marginBottom:'2mm' }}>DIRIGIDA A</div>
-            <div style={{ fontSize:'10.5pt',fontStyle:'italic',color:'#555' }}>{client.name}</div>
-          </div>
-          <div style={{ marginBottom:'6mm' }}>
-            <div>Apreciado/a <span style={{ borderBottom:'1px solid #1a1a18' }}>{contactName}</span>,</div>
-            <div style={{ marginTop:'3mm' }}>En relación con nuestra última reunión, le adjunto la propuesta de colaboración entre <strong>Voltis Energía</strong> y su empresa.</div>
-          </div>
-          <div style={{ background:'#f0f4fb',border:'1px solid #dde6f5',borderRadius:'6px',padding:'4mm 5mm',marginBottom:'6mm' }}>
-            <div style={{ fontSize:'7.5pt',color:'#1a3a5c',letterSpacing:'2px',textTransform:'uppercase',marginBottom:'2mm' }}>AHORRO ESTIMADO</div>
-            <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center' }}>
-              <div style={{ fontSize:'10pt',color:'#333' }}>El presente estudio significará un ahorro aproximado en el cómputo total de la facturación energética.</div>
-              <div style={{ fontSize:'18pt',fontWeight:'bold',color:'#1a3a5c',whiteSpace:'nowrap',marginLeft:'8mm' }}>{contract.ahorro_confirmado ? formatCurrency(contract.ahorro_confirmado) : '—'} <span style={{ fontSize:'12pt' }}>/año</span></div>
-            </div>
-          </div>
-          {[['01','Revisión energética','Estado actual de los suministros. Optimización de potencias, tarifas, consumos y estrategia de compra.'],['02','Revisión de propuestas de terceros','Análisis de propuestas de mejora de eficiencia energética recibidas por el cliente.']].map(([num,title,body]) => (
-            <div key={num} style={{ display:'grid',gridTemplateColumns:'30mm 1fr',gap:'4mm',marginBottom:'6mm' }}>
-              <div><div style={{ fontSize:'7pt',color:'#888',letterSpacing:'2px',textTransform:'uppercase' }}>PUNTO</div><div style={{ fontSize:'22pt',fontWeight:'bold',color:'#1a3a5c',lineHeight:1 }}>{num}</div></div>
-              <div><div style={{ fontSize:'13pt',marginBottom:'2mm' }}>{title}</div><div style={{ fontSize:'9.5pt',color:'#555' }}>{body}</div></div>
-            </div>
-          ))}
-          <div style={{ display:'grid',gridTemplateColumns:'30mm 1fr',gap:'4mm',marginBottom:'6mm' }}>
-            <div><div style={{ fontSize:'7pt',color:'#888',letterSpacing:'2px',textTransform:'uppercase' }}>PUNTO</div><div style={{ fontSize:'22pt',fontWeight:'bold',color:'#1a3a5c',lineHeight:1 }}>03</div></div>
-            <div>
-              <div style={{ fontSize:'13pt',marginBottom:'3mm' }}>Honorarios y duración</div>
-              <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:'4mm' }}>
-                <div style={{ background:'#f8f8f6',border:'1px solid #e0ddd6',borderRadius:'6px',padding:'3mm 4mm' }}>
-                  <div style={{ fontSize:'7pt',color:'#888',letterSpacing:'2px',textTransform:'uppercase',marginBottom:'1.5mm' }}>DURACIÓN</div>
-                  <div style={{ fontSize:'13pt' }}>Hasta el {endDateStr}</div>
-                </div>
-                <div style={{ background:'#f0f4fb',border:'1px solid #dde6f5',borderRadius:'6px',padding:'3mm 4mm' }}>
-                  <div style={{ fontSize:'7pt',color:'#1a3a5c',letterSpacing:'2px',textTransform:'uppercase',marginBottom:'1.5mm' }}>MINUTA ANUAL</div>
-                  <div style={{ fontSize:'15pt',fontWeight:'bold',color:'#1a3a5c' }}>{contract.contract_type === 'porcentaje' ? `${formatCurrency(feeAmount)} + IVA` : `${formatCurrency(19.99)}/mes + IVA`}</div>
-                  <div style={{ fontSize:'8.5pt',color:'#555' }}>{contract.contract_type === 'porcentaje' ? '25% sobre ahorro estimado' : 'Cuota mensual fija'}</div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div style={{ borderTop:'1px solid #e0ddd6',marginTop:'8mm',paddingTop:'4mm',display:'flex',justifyContent:'space-between',fontSize:'7.5pt',color:'#888' }}>
-            <div>Voltis Soluciones S.L. · CIF B71548705<br />C/ Berriobide 38, Of. 209 · Ansoáin (Navarra)</div>
-            <div style={{ textAlign:'right' }}>voltisenergia.com<br />clientes@voltisenergia.com · 747 474 360</div>
-          </div>
-          <div style={{ pageBreakBefore:'always',paddingTop:'12mm' }}>
-            <div style={{ fontSize:'20pt',lineHeight:1.2,marginBottom:'8mm' }}>Quedamos a su <em style={{ color:'#1a3a5c' }}>disposición</em></div>
-            <div style={{ borderTop:'1px solid #e0ddd6',paddingTop:'6mm' }}>
-              <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10mm' }}>
-                <div>
-                  <div style={{ fontSize:'7.5pt',color:'#1a3a5c',letterSpacing:'2px',textTransform:'uppercase',marginBottom:'2mm' }}>EL CLIENTE</div>
-                  <div style={{ border:'1px dashed #ccc',borderRadius:'4px',height:'25mm',marginBottom:'2mm' }} />
-                  <div style={{ borderBottom:'1px solid #1a1a18',marginTop:'4mm',width:'60%' }} />
-                  <div style={{ fontSize:'8.5pt',marginTop:'1mm' }}>D./Dña. {contract.representative_name || '______________________'}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize:'7.5pt',color:'#1a3a5c',letterSpacing:'2px',textTransform:'uppercase',marginBottom:'2mm' }}>EL ASESOR</div>
-                  <div style={{ border:'1px dashed #ccc',borderRadius:'4px',height:'25mm',marginBottom:'2mm' }} />
-                  <div style={{ fontWeight:'bold',marginTop:'4mm' }}>Voltis Soluciones S.L.</div>
-                  <div style={{ fontSize:'8.5pt' }}>D. Nicolás Imízcoz García</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <style>{`@media print{body>*:not(#propuesta-doc){display:none!important}.no-print{display:none!important}#propuesta-doc{box-shadow:none!important;margin:0!important;width:100%!important}@page{margin:0;size:A4}}`}</style>
-    </div>
-  )
-}
-
-function VoltisContratoModal({ client, contract, feeAmount, paymentSchedule, startDate, endDate, onClose }: {
-  client: any; contract: ServiceContract; feeAmount: number; paymentSchedule: PaymentScheduleItem[]; startDate: Date; endDate: Date; onClose: () => void
-}) {
-  const today = new Date()
-  const todayStr = today.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })
-  const startStr = startDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })
-  const firstPaymentDate = new Date(startDate); firstPaymentDate.setDate(firstPaymentDate.getDate() + 15)
-  const firstPaymentStr = firstPaymentDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })
-  const iban = 'ES19 0182 5000 8402 0187 5295'
-
-  const clausulaV = (() => {
-    const box = (content: React.ReactNode, amount: string) => (
-      <div style={{ background:'#f8f8f6',border:'1px solid #e0ddd6',borderRadius:'6px',padding:'3mm 4mm',marginBottom:'3mm',display:'flex',justifyContent:'space-between',alignItems:'center' }}>
-        <div style={{ flex:1 }}>{content}</div>
-        <div style={{ fontSize:'14pt',fontWeight:'bold',color:'#1a3a5c',marginLeft:'6mm',whiteSpace:'nowrap' }}>{amount}</div>
-      </div>
-    )
-    switch (contract.payment_modality) {
-      case 'A': return <div>{box(<div>Pago único mediante transferencia bancaria a la cuenta corriente de la entidad <strong>BBVA</strong>.<br /><span style={{ fontFamily:'monospace',fontSize:'9pt' }}>{iban}</span></div>, `${formatCurrency(feeAmount)} + IVA`)}<div>Se facilitará una factura anualmente.</div></div>
-      case 'B': return <div><div style={{ marginBottom:'3mm' }}>4 cuotas trimestrales iguales al vencimiento, mediante transferencia a <strong>BBVA</strong>:<br /><span style={{ fontFamily:'monospace',fontSize:'9pt' }}>{iban}</span></div>{paymentSchedule.map((item,i) => box(<div><strong>{item.label}</strong> — al {item.date.toLocaleDateString('es-ES',{day:'numeric',month:'long',year:'numeric'})}</div>, `${formatCurrency(item.amount)} + IVA`))}</div>
-      case 'C': return <div><div style={{ marginBottom:'3mm' }}>50% a la firma + 4 cuotas trimestrales, mediante transferencia a <strong>BBVA</strong>:<br /><span style={{ fontFamily:'monospace',fontSize:'9pt' }}>{iban}</span></div>{paymentSchedule.map((item,i) => box(<div><strong>{item.label}</strong> — al {item.date.toLocaleDateString('es-ES',{day:'numeric',month:'long',year:'numeric'})}</div>, `${formatCurrency(item.amount)} + IVA`))}</div>
-      case 'D': return <div>{box(<div>Pago único al vencimiento del contrato, mediante transferencia a <strong>BBVA</strong>.<br /><span style={{ fontFamily:'monospace',fontSize:'9pt' }}>{iban}</span><br /><span style={{ fontSize:'9pt',color:'#555' }}>Fecha: {paymentSchedule[0]?.date.toLocaleDateString('es-ES',{day:'numeric',month:'long',year:'numeric'})}</span></div>, `${formatCurrency(feeAmount)} + IVA`)}</div>
-    }
-  })()
-
-  return (
-    <div className="fixed inset-0 z-[60] bg-black/60 flex flex-col">
-      <div className="no-print flex items-center justify-between px-6 py-3 bg-card border-b border-line">
-        <span className="text-sm font-semibold text-ink">Contrato de servicios — {client.name}</span>
-        <div className="flex gap-2">
-          <button onClick={() => window.print()} className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-brand text-white text-xs font-semibold hover:opacity-90"><Printer className="w-3.5 h-3.5" /> Generar PDF</button>
-          <button onClick={onClose} className="px-3 py-1.5 rounded-lg border border-line-2 text-xs font-semibold text-ink-3 hover:bg-bg-2">Cerrar</button>
-        </div>
-      </div>
-      <div className="flex-1 overflow-auto bg-[#f0ede6] p-8 print:p-0 print:bg-white">
-        <div id="contrato-doc" style={{ width:'210mm',minHeight:'297mm',margin:'0 auto',background:'white',padding:'18mm 16mm',fontFamily:"'Times New Roman', serif",color:'#1a1a18',fontSize:'10.5pt',lineHeight:'1.7',boxShadow:'0 4px 32px rgba(0,0,0,0.15)' }}>
-          <div style={{ display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'6mm',borderBottom:'1px solid #e0ddd6',paddingBottom:'3mm' }}>
-            <div style={{ fontWeight:'bold',fontSize:'13pt',color:'#1a3a5c' }}>⚡ Voltis Energía</div>
-            <div style={{ fontSize:'8pt',color:'#888' }}>CSP-{today.getFullYear()} · v1.0</div>
-          </div>
-          <div style={{ fontSize:'7.5pt',color:'#888',letterSpacing:'3px',textTransform:'uppercase',marginBottom:'5mm' }}>— CONTRATO PROFESIONAL</div>
-          <div style={{ fontSize:'24pt',fontWeight:'normal',lineHeight:1.2,marginBottom:'4mm' }}>Contrato de prestación<br />de servicios <em style={{ color:'#1a3a5c' }}>profesionales</em></div>
-          <div style={{ fontSize:'9.5pt',color:'#555',marginBottom:'8mm' }}>Servicios de asesoría y consultoría energética prestados por <strong>Voltis Soluciones S.L.</strong></div>
-
-          <div style={{ borderTop:'1px solid #e0ddd6',paddingTop:'4mm',marginBottom:'4mm' }}>
-            <div style={{ fontSize:'7.5pt',color:'#888',letterSpacing:'3px',textTransform:'uppercase',marginBottom:'4mm' }}>REUNIDOS</div>
-            <div style={{ display:'grid',gridTemplateColumns:'28mm 1fr',gap:'3mm',marginBottom:'4mm' }}>
-              <div><div style={{ fontSize:'7.5pt',fontWeight:'bold',color:'#1a3a5c',textTransform:'uppercase' }}>EL CLIENTE</div></div>
-              <div style={{ fontSize:'10pt' }}>Don/Doña <span style={{ borderBottom:'1px solid #1a1a18' }}>{contract.representative_name || '______________________'}</span>, con DNI <span style={{ borderBottom:'1px solid #1a1a18' }}>{contract.representative_nif || '__________'}</span>, en representación de <span style={{ borderBottom:'1px solid #1a1a18' }}>{client.name}</span>, con CIF <span style={{ borderBottom:'1px solid #1a1a18' }}>{client.cif || '__________'}</span> y domicilio en <span style={{ borderBottom:'1px solid #1a1a18' }}>{client.fiscal_address || '______________________________'}</span> <em>(«el Cliente»).</em></div>
-            </div>
-            <div style={{ display:'grid',gridTemplateColumns:'28mm 1fr',gap:'3mm',marginBottom:'4mm' }}>
-              <div><div style={{ fontSize:'7.5pt',fontWeight:'bold',color:'#1a3a5c',textTransform:'uppercase' }}>EL ASESOR</div></div>
-              <div style={{ fontSize:'10pt' }}>Don <strong>Nicolás Imízcoz García</strong>, DNI <strong>73464830R</strong>, en representación de <strong>Voltis Soluciones S.L.</strong>, CIF <strong>B71548705</strong>, C/ Berriobide 38, Of. 209, Ansoáin (Navarra) <em>(«el Asesor»).</em></div>
-            </div>
-            <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6mm',borderTop:'1px solid #e0ddd6',paddingTop:'3mm' }}>
-              <div><div style={{ fontSize:'7.5pt',color:'#888',textTransform:'uppercase',marginBottom:'1mm' }}>LUGAR DE FORMALIZACIÓN</div><div style={{ fontSize:'10.5pt' }}>{contract.signing_location || '______________________'}</div></div>
-              <div><div style={{ fontSize:'7.5pt',color:'#888',textTransform:'uppercase',marginBottom:'1mm' }}>FECHA</div><div style={{ fontSize:'10.5pt' }}>{todayStr}</div></div>
-            </div>
-          </div>
-
-          {[
-            { num:'I', title:'Objeto del contrato', body:<div>El <strong>Asesor</strong> se compromete a prestar auxilio y consejo al <strong>Cliente</strong> en materia de asesoría energética integral, tal como se recoge en la <em>«Propuesta de colaboración Voltis Energía — {client.name}»</em> (Anexo I), aceptada el {startStr}.</div> },
-            { num:'II', title:'Duración del contrato', body:<div>El contrato tendrá una duración de <strong>doce (12) meses</strong>.</div> },
-            { num:'III', title:'Fecha de inicio de los servicios', body:<div>Los servicios comenzaron el <span style={{ borderBottom:'1px solid #aaa' }}>{startStr}</span>, y el consiguiente pago será el día <span style={{ borderBottom:'1px solid #aaa' }}>{firstPaymentStr}</span>.</div> },
-            { num:'IV', title:'Honorarios', body:<div>
-              <div style={{ background:'#f0f4fb',border:'1px solid #dde6f5',borderRadius:'6px',padding:'3mm 4mm',marginBottom:'3mm',display:'flex',justifyContent:'space-between',alignItems:'center' }}>
-                <div>Porcentaje sobre ahorro económico anual obtenido.</div>
-                <div style={{ fontSize:'18pt',fontWeight:'bold',color:'#1a3a5c',marginLeft:'8mm' }}>{contract.contract_type === 'porcentaje' ? '25%' : '—'}</div>
-              </div>
-              {contract.contract_type === 'porcentaje'
-                ? <div>Honorarios correspondientes al primer año: <strong>{formatCurrency(feeAmount)} + IVA</strong> (equivalente al 25% del ahorro estimado), sujeto a regularización al finalizar el periodo anual.</div>
-                : <div>Honorarios por suscripción: <strong>19,99 € + IVA/mes</strong> ({formatCurrency(19.99 * 12)} + IVA anuales).</div>}
-            </div> },
-            { num:'V', title:'Forma de pago', body:clausulaV },
-            { num:'VI', title:'Obligaciones de las partes', body:<div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:'4mm' }}>
-              <div><div style={{ fontSize:'7.5pt',fontWeight:'bold',color:'#1a3a5c',textTransform:'uppercase',marginBottom:'2mm' }}>OBLIGACIONES DEL ASESOR</div>{['Prestar sus servicios de forma diligente.','Presentar documentos en tiempo y forma.','Asesorar e informar periódicamente.'].map((o,i)=><div key={i} style={{ fontSize:'9.5pt',marginBottom:'1.5mm' }}>▪ {o}</div>)}</div>
-              <div><div style={{ fontSize:'7.5pt',fontWeight:'bold',color:'#1a3a5c',textTransform:'uppercase',marginBottom:'2mm' }}>OBLIGACIONES DEL CLIENTE</div>{['Presentar los documentos necesarios.','Asistir a las reuniones necesarias.','Pagar los servicios según lo acordado.'].map((o,i)=><div key={i} style={{ fontSize:'9.5pt',marginBottom:'1.5mm' }}>▪ {o}</div>)}</div>
-            </div> },
-            { num:'VII', title:'Información periódica', body:<div>Las partes se comprometen a mantener un mínimo de <strong>dos (2) reuniones anuales</strong>.</div> },
-            { num:'VIII', title:'Resolución del contrato', body:<div>Podrá resolverse por acuerdo de partes (preaviso mínimo 1 mes) o de forma unilateral por incumplimiento.</div> },
-            { num:'IX', title:'Protección de datos', body:<div>El <strong>Cliente</strong> consiente la inclusión de sus datos en los ficheros del <strong>Asesor</strong>, pudiendo ejercitar en cualquier momento los derechos ARCO.</div> },
-            { num:'X', title:'Confidencialidad', body:<div>El <strong>Asesor</strong> mantendrá la confidencialidad de los datos facilitados, salvo imperativo legal.</div> },
-            { num:'XI', title:'Sumisión a tribunales', body:<div>Las partes se someten expresamente a los <strong>Juzgados y Tribunales de Pamplona</strong>.</div> },
-          ].map(clausula => (
-            <div key={clausula.num} style={{ display:'grid',gridTemplateColumns:'22mm 1fr',gap:'3mm',marginBottom:'5mm',borderTop:'1px solid #f0ede6',paddingTop:'3mm' }}>
-              <div><div style={{ fontSize:'7pt',color:'#888',textTransform:'uppercase' }}>CLÁUSULA</div><div style={{ fontSize:'20pt',fontStyle:'italic',fontWeight:'bold',color:'#1a3a5c',lineHeight:1 }}>{clausula.num}</div></div>
-              <div><div style={{ fontSize:'13pt',marginBottom:'2mm' }}>{clausula.title}</div><div style={{ fontSize:'9.5pt' }}>{clausula.body}</div></div>
-            </div>
-          ))}
-
-          <div style={{ textAlign:'center',fontStyle:'italic',fontSize:'10.5pt',margin:'8mm 0 4mm',borderTop:'1px solid #e0ddd6',paddingTop:'5mm' }}>— En prueba de conformidad —</div>
-          <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10mm',marginTop:'6mm' }}>
-            <div>
-              <div style={{ fontSize:'7.5pt',color:'#1a3a5c',textTransform:'uppercase',marginBottom:'2mm' }}>EL CLIENTE</div>
-              <div style={{ border:'1px dashed #ccc',borderRadius:'4px',height:'25mm',marginBottom:'2mm' }} />
-              <div style={{ borderBottom:'1px solid #1a1a18',marginTop:'4mm',width:'70%' }} />
-              <div style={{ fontSize:'8.5pt',marginTop:'1mm' }}>D./Dña. {contract.representative_name || '______________________'}</div>
-            </div>
-            <div>
-              <div style={{ fontSize:'7.5pt',color:'#1a3a5c',textTransform:'uppercase',marginBottom:'2mm' }}>EL ASESOR</div>
-              <div style={{ border:'1px dashed #ccc',borderRadius:'4px',height:'25mm',marginBottom:'2mm' }} />
-              <div style={{ fontWeight:'bold',marginTop:'4mm' }}>Voltis Soluciones S.L.</div>
-              <div style={{ fontSize:'8.5pt' }}>D. Nicolás Imízcoz García</div>
-            </div>
-          </div>
-          <div style={{ borderTop:'1px solid #e0ddd6',marginTop:'8mm',paddingTop:'3mm',display:'flex',justifyContent:'space-between',fontSize:'7.5pt',color:'#888' }}>
-            <div>Voltis Soluciones S.L. · CIF B71548705<br />C/ Berriobide 38, Of. 209 · Ansoáin (Navarra)</div>
-            <div style={{ textAlign:'right' }}>voltisenergia.com<br />clientes@voltisenergia.com · 747 474 360</div>
-          </div>
-        </div>
-      </div>
-      <style>{`@media print{body>*:not(#contrato-doc){display:none!important}.no-print{display:none!important}#contrato-doc{box-shadow:none!important;margin:0!important;width:100%!important}@page{margin:0;size:A4}}`}</style>
-    </div>
-  )
-}
+// ─── PDF generation via voltis-contract-templates.ts openInNewWindow ─────────
+// VoltisProModal and VoltisContratoModal replaced — PDF buttons call openInNewWindow directly.
