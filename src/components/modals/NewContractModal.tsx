@@ -438,6 +438,9 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
       .limit(1)
       .maybeSingle()
 
+    // Personas físicas: particular + autónomo → datos vienen de la ficha del cliente, no del contrato
+    const isNatural = ['particular', 'autonomo'].includes(client.type)
+
     if (sc) {
       setExistingContract(sc as ServiceContract)
       setAhorroConfirmado(sc.ahorro_confirmado?.toString() ?? '')
@@ -445,8 +448,9 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
       setIsRenewal(sc.is_renewal)
       setPaymentModality(sc.payment_modality as PaymentModality)
       setStartDate(sc.start_date)
-      setRepresentativeName(sc.representative_name ?? '')
-      setRepresentativeNif(sc.representative_nif ?? '')
+      // Para personas físicas siempre usamos los datos de la ficha del cliente
+      setRepresentativeName(isNatural ? client.name : (sc.representative_name ?? ''))
+      setRepresentativeNif(isNatural ? (client.nif ?? client.cif_nif ?? '') : (sc.representative_nif ?? ''))
       setSigningLocation(sc.signing_location ?? '')
     } else {
       setExistingContract(null)
@@ -460,16 +464,14 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
         const parts = client.fiscal_address.split(',')
         setSigningLocation(parts[parts.length - 1]?.trim() ?? '')
       }
-      if (client.type === 'particular') {
-        setRepresentativeName(client.name)
-        setRepresentativeNif(client.nif ?? '')
-      } else {
-        setRepresentativeName('')
-        setRepresentativeNif('')
-      }
+      setRepresentativeName(isNatural ? client.name : '')
+      setRepresentativeNif(isNatural ? (client.nif ?? client.cif_nif ?? '') : '')
     }
     setLoadingClient(false)
   }
+
+  // Personas físicas (particular + autónomo) → sin representante manual
+  const isNatural = selectedClient ? ['particular', 'autonomo'].includes(selectedClient.type) : false
 
   // Derived
   const ahorroNum = parseFloat(ahorroConfirmado) || 0
@@ -628,7 +630,7 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
               </div>
 
               {/* Firmante — solo empresas/ayuntamientos */}
-              {selectedClient.type !== 'particular' && (
+              {!isNatural && (
                 <div className="space-y-2">
                   <p className="text-[10px] font-bold text-ink-3 uppercase tracking-wider">Representante firmante</p>
                   <div className="relative">
@@ -677,12 +679,11 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
               Guardar configuración
             </button>
 
-            {contractForPDF && (selectedClient?.type === 'particular' || representativeName) && (
+            {contractForPDF && (isNatural || representativeName) && (
               <>
                 <button
                   onClick={async () => {
-                    const isPartic = selectedClient.type === 'particular'
-                    const repName = isPartic ? selectedClient.name : representativeName
+                    const repName = isNatural ? selectedClient.name : representativeName
                     const startDateObj = new Date(startDate + 'T00:00:00')
                     const endDateObj = addMonths(startDateObj, 12)
                     const html = generatePropuestaHTML({
@@ -713,9 +714,8 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
                 </button>
                 <button
                   onClick={async () => {
-                    const isPartic = selectedClient.type === 'particular'
-                    const repName = isPartic ? selectedClient.name : representativeName
-                    const repNif = isPartic ? (selectedClient.nif ?? selectedClient.cif_nif ?? '') : representativeNif
+                    const repName = isNatural ? selectedClient.name : representativeName
+                    const repNif = isNatural ? (selectedClient.nif ?? selectedClient.cif_nif ?? '') : representativeNif
                     const startDateObj = new Date(startDate + 'T00:00:00')
                     const endDateObj = addMonths(startDateObj, 12)
                     const firstPaymentDate = new Date(startDateObj)

@@ -201,8 +201,9 @@ export default function ContractSection({ client, onUpdate }: Props) {
     onUpdate?.()
   }
 
-  const isParticular = client.type === 'particular'
-  const hasRequiredData = startDate && (isParticular || representativeName)
+  // Personas físicas (particular + autónomo) → datos de la ficha, sin pedir representante
+  const isNatural = ['particular', 'autonomo'].includes(client.type)
+  const hasRequiredData = startDate && (isNatural || representativeName)
 
   return (
     <div className="bg-card border border-line rounded-xl overflow-hidden">
@@ -383,7 +384,7 @@ export default function ContractSection({ client, onUpdate }: Props) {
               </div>
 
               {/* ── BLOQUE 5: Firmante — solo empresas/ayuntamientos ── */}
-              {!isParticular && (
+              {!isNatural && (
                 <div className="space-y-3">
                   <p className="text-[10px] font-bold text-ink-3 uppercase tracking-wider">Representante firmante</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -503,7 +504,7 @@ export default function ContractSection({ client, onUpdate }: Props) {
                   <>
                     <button
                       onClick={async () => {
-                        const repName = isParticular ? client.name : representativeName
+                        const repName = isNatural ? client.name : representativeName
                         const html = generatePropuestaHTML({
                           clientName: client.name,
                           representativeName: repName,
@@ -532,7 +533,7 @@ export default function ContractSection({ client, onUpdate }: Props) {
                     </button>
                     <button
                       onClick={async () => {
-                        const repName = isParticular ? client.name : representativeName
+                        const repName = isNatural ? client.name : representativeName
                         const repNif = isParticular ? (client.nif ?? client.cif_nif ?? '') : representativeNif
                         const firstPaymentDate = new Date(startDateObj)
                         firstPaymentDate.setDate(firstPaymentDate.getDate() + 15)
