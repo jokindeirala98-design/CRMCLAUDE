@@ -3,9 +3,9 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  FileText, Plus, Search, Zap, Euro, TrendingUp,
-  CheckCircle2, Clock, Building2, User, Landmark,
-  ChevronRight, Printer, Check, X, RefreshCw,
+  FileText, Plus, Search,
+  Clock, Building2, User, Landmark,
+  ChevronRight, Download, Check, RefreshCw,
 } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
 import { Button } from '@/components/ui/Button'
@@ -30,19 +30,6 @@ function buildSched(modality: string, fee: number, start: Date) {
   }
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  draft: 'Borrador', sent: 'Enviado', signed: 'Firmado', active: 'Activo', expired: 'Expirado',
-}
-const STATUS_COLORS: Record<string, string> = {
-  draft:   'bg-bg-2 text-ink-3',
-  sent:    'bg-info-container/30 text-info',
-  signed:  'bg-success/15 text-success',
-  active:  'bg-brand/10 text-brand',
-  expired: 'bg-warn-container/30 text-warn',
-}
-const MODALITY_SHORT: Record<string, string> = {
-  A: 'Único inicio', B: 'Trimestral ×4', C: '50% + 4 cuotas', D: 'Único fin',
-}
 const TYPE_ICON: Record<string, any> = {
   ayuntamiento: Landmark, empresa: Building2, particular: User,
 }
@@ -227,7 +214,7 @@ export default function ContractsPage() {
           </div>
 
           {/* Type filter */}
-          <div className="flex items-center gap-1 bg-card border border-line-2-variant/10 rounded-xl p-1">
+          <div className="flex items-center gap-1 bg-card border border-line/40 rounded-xl p-1">
             {(['all', 'ayuntamiento', 'empresa', 'particular'] as const).map(t => (
               <button
                 key={t}
@@ -240,20 +227,23 @@ export default function ContractsPage() {
           </div>
 
           {/* Status filter */}
-          <div className="flex items-center gap-1 bg-card border border-line-2-variant/10 rounded-xl p-1">
-            {(['all', 'draft', 'sent', 'signed', 'active', 'expired'] as const).map(s => (
+          <div className="flex items-center gap-1 bg-card border border-line/40 rounded-xl p-1">
+            {([
+              ['all', 'Todos'], ['draft', 'Borrador'], ['sent', 'Enviado'],
+              ['signed', 'Firmado'], ['active', 'Activo'], ['expired', 'Expirado'],
+            ] as const).map(([s, label]) => (
               <button
                 key={s}
-                onClick={() => setFilterStatus(s)}
+                onClick={() => setFilterStatus(s as any)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${filterStatus === s ? 'bg-brand text-white' : 'text-ink-3 hover:text-ink hover:bg-bg-2'}`}
               >
-                {s === 'all' ? 'Todos' : STATUS_LABELS[s]}
+                {label}
               </button>
             ))}
           </div>
 
           {/* Paid filter */}
-          <div className="flex items-center gap-1 bg-card border border-line-2-variant/10 rounded-xl p-1">
+          <div className="flex items-center gap-1 bg-card border border-line/40 rounded-xl p-1">
             {(['all', 'paid', 'pending'] as const).map(p => (
               <button
                 key={p}
@@ -295,16 +285,16 @@ export default function ContractsPage() {
               const cl = sc.client
               const TypeIcon = TYPE_ICON[cl?.type] ?? User
               const fee = sc.fee_amount ?? (sc.subscription_monthly ? sc.subscription_monthly * 12 : 0)
-              const isNatural = ['particular', 'autonomo'].includes(cl?.type)
 
               return (
                 <div
                   key={sc.id}
-                  className="rounded-2xl bg-card border border-line-2-variant/10 hover:border-brand/20 transition-all group"
+                  className="rounded-2xl bg-card border border-line/40 hover:border-brand/20 transition-all group"
                 >
-                  <div className="flex items-center gap-0 p-4">
+                  {/* ── Desktop row (md+) ── */}
+                  <div className="hidden md:flex items-center gap-3 px-4 py-3">
 
-                    {/* Client info */}
+                    {/* Client icon + name */}
                     <div
                       className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
                       onClick={() => cl?.id && router.push(`/clients/${cl.id}`)}
@@ -314,63 +304,45 @@ export default function ContractsPage() {
                       </div>
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-ink truncate group-hover:text-brand transition">{cl?.name ?? '—'}</p>
-                        <p className="text-[10px] text-ink-3 truncate">{TYPE_LABEL[cl?.type] ?? cl?.type} · {cl?.cif_nif ?? cl?.cif ?? '—'}</p>
+                        <p className="text-[10px] text-ink-3 truncate">{TYPE_LABEL[cl?.type] ?? cl?.type}</p>
                       </div>
                     </div>
 
-                    {/* Contract type */}
-                    <div className="hidden lg:flex flex-col items-start w-28 shrink-0">
-                      <span className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ${sc.contract_type === 'porcentaje' ? 'bg-accent-soft text-accent-ink' : 'bg-info-container/20 text-info'}`}>
+                    {/* Ahorro total */}
+                    <div className="flex flex-col items-end w-32 shrink-0 text-right">
+                      <p className="text-[10px] text-ink-4 uppercase tracking-wide font-mono">Ahorro</p>
+                      <p className="text-sm font-semibold text-ink">
+                        {sc.ahorro_confirmado ? formatCurrency(sc.ahorro_confirmado) : '—'}
+                      </p>
+                    </div>
+
+                    {/* Tarifa Voltis badge */}
+                    <div className="flex items-center justify-center w-28 shrink-0">
+                      <span className={`text-[9px] font-mono uppercase tracking-wider px-2 py-1 rounded-lg ${
+                        sc.contract_type === 'porcentaje'
+                          ? 'bg-volt/20 text-volt-ink'
+                          : 'bg-info-container/30 text-info'
+                      }`}>
                         {sc.contract_type === 'porcentaje' ? '25% ahorro' : 'Suscripción'}
                       </span>
-                      {sc.is_renewal && (
-                        <span className="text-[9px] text-ink-3 mt-0.5">Renovación</span>
-                      )}
                     </div>
 
-                    {/* Ahorro + Fee */}
-                    <div className="hidden md:flex flex-col items-end w-36 shrink-0 text-right">
-                      {sc.ahorro_confirmado ? (
-                        <>
-                          <p className="text-xs text-ink-3">Ahorro</p>
-                          <p className="text-sm font-semibold text-ink">{formatCurrency(sc.ahorro_confirmado)}</p>
-                        </>
-                      ) : null}
-                      {fee > 0 && (
-                        <p className="text-sm font-bold text-brand">{formatCurrency(fee)}</p>
-                      )}
-                    </div>
-
-                    {/* Modality + dates */}
-                    <div className="hidden xl:flex flex-col items-start w-36 shrink-0 pl-4">
-                      {sc.payment_modality && (
-                        <p className="text-[10px] text-ink-3">{MODALITY_SHORT[sc.payment_modality]}</p>
-                      )}
-                      {sc.start_date && (
-                        <p className="text-[10px] text-ink-3">
-                          {formatDate(sc.start_date)}
-                          {sc.end_date && ` → ${formatDate(sc.end_date)}`}
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Status */}
-                    <div className="hidden sm:flex items-center justify-center w-24 shrink-0">
-                      <span className={`text-[10px] font-medium px-2 py-1 rounded-lg ${STATUS_COLORS[sc.status] ?? 'bg-bg-2 text-ink-3'}`}>
-                        {STATUS_LABELS[sc.status] ?? sc.status}
-                      </span>
+                    {/* Cantidad (honorarios) */}
+                    <div className="flex flex-col items-end w-28 shrink-0 text-right">
+                      <p className="text-[10px] text-ink-4 uppercase tracking-wide font-mono">Honorarios</p>
+                      <p className="text-sm font-bold text-brand">{fee > 0 ? formatCurrency(fee) : '—'}</p>
                     </div>
 
                     {/* Paid toggle */}
-                    <div className="flex items-center justify-center w-24 shrink-0">
+                    <div className="flex items-center justify-center w-28 shrink-0">
                       <button
                         onClick={() => togglePaid(sc)}
                         disabled={togglingId === sc.id}
                         title={sc.paid ? 'Marcar como pendiente' : 'Marcar como cobrado'}
                         className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition border ${
                           sc.paid
-                            ? 'bg-success/10 text-success border-success/20 hover:bg-success/20'
-                            : 'bg-bg-2 text-ink-3 border-line-2-variant/20 hover:bg-warn/10 hover:text-warn hover:border-warn/20'
+                            ? 'bg-ok-container text-ok border-ok/20 hover:bg-ok/20'
+                            : 'bg-bg-2 text-ink-3 border-line/40 hover:bg-warn-container hover:text-warn hover:border-warn/20'
                         }`}
                       >
                         {togglingId === sc.id
@@ -382,21 +354,15 @@ export default function ContractsPage() {
                       </button>
                     </div>
 
-                    {/* Actions */}
-                    <div className="flex items-center gap-1 pl-2 shrink-0">
+                    {/* Descargar + nav */}
+                    <div className="flex items-center gap-1 shrink-0">
                       <button
-                        onClick={() => genPropuesta(sc)}
-                        className="p-2 rounded-lg text-ink-3 hover:text-brand hover:bg-brand/10 transition"
-                        title="Generar propuesta PDF"
+                        onClick={async () => { await genPropuesta(sc); setTimeout(() => genContrato(sc), 600) }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium bg-brand/10 text-brand hover:bg-brand hover:text-white transition border border-brand/20"
+                        title="Descargar propuesta y contrato"
                       >
-                        <Printer className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => genContrato(sc)}
-                        className="p-2 rounded-lg text-ink-3 hover:text-brand hover:bg-brand/10 transition"
-                        title="Generar contrato PDF"
-                      >
-                        <FileText className="w-4 h-4" />
+                        <Download className="w-3.5 h-3.5" />
+                        Descargar
                       </button>
                       <button
                         onClick={() => cl?.id && router.push(`/clients/${cl.id}`)}
@@ -404,6 +370,77 @@ export default function ContractsPage() {
                         title="Ver ficha del cliente"
                       >
                         <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* ── Mobile row ── */}
+                  <div className="flex md:hidden flex-col px-4 py-3 gap-2.5">
+                    {/* Top: icon + name + nav */}
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
+                        onClick={() => cl?.id && router.push(`/clients/${cl.id}`)}
+                      >
+                        <div className="w-8 h-8 rounded-xl bg-bg-2 flex items-center justify-center flex-shrink-0">
+                          <TypeIcon className="w-3.5 h-3.5 text-ink-3" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-ink truncate">{cl?.name ?? '—'}</p>
+                          <p className="text-[10px] text-ink-4 truncate">{TYPE_LABEL[cl?.type] ?? cl?.type}</p>
+                        </div>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-ink-4 flex-shrink-0" onClick={() => cl?.id && router.push(`/clients/${cl.id}`)} />
+                    </div>
+
+                    {/* Middle: stats row */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {sc.ahorro_confirmado ? (
+                        <div className="flex flex-col">
+                          <span className="text-[9px] text-ink-4 uppercase tracking-wide font-mono">Ahorro</span>
+                          <span className="text-xs font-semibold text-ink">{formatCurrency(sc.ahorro_confirmado)}</span>
+                        </div>
+                      ) : null}
+                      <span className="text-ink-4 text-xs">·</span>
+                      <span className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ${
+                        sc.contract_type === 'porcentaje'
+                          ? 'bg-volt/20 text-volt-ink'
+                          : 'bg-info-container/30 text-info'
+                      }`}>
+                        {sc.contract_type === 'porcentaje' ? '25% ahorro' : 'Suscripción'}
+                      </span>
+                      {fee > 0 && (
+                        <>
+                          <span className="text-ink-4 text-xs">·</span>
+                          <span className="text-xs font-bold text-brand">{formatCurrency(fee)}</span>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Bottom: paid toggle + descargar */}
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => togglePaid(sc)}
+                        disabled={togglingId === sc.id}
+                        className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-medium transition border flex-1 justify-center ${
+                          sc.paid
+                            ? 'bg-ok-container text-ok border-ok/20'
+                            : 'bg-bg-2 text-ink-3 border-line/40'
+                        }`}
+                      >
+                        {togglingId === sc.id
+                          ? <RefreshCw className="w-3 h-3 animate-spin" />
+                          : sc.paid
+                            ? <><Check className="w-3 h-3" /> Cobrado</>
+                            : <><Clock className="w-3 h-3" /> Pendiente</>
+                        }
+                      </button>
+                      <button
+                        onClick={async () => { await genPropuesta(sc); setTimeout(() => genContrato(sc), 600) }}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-medium bg-brand/10 text-brand border border-brand/20 flex-1 justify-center"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        Descargar
                       </button>
                     </div>
                   </div>
