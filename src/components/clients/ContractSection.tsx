@@ -552,6 +552,7 @@ export default function ContractSection({ client, onUpdate }: Props) {
                           contractType,
                           paymentModality,
                           paymentSchedule,
+                          isNatural,
                         })
                         openInNewWindow(html)
                         // Guardar en storage

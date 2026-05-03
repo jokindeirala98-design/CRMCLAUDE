@@ -738,6 +738,7 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
                       contractType,
                       paymentModality,
                       paymentSchedule: schedule,
+                      isNatural,
                     })
                     openInNewWindow(html)
                     if (contractForPDF?.id) {
