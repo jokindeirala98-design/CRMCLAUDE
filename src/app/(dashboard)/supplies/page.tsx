@@ -1,8 +1,11 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Zap, X, ChevronRight, MapPin } from 'lucide-react'
+import {
+  Plus, Zap, X, ChevronRight, MapPin, Search,
+  SlidersHorizontal, Camera, Upload,
+} from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Header } from '@/components/layout/Header'
 import { Button } from '@/components/ui/Button'
@@ -11,7 +14,8 @@ import { BulkUploadModal } from '@/components/modals/BulkUploadModal'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils/cn'
 
-/** Normalize tariff strings for display */
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
 function formatTariff(raw: string | null | undefined): string {
   if (!raw) return '-'
   const s = raw.replace(/\s+/g, '').toUpperCase()
@@ -30,7 +34,6 @@ function formatTariff(raw: string | null | undefined): string {
   return tariffMap[s] || raw
 }
 
-/** Sort priority for tariffs: higher number = shown first within electricity/gas group */
 function tariffSortKey(tariff: string): number {
   if (tariff.startsWith('6.4')) return 60
   if (tariff.startsWith('6.3')) return 59
@@ -71,91 +74,63 @@ interface SupplyGroup {
   totalKwh: number
 }
 
-// ── Supply cards modal ──────────────────────────────────────────────────────
+// ── Supply cards modal (desktop + mobile full-screen) ─────────────────────────
 
-function SuppliesModal({
-  group,
-  consumptionMap,
-  onClose,
-}: {
+function SuppliesModal({ group, consumptionMap, onClose }: {
   group: SupplyGroup
   consumptionMap: Record<string, number>
   onClose: () => void
 }) {
   const router = useRouter()
-  const panelRef = useRef<HTMLDivElement>(null)
   const [tariffFilter, setTariffFilter] = useState('')
 
-  // Sort: electricity first (by tariff desc), then gas (by tariff desc)
   const sortedSupplies = [...group.supplies].sort((a, b) => {
     const aGas = a.type === 'gas' ? 1 : 0
     const bGas = b.type === 'gas' ? 1 : 0
     if (aGas !== bGas) return aGas - bGas
-    const aTariff = formatTariff(a.tariff)
-    const bTariff = formatTariff(b.tariff)
-    return tariffSortKey(bTariff) - tariffSortKey(aTariff)
+    return tariffSortKey(formatTariff(b.tariff)) - tariffSortKey(formatTariff(a.tariff))
   })
 
-  // Apply tariff filter (user typed prefix)
   const visibleSupplies = tariffFilter
-    ? sortedSupplies.filter(s => {
-        const t = formatTariff(s.tariff).replace(/\s+/g, '').toUpperCase()
-        const f = tariffFilter.toUpperCase()
-        return t.startsWith(f)
-      })
+    ? sortedSupplies.filter(s => formatTariff(s.tariff).replace(/\s+/g, '').toUpperCase().startsWith(tariffFilter.toUpperCase()))
     : sortedSupplies
 
-  // Keyboard: type to filter tariff, Backspace to clear, Escape to close
-  // Use capture=true so we intercept before the global search palette
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.stopPropagation(); onClose(); return }
-      // Don't capture if user is typing in an input/textarea
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
-      if (e.key === 'Backspace') {
-        e.stopPropagation()
-        e.preventDefault()
-        setTariffFilter(prev => prev.slice(0, -1))
-        return
-      }
+      if (e.key === 'Backspace') { e.stopPropagation(); e.preventDefault(); setTariffFilter(prev => prev.slice(0, -1)); return }
       if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        e.stopPropagation()
-        e.preventDefault()
-        setTariffFilter(prev => prev + e.key)
+        e.stopPropagation(); e.preventDefault(); setTariffFilter(prev => prev + e.key)
       }
     }
     window.addEventListener('keydown', onKey, { capture: true })
     return () => window.removeEventListener('keydown', onKey, { capture: true })
   }, [onClose])
 
-  const handleCardClick = (id: string) => {
-    router.push(`/supplies/${id}`)
-    onClose()
-  }
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center md:p-4">
       {/* Backdrop */}
       <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
         onClick={onClose}
       />
 
-      {/* Panel */}
+      {/* Panel — full screen on mobile, modal on desktop */}
       <motion.div
-        ref={panelRef}
-        initial={{ opacity: 0, scale: 0.96, y: 16 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.96, y: 16 }}
-        transition={{ duration: 0.18, ease: 'easeOut' }}
-        className="relative bg-bg rounded-2xl shadow-2xl w-full max-w-3xl max-h-[80vh] flex flex-col overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
+        initial={{ opacity: 0, y: 40 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 40 }}
+        transition={{ type: 'spring', damping: 28, stiffness: 260 }}
+        className="relative bg-bg rounded-t-3xl md:rounded-2xl shadow-2xl w-full md:max-w-3xl h-[92dvh] md:max-h-[82vh] flex flex-col overflow-hidden"
+        onClick={e => e.stopPropagation()}
       >
+        {/* Drag handle (mobile) */}
+        <div className="md:hidden w-10 h-1 bg-line rounded-full mx-auto mt-3 mb-1 flex-shrink-0" />
+
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-line shrink-0">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-line flex-shrink-0">
           <div>
             <h2 className="text-base font-bold text-ink">{group.clientName}</h2>
             <p className="text-xs text-ink-3 mt-0.5">
@@ -163,120 +138,129 @@ function SuppliesModal({
                 ? `${visibleSupplies.length} de ${group.supplies.length} suministros`
                 : `${group.supplies.length} suministros`}
               {group.clientCif && ` · ${group.clientCif}`}
-              {group.totalKwh > 0 && ` · ${fmtKwh(group.totalKwh)} total`}
+              {group.totalKwh > 0 && ` · ${fmtKwh(group.totalKwh)}`}
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {/* Tariff filter indicator */}
             {tariffFilter && (
-              <button
-                onClick={() => setTariffFilter('')}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-brand/10 text-brand text-xs font-mono font-semibold hover:bg-brand/20 transition-colors"
-              >
-                {tariffFilter.toUpperCase()}
-                <X className="w-3 h-3" />
+              <button onClick={() => setTariffFilter('')}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-brand/10 text-brand text-xs font-mono font-semibold">
+                {tariffFilter.toUpperCase()} <X className="w-3 h-3" />
               </button>
             )}
-            <button
-              onClick={onClose}
-              className="p-2 rounded-xl hover:bg-bg-2 text-ink-3 hover:text-ink transition-colors"
-            >
+            <button onClick={onClose} className="p-2 rounded-xl hover:bg-bg-2 text-ink-3 active:scale-90 transition-all">
               <X className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        {/* Cards grid */}
-        <div className="overflow-y-auto p-4 scrollbar-thin">
+        {/* Cards */}
+        <div className="overflow-y-auto flex-1 p-4 space-y-2">
           {visibleSupplies.length === 0 ? (
             <div className="text-center py-12 text-ink-3 text-sm">
               No hay suministros con tarifa <span className="font-mono font-semibold">{tariffFilter.toUpperCase()}</span>
-              <button onClick={() => setTariffFilter('')} className="block mx-auto mt-2 text-brand text-xs underline">
-                Limpiar filtro
+            </div>
+          ) : visibleSupplies.map(supply => {
+            const kwh = consumptionMap[supply.id]
+            const tariff = formatTariff(supply.tariff)
+            const isGas = supply.type === 'gas'
+            return (
+              <button
+                key={supply.id}
+                onClick={() => { router.push(`/supplies/${supply.id}`); onClose() }}
+                className="w-full text-left bg-card border border-line rounded-2xl p-4 active:scale-[0.98] active:bg-bg-2 transition-all"
+              >
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div className={cn('w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0',
+                    isGas ? 'bg-warn-container/40' : 'bg-info-container/40')}>
+                    <Zap className={cn('w-4 h-4', isGas ? 'text-warn' : 'text-info')} />
+                  </div>
+                  <div className="flex gap-1.5 flex-wrap justify-end">
+                    {tariff !== '-' && <Badge variant="info">{tariff}</Badge>}
+                    <StatusBadge status={supply.status ?? ''} />
+                  </div>
+                </div>
+                <p className="font-mono text-[10px] text-ink-3 truncate">{supply.cups || 'Sin CUPS'}</p>
+                {supply.name && <p className="text-sm font-semibold text-ink truncate mt-0.5">{supply.name}</p>}
+                {supply.address && (
+                  <div className="flex items-center gap-1 mt-1.5">
+                    <MapPin className="w-3 h-3 text-ink-3 flex-shrink-0" />
+                    <p className="text-xs text-ink-3 truncate">{supply.address}</p>
+                  </div>
+                )}
+                <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-line">
+                  <span className="text-xs text-ink-3">Consumo anual</span>
+                  <span className={cn('text-xs font-semibold', kwh ? 'text-ink' : 'text-ink-3')}>{fmtKwh(kwh)}</span>
+                </div>
               </button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {visibleSupplies.map((supply) => {
-                const kwh = consumptionMap[supply.id]
-                const tariff = formatTariff(supply.tariff)
-                const isGas = supply.type === 'gas'
-
-                return (
-                  <button
-                    key={supply.id}
-                    onClick={() => handleCardClick(supply.id)}
-                    className="group text-left bg-card border border-line rounded-xl p-4 hover:border-brand/40 hover:shadow-ambient-md transition-all duration-150 hover:-translate-y-0.5 active:scale-[0.98]"
-                  >
-                    {/* Type icon + tariff */}
-                    <div className="flex items-start justify-between gap-2 mb-3">
-                      <div className={cn(
-                        'w-8 h-8 rounded-lg flex items-center justify-center shrink-0',
-                        isGas ? 'bg-warn-container/40' : 'bg-info-container/40'
-                      )}>
-                        <Zap className={cn('w-4 h-4', isGas ? 'text-warn' : 'text-info')} />
-                      </div>
-                      <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                        {tariff !== '-' && <Badge variant="info">{tariff}</Badge>}
-                        <StatusBadge status={supply.status ?? ''} />
-                      </div>
-                    </div>
-
-                    {/* CUPS */}
-                    <p className="font-mono text-[11px] text-ink-3 truncate mb-1">
-                      {supply.cups || 'Sin CUPS'}
-                    </p>
-
-                    {/* Alias / name */}
-                    {supply.name && (
-                      <p className="text-sm font-semibold text-ink truncate mb-1">{supply.name}</p>
-                    )}
-
-                    {/* Address */}
-                    {supply.address && (
-                      <div className="flex items-center gap-1 mt-1">
-                        <MapPin className="w-3 h-3 text-ink-3 shrink-0" />
-                        <p className="text-xs text-ink-3 truncate">{supply.address}</p>
-                      </div>
-                    )}
-
-                    {/* Consumption */}
-                    <div className="flex items-center justify-between mt-3 pt-3 border-t border-line">
-                      <span className="text-xs text-ink-3">Consumo anual</span>
-                      <span className={cn(
-                        'text-xs font-semibold',
-                        kwh ? 'text-ink' : 'text-ink-3'
-                      )}>
-                        {kwh ? fmtKwh(kwh) : '—'}
-                      </span>
-                    </div>
-
-                    {/* Arrow hint on hover */}
-                    <div className="flex items-center gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <span className="text-[10px] text-brand font-medium">Ver suministro</span>
-                      <ChevronRight className="w-3 h-3 text-brand" />
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-          )}
+            )
+          })}
         </div>
 
-        {/* Footer hint */}
-        {!tariffFilter && (
-          <div className="px-6 py-2 border-t border-line shrink-0 flex items-center justify-between">
-            <span className="text-[10px] text-ink-3">Pulsa una tecla para filtrar por tarifa · Borrar para limpiar · Esc para cerrar</span>
-          </div>
-        )}
+        {/* Hint (desktop only) */}
+        <div className="hidden md:flex px-6 py-2 border-t border-line flex-shrink-0">
+          <span className="text-[10px] text-ink-3">Pulsa una tecla para filtrar por tarifa · Esc para cerrar</span>
+        </div>
       </motion.div>
     </div>
   )
 }
 
-// ── Main page ───────────────────────────────────────────────────────────────
+// ── Mobile list row ───────────────────────────────────────────────────────────
+
+function MobileGroupRow({ group, consumptionMap, onClick }: {
+  group: SupplyGroup
+  consumptionMap: Record<string, number>
+  onClick: () => void
+}) {
+  const isMulti = group.supplies.length > 1
+  const first = group.supplies[0]
+  const tariff = formatTariff(first?.tariff)
+  const isGas = first?.type === 'gas'
+
+  return (
+    <button
+      onClick={onClick}
+      className="w-full flex items-center gap-3.5 px-4 py-3.5 active:bg-bg-2 transition-colors border-b border-line/40 last:border-0 text-left"
+    >
+      {/* Icon */}
+      <div className={cn(
+        'w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0',
+        isGas ? 'bg-warn-container/30' : 'bg-info-container/30'
+      )}>
+        <Zap className={cn('w-4.5 h-4.5', isGas ? 'text-warn' : 'text-info')} style={{ width: 18, height: 18 }} />
+      </div>
+
+      {/* Info */}
+      <div className="flex-1 min-w-0">
+        <p className="text-[15px] font-semibold text-ink truncate leading-snug">{group.clientName}</p>
+        <p className="text-[12px] text-ink-3 truncate leading-snug mt-0.5">
+          {isMulti
+            ? `${group.supplies.length} suministros · ${fmtKwh(group.totalKwh)}`
+            : `${tariff !== '-' ? tariff + ' · ' : ''}${fmtKwh(consumptionMap[first?.id])}`
+          }
+        </p>
+      </div>
+
+      {/* Right: badge or count + chevron */}
+      <div className="flex items-center gap-2 flex-shrink-0">
+        {isMulti ? (
+          <span className="text-[11px] font-bold text-brand bg-brand/10 w-6 h-6 rounded-full flex items-center justify-center">
+            {group.supplies.length}
+          </span>
+        ) : (
+          <StatusBadge status={first?.status ?? ''} />
+        )}
+        <ChevronRight className="w-4 h-4 text-ink-3/60" />
+      </div>
+    </button>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function SuppliesPage() {
+  const router = useRouter()
   const [supplies, setSupplies] = useState<Supply[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
@@ -284,88 +268,108 @@ export default function SuppliesPage() {
   const [consumptionMap, setConsumptionMap] = useState<Record<string, number>>({})
   const [showNewModal, setShowNewModal] = useState(false)
   const [openGroup, setOpenGroup] = useState<SupplyGroup | null>(null)
-  const router = useRouter()
+
+  // ── Pull-to-reveal search (mobile) ──────────────────────────────────────────
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [pullY, setPullY] = useState(0)   // 0-THRESHOLD px, drives indicator
+  const PULL_THRESHOLD = 72
+  const touchStartY = useRef(0)
+  const touchActive = useRef(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+
+  const openSearch = useCallback(() => {
+    setSearchOpen(true)
+    setTimeout(() => searchInputRef.current?.focus(), 80)
+  }, [])
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false)
+    setSearchQuery('')
+  }, [])
+
+  // Touch listeners on the scroll container
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+
+    const onStart = (e: TouchEvent) => {
+      if (searchOpen) return
+      if (el.scrollTop > 4) return
+      touchStartY.current = e.touches[0].clientY
+      touchActive.current = true
+    }
+
+    const onMove = (e: TouchEvent) => {
+      if (!touchActive.current || searchOpen) return
+      if (el.scrollTop > 4) { touchActive.current = false; setPullY(0); return }
+      const dy = e.touches[0].clientY - touchStartY.current
+      if (dy > 0) {
+        // Resist: use square-root easing so it feels elastic
+        const resisted = Math.min(Math.sqrt(dy * PULL_THRESHOLD), PULL_THRESHOLD)
+        setPullY(resisted)
+      }
+    }
+
+    const onEnd = () => {
+      if (!touchActive.current) return
+      touchActive.current = false
+      if (pullY >= PULL_THRESHOLD - 4) {
+        openSearch()
+      }
+      setPullY(0)
+    }
+
+    el.addEventListener('touchstart', onStart, { passive: true })
+    el.addEventListener('touchmove', onMove, { passive: true })
+    el.addEventListener('touchend', onEnd, { passive: true })
+    return () => {
+      el.removeEventListener('touchstart', onStart)
+      el.removeEventListener('touchmove', onMove)
+      el.removeEventListener('touchend', onEnd)
+    }
+  }, [searchOpen, pullY, openSearch])
+
+  // ── Data fetch ──────────────────────────────────────────────────────────────
 
   const fetchSupplies = useCallback(async () => {
     setLoading(true)
     const supabase = createClient()
-
-    let query = supabase
-      .from('supplies')
-      .select('id, name, cups, tariff, type, status, address, created_at, updated_at, client_id, consumption_data, comercializadora_id, client:clients(name, cif_nif)')
-      .order('created_at', { ascending: false })
-
-    if (filter !== 'all') {
-      query = query.eq('status', filter)
-    }
-
     const [suppliesResult, invoicesResult] = await Promise.all([
-      query,
       supabase
-        .from('invoices')
-        .select('supply_id, extracted_data')
-        .not('extracted_data', 'is', null)
+        .from('supplies')
+        .select('id, name, cups, tariff, type, status, address, created_at, updated_at, client_id, consumption_data, comercializadora_id, client:clients(name, cif_nif)')
+        .order('created_at', { ascending: false })
+        .then(r => filter !== 'all' ? supabase.from('supplies').select('id, name, cups, tariff, type, status, address, created_at, updated_at, client_id, consumption_data, comercializadora_id, client:clients(name, cif_nif)').eq('status', filter).order('created_at', { ascending: false }) : r),
+      supabase.from('invoices').select('supply_id, extracted_data').not('extracted_data', 'is', null),
     ])
 
-    // Build invoice kwh sums as a fallback (used only when no SIPS data exists)
     const invoiceKwhSum: Record<string, number> = {}
-    if (invoicesResult.data) {
-      invoicesResult.data.forEach((invoice: any) => {
-        const kwh = invoice.extracted_data?.economics?.consumoTotalKwh
-        if (kwh && invoice.supply_id) {
-          invoiceKwhSum[invoice.supply_id] = (invoiceKwhSum[invoice.supply_id] || 0) + kwh
-        }
-      })
-    }
+    invoicesResult.data?.forEach((inv: any) => {
+      const kwh = inv.extracted_data?.economics?.consumoTotalKwh
+      if (kwh && inv.supply_id) invoiceKwhSum[inv.supply_id] = (invoiceKwhSum[inv.supply_id] || 0) + kwh
+    })
 
-    // Priority for annual consumption (highest → lowest reliability):
-    //   Electricity:
-    //     1. consumption_data.consumoPeriodos sum (SIPS annual breakdown by period)
-    //     2. consumption_data.totalKwh (SIPS annual total)
-    //     3. Sum of invoice consumoTotalKwh (fallback — imprecise)
-    //   Gas:
-    //     1. consumption_data.totalKwh (set by import-gas-excel, authoritative)
-    //     2. gasHistory sum (also set by import-gas-excel)
-    //     → NEVER falls back to invoice data for gas
     const consumptionData: Record<string, number> = {}
-    if (suppliesResult.data) {
-      suppliesResult.data.forEach((supply: any) => {
-        const cd = supply.consumption_data as any
-        const isGas = supply.type === 'gas'
-
-        if (isGas) {
-          // Gas: only show consumption when Excel SIPS data has been imported
-          const gasTotal = Number(cd?.totalKwh) || 0
-          if (gasTotal > 0) {
-            consumptionData[supply.id] = gasTotal
-          } else {
-            // Try gasHistory sum
-            const history: any[] = cd?.gasHistory || []
-            const histSum = history.reduce((s: number, p: any) => s + (Number(p.kwh) || 0), 0)
-            if (histSum > 0) consumptionData[supply.id] = histSum
-            // else: no Excel data yet — leave blank (don't show)
-          }
-        } else {
-          // Electricity: consumoPeriodos → totalKwh → invoice fallback
-          const cp = cd?.consumoPeriodos || {}
-          const periodosSum = (Number(cp.P1)||0) + (Number(cp.P2)||0) + (Number(cp.P3)||0)
-                            + (Number(cp.P4)||0) + (Number(cp.P5)||0) + (Number(cp.P6)||0)
-          if (periodosSum > 0) {
-            consumptionData[supply.id] = periodosSum
-          } else {
-            const sipsTotal = Number(cd?.totalKwh) || Number(cd?.total) || 0
-            if (sipsTotal > 0) {
-              consumptionData[supply.id] = sipsTotal
-            } else {
-              // Last resort: sum of individual invoice periods
-              // (may be just one month's data — imprecise but better than nothing)
-              const invSum = invoiceKwhSum[supply.id] || 0
-              if (invSum > 0) consumptionData[supply.id] = invSum
-            }
-          }
-        }
-      })
-    }
+    suppliesResult.data?.forEach((supply: any) => {
+      const cd = supply.consumption_data as any
+      const isGas = supply.type === 'gas'
+      if (isGas) {
+        const gasTotal = Number(cd?.totalKwh) || 0
+        if (gasTotal > 0) { consumptionData[supply.id] = gasTotal; return }
+        const histSum = (cd?.gasHistory || []).reduce((s: number, p: any) => s + (Number(p.kwh) || 0), 0)
+        if (histSum > 0) consumptionData[supply.id] = histSum
+      } else {
+        const cp = cd?.consumoPeriodos || {}
+        const periodosSum = (Number(cp.P1)||0)+(Number(cp.P2)||0)+(Number(cp.P3)||0)+(Number(cp.P4)||0)+(Number(cp.P5)||0)+(Number(cp.P6)||0)
+        if (periodosSum > 0) { consumptionData[supply.id] = periodosSum; return }
+        const sipsTotal = Number(cd?.totalKwh) || Number(cd?.total) || 0
+        if (sipsTotal > 0) { consumptionData[supply.id] = sipsTotal; return }
+        const invSum = invoiceKwhSum[supply.id] || 0
+        if (invSum > 0) consumptionData[supply.id] = invSum
+      }
+    })
 
     setConsumptionMap(consumptionData)
     setSupplies(suppliesResult.data || [])
@@ -374,43 +378,43 @@ export default function SuppliesPage() {
 
   useEffect(() => { fetchSupplies() }, [fetchSupplies])
 
-  // Build groups
-  const sortedSupplies = [...supplies].sort((a, b) => {
-    if (sortBy === 'consumption_desc') return (consumptionMap[b.id] || 0) - (consumptionMap[a.id] || 0)
-    if (sortBy === 'consumption_asc') return (consumptionMap[a.id] || 0) - (consumptionMap[b.id] || 0)
-    return 0
-  })
+  // ── Groups ──────────────────────────────────────────────────────────────────
 
-  const groups: SupplyGroup[] = []
-  const clientMap = new Map<string, Supply[]>()
-
-  for (const s of sortedSupplies) {
-    const key = s.client_id || '__no_client__'
-    if (!clientMap.has(key)) clientMap.set(key, [])
-    clientMap.get(key)!.push(s)
-  }
-
-  for (const [clientId, items] of Array.from(clientMap.entries())) {
-    const totalKwh = items.reduce((sum: number, s: Supply) => sum + (consumptionMap[s.id] || 0), 0)
-    groups.push({
-      clientId,
-      clientName: items[0]?.client?.name || 'Sin cliente',
-      clientCif: items[0]?.client?.cif_nif,
-      supplies: items,
-      totalKwh,
+  const allGroups: SupplyGroup[] = useMemo(() => {
+    const sorted = [...supplies].sort((a, b) => {
+      if (sortBy === 'consumption_desc') return (consumptionMap[b.id] || 0) - (consumptionMap[a.id] || 0)
+      if (sortBy === 'consumption_asc') return (consumptionMap[a.id] || 0) - (consumptionMap[b.id] || 0)
+      return 0
     })
-  }
+    const clientMap = new Map<string, Supply[]>()
+    sorted.forEach(s => {
+      const key = s.client_id || '__no_client__'
+      if (!clientMap.has(key)) clientMap.set(key, [])
+      clientMap.get(key)!.push(s)
+    })
+    const groups: SupplyGroup[] = []
+    clientMap.forEach((items, clientId) => {
+      const totalKwh = items.reduce((sum, s) => sum + (consumptionMap[s.id] || 0), 0)
+      groups.push({ clientId, clientName: items[0]?.client?.name || 'Sin cliente', clientCif: items[0]?.client?.cif_nif, supplies: items, totalKwh })
+    })
+    if (sortBy !== 'recent') groups.sort((a, b) => sortBy === 'consumption_desc' ? b.totalKwh - a.totalKwh : a.totalKwh - b.totalKwh)
+    return groups
+  }, [supplies, consumptionMap, sortBy])
 
-  groups.sort((a, b) => {
-    if (sortBy === 'consumption_desc') return b.totalKwh - a.totalKwh
-    if (sortBy === 'consumption_asc') return a.totalKwh - b.totalKwh
-    return 0
-  })
+  // Apply search filter
+  const groups = useMemo(() => {
+    if (!searchQuery.trim()) return allGroups
+    const q = searchQuery.toLowerCase()
+    return allGroups.filter(g =>
+      g.clientName.toLowerCase().includes(q) ||
+      g.clientCif?.toLowerCase().includes(q) ||
+      g.supplies.some(s => s.cups?.toLowerCase().includes(q) || s.name?.toLowerCase().includes(q))
+    )
+  }, [allGroups, searchQuery])
 
   const statusFilters = [
     { key: 'all', label: 'Todos' },
-    { key: 'primer_contacto', label: 'Primer contacto' },
-    { key: 'prescoring_pendiente', label: 'Prescoring pte.' },
+    { key: 'primer_contacto', label: 'Contacto' },
     { key: 'estudio_en_curso', label: 'En estudio' },
     { key: 'pendiente_firma', label: 'Pte. firma' },
     { key: 'firmado', label: 'Firmado' },
@@ -418,183 +422,267 @@ export default function SuppliesPage() {
     { key: 'seguimiento_activo', label: 'Seguimiento' },
   ]
 
-  if (loading) {
-    return (
-      <div>
-        <Header title="Suministros" subtitle="Cargando..." actions={
-          <Button onClick={() => setShowNewModal(true)}><Plus className="w-4 h-4" />Importar Facturas</Button>
-        } />
-        <div className="px-4 lg:px-8 pb-24 lg:pb-8">
-          <div className="bg-card rounded-xl border border-line p-8 flex items-center justify-center gap-3 text-ink-3">
-            <svg className="animate-spin w-4 h-4 shrink-0" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-            <span className="text-sm">Cargando...</span>
-          </div>
-        </div>
-      </div>
-    )
+  const handleGroupClick = (group: SupplyGroup) => {
+    if (group.supplies.length === 1) {
+      router.push(`/supplies/${group.supplies[0].id}`)
+    } else {
+      setOpenGroup(group)
+    }
   }
 
-  return (
-    <div>
-      <Header
-        title="Suministros"
-        subtitle={`${supplies.length} suministros registrados`}
-        actions={
-          <Button onClick={() => setShowNewModal(true)} title="Importar facturas y crear suministros en segundo plano">
-            <Plus className="w-4 h-4" />
-            Importar Facturas
-          </Button>
-        }
-      />
+  // ── Render ──────────────────────────────────────────────────────────────────
 
-      <div className="px-4 lg:px-8 pb-24 lg:pb-8 space-y-4">
-        {/* Filters */}
-        <div className="flex flex-col gap-3">
-          <div className="flex gap-2 overflow-x-auto pb-2">
-            {statusFilters.map((f) => (
-              <button
-                key={f.key}
-                onClick={() => setFilter(f.key)}
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
-                  filter === f.key ? 'bg-brand text-white' : 'bg-bg-2 text-ink-3 hover:bg-bg-2'
-                }`}
-              >
+  return (
+    <div className="flex flex-col h-dvh lg:h-auto">
+      {/* Desktop header */}
+      <div className="hidden lg:block">
+        <Header
+          title="Suministros"
+          subtitle={`${supplies.length} suministros registrados`}
+          actions={
+            <Button onClick={() => setShowNewModal(true)}>
+              <Plus className="w-4 h-4" /> Importar Facturas
+            </Button>
+          }
+        />
+      </div>
+
+      {/* Mobile top bar */}
+      <div className="lg:hidden flex items-center justify-between px-4 pt-safe-top pb-2 bg-bg sticky top-0 z-20"
+        style={{ paddingTop: `calc(env(safe-area-inset-top, 0px) + 12px)` }}>
+        <div>
+          <h1 className="text-xl font-bold text-ink">Suministros</h1>
+          {!loading && (
+            <p className="text-xs text-ink-3 mt-0.5">{supplies.length} registrados</p>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Search button (alternative to pull) */}
+          <button
+            onClick={searchOpen ? closeSearch : openSearch}
+            className="w-9 h-9 rounded-xl bg-bg-2 flex items-center justify-center active:scale-90 transition-all"
+          >
+            {searchOpen ? <X className="w-4 h-4 text-ink-3" /> : <Search className="w-4 h-4 text-ink-3" />}
+          </button>
+          {/* Import (camera + file) */}
+          <button
+            onClick={() => setShowNewModal(true)}
+            className="w-9 h-9 rounded-xl bg-brand flex items-center justify-center active:scale-90 transition-all"
+          >
+            <Plus className="w-4 h-4 text-white" />
+          </button>
+        </div>
+      </div>
+
+      {/* Scrollable body */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-y-contain lg:overflow-visible">
+
+        {/* ── Pull-to-reveal indicator (mobile) ── */}
+        <div className="lg:hidden overflow-hidden" style={{ height: pullY * 0.55 }}>
+          <div className="flex items-end justify-center pb-1.5 gap-1.5 text-ink-3 h-full">
+            <Search className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="text-[11px] font-medium">
+              {pullY >= PULL_THRESHOLD - 4 ? 'Suelta para buscar' : 'Desliza para buscar'}
+            </span>
+          </div>
+        </div>
+
+        {/* ── Search bar (mobile) ── */}
+        <AnimatePresence>
+          {searchOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ type: 'spring', damping: 30, stiffness: 320 }}
+              className="lg:hidden overflow-hidden sticky top-[60px] z-10 bg-bg border-b border-line"
+            >
+              <div className="flex items-center gap-3 px-4 py-3">
+                <Search className="w-4 h-4 text-ink-3 flex-shrink-0" />
+                <input
+                  ref={searchInputRef}
+                  type="search"
+                  inputMode="search"
+                  autoComplete="off"
+                  placeholder="Buscar cliente o CUPS…"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  className="flex-1 bg-transparent text-[16px] text-ink placeholder-ink-3 outline-none"
+                />
+                {searchQuery && (
+                  <button onClick={() => setSearchQuery('')} className="text-ink-3 active:scale-90 transition-all">
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* ── Desktop: filters + sort ── */}
+        <div className="hidden lg:block px-8 pb-4 pt-2 space-y-3">
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {statusFilters.map(f => (
+              <button key={f.key} onClick={() => setFilter(f.key)}
+                className={cn('px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all',
+                  filter === f.key ? 'bg-brand text-white' : 'bg-bg-2 text-ink-3 hover:text-ink')}>
                 {f.label}
               </button>
             ))}
           </div>
           <div className="flex gap-2">
-            {[
-              { key: 'recent', label: 'Más recientes' },
-              { key: 'consumption_desc', label: 'Consumo anual ↓' },
-              { key: 'consumption_asc', label: 'Consumo anual ↑' },
-            ].map(({ key, label }) => (
-              <button
-                key={key}
-                onClick={() => setSortBy(key as any)}
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
-                  sortBy === key ? 'bg-brand text-white' : 'bg-bg-2 text-ink-3 hover:bg-bg-2'
-                }`}
-              >
+            {[{ key: 'recent', label: 'Más recientes' }, { key: 'consumption_desc', label: 'Consumo ↓' }, { key: 'consumption_asc', label: 'Consumo ↑' }].map(({ key, label }) => (
+              <button key={key} onClick={() => setSortBy(key as any)}
+                className={cn('px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all',
+                  sortBy === key ? 'bg-brand text-white' : 'bg-bg-2 text-ink-3 hover:text-ink')}>
                 {label}
               </button>
             ))}
           </div>
         </div>
 
-        {/* Table */}
-        {supplies.length === 0 ? (
-          <div className="bg-card rounded-xl border border-line p-12 text-center">
-            <p className="text-sm text-ink-3">No hay suministros todavía</p>
-            <p className="text-xs text-ink-4 mt-1">Crea el primero para empezar a operar.</p>
+        {/* ── Mobile: horizontal status chips ── */}
+        <div className="lg:hidden flex gap-2 overflow-x-auto px-4 py-2.5 no-scrollbar">
+          {statusFilters.map(f => (
+            <button key={f.key} onClick={() => setFilter(f.key)}
+              className={cn('px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap flex-shrink-0 transition-all active:scale-95',
+                filter === f.key ? 'bg-brand text-white' : 'bg-bg-2 text-ink-3')}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        {/* ── Loading ── */}
+        {loading && (
+          <div className="flex items-center justify-center py-20 gap-3 text-ink-3">
+            <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+            </svg>
+            <span className="text-sm">Cargando…</span>
           </div>
-        ) : (
-          <div className="bg-card rounded-xl border border-line overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-line bg-bg-2">
-                    <th className="text-left px-5 py-3 font-mono text-[0.65rem] font-medium text-ink-3 uppercase tracking-[0.08em]">CUPS</th>
-                    <th className="text-left px-5 py-3 font-mono text-[0.65rem] font-medium text-ink-3 uppercase tracking-[0.08em]">Cliente</th>
-                    <th className="text-left px-5 py-3 font-mono text-[0.65rem] font-medium text-ink-3 uppercase tracking-[0.08em]">Tarifa</th>
-                    <th className="text-left px-5 py-3 font-mono text-[0.65rem] font-medium text-ink-3 uppercase tracking-[0.08em]">Tipo</th>
-                    <th className="text-left px-5 py-3 font-mono text-[0.65rem] font-medium text-ink-3 uppercase tracking-[0.08em]">Consumo anual</th>
-                    <th className="text-left px-5 py-3 font-mono text-[0.65rem] font-medium text-ink-3 uppercase tracking-[0.08em]">Estado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {groups.map((group, gi) => {
-                    const isMulti = group.supplies.length > 1
-                    const isLastGroup = gi === groups.length - 1
+        )}
 
-                    if (!isMulti) {
-                      // Single supply — flat row
-                      const item = group.supplies[0]
-                      return (
-                        <tr
-                          key={item.id}
-                          onClick={() => router.push(`/supplies/${item.id}`)}
-                          className={cn(
-                            'cursor-pointer transition-colors duration-100 hover:bg-bg',
-                            !isLastGroup && 'border-b border-line'
-                          )}
-                        >
-                          <SupplyRowCells item={item} consumptionMap={consumptionMap} />
-                        </tr>
-                      )
-                    }
+        {/* ── Empty ── */}
+        {!loading && supplies.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-24 gap-3 text-ink-3 px-8 text-center">
+            <Zap className="w-10 h-10 opacity-20" />
+            <p className="text-sm">No hay suministros todavía</p>
+            <button onClick={() => setShowNewModal(true)}
+              className="mt-2 px-4 py-2 rounded-xl bg-brand text-white text-sm font-semibold active:scale-95 transition-all">
+              Importar facturas
+            </button>
+          </div>
+        )}
 
-                    // Multi-supply group → click opens modal
-                    return (
-                      <tr
-                        key={`group-${group.clientId}`}
-                        onClick={() => setOpenGroup(group)}
-                        className={cn(
-                          'cursor-pointer transition-colors duration-100 hover:bg-bg bg-bg-2/40',
-                          !isLastGroup && 'border-b border-line',
-                          'group/row'
-                        )}
-                      >
-                        {/* CUPS col: supply count */}
-                        <td className="px-5 py-3.5">
-                          <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-md bg-brand/10 flex items-center justify-center">
-                              <span className="text-[10px] font-bold text-brand">{group.supplies.length}</span>
-                            </div>
-                            <span className="text-xs text-ink-3 group-hover/row:text-brand transition-colors">
-                              suministros
-                            </span>
-                          </div>
-                        </td>
-                        {/* Client name */}
-                        <td className="px-5 py-3.5">
-                          <p className="text-sm font-semibold text-ink">{group.clientName}</p>
-                          {group.clientCif && <p className="text-xs text-ink-3">{group.clientCif}</p>}
-                        </td>
-                        {/* Tariffs */}
-                        <td className="px-5 py-3.5">
-                          <div className="flex flex-wrap gap-1">
-                            {Array.from(new Set(group.supplies.map(s => formatTariff(s.tariff)).filter(t => t !== '-'))).map(t => (
-                              <Badge key={t} variant="info">{t}</Badge>
-                            ))}
-                          </div>
-                        </td>
-                        {/* Type */}
-                        <td className="px-5 py-3.5">
-                          <span className="text-sm text-ink-3 capitalize">
-                            {Array.from(new Set(group.supplies.map(s => s.type).filter(Boolean))).join(' / ')}
-                          </span>
-                        </td>
-                        {/* Total consumption */}
-                        <td className="px-5 py-3.5">
-                          <span className="text-sm font-medium text-ink">
-                            {group.totalKwh > 0 ? fmtKwh(group.totalKwh) : '—'}
-                          </span>
-                          {group.totalKwh > 0 && (
-                            <p className="text-[10px] text-ink-3">total grupo</p>
-                          )}
-                        </td>
-                        {/* Hint */}
-                        <td className="px-5 py-3.5">
-                          <div className="flex items-center gap-1 text-ink-3 group-hover/row:text-brand transition-colors">
-                            <span className="text-xs font-medium">Ver CUPS</span>
-                            <ChevronRight className="w-3.5 h-3.5" />
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+        {/* ── No search results ── */}
+        {!loading && supplies.length > 0 && groups.length === 0 && (
+          <div className="flex flex-col items-center py-16 gap-2 text-ink-3">
+            <Search className="w-8 h-8 opacity-20" />
+            <p className="text-sm">Sin resultados para "{searchQuery}"</p>
+          </div>
+        )}
+
+        {/* ── Mobile: card list ── */}
+        {!loading && groups.length > 0 && (
+          <>
+            <div className="lg:hidden bg-card border-y border-line/50 mb-20">
+              {groups.map(group => (
+                <MobileGroupRow
+                  key={group.clientId}
+                  group={group}
+                  consumptionMap={consumptionMap}
+                  onClick={() => handleGroupClick(group)}
+                />
+              ))}
             </div>
-          </div>
+
+            {/* ── Desktop: table ── */}
+            <div className="hidden lg:block px-8 pb-8">
+              <div className="bg-card rounded-xl border border-line overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-line bg-bg-2">
+                        {['CUPS', 'Cliente', 'Tarifa', 'Tipo', 'Consumo anual', 'Estado'].map(h => (
+                          <th key={h} className="text-left px-5 py-3 font-mono text-[0.65rem] font-medium text-ink-3 uppercase tracking-[0.08em]">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {groups.map((group, gi) => {
+                        const isMulti = group.supplies.length > 1
+                        const isLastGroup = gi === groups.length - 1
+
+                        if (!isMulti) {
+                          const item = group.supplies[0]
+                          return (
+                            <tr key={item.id}
+                              onClick={() => router.push(`/supplies/${item.id}`)}
+                              className={cn('group hover:bg-brand/5 cursor-pointer transition-colors',
+                                !isLastGroup && 'border-b border-line')}>
+                              <td className="px-5 py-3.5">
+                                <span className="font-mono text-[11px] text-ink-3 group-hover:text-ink transition-colors">
+                                  {item.cups ? item.cups.substring(0, 20) + (item.cups.length > 20 ? '…' : '') : '—'}
+                                </span>
+                              </td>
+                              <td className="px-5 py-3.5">
+                                <p className="text-sm font-medium text-ink truncate max-w-[180px]">{group.clientName}</p>
+                                {group.clientCif && <p className="text-xs text-ink-3">{group.clientCif}</p>}
+                              </td>
+                              <td className="px-5 py-3.5">
+                                <Badge variant={item.type === 'gas' ? 'warning' : 'info'}>{formatTariff(item.tariff)}</Badge>
+                              </td>
+                              <td className="px-5 py-3.5">
+                                <span className="text-xs text-ink-3">{item.type === 'gas' ? 'Gas' : 'Luz'}</span>
+                              </td>
+                              <td className="px-5 py-3.5">
+                                <span className="text-xs text-ink">{fmtKwh(consumptionMap[item.id])}</span>
+                              </td>
+                              <td className="px-5 py-3.5">
+                                <StatusBadge status={item.status ?? ''} />
+                              </td>
+                            </tr>
+                          )
+                        }
+
+                        // Multi-supply group row
+                        return (
+                          <tr key={group.clientId}
+                            onClick={() => setOpenGroup(group)}
+                            className={cn('group hover:bg-brand/5 cursor-pointer transition-colors',
+                              !isLastGroup && 'border-b border-line')}>
+                            <td className="px-5 py-3.5" colSpan={2}>
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-ink">{group.clientName}</span>
+                                <span className="text-[10px] font-semibold text-brand bg-brand/10 px-1.5 py-0.5 rounded-full">
+                                  {group.supplies.length}
+                                </span>
+                              </div>
+                              {group.clientCif && <p className="text-xs text-ink-3">{group.clientCif}</p>}
+                            </td>
+                            <td className="px-5 py-3.5 text-xs text-ink-3" colSpan={2}>
+                              {group.supplies.map(s => formatTariff(s.tariff)).filter(t => t !== '-').join(' · ')}
+                            </td>
+                            <td className="px-5 py-3.5">
+                              <span className="text-xs text-ink">{fmtKwh(group.totalKwh)}</span>
+                            </td>
+                            <td className="px-5 py-3.5">
+                              <ChevronRight className="w-4 h-4 text-ink-3 group-hover:text-brand transition-colors" />
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </>
         )}
       </div>
 
-      {/* Supply group modal */}
+      {/* Modals */}
       <AnimatePresence>
         {openGroup && (
           <SuppliesModal
@@ -608,50 +696,8 @@ export default function SuppliesPage() {
       <BulkUploadModal
         open={showNewModal}
         onClose={() => setShowNewModal(false)}
-        onCreated={fetchSupplies}
+        onSuccess={fetchSupplies}
       />
     </div>
-  )
-}
-
-/** Shared cell rendering for a single supply flat row */
-function SupplyRowCells({
-  item,
-  consumptionMap,
-}: {
-  item: Supply
-  consumptionMap: Record<string, number>
-}) {
-  const consumption = consumptionMap[item.id]
-  return (
-    <>
-      <td className="px-5 py-3.5">
-        <span className="font-mono text-xs text-ink">{item.cups || 'Sin CUPS'}</span>
-      </td>
-      <td className="px-5 py-3.5">
-        <div>
-          <p className="text-sm font-medium text-ink">{item.client?.name || '-'}</p>
-          <p className="text-xs text-ink-3">{item.client?.cif_nif}</p>
-        </div>
-      </td>
-      <td className="px-5 py-3.5">
-        <Badge variant="info">{formatTariff(item.tariff)}</Badge>
-      </td>
-      <td className="px-5 py-3.5">
-        <span className="text-sm capitalize text-ink-3">{item.type}</span>
-      </td>
-      <td className="px-5 py-3.5">
-        {consumption ? (
-          <div className="flex flex-col gap-0.5">
-            <span className="text-sm text-ink font-medium">{fmtKwh(consumption)}</span>
-          </div>
-        ) : (
-          <span className="text-sm text-ink-3">—</span>
-        )}
-      </td>
-      <td className="px-5 py-3.5">
-        <StatusBadge status={item.status ?? ''} />
-      </td>
-    </>
   )
 }

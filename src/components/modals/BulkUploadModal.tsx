@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { X, Upload, FileText, AlertCircle, CheckCircle2, Loader2, Zap, TableIcon, UserPlus } from 'lucide-react'
+import { X, Upload, FileText, AlertCircle, CheckCircle2, Loader2, Zap, TableIcon, UserPlus, Camera } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from '@/components/ui/Button'
 import { SearchableClientSelector } from '@/components/ui/SearchableClientSelector'
@@ -77,6 +77,7 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
   // ── Refs ──
   const dragZoneRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
 
   // ── Init ──
   useEffect(() => {
@@ -364,12 +365,33 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
                 {/* Drop zone */}
                 {xlsxResults.length === 0 && (
                   <>
+                    {/* Mobile: two big tap targets */}
+                    <div className="grid grid-cols-2 gap-3 md:hidden">
+                      <button
+                        onClick={() => cameraInputRef.current?.click()}
+                        className="flex flex-col items-center justify-center gap-2 p-6 rounded-2xl border-2 border-dashed border-line-2-variant/40 active:bg-bg-2 transition-colors"
+                      >
+                        <Camera className="w-7 h-7 text-brand/70" />
+                        <p className="text-sm font-semibold text-ink">Sacar foto</p>
+                        <p className="text-[11px] text-ink-3">Cámara</p>
+                      </button>
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="flex flex-col items-center justify-center gap-2 p-6 rounded-2xl border-2 border-dashed border-line-2-variant/40 active:bg-bg-2 transition-colors"
+                      >
+                        <Upload className="w-7 h-7 text-brand/70" />
+                        <p className="text-sm font-semibold text-ink">Subir archivo</p>
+                        <p className="text-[11px] text-ink-3">PDF · Imagen · Excel</p>
+                      </button>
+                    </div>
+
+                    {/* Desktop: drag zone */}
                     <div
                       ref={dragZoneRef}
                       onDragOver={handleDragOver}
                       onDragLeave={handleDragLeave}
                       onDrop={handleDrop}
-                      className="border-2 border-dashed border-line-2-variant/40 rounded-2xl p-7 text-center transition-all cursor-pointer hover:border-brand/40 hover:bg-secondary/5"
+                      className="hidden md:block border-2 border-dashed border-line-2-variant/40 rounded-2xl p-7 text-center transition-all cursor-pointer hover:border-brand/40 hover:bg-secondary/5"
                       onClick={() => fileInputRef.current?.click()}
                     >
                       <div className="flex items-center justify-center gap-3 mb-2">
@@ -381,6 +403,17 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
                         PDF · Imágenes · Excel (.xlsx) — Los Excel se importan directamente
                       </p>
                     </div>
+
+                    {/* Camera input (mobile, capture=environment) */}
+                    <input
+                      ref={cameraInputRef}
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      capture="environment"
+                      onChange={handleFileInputChange}
+                      className="hidden"
+                    />
 
                     <input
                       ref={fileInputRef}
