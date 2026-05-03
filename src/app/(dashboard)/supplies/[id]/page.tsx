@@ -30,6 +30,31 @@ import { advanceSupplyPipeline } from '@/lib/supply-pipeline'
 import { useAuthStore } from '@/stores/auth'
 import type { SupplyStatus } from '@/types/database'
 import { GasExcelImport } from '@/components/supply/GasExcelImport'
+import { generatePropuestaHTML, generateContratoHTML, generateAndDownloadPDF } from '@/lib/voltis-contract-templates'
+
+// ── Voltis contract helpers ───────────────────────────────────────────────────
+const SC_MODALITY_LABELS: Record<string, string> = {
+  A: 'Pago único al inicio',
+  B: 'Trimestral vencido (×4)',
+  C: 'Entrada 50% + 4 cuotas',
+  D: 'Pago único al vencimiento',
+}
+
+function scAddMonths(date: Date, months: number): Date {
+  const d = new Date(date)
+  d.setMonth(d.getMonth() + months)
+  return d
+}
+
+function scBuildPaymentSchedule(modality: string, feeAmount: number, startDate: Date) {
+  switch (modality) {
+    case 'A': return [{ label: 'Pago único', date: startDate, amount: feeAmount }]
+    case 'B': { const q = feeAmount / 4; return [1,2,3,4].map(i => ({ label: `Cuota T${i}`, date: scAddMonths(startDate, i*3), amount: q, isPast: scAddMonths(startDate, i*3) < new Date() })) }
+    case 'C': { const half = feeAmount / 2; const quarter = half / 4; return [{ label: 'Entrada (50%)', date: startDate, amount: half }, ...[1,2,3,4].map(i => ({ label: `Cuota T${i} (12,5%)`, date: scAddMonths(startDate, i*3), amount: quarter, isPast: scAddMonths(startDate, i*3) < new Date() }))] }
+    case 'D': return [{ label: 'Pago único al vencimiento', date: scAddMonths(startDate, 12), amount: feeAmount }]
+    default:  return [{ label: 'Pago único', date: startDate, amount: feeAmount }]
+  }
+}
 
 // Pipeline steps in order
 const PIPELINE_STEPS: { key: SupplyStatus; label: string; icon: any }[] = [
@@ -180,7 +205,7 @@ export default function SupplyDetailPage() {
     if (data?.client_id) {
       const { data: sc } = await supabase
         .from('service_contracts')
-        .select('id, contract_type, proposal_url, contract_url, status, created_at, start_date')
+        .select('id, contract_type, proposal_url, contract_url, status, created_at, start_date, end_date, ahorro_confirmado, fee_amount, payment_modality, representative_name, representative_nif, signing_location, subscription_monthly, is_renewal')
         .eq('client_id', data.client_id)
         .order('created_at', { ascending: false })
       setServiceContracts(sc || [])
@@ -2668,58 +2693,106 @@ export default function SupplyDetailPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {/* Voltis */}
                   <div className="rounded-xl border border-line-2-variant/10 bg-card p-4">
-                    <div className="flex items-center gap-2 mb-2">
+                    <div className="flex items-center gap-2 mb-3">
                       <Zap className="w-4 h-4 text-brand" />
                       <h4 className="text-xs font-bold text-ink">Contrato Voltis</h4>
                     </div>
                     {serviceContracts.length > 0 ? (
-                      <div className="space-y-2">
-                        {serviceContracts.map((sc: any) => (
-                          <div key={sc.id} className="space-y-1">
-                            {sc.proposal_url && (
-                              <div className="group flex items-center gap-2 px-2.5 py-2 rounded-lg bg-bg-2/60 hover:bg-primary/5 transition">
-                                <FileText className="w-3.5 h-3.5 text-brand flex-shrink-0" />
-                                <span className="text-xs text-ink flex-1 truncate">
-                                  Propuesta · {sc.start_date ? formatDate(sc.start_date) : formatDate(sc.created_at)}
-                                </span>
-                                <a
-                                  href={getViewUrl(sc.proposal_url)}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="p-1 rounded-lg hover:bg-primary/10 transition opacity-0 group-hover:opacity-100"
-                                  title="Ver propuesta"
+                      <div className="space-y-4">
+                        {serviceContracts.map((sc: any) => {
+                          const cl = supply?.client
+                          const isNatural = ['particular', 'autonomo'].includes(cl?.type)
+                          const startDateObj = sc.start_date ? new Date(sc.start_date) : new Date()
+                          const endDateObj = sc.end_date ? new Date(sc.end_date) : scAddMonths(startDateObj, 12)
+                          const fee = sc.fee_amount ?? 0
+
+                          const handlePropuesta = async () => {
+                            const repName = isNatural ? cl?.name : sc.representative_name
+                            const html = generatePropuestaHTML({
+                              clientName: cl?.name ?? '',
+                              representativeName: repName ?? '',
+                              ahorroConfirmado: sc.ahorro_confirmado || null,
+                              feeAmount: fee,
+                              startDate: startDateObj,
+                              endDate: endDateObj,
+                              contractType: sc.contract_type,
+                            })
+                            await generateAndDownloadPDF(html, `Propuesta_Voltis_${cl?.name ?? 'cliente'}.pdf`)
+                          }
+
+                          const handleContrato = async () => {
+                            const repName = isNatural ? cl?.name : sc.representative_name
+                            const repNif = isNatural ? (cl?.nif ?? cl?.cif_nif ?? '') : sc.representative_nif
+                            const firstPaymentDate = new Date(startDateObj)
+                            firstPaymentDate.setDate(firstPaymentDate.getDate() + 15)
+                            const html = generateContratoHTML({
+                              clientName: cl?.name ?? '',
+                              clientCif: cl?.cif ?? cl?.cif_nif ?? '',
+                              clientFiscalAddress: cl?.fiscal_address ?? '',
+                              representativeName: repName ?? '',
+                              representativeNif: repNif ?? '',
+                              signingLocation: sc.signing_location ?? '',
+                              startDate: startDateObj,
+                              endDate: endDateObj,
+                              firstPaymentDate,
+                              ahorroConfirmado: sc.ahorro_confirmado || null,
+                              feeAmount: fee,
+                              contractType: sc.contract_type,
+                              paymentModality: sc.payment_modality,
+                              paymentSchedule: scBuildPaymentSchedule(sc.payment_modality, fee, startDateObj),
+                              isNatural,
+                            })
+                            await generateAndDownloadPDF(html, `Contrato_Voltis_${cl?.name ?? 'cliente'}.pdf`)
+                          }
+
+                          return (
+                            <div key={sc.id} className="space-y-2.5">
+                              {/* Metadata */}
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-[9px] font-mono uppercase tracking-wider text-accent-ink bg-accent-soft px-1.5 py-0.5 rounded">
+                                    {sc.contract_type === 'porcentaje' ? '25% ahorro' : 'Suscripción'}
+                                  </span>
+                                  {sc.start_date && (
+                                    <span className="text-[10px] text-ink-3">{formatDate(sc.start_date)}</span>
+                                  )}
+                                </div>
+                                {sc.ahorro_confirmado && (
+                                  <div className="flex items-baseline gap-1.5">
+                                    <span className="text-[10px] text-ink-3">Ahorro</span>
+                                    <span className="text-sm font-semibold text-ink">{formatCurrency(sc.ahorro_confirmado)}</span>
+                                  </div>
+                                )}
+                                {fee > 0 && (
+                                  <div className="flex items-baseline gap-1.5">
+                                    <span className="text-[10px] text-ink-3">Honorarios</span>
+                                    <span className="text-sm font-semibold text-brand">{formatCurrency(fee)}</span>
+                                  </div>
+                                )}
+                                {sc.payment_modality && (
+                                  <p className="text-[10px] text-ink-3">{SC_MODALITY_LABELS[sc.payment_modality]}</p>
+                                )}
+                              </div>
+                              {/* Action buttons */}
+                              <div className="flex gap-2 flex-wrap">
+                                <button
+                                  onClick={handlePropuesta}
+                                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-brand/10 text-brand text-[11px] font-medium hover:bg-brand/20 transition"
                                 >
-                                  <ExternalLink className="w-3.5 h-3.5 text-brand" />
-                                </a>
-                              </div>
-                            )}
-                            {sc.contract_url && (
-                              <div className="group flex items-center gap-2 px-2.5 py-2 rounded-lg bg-bg-2/60 hover:bg-primary/5 transition">
-                                <FileText className="w-3.5 h-3.5 text-brand flex-shrink-0" />
-                                <span className="text-xs text-ink flex-1 truncate">
-                                  Contrato · {sc.start_date ? formatDate(sc.start_date) : formatDate(sc.created_at)}
-                                </span>
-                                <a
-                                  href={getViewUrl(sc.contract_url)}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="p-1 rounded-lg hover:bg-primary/10 transition opacity-0 group-hover:opacity-100"
-                                  title="Ver contrato"
+                                  <FileText className="w-3 h-3" />
+                                  {sc.proposal_url ? 'Regenerar propuesta' : 'Propuesta PDF'}
+                                </button>
+                                <button
+                                  onClick={handleContrato}
+                                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-brand/10 text-brand text-[11px] font-medium hover:bg-brand/20 transition"
                                 >
-                                  <ExternalLink className="w-3.5 h-3.5 text-brand" />
-                                </a>
+                                  <FileText className="w-3 h-3" />
+                                  {sc.contract_url ? 'Regenerar contrato' : 'Contrato PDF'}
+                                </button>
                               </div>
-                            )}
-                            {!sc.proposal_url && !sc.contract_url && (
-                              <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-bg-2/60">
-                                <FileText className="w-3.5 h-3.5 text-brand flex-shrink-0" />
-                                <span className="text-xs text-ink-3 flex-1 truncate">
-                                  Borrador · {formatDate(sc.created_at)}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                        ))}
+                            </div>
+                          )
+                        })}
                       </div>
                     ) : (
                       <p className="text-xs text-ink-3">Sin contrato Voltis</p>

@@ -458,34 +458,19 @@ export default function ContractSection({ client, onUpdate }: Props) {
                 </div>
               )}
 
-              {/* ── BLOQUE 7: Documentos guardados ── */}
+              {/* ── BLOQUE 7: Estado documentos ── */}
               {(contract?.proposal_url || contract?.contract_url) && (
-                <div className="space-y-2">
-                  <p className="text-[10px] font-bold text-ink-3 uppercase tracking-wider">Documentos generados</p>
-                  <div className="flex flex-wrap gap-2">
-                    {contract.proposal_url && (
-                      <a
-                        href={contract.proposal_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-line-2 bg-card text-ink text-xs font-medium hover:bg-bg-2 transition-all"
-                      >
-                        <FileText className="w-3.5 h-3.5 text-info" /> Propuesta
-                        <ExternalLink className="w-3 h-3 text-ink-4" />
-                      </a>
-                    )}
-                    {contract.contract_url && (
-                      <a
-                        href={contract.contract_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-line-2 bg-card text-ink text-xs font-medium hover:bg-bg-2 transition-all"
-                      >
-                        <FileText className="w-3.5 h-3.5 text-brand" /> Contrato
-                        <ExternalLink className="w-3 h-3 text-ink-4" />
-                      </a>
-                    )}
-                  </div>
+                <div className="flex flex-wrap gap-2">
+                  {contract.proposal_url && (
+                    <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-success/10 text-success text-[11px] font-medium">
+                      <Check className="w-3 h-3" /> Propuesta generada
+                    </span>
+                  )}
+                  {contract.contract_url && (
+                    <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-success/10 text-success text-[11px] font-medium">
+                      <Check className="w-3 h-3" /> Contrato generado
+                    </span>
+                  )}
                 </div>
               )}
 
