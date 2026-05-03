@@ -662,7 +662,7 @@ export default function SuppliesPage() {
                               {group.clientCif && <p className="text-xs text-ink-3">{group.clientCif}</p>}
                             </td>
                             <td className="px-5 py-3.5 text-xs text-ink-3" colSpan={2}>
-                              {group.supplies.map(s => formatTariff(s.tariff)).filter(t => t !== '-').join(' · ')}
+                              {[...new Set(group.supplies.map(s => formatTariff(s.tariff)).filter(t => t !== '-'))].join(' · ')}
                             </td>
                             <td className="px-5 py-3.5">
                               <span className="text-xs text-ink">{fmtKwh(group.totalKwh)}</span>
