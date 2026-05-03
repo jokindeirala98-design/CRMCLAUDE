@@ -95,7 +95,7 @@ export function NewContractModal({ open, onClose, onCreated, preselectedClientId
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className="relative bg-bg rounded-3xl shadow-ambient-lg w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto"
+        className="relative bg-bg rounded-3xl shadow-ambient-lg w-full max-w-3xl mx-4 max-h-[92vh] overflow-y-auto"
       >
         {/* Header */}
         <div className="sticky top-0 bg-bg z-10 flex items-center justify-between p-6 border-b border-surface-container-low">
@@ -538,115 +538,127 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
 
       {selectedClient && !loadingClient && (
         <>
-          {/* Ahorro */}
-          <div className="space-y-3">
-            <p className="text-[10px] font-bold text-ink-3 uppercase tracking-wider">Ahorro estimado</p>
-            {selectedClient.ahorro_sugerido > 0 && (
-              <div className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-bg-2 border border-line-2">
+          {/* ── Layout 2 columnas ── */}
+          <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+
+            {/* COL IZQ: Ahorro + Tipo + Modalidad */}
+            <div className="space-y-4">
+
+              {/* Ahorro */}
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold text-ink-3 uppercase tracking-wider">Ahorro estimado</p>
+                {selectedClient.ahorro_sugerido > 0 && (
+                  <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-bg-2 border border-line-2">
+                    <div>
+                      <p className="text-[9px] text-ink-4 uppercase font-semibold">Sugerido por comparativas</p>
+                      <p className="text-sm font-bold text-ink">{formatCurrency(selectedClient.ahorro_sugerido)}/año</p>
+                    </div>
+                    <button onClick={() => setAhorroConfirmado(selectedClient.ahorro_sugerido.toFixed(2))} className="text-[10px] font-semibold text-brand hover:opacity-70 px-2 py-1 rounded-md hover:bg-bg transition-colors">
+                      Usar
+                    </button>
+                  </div>
+                )}
+                <div className="relative">
+                  <Euro className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3" />
+                  <input type="number" value={ahorroConfirmado} onChange={e => setAhorroConfirmado(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full pl-8 pr-12 py-2 text-sm border border-line-2 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors" />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-ink-3">€/año</span>
+                </div>
+                {ahorroNum > 0 && (
+                  <div className={`flex items-center gap-2 text-[10px] px-2.5 py-1.5 rounded-lg ${ahorroNum > 1000 ? 'bg-info-container/60 text-info' : 'bg-warn-container/60 text-warn'}`}>
+                    <Info className="w-3 h-3 flex-shrink-0" />
+                    {ahorroNum > 1000 ? `25% → ${formatCurrency(feeAmount)} + IVA/año` : `Suscripción → 19,99€/mes + IVA`}
+                  </div>
+                )}
+              </div>
+
+              {/* Tipo de contrato */}
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold text-ink-3 uppercase tracking-wider">Tipo de contrato</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['porcentaje', 'suscripcion'] as const).map(type => (
+                    <button key={type} onClick={() => setContractType(type)} className={`px-3 py-2.5 rounded-lg border text-xs font-semibold transition-all text-left ${contractType === type ? 'bg-brand text-white border-brand' : 'bg-card border-line-2 text-ink-3 hover:border-brand/40'}`}>
+                      {type === 'porcentaje' ? '25% ahorro' : 'Suscripción'}
+                      <p className={`text-[10px] font-normal mt-0.5 ${contractType === type ? 'text-white/70' : 'text-ink-4'}`}>
+                        {type === 'porcentaje' ? '> 1.000€/año' : '19,99€/mes'}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+                <label className="flex items-center gap-2 text-xs text-ink-3 cursor-pointer select-none">
+                  <input type="checkbox" checked={isRenewal} onChange={e => setIsRenewal(e.target.checked)} className="rounded border-line-2" />
+                  Es renovación (año 2+)
+                </label>
+              </div>
+
+              {/* Modalidad de pago */}
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold text-ink-3 uppercase tracking-wider">Modalidad de pago</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['A', 'B', 'C', 'D'] as PaymentModality[]).map(m => (
+                    <button key={m} onClick={() => setPaymentModality(m)} className={`px-3 py-2.5 rounded-lg border text-xs font-semibold transition-all text-left ${paymentModality === m ? 'bg-brand text-white border-brand' : 'bg-card border-line-2 text-ink-3 hover:border-brand/40'}`}>
+                      <span className="text-[9px] font-bold uppercase tracking-wider opacity-70">Mod. {m}</span>
+                      <p className={`text-[10px] font-normal mt-0.5 leading-tight ${paymentModality === m ? 'text-white/80' : 'text-ink-4'}`}>{MODALITY_DESCRIPTIONS[m]}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* COL DER: Fechas + Firmante + Calendario */}
+            <div className="space-y-4">
+
+              {/* Fechas */}
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold text-ink-3 uppercase tracking-wider">Fechas</p>
                 <div>
-                  <p className="text-[10px] text-ink-4 uppercase font-semibold">Sugerido (suma de comparativas)</p>
-                  <p className="text-sm font-bold text-ink">{formatCurrency(selectedClient.ahorro_sugerido)}/año</p>
+                  <label className="text-[10px] text-ink-3 uppercase font-semibold block mb-1">Inicio servicios</label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3" />
+                    <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full pl-8 pr-3 py-2 text-sm border border-line-2 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors" />
+                  </div>
                 </div>
-                <button onClick={() => setAhorroConfirmado(selectedClient.ahorro_sugerido.toFixed(2))} className="text-[10px] font-semibold text-brand hover:opacity-70 px-2 py-1 rounded-md hover:bg-bg transition-colors">
-                  Usar este valor
-                </button>
-              </div>
-            )}
-            <div className="relative">
-              <Euro className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3" />
-              <input type="number" value={ahorroConfirmado} onChange={e => setAhorroConfirmado(e.target.value)}
-                placeholder={selectedClient.type === 'ayuntamiento' ? 'Introducir manualmente' : '0.00'}
-                className="w-full pl-8 pr-12 py-2.5 text-sm border border-line-2 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors" />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-ink-3">€/año</span>
-            </div>
-            {ahorroNum > 0 && (
-              <div className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg ${ahorroNum > 1000 ? 'bg-info-container/60 text-info' : 'bg-warn-container/60 text-warn'}`}>
-                <Info className="w-3.5 h-3.5 flex-shrink-0" />
-                {ahorroNum > 1000 ? `Ahorro > 1.000€ → 25% (${formatCurrency(feeAmount)} + IVA/año)` : `Ahorro ≤ 1.000€ → suscripción 19,99€/mes + IVA`}
-              </div>
-            )}
-          </div>
-
-          {/* Tipo */}
-          <div className="space-y-2">
-            <p className="text-[10px] font-bold text-ink-3 uppercase tracking-wider">Tipo de contrato</p>
-            <div className="grid grid-cols-2 gap-2">
-              {(['porcentaje', 'suscripcion'] as const).map(type => (
-                <button key={type} onClick={() => setContractType(type)} className={`px-3 py-2.5 rounded-lg border text-xs font-semibold transition-all text-left ${contractType === type ? 'bg-brand text-white border-brand' : 'bg-card border-line-2 text-ink-3 hover:border-brand/40'}`}>
-                  {type === 'porcentaje' ? '25% sobre ahorro' : 'Suscripción fija'}
-                  <p className={`text-[10px] font-normal mt-0.5 ${contractType === type ? 'text-white/70' : 'text-ink-4'}`}>
-                    {type === 'porcentaje' ? 'Ahorro > 1.000€/año' : '19,99€/mes · Renovaciones'}
-                  </p>
-                </button>
-              ))}
-            </div>
-            <label className="flex items-center gap-2 text-xs text-ink-3 cursor-pointer select-none">
-              <input type="checkbox" checked={isRenewal} onChange={e => setIsRenewal(e.target.checked)} className="rounded border-line-2" />
-              Es renovación (año 2+)
-            </label>
-          </div>
-
-          {/* Modalidad de pago */}
-          <div className="space-y-2">
-            <p className="text-[10px] font-bold text-ink-3 uppercase tracking-wider">Modalidad de pago</p>
-            <div className="grid grid-cols-2 gap-2">
-              {(['A', 'B', 'C', 'D'] as PaymentModality[]).map(m => (
-                <button key={m} onClick={() => setPaymentModality(m)} className={`px-3 py-2.5 rounded-lg border text-xs font-semibold transition-all text-left ${paymentModality === m ? 'bg-brand text-white border-brand' : 'bg-card border-line-2 text-ink-3 hover:border-brand/40'}`}>
-                  <span className="text-[9px] font-bold uppercase tracking-wider opacity-70">Modalidad {m}</span>
-                  <p className={`text-[10px] font-normal mt-0.5 ${paymentModality === m ? 'text-white/80' : 'text-ink-4'}`}>{MODALITY_DESCRIPTIONS[m]}</p>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Fechas */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-[10px] text-ink-3 uppercase font-semibold block mb-1">Inicio servicios</label>
-              <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3" />
-                <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full pl-8 pr-3 py-2 text-sm border border-line-2 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors" />
-              </div>
-            </div>
-            <div>
-              <label className="text-[10px] text-ink-3 uppercase font-semibold block mb-1">Vencimiento (auto)</label>
-              <div className="flex items-center px-3 py-2 text-sm bg-bg-2 border border-line-2 rounded-lg text-ink-3">{formatDateES(endDateObj)}</div>
-            </div>
-          </div>
-
-          {/* Firmante */}
-          <div className="space-y-2">
-            <p className="text-[10px] font-bold text-ink-3 uppercase tracking-wider">Datos del firmante</p>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3" />
-                <input type="text" value={representativeName} onChange={e => setRepresentativeName(e.target.value)} placeholder="Nombre completo del representante" className="w-full pl-8 pr-3 py-2 text-sm border border-line-2 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors" />
-              </div>
-              <input type="text" value={representativeNif} onChange={e => setRepresentativeNif(e.target.value)} placeholder="DNI: 12345678A" className="w-full px-3 py-2 text-sm border border-line-2 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors font-mono" />
-              <div className="col-span-2 relative">
-                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3" />
-                <input type="text" value={signingLocation} onChange={e => setSigningLocation(e.target.value)} placeholder="Ciudad donde se firma (ej: Pamplona)" className="w-full pl-8 pr-3 py-2 text-sm border border-line-2 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors" />
-              </div>
-            </div>
-          </div>
-
-          {/* Calendario de pagos preview */}
-          {paymentSchedule.length > 0 && (
-            <div className="rounded-xl border border-line-2 overflow-hidden">
-              {paymentSchedule.map((item, i) => (
-                <div key={i} className={`flex items-center justify-between px-4 py-2.5 text-xs border-b border-line last:border-0 ${i === 0 ? 'bg-ok-container/30' : 'bg-card'}`}>
-                  <span className="font-medium text-ink">{item.label}</span>
-                  <span className="text-ink-3">{formatDateES(item.date)}</span>
-                  <span className="font-semibold text-ink tabular-nums">{formatCurrency(item.amount)} + IVA</span>
+                <div>
+                  <label className="text-[10px] text-ink-3 uppercase font-semibold block mb-1">Vencimiento (auto)</label>
+                  <div className="flex items-center px-3 py-2 text-sm bg-bg-2 border border-line-2 rounded-lg text-ink-3">{formatDateES(endDateObj)}</div>
                 </div>
-              ))}
-              <div className="flex items-center justify-between px-4 py-2 bg-bg-2 text-xs">
-                <span className="font-bold text-ink">Total anual</span>
-                <span />
-                <span className="font-bold text-ink tabular-nums">{formatCurrency(feeAmount)} + IVA</span>
               </div>
+
+              {/* Firmante */}
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold text-ink-3 uppercase tracking-wider">Datos del firmante</p>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3" />
+                  <input type="text" value={representativeName} onChange={e => setRepresentativeName(e.target.value)} placeholder="Nombre del representante" className="w-full pl-8 pr-3 py-2 text-sm border border-line-2 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors" />
+                </div>
+                <input type="text" value={representativeNif} onChange={e => setRepresentativeNif(e.target.value)} placeholder="DNI: 12345678A" className="w-full px-3 py-2 text-sm border border-line-2 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors font-mono" />
+                <div className="relative">
+                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3" />
+                  <input type="text" value={signingLocation} onChange={e => setSigningLocation(e.target.value)} placeholder="Ciudad (ej: Pamplona)" className="w-full pl-8 pr-3 py-2 text-sm border border-line-2 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors" />
+                </div>
+              </div>
+
+              {/* Calendario de pagos */}
+              {paymentSchedule.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-[10px] font-bold text-ink-3 uppercase tracking-wider">Calendario de pagos</p>
+                  <div className="rounded-xl border border-line-2 overflow-hidden">
+                    {paymentSchedule.map((item, i) => (
+                      <div key={i} className={`flex items-center justify-between px-3 py-2 text-xs border-b border-line last:border-0 ${i === 0 ? 'bg-ok-container/30' : 'bg-card'}`}>
+                        <span className="font-medium text-ink">{item.label}</span>
+                        <span className="font-semibold text-ink tabular-nums">{formatCurrency(item.amount)}</span>
+                      </div>
+                    ))}
+                    <div className="flex items-center justify-between px-3 py-1.5 bg-bg-2 text-xs">
+                      <span className="font-bold text-ink">Total + IVA</span>
+                      <span className="font-bold text-ink tabular-nums">{formatCurrency(feeAmount)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+          </div>
 
           {/* Actions */}
           <div className="flex flex-wrap items-center gap-2 pt-1">
