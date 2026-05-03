@@ -518,8 +518,8 @@ export default function ContractSection({ client, onUpdate }: Props) {
                         const blob = await generateAndDownloadPDF(html, filename)
                         // Guardar PDF en storage
                         const supabase = createClient()
-                        const path = `service_contracts/${client.id}/propuesta-${Date.now()}.pdf`
-                        const { data: up } = await supabase.storage.from('documents').upload(path, blob, { contentType: 'application/pdf', upsert: false })
+                        const path = `service_contracts/${client.id}/propuesta-${Date.now()}.html`
+                        const { data: up } = await supabase.storage.from('documents').upload(path, blob, { contentType: 'text/html', upsert: false })
                         if (up) {
                           const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path)
                           await supabase.from('service_contracts').update({ proposal_url: urlData.publicUrl }).eq('id', contract.id)
@@ -558,8 +558,8 @@ export default function ContractSection({ client, onUpdate }: Props) {
                         const blob = await generateAndDownloadPDF(html, filename)
                         // Guardar PDF en storage
                         const supabase = createClient()
-                        const path = `service_contracts/${client.id}/contrato-${Date.now()}.pdf`
-                        const { data: up } = await supabase.storage.from('documents').upload(path, blob, { contentType: 'application/pdf', upsert: false })
+                        const path = `service_contracts/${client.id}/contrato-${Date.now()}.html`
+                        const { data: up } = await supabase.storage.from('documents').upload(path, blob, { contentType: 'text/html', upsert: false })
                         if (up) {
                           const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path)
                           await supabase.from('service_contracts').update({ contract_url: urlData.publicUrl }).eq('id', contract.id)

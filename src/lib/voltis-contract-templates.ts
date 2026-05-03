@@ -621,63 +621,40 @@ export function openInNewWindow(html: string) {
   w.document.close()
 }
 
-/** Carga html2pdf.js desde CDN (una sola vez) */
-function loadHtml2Pdf(): Promise<any> {
-  return new Promise((resolve, reject) => {
-    if (typeof window === 'undefined') { reject(new Error('SSR')); return }
-    const w = window as any
-    if (w.html2pdf) { resolve(w.html2pdf); return }
-    const s = document.createElement('script')
-    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'
-    s.onload = () => resolve(w.html2pdf)
-    s.onerror = () => reject(new Error('No se pudo cargar html2pdf.js'))
-    document.head.appendChild(s)
-  })
-}
-
 /**
- * Genera un PDF a partir del HTML de un contrato/propuesta.
- * - Descarga automáticamente el PDF en el navegador.
- * - Devuelve el Blob para subir a Supabase.
+ * Abre el contrato/propuesta en nueva ventana y lanza el diálogo de impresión
+ * automáticamente (el navegador permite guardar como PDF sin pasos adicionales).
+ * Devuelve un Blob HTML para subir a Supabase.
  */
-export async function generateAndDownloadPDF(html: string, filename: string): Promise<Blob> {
-  const html2pdf = await loadHtml2Pdf()
+export async function generateAndDownloadPDF(html: string, _filename: string): Promise<Blob> {
+  // Inyectamos un script al final del <body> que dispara print() cuando las
+  // fuentes están cargadas, con un pequeño delay de seguridad.
+  const htmlWithAutoPrint = html.replace(
+    '</body>',
+    `<script>
+      (function() {
+        function doPrint() {
+          window.focus();
+          window.print();
+        }
+        if (document.fonts && document.fonts.ready) {
+          document.fonts.ready.then(function() { setTimeout(doPrint, 400); });
+        } else {
+          window.onload = function() { setTimeout(doPrint, 600); };
+        }
+      })();
+    <\/script></body>`
+  )
 
-  // Contenedor oculto fuera de la pantalla
-  const container = document.createElement('div')
-  container.style.cssText = 'position:fixed;left:-9999px;top:0;width:210mm;background:white;'
-  container.innerHTML = html
-  document.body.appendChild(container)
-
-  try {
-    const blob: Blob = await html2pdf()
-      .set({
-        margin: 0,
-        filename,
-        image: { type: 'jpeg', quality: 0.97 },
-        html2canvas: {
-          scale: 2,
-          useCORS: true,
-          letterRendering: true,
-          scrollX: 0,
-          scrollY: 0,
-        },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak: { mode: ['css', 'legacy'] },
-      })
-      .from(container)
-      .outputPdf('blob')
-
-    // Descarga automática
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(url), 5000)
-
-    return blob
-  } finally {
-    document.body.removeChild(container)
+  // Abrimos la ventana con el HTML completo (fuentes, estilos, firma incluida)
+  const w = window.open('', '_blank')
+  if (w) {
+    w.document.write(htmlWithAutoPrint)
+    w.document.close()
+  } else {
+    alert('Activa las ventanas emergentes para este sitio y vuelve a intentarlo.')
   }
+
+  // Devolvemos el HTML como Blob para guardarlo en Supabase
+  return new Blob([html], { type: 'text/html' })
 }

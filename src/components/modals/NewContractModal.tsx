@@ -699,8 +699,8 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
                     const pdfBlob = await generateAndDownloadPDF(html, filename)
                     if (contractForPDF?.id) {
                       const supabase = createClient()
-                      const path = `service_contracts/${selectedClient.id}/propuesta-${Date.now()}.pdf`
-                      const { data: up } = await supabase.storage.from('documents').upload(path, pdfBlob, { contentType: 'application/pdf', upsert: false })
+                      const path = `service_contracts/${selectedClient.id}/propuesta-${Date.now()}.html`
+                      const { data: up } = await supabase.storage.from('documents').upload(path, pdfBlob, { contentType: 'text/html', upsert: false })
                       if (up) {
                         const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path)
                         await supabase.from('service_contracts').update({ proposal_url: urlData.publicUrl }).eq('id', contractForPDF.id)
@@ -744,8 +744,8 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
                     const pdfBlob = await generateAndDownloadPDF(html, filename)
                     if (contractForPDF?.id) {
                       const supabase = createClient()
-                      const path = `service_contracts/${selectedClient.id}/contrato-${Date.now()}.pdf`
-                      const { data: up } = await supabase.storage.from('documents').upload(path, pdfBlob, { contentType: 'application/pdf', upsert: false })
+                      const path = `service_contracts/${selectedClient.id}/contrato-${Date.now()}.html`
+                      const { data: up } = await supabase.storage.from('documents').upload(path, pdfBlob, { contentType: 'text/html', upsert: false })
                       if (up) {
                         const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path)
                         await supabase.from('service_contracts').update({ contract_url: urlData.publicUrl }).eq('id', contractForPDF.id)

@@ -13,11 +13,12 @@ const securityHeaders = [
     key: 'Content-Security-Policy',
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'", // Next.js needs unsafe-eval in dev; tighten in prod if needed
-      "style-src 'self' 'unsafe-inline'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "img-src 'self' data: blob: https://wqzicwrmmwhnafaihhqh.supabase.co",
-      "font-src 'self' data:",
-      "connect-src 'self' https://wqzicwrmmwhnafaihhqh.supabase.co https://api.gocardless.com https://www.signwell.com https://generativelanguage.googleapis.com",
+      "font-src 'self' data: https://fonts.gstatic.com",
+      "connect-src 'self' https://wqzicwrmmwhnafaihhqh.supabase.co https://api.gocardless.com https://www.signwell.com https://generativelanguage.googleapis.com https://fonts.googleapis.com https://fonts.gstatic.com",
+      "frame-src 'self' blob:",
       "frame-ancestors 'none'",
       "form-action 'self'",
     ].join('; '),
