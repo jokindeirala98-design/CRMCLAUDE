@@ -67,6 +67,8 @@ export interface UserProfile {
   role: UserRole
   permissions: Record<string, boolean>
   avatar_url: string | null
+  initials: string | null   // "NV" para Nicolás Voltis — mostrado en avatares
+  google_id: string | null  // sub de Google OAuth, se rellena al primer login con Google
   active: boolean
   created_at: string
 }

@@ -100,10 +100,14 @@ export function MobileDrawer({ isOpen, onClose }: MobileDrawerProps) {
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-line">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-full bg-brand flex items-center justify-center">
-                  <span className="text-volt text-sm font-bold">
-                    {user?.full_name?.charAt(0) || 'V'}
-                  </span>
+                <div className="w-9 h-9 rounded-full bg-brand flex items-center justify-center overflow-hidden">
+                  {user?.avatar_url ? (
+                    <img src={user.avatar_url} alt={user?.full_name} className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-volt text-sm font-bold leading-none">
+                      {(user as any)?.initials || user?.full_name?.charAt(0) || 'V'}
+                    </span>
+                  )}
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-ink">{user?.full_name || user?.email}</p>

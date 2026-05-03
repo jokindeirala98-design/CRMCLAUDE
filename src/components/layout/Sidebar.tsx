@@ -193,10 +193,14 @@ export function Sidebar() {
           'flex items-center gap-3 px-3 py-2.5 rounded-lg bg-bg',
           collapsed && 'justify-center'
         )}>
-          <div className="w-7 h-7 rounded-full bg-brand flex items-center justify-center flex-shrink-0">
-            <span className="text-volt text-xs font-bold">
-              {getUserInitials(user?.full_name || user?.email)?.charAt(0) || 'V'}
-            </span>
+          <div className="w-7 h-7 rounded-full bg-brand flex items-center justify-center flex-shrink-0 overflow-hidden">
+            {user?.avatar_url ? (
+              <img src={user.avatar_url} alt={user.full_name} className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-volt text-xs font-bold leading-none">
+                {user?.initials || getUserInitials(user?.full_name || user?.email) || 'V'}
+              </span>
+            )}
           </div>
           {!collapsed && (
             <div className="flex-1 min-w-0">
