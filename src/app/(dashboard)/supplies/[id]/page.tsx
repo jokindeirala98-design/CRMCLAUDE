@@ -120,6 +120,7 @@ export default function SupplyDetailPage() {
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const [zipProgress, setZipProgress] = useState<DownloadProgress | null>(null)
+  const [serviceContracts, setServiceContracts] = useState<any[]>([])
   const invoiceInputRef = useRef<HTMLInputElement>(null)
   const studyInputRef = useRef<HTMLInputElement>(null)
   const notificationTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -174,6 +175,16 @@ export default function SupplyDetailPage() {
 
     setSupply(data)
     setLoading(false)
+
+    // ── Fetch service_contracts (Voltis contracts) for this client ──
+    if (data?.client_id) {
+      const { data: sc } = await supabase
+        .from('service_contracts')
+        .select('id, contract_type, proposal_url, contract_url, status, created_at, start_date')
+        .eq('client_id', data.client_id)
+        .order('created_at', { ascending: false })
+      setServiceContracts(sc || [])
+    }
 
     // ── Fetch sibling supplies (same client) for the supply switcher ──
     if (data?.client_id) {
@@ -2661,19 +2672,35 @@ export default function SupplyDetailPage() {
                       <Zap className="w-4 h-4 text-brand" />
                       <h4 className="text-xs font-bold text-ink">Contrato Voltis</h4>
                     </div>
-                    {supply.contracts && supply.contracts.filter((c: any) => c.type === 'voltis' || c.contract_type === 'voltis').length > 0 ? (
+                    {serviceContracts.length > 0 ? (
                       <div className="space-y-2">
-                        {supply.contracts
-                          .filter((c: any) => c.type === 'voltis' || c.contract_type === 'voltis')
-                          .map((contract: any) => (
-                            <div key={contract.id} className="group flex items-center gap-2 px-2.5 py-2 rounded-lg bg-bg-2/60 hover:bg-primary/5 transition">
-                              <FileText className="w-3.5 h-3.5 text-brand flex-shrink-0" />
-                              <span className="text-xs text-ink flex-1 truncate">
-                                {contract.signed_at ? formatDate(contract.signed_at) : 'Contrato'}
-                              </span>
-                              {(contract.document_url || contract.file_url) && (
+                        {serviceContracts.map((sc: any) => (
+                          <div key={sc.id} className="space-y-1">
+                            {sc.proposal_url && (
+                              <div className="group flex items-center gap-2 px-2.5 py-2 rounded-lg bg-bg-2/60 hover:bg-primary/5 transition">
+                                <FileText className="w-3.5 h-3.5 text-brand flex-shrink-0" />
+                                <span className="text-xs text-ink flex-1 truncate">
+                                  Propuesta · {sc.start_date ? formatDate(sc.start_date) : formatDate(sc.created_at)}
+                                </span>
                                 <a
-                                  href={getViewUrl(contract.document_url || contract.file_url)}
+                                  href={getViewUrl(sc.proposal_url)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="p-1 rounded-lg hover:bg-primary/10 transition opacity-0 group-hover:opacity-100"
+                                  title="Ver propuesta"
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5 text-brand" />
+                                </a>
+                              </div>
+                            )}
+                            {sc.contract_url && (
+                              <div className="group flex items-center gap-2 px-2.5 py-2 rounded-lg bg-bg-2/60 hover:bg-primary/5 transition">
+                                <FileText className="w-3.5 h-3.5 text-brand flex-shrink-0" />
+                                <span className="text-xs text-ink flex-1 truncate">
+                                  Contrato · {sc.start_date ? formatDate(sc.start_date) : formatDate(sc.created_at)}
+                                </span>
+                                <a
+                                  href={getViewUrl(sc.contract_url)}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="p-1 rounded-lg hover:bg-primary/10 transition opacity-0 group-hover:opacity-100"
@@ -2681,9 +2708,18 @@ export default function SupplyDetailPage() {
                                 >
                                   <ExternalLink className="w-3.5 h-3.5 text-brand" />
                                 </a>
-                              )}
-                            </div>
-                          ))}
+                              </div>
+                            )}
+                            {!sc.proposal_url && !sc.contract_url && (
+                              <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-bg-2/60">
+                                <FileText className="w-3.5 h-3.5 text-brand flex-shrink-0" />
+                                <span className="text-xs text-ink-3 flex-1 truncate">
+                                  Borrador · {formatDate(sc.created_at)}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        ))}
                       </div>
                     ) : (
                       <p className="text-xs text-ink-3">Sin contrato Voltis</p>
