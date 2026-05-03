@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   FileText, ChevronDown, ChevronUp, AlertTriangle, Check,
   Loader2, Euro, Calendar, User, MapPin,
-  FileSignature, Printer, Info,
+  FileSignature, Printer, Info, ExternalLink,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatDate } from '@/lib/utils/format'
@@ -201,7 +201,8 @@ export default function ContractSection({ client, onUpdate }: Props) {
     onUpdate?.()
   }
 
-  const hasRequiredData = startDate && representativeName
+  const isParticular = client.type === 'particular'
+  const hasRequiredData = startDate && (isParticular || representativeName)
 
   return (
     <div className="bg-card border border-line rounded-xl overflow-hidden">
@@ -381,46 +382,50 @@ export default function ContractSection({ client, onUpdate }: Props) {
                 </div>
               </div>
 
-              {/* ── BLOQUE 5: Firmante del cliente ── */}
-              <div className="space-y-3">
-                <p className="text-[10px] font-bold text-ink-3 uppercase tracking-wider">Datos del firmante</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[10px] text-ink-3 uppercase font-semibold block mb-1">Nombre (Don/Doña)</label>
-                    <div className="relative">
-                      <User className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3" />
+              {/* ── BLOQUE 5: Firmante — solo empresas/ayuntamientos ── */}
+              {!isParticular && (
+                <div className="space-y-3">
+                  <p className="text-[10px] font-bold text-ink-3 uppercase tracking-wider">Representante firmante</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] text-ink-3 uppercase font-semibold block mb-1">Nombre</label>
+                      <div className="relative">
+                        <User className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3" />
+                        <input
+                          type="text"
+                          value={representativeName}
+                          onChange={e => setRepresentativeName(e.target.value)}
+                          placeholder="Nombre completo del representante"
+                          className="w-full pl-8 pr-3 py-2 text-sm border border-line-2 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-ink-3 uppercase font-semibold block mb-1">DNI</label>
                       <input
                         type="text"
-                        value={representativeName}
-                        onChange={e => setRepresentativeName(e.target.value)}
-                        placeholder="Nombre completo del representante"
-                        className="w-full pl-8 pr-3 py-2 text-sm border border-line-2 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors"
+                        value={representativeNif}
+                        onChange={e => setRepresentativeNif(e.target.value)}
+                        placeholder="12345678A"
+                        className="w-full px-3 py-2 text-sm border border-line-2 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors font-mono"
                       />
                     </div>
                   </div>
-                  <div>
-                    <label className="text-[10px] text-ink-3 uppercase font-semibold block mb-1">DNI del firmante</label>
-                    <input
-                      type="text"
-                      value={representativeNif}
-                      onChange={e => setRepresentativeNif(e.target.value)}
-                      placeholder="12345678A"
-                      className="w-full px-3 py-2 text-sm border border-line-2 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors font-mono"
-                    />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="text-[10px] text-ink-3 uppercase font-semibold block mb-1">Lugar de formalización</label>
-                    <div className="relative">
-                      <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3" />
-                      <input
-                        type="text"
-                        value={signingLocation}
-                        onChange={e => setSigningLocation(e.target.value)}
-                        placeholder="Ciudad donde se firma (ej: Pamplona)"
-                        className="w-full pl-8 pr-3 py-2 text-sm border border-line-2 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors"
-                      />
-                    </div>
-                  </div>
+                </div>
+              )}
+
+              {/* Lugar de formalización — siempre visible */}
+              <div>
+                <label className="text-[10px] text-ink-3 uppercase font-semibold block mb-1">Lugar de formalización</label>
+                <div className="relative">
+                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3" />
+                  <input
+                    type="text"
+                    value={signingLocation}
+                    onChange={e => setSigningLocation(e.target.value)}
+                    placeholder="Ciudad donde se firma (ej: Pamplona)"
+                    className="w-full pl-8 pr-3 py-2 text-sm border border-line-2 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors"
+                  />
                 </div>
               </div>
 
@@ -452,6 +457,37 @@ export default function ContractSection({ client, onUpdate }: Props) {
                 </div>
               )}
 
+              {/* ── BLOQUE 7: Documentos guardados ── */}
+              {(contract?.proposal_url || contract?.contract_url) && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-bold text-ink-3 uppercase tracking-wider">Documentos generados</p>
+                  <div className="flex flex-wrap gap-2">
+                    {contract.proposal_url && (
+                      <a
+                        href={contract.proposal_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-line-2 bg-card text-ink text-xs font-medium hover:bg-bg-2 transition-all"
+                      >
+                        <FileText className="w-3.5 h-3.5 text-info" /> Propuesta
+                        <ExternalLink className="w-3 h-3 text-ink-4" />
+                      </a>
+                    )}
+                    {contract.contract_url && (
+                      <a
+                        href={contract.contract_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-line-2 bg-card text-ink text-xs font-medium hover:bg-bg-2 transition-all"
+                      >
+                        <FileText className="w-3.5 h-3.5 text-brand" /> Contrato
+                        <ExternalLink className="w-3 h-3 text-ink-4" />
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* ── Acciones ── */}
               <div className="flex flex-wrap gap-2 pt-1">
                 <button
@@ -466,17 +502,28 @@ export default function ContractSection({ client, onUpdate }: Props) {
                 {contract && hasRequiredData && (
                   <>
                     <button
-                      onClick={() => {
+                      onClick={async () => {
+                        const repName = isParticular ? client.name : representativeName
                         const html = generatePropuestaHTML({
                           clientName: client.name,
-                          representativeName: representativeName,
+                          representativeName: repName,
                           ahorroConfirmado: ahorroNum || null,
                           feeAmount,
                           startDate: startDateObj,
                           endDate: endDateObj,
-                          contractType: contractType,
+                          contractType,
                         })
                         openInNewWindow(html)
+                        // Guardar en storage
+                        const supabase = createClient()
+                        const path = `service_contracts/${client.id}/propuesta-${Date.now()}.html`
+                        const blob = new Blob([html], { type: 'text/html' })
+                        const { data: up } = await supabase.storage.from('documents').upload(path, blob, { contentType: 'text/html', upsert: false })
+                        if (up) {
+                          const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path)
+                          await supabase.from('service_contracts').update({ proposal_url: urlData.publicUrl }).eq('id', contract.id)
+                          setContract(prev => prev ? { ...prev, proposal_url: urlData.publicUrl } : prev)
+                        }
                       }}
                       className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-line-2 bg-card text-ink text-xs font-semibold hover:bg-bg-2 transition-all"
                     >
@@ -484,26 +531,38 @@ export default function ContractSection({ client, onUpdate }: Props) {
                       Propuesta PDF
                     </button>
                     <button
-                      onClick={() => {
+                      onClick={async () => {
+                        const repName = isParticular ? client.name : representativeName
+                        const repNif = isParticular ? (client.nif ?? client.cif_nif ?? '') : representativeNif
                         const firstPaymentDate = new Date(startDateObj)
                         firstPaymentDate.setDate(firstPaymentDate.getDate() + 15)
                         const html = generateContratoHTML({
                           clientName: client.name,
                           clientCif: client.cif ?? client.cif_nif ?? '',
                           clientFiscalAddress: client.fiscal_address ?? '',
-                          representativeName: representativeName,
-                          representativeNif: representativeNif,
-                          signingLocation: signingLocation,
+                          representativeName: repName,
+                          representativeNif: repNif,
+                          signingLocation,
                           startDate: startDateObj,
                           endDate: endDateObj,
                           firstPaymentDate,
                           ahorroConfirmado: ahorroNum || null,
                           feeAmount,
-                          contractType: contractType,
-                          paymentModality: paymentModality,
+                          contractType,
+                          paymentModality,
                           paymentSchedule,
                         })
                         openInNewWindow(html)
+                        // Guardar en storage
+                        const supabase = createClient()
+                        const path = `service_contracts/${client.id}/contrato-${Date.now()}.html`
+                        const blob = new Blob([html], { type: 'text/html' })
+                        const { data: up } = await supabase.storage.from('documents').upload(path, blob, { contentType: 'text/html', upsert: false })
+                        if (up) {
+                          const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path)
+                          await supabase.from('service_contracts').update({ contract_url: urlData.publicUrl }).eq('id', contract.id)
+                          setContract(prev => prev ? { ...prev, contract_url: urlData.publicUrl } : prev)
+                        }
                       }}
                       className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-line-2 bg-card text-ink text-xs font-semibold hover:bg-bg-2 transition-all"
                     >

@@ -95,7 +95,7 @@ export function NewContractModal({ open, onClose, onCreated, preselectedClientId
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className="relative bg-bg rounded-3xl shadow-ambient-lg w-full max-w-3xl mx-4 max-h-[92vh] overflow-y-auto"
+        className="relative bg-bg rounded-3xl shadow-ambient-lg w-full max-w-3xl mx-4 max-h-[92vh] flex flex-col"
       >
         {/* Header */}
         <div className="sticky top-0 bg-bg z-10 flex items-center justify-between p-6 border-b border-surface-container-low">
@@ -121,6 +121,7 @@ export function NewContractModal({ open, onClose, onCreated, preselectedClientId
           </button>
         </div>
 
+        <div className="flex-1 overflow-y-auto">
         <AnimatePresence mode="wait">
           {mode === 'select' && (
             <motion.div key="select" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-6">
@@ -176,6 +177,7 @@ export function NewContractModal({ open, onClose, onCreated, preselectedClientId
             </motion.div>
           )}
         </AnimatePresence>
+        </div>
       </motion.div>
     </div>
   )
@@ -516,7 +518,7 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
   const contractForPDF = savedContract || existingContract
 
   return (
-    <div className="p-6 space-y-5">
+    <div className="p-6 space-y-5 min-h-[520px]">
       {/* Client selector */}
       <SearchableClientSelector
         label="Cliente"
@@ -625,18 +627,22 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
                 </div>
               </div>
 
-              {/* Firmante */}
-              <div className="space-y-2">
-                <p className="text-[10px] font-bold text-ink-3 uppercase tracking-wider">Datos del firmante</p>
-                <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3" />
-                  <input type="text" value={representativeName} onChange={e => setRepresentativeName(e.target.value)} placeholder="Nombre del representante" className="w-full pl-8 pr-3 py-2 text-sm border border-line-2 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors" />
+              {/* Firmante — solo empresas/ayuntamientos */}
+              {selectedClient.type !== 'particular' && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-bold text-ink-3 uppercase tracking-wider">Representante firmante</p>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3" />
+                    <input type="text" value={representativeName} onChange={e => setRepresentativeName(e.target.value)} placeholder="Nombre del representante" className="w-full pl-8 pr-3 py-2 text-sm border border-line-2 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors" />
+                  </div>
+                  <input type="text" value={representativeNif} onChange={e => setRepresentativeNif(e.target.value)} placeholder="DNI: 12345678A" className="w-full px-3 py-2 text-sm border border-line-2 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors font-mono" />
                 </div>
-                <input type="text" value={representativeNif} onChange={e => setRepresentativeNif(e.target.value)} placeholder="DNI: 12345678A" className="w-full px-3 py-2 text-sm border border-line-2 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors font-mono" />
-                <div className="relative">
-                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3" />
-                  <input type="text" value={signingLocation} onChange={e => setSigningLocation(e.target.value)} placeholder="Ciudad (ej: Pamplona)" className="w-full pl-8 pr-3 py-2 text-sm border border-line-2 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors" />
-                </div>
+              )}
+
+              {/* Lugar de formalización — siempre visible */}
+              <div className="relative">
+                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3" />
+                <input type="text" value={signingLocation} onChange={e => setSigningLocation(e.target.value)} placeholder="Ciudad (ej: Pamplona)" className="w-full pl-8 pr-3 py-2 text-sm border border-line-2 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors" />
               </div>
 
               {/* Calendario de pagos */}
@@ -671,15 +677,17 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
               Guardar configuración
             </button>
 
-            {contractForPDF && representativeName && (
+            {contractForPDF && (selectedClient?.type === 'particular' || representativeName) && (
               <>
                 <button
-                  onClick={() => {
+                  onClick={async () => {
+                    const isPartic = selectedClient.type === 'particular'
+                    const repName = isPartic ? selectedClient.name : representativeName
                     const startDateObj = new Date(startDate + 'T00:00:00')
                     const endDateObj = addMonths(startDateObj, 12)
                     const html = generatePropuestaHTML({
                       clientName: selectedClient.name,
-                      representativeName,
+                      representativeName: repName,
                       ahorroConfirmado: ahorroNum || null,
                       feeAmount,
                       startDate: startDateObj,
@@ -687,13 +695,27 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
                       contractType,
                     })
                     openInNewWindow(html)
+                    if (contractForPDF?.id) {
+                      const supabase = createClient()
+                      const path = `service_contracts/${selectedClient.id}/propuesta-${Date.now()}.html`
+                      const blob = new Blob([html], { type: 'text/html' })
+                      const { data: up } = await supabase.storage.from('documents').upload(path, blob, { contentType: 'text/html', upsert: false })
+                      if (up) {
+                        const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path)
+                        await supabase.from('service_contracts').update({ proposal_url: urlData.publicUrl }).eq('id', contractForPDF.id)
+                        onCreated()
+                      }
+                    }
                   }}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-line-2 bg-card text-ink text-xs font-semibold hover:bg-bg-2 transition-all"
                 >
                   <Printer className="w-3.5 h-3.5" /> Propuesta PDF
                 </button>
                 <button
-                  onClick={() => {
+                  onClick={async () => {
+                    const isPartic = selectedClient.type === 'particular'
+                    const repName = isPartic ? selectedClient.name : representativeName
+                    const repNif = isPartic ? (selectedClient.nif ?? selectedClient.cif_nif ?? '') : representativeNif
                     const startDateObj = new Date(startDate + 'T00:00:00')
                     const endDateObj = addMonths(startDateObj, 12)
                     const firstPaymentDate = new Date(startDateObj)
@@ -705,8 +727,8 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
                       clientName: selectedClient.name,
                       clientCif: selectedClient.cif ?? selectedClient.cif_nif ?? '',
                       clientFiscalAddress: selectedClient.fiscal_address ?? '',
-                      representativeName,
-                      representativeNif,
+                      representativeName: repName,
+                      representativeNif: repNif,
                       signingLocation,
                       startDate: startDateObj,
                       endDate: endDateObj,
@@ -718,6 +740,17 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
                       paymentSchedule: schedule,
                     })
                     openInNewWindow(html)
+                    if (contractForPDF?.id) {
+                      const supabase = createClient()
+                      const path = `service_contracts/${selectedClient.id}/contrato-${Date.now()}.html`
+                      const blob = new Blob([html], { type: 'text/html' })
+                      const { data: up } = await supabase.storage.from('documents').upload(path, blob, { contentType: 'text/html', upsert: false })
+                      if (up) {
+                        const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path)
+                        await supabase.from('service_contracts').update({ contract_url: urlData.publicUrl }).eq('id', contractForPDF.id)
+                        onCreated()
+                      }
+                    }
                   }}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-line-2 bg-card text-ink text-xs font-semibold hover:bg-bg-2 transition-all"
                 >
