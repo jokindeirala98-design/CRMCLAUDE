@@ -232,12 +232,14 @@ async function findClientByInvoiceData(
 /* ─── Main webhook handler ─────────────────────────────────────────────────── */
 export async function POST(req: NextRequest) {
   // ── Security: verify Telegram webhook secret token ──────────────────────
-  // Telegram sends the secret (set via setWebhook's secret_token param)
-  // in the X-Telegram-Bot-Api-Secret-Token header on every update.
+  // Only reject if Telegram sent a token AND it doesn't match.
+  // If no token is sent (webhook registered without secret_token), we allow
+  // the request through so there's no mismatch when the env var is set but
+  // the webhook registration doesn't include secret_token yet.
   const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET
   if (webhookSecret) {
     const incoming = req.headers.get('x-telegram-bot-api-secret-token') || ''
-    if (incoming !== webhookSecret) {
+    if (incoming && incoming !== webhookSecret) {
       console.warn('[Telegram Webhook] Invalid secret token — request rejected')
       return NextResponse.json({ ok: false }, { status: 403 })
     }
@@ -1334,7 +1336,7 @@ async function createSupplyFromCups(
   if (supplyErr) {
     // Race condition: supply created between check and insert
     if (supplyErr.code === '23505' || supplyErr.message?.includes('unique') || supplyErr.message?.includes('duplicate')) {
-      const { data: conflict } = await supabase.from('supplies').select('id').ilike('cups', `${cupsBase}%`).limit(1).single()
+      const { data: conflict } = await supabase.from('supplies').select('id').ilike('cups', `${cupsBase20(cups)}%`).limit(1).single()
       return sendMessage(chatId,
         `ℹ️ El suministro ya existía (creado mientras procesaba).\n\n` +
         `<a href="${appUrl}/supplies/${conflict?.id}">Ver en CRM →</a>`
