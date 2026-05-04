@@ -3082,18 +3082,26 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
         const p = c.periodo as 'P1' | 'P2' | 'P3'
         if (!['P1', 'P2', 'P3'].includes(p)) continue
         const kwh = Number(c.kwh) || 0
+        if (kwh <= 0) continue
         const precio = Number(c.precioKwh) || 0
-        if (kwh <= 0 || precio <= 0) continue
-        periodWsum[p] += kwh * precio
-        periodKwh[p]  += kwh
-        ;(periodPrices as any)[p].push(precio)
+        const total  = Number(c.total) || 0
+        if (precio > 0) {
+          // PDF/OCR invoices: explicit unit price
+          periodWsum[p] += kwh * precio
+          periodKwh[p]  += kwh
+          ;(periodPrices as any)[p].push(precio)
+        } else if (total > 0) {
+          // Excel imports: precioKwh=0 but total (€) per period is stored
+          periodWsum[p] += total
+          periodKwh[p]  += kwh
+          ;(periodPrices as any)[p].push(total / kwh)
+        }
       }
     }
 
     // Weighted average per period.
-    // Primary: c.precioKwh weighted sum (works when invoices have explicit unit price).
-    // Fallback A: averagePriceStats per period — computed from item.total/kwh, so it works
-    //   even when precioKwh is 0 (e.g. Excel imports where only totals are stored).
+    // Primary: c.precioKwh (PDF invoices) or c.total/c.kwh (Excel imports).
+    // Fallback A: averagePriceStats per period.
     // Fallback B: global average precio promedio.
     const fallbackPrice = summaryStats.precioPromedio
     const avgStatP1 = averagePriceStats.find(s => s.period === 'P1')?.avgPrice || 0
