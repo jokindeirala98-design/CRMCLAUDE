@@ -76,8 +76,32 @@ function normLabel(str: string): string {
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[€]/g, 'eur')
     .replace(/[()]/g, ' ')
-    .replace(/[\/\-\*]/g, ' ')
+    .replace(/[/\-*·•]/g, ' ')
     .replace(/\s+/g, ' ').trim()
+}
+
+// Unit-qualified map: clave = normLabel(colA) + '§' + normLabel(colB)
+function buildRowMapByUnit(ws: ExcelJS.Worksheet): Map<string, ExcelJS.Row> {
+  const map = new Map<string, ExcelJS.Row>()
+  ws.eachRow((row) => {
+    const a = row.getCell(1).value
+    const b = row.getCell(2).value
+    if (!a || typeof a !== 'string') return
+    const unitRaw = b !== null && b !== undefined ? String(b).trim() : ''
+    if (!unitRaw) return
+    const key = `${normLabel(a)}§${normLabel(unitRaw)}`
+    if (!map.has(key)) map.set(key, row)
+  })
+  return map
+}
+function getRowU(umap: Map<string, ExcelJS.Row>, label: string, unit: string): ExcelJS.Row | undefined {
+  return umap.get(`${normLabel(label)}§${normLabel(unit)}`)
+}
+const PNAME_ES_IMPORT: Record<string, string[]> = {
+  P1: ['Punta'],
+  P2: ['Llano', 'Valle'],  // Algunas plantillas (Estella 2.0TD) etiquetan potencia P2 como "Valle"
+  P3: ['Valle'],
+  P4: ['Valle', 'Supervalle'], P5: ['Supervalle'], P6: ['Supervalle'],
 }
 
 function buildRowMap(ws: ExcelJS.Worksheet): Map<string, ExcelJS.Row> {
@@ -260,7 +284,7 @@ function parseLabelBased(ws: ExcelJS.Worksheet, fileName: string): ParsedSupplyF
     const colA = normLabel(s(row.getCell(1).value))
     const colB = normLabel(s(row.getCell(2).value))
     // colB "€" normalises to "eur" via normLabel's € → eur replacement
-    if (/^potencia p\d$/.test(colA) && colB === 'eur') {
+    if (/^potencia p\d/.test(colA) && colB === 'eur') {  // regex ampliado para capturar "potencia p1 punta", etc.
       potenciaEurMap.set(colA, row) // e.g. "potencia p1" → € row
     }
   })
@@ -284,6 +308,7 @@ function parseLabelBased(ws: ExcelJS.Worksheet, fileName: string): ParsedSupplyF
 
   // ── Per-month data ─────────────────────────────────────────────────────────
   const invoices: ParsedInvoice[] = []
+  const umap = buildRowMapByUnit(ws)  // unit-qualified map for duplicate-label resolution
 
   for (const col of monthCols) {
     let rawStart: any = getRow(rowMap, 'Fecha Inicio')?.getCell(col).value
@@ -300,25 +325,104 @@ function parseLabelBased(ws: ExcelJS.Worksheet, fileName: string): ParsedSupplyF
 
     const dias = daysBetween(periodStart, periodEnd!)
 
+    // Precio horario uniforme (algunas facturas: Endesa "Energía Precio horario")
+    const precioHorario = cellNum(getRow(rowMap, 'Precio Horario'), col)
+      || cellNum(getRow(rowMap, 'Energia Precio Horario'), col)
+      || cellNum(getRowU(umap, 'Energia Precio horario', '€/kWh'), col)
+
     const potencia = []
     for (let p = 1; p <= 6; p++) {
-      const pid = `P${p}`
-      const kwRow = getPeriodRow(rowMap, 'potencia_kw', pid)
-      const kw    = cellNum(kwRow, col)
-      // Per-period potencia cost: try explicit-label variants first, then the
-      // secondary map that captures "Potencia P1 €" rows with same col-A label.
-      const eurMapRow = potenciaEurMap.get(`potencia ${pid.toLowerCase()}`)
-      const totalPot = cellNum(eurMapRow, col)
+      const pid    = `P${p}`
+      const pnames = PNAME_ES_IMPORT[pid] ?? []
+      const kwRow  = getPeriodRow(rowMap, 'potencia_kw', pid)
+      let kw = cellNum(kwRow, col)
+      // Unit-qualified lookup for Spanish period names (Ayuntamiento format)
+      if (!kw) {
+        for (const pn of pnames) {
+          kw = cellNum(getRowU(umap, `Potencia ${pid} (${pn})`, 'kW'), col)
+            || cellNum(getRowU(umap, `Potencia ${pid} ${pn}`, 'kW'), col)
+          if (kw) break
+        }
+      }
+
+      // Total €: try potenciaEurMap (normalized full key), standard labels, unit-qualified
+      let totalPot = 0
+      // potenciaEurMap now uses full norm key including Spanish names
+      for (const pn of ['', ...pnames]) {
+        const key = pn ? normLabel(`Potencia ${pid} (${pn})`) : normLabel(`Potencia ${pid}`)
+        const row = potenciaEurMap.get(key)
+        if (row) { totalPot = cellNum(row, col); break }
+      }
+      totalPot = totalPot
         || cellNum(getRow(rowMap, `Potencia ${pid} eur`), col)
         || cellNum(getRow(rowMap, `Potencia ${pid} (€)`), col)
-      if (kw > 0 || totalPot > 0) potencia.push({ periodo: pid, kw, precioKwDia: 0, dias, total: totalPot })
+      if (!totalPot) {
+        for (const pn of pnames) {
+          totalPot = cellNum(getRowU(umap, `Potencia ${pid} (${pn})`, '€'), col)
+            || cellNum(getRowU(umap, `Potencia ${pid} ${pn}`, '€'), col)
+          if (totalPot) break
+        }
+      }
+      // Peaje + cargo totals fallback
+      if (!totalPot) {
+        const tPeaje = cellNum(getRow(rowMap, `Potencia ${pid} peajes eur`), col)
+        const tCargo = cellNum(getRow(rowMap, `Potencia ${pid} cargos eur`), col)
+        if (tPeaje > 0 || tCargo > 0) totalPot = tPeaje + tCargo
+      }
+
+      // Price €/kW·día: try direct labels, then peaje+cargo, then back-calculate
+      let precioKwDia = cellNum(getRow(rowMap, `Potencia ${pid} eur kw dia`), col)
+        || cellNum(getRow(rowMap, `Potencia ${pid} (€/kW día)`), col)
+      if (!precioKwDia) {
+        for (const pn of pnames) {
+          precioKwDia = cellNum(getRowU(umap, `Potencia ${pid} (${pn})`, '€/kW día'), col)
+            || cellNum(getRowU(umap, `Potencia ${pid} (${pn})`, '€/kW·día'), col)
+          if (precioKwDia) break
+        }
+      }
+      if (!precioKwDia) {
+        const peaje = cellNum(getRow(rowMap, `Potencia ${pid} peajes eur kw dia`), col)
+        const cargo  = cellNum(getRow(rowMap, `Potencia ${pid} cargos eur kw dia`), col)
+        if (peaje > 0 || cargo > 0) precioKwDia = peaje + cargo
+      }
+      // Annual (€/kW·año) → ÷365
+      if (!precioKwDia) {
+        const anual = cellNum(getRow(rowMap, `Potencia ${pid} eur kw ano`), col)
+          || cellNum(getRow(rowMap, `Potencia ${pid} (€/kW año)`), col)
+        if (anual > 0) precioKwDia = Math.round((anual / 365) * 1000000) / 1000000
+      }
+      // Back-calculate from total / (kW × días)
+      if (!precioKwDia && kw > 0 && totalPot > 0 && dias > 0) {
+        precioKwDia = Math.round((totalPot / (kw * dias)) * 100000) / 100000
+      }
+
+      if (kw > 0 || totalPot > 0) potencia.push({ periodo: pid, kw, precioKwDia, dias, total: totalPot })
     }
 
     const consumo = []
     for (let p = 1; p <= 6; p++) {
       const pid    = `P${p}`
+      const pnames = PNAME_ES_IMPORT[pid] ?? []
       const kwh    = cellNum(getPeriodRow(rowMap, 'consumo', pid), col)
-      const precio = cellNum(getPriceRow(rowMap, pid), col)
+      // Energy price: direct, then unit-qualified, then peaje+cargo
+      let precio = cellNum(getPriceRow(rowMap, pid), col)
+      if (!precio) {
+        for (const pn of pnames) {
+          precio = cellNum(getRowU(umap, `Precio ${pid} (${pn})`, '€/kWh'), col)
+            || cellNum(getRowU(umap, `Precio ${pid} ${pn}`, '€/kWh'), col)
+          if (precio) break
+        }
+      }
+      if (!precio) {
+        let peaje = cellNum(getRow(rowMap, `Energia facturada peajes ${pid} eur kwh`), col)
+        let cargo  = cellNum(getRow(rowMap, `Energia facturada cargos ${pid} eur kwh`), col)
+        for (const pn of pnames) {
+          peaje = peaje || cellNum(getRowU(umap, `Energia facturada peajes ${pid} (${pn})`, '€/kWh'), col)
+          cargo  = cargo  || cellNum(getRowU(umap, `Energia facturada cargos ${pid} (${pn})`, '€/kWh'), col)
+          if (peaje || cargo) break
+        }
+        if (peaje > 0 || cargo > 0) precio = (precioHorario || 0) + peaje + cargo
+      }
       const total  = kwh > 0 && precio > 0 ? Math.round(kwh * precio * 100) / 100 : 0
       if (kwh > 0) consumo.push({ periodo: pid, kwh, precioKwh: precio, total })
     }
@@ -665,6 +769,8 @@ async function processSupply(
   newClientName: string,
   supabase: any,
   userId?: string,
+  forceUpdate = false,  // si true, actualiza facturas existentes en vez de saltarlas
+  excelFileUrl?: string,  // URL del Excel en Storage (para mostrarlo en documentos)
 ): Promise<SupplyImportResult> {
   const fileName = parsed.fileName
   try {
@@ -834,9 +940,14 @@ async function processSupply(
     )
 
     const toInsert = []
+    const toUpdate = []
     for (const inv of parsed.invoices) {
       const pairKey = `${inv.fechaInicio}|${inv.fechaFin}`
-      if (existingPairs.has(pairKey)) continue
+      if (existingPairs.has(pairKey)) {
+        if (!forceUpdate) continue  // saltar si no es re-importación forzada
+        toUpdate.push(inv)          // re-importación: actualizar datos existentes
+        continue
+      }
 
       const economics = {
         fechaInicio:   inv.fechaInicio,
@@ -882,7 +993,7 @@ async function processSupply(
     }
 
     let invoicesCreated = 0
-    const invoicesSkipped = existingPairs.size
+    const invoicesSkipped = existingPairs.size - toUpdate.length
 
     if (toInsert.length > 0) {
       const { error: invErr } = await supabase.from('invoices').insert(toInsert)
@@ -894,6 +1005,62 @@ async function processSupply(
           .in('status', ['estudio_en_curso', 'facturas_recibidas', 'primer_contacto'])
       } else {
         console.warn(`[import-from-excel] Invoice insert error for ${parsed.cups}:`, invErr.message)
+      }
+    }
+
+    // ── forceUpdate: actualizar facturas existentes con datos re-parseados ────
+    if (forceUpdate && toUpdate.length > 0) {
+      for (const inv of toUpdate) {
+        const economics = {
+          fechaInicio:   inv.fechaInicio,
+          fechaFin:      inv.fechaFin,
+          cups:          parsed.cups,
+          tarifa:        parsed.tarifa,
+          supply_type:   'luz' as const,
+          comercializadora: parsed.compania || undefined,
+          potencia:      inv.potencia.filter(p => p.kw > 0 || p.total > 0),
+          consumo:       inv.consumo.filter(c => c.kwh > 0 || c.total > 0).map(c => ({
+            ...c, total: c.total || c.kwh * c.precioKwh,
+          })),
+          consumoTotalKwh:    inv.consumoTotalKwh,
+          costeBrutoConsumo:  inv.costeBrutoConsumo,
+          descuentoEnergia:   inv.descuentoEnergia,
+          costeNetoConsumo:   inv.costeNetoConsumo,
+          costeTotalConsumo:  inv.costeTotalConsumo,
+          costeTotalPotencia: inv.costeTotalPotencia,
+          costeMedioKwh: inv.consumoTotalKwh > 0 ? inv.costeTotalConsumo / inv.consumoTotalKwh : 0,
+          costeMedioKwhNeto: inv.consumoTotalKwh > 0 ? inv.costeNetoConsumo / inv.consumoTotalKwh : 0,
+          totalFactura: inv.totalFactura,
+        }
+        await supabase.from('invoices')
+          .update({ extracted_data: { economics, source: 'excel_import_updated', numFactura: inv.numFactura } })
+          .eq('supply_id', supplyId)
+          .eq('period_start', inv.fechaInicio)
+          .eq('period_end', inv.fechaFin)
+      }
+      invoicesCreated += toUpdate.length
+    }
+
+    // ── Excel document record (visible en pestaña Documentos del suministro) ─
+    if (excelFileUrl) {
+      const { data: existingExcelDoc } = await supabase
+        .from('invoices')
+        .select('id')
+        .eq('supply_id', supplyId)
+        .eq('file_type', 'excel')
+        .maybeSingle()
+      if (!existingExcelDoc) {
+        await supabase.from('invoices').insert({
+          supply_id:         supplyId,
+          file_url:          excelFileUrl,
+          file_type:         'excel',
+          period_start:      null,
+          period_end:        null,
+          total_amount:      null,
+          extraction_status: 'completed',
+          extracted_data:    { source: 'excel_upload', fileName: parsed.fileName, mode: 'excel_document' },
+          created_at:        new Date().toISOString(),
+        })
       }
     }
 
@@ -924,12 +1091,28 @@ async function processFile(
   supabase: any,
   userId?: string,
   targetCups?: string,
+  forceUpdate = false,
 ): Promise<SupplyImportResult> {
   try {
     const arrayBuffer = await file.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)
     const parsed = await parseExcelFile(buffer, file.name, targetCups)
-    return processSupply(parsed, resolvedClientId, newClientName, supabase, userId)
+    // Upload Excel to storage so it appears in the supply's documents tab
+    let excelFileUrl: string | undefined
+    try {
+      const ts = Date.now()
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const storagePath = `excels/${parsed.cups || 'unknown'}/${ts}_${safeName}`
+      const { error: upErr } = await supabase.storage.from('documents').upload(storagePath, buffer, {
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        upsert: false,
+      })
+      if (!upErr) {
+        const { data: urlData } = supabase.storage.from('documents').getPublicUrl(storagePath)
+        excelFileUrl = urlData?.publicUrl
+      }
+    } catch { /* non-fatal */ }
+    return processSupply(parsed, resolvedClientId, newClientName, supabase, userId, forceUpdate, excelFileUrl)
   } catch (err: any) {
     return { fileName: file.name, ok: false, error: err.message }
   }
@@ -942,10 +1125,27 @@ async function processMultiSheetFile(
   newClientName: string,
   supabase: any,
   userId?: string,
+  forceUpdate = false,
 ): Promise<SupplyImportResult[]> {
   const arrayBuffer = await file.arrayBuffer()
   const buffer = Buffer.from(arrayBuffer)
   const allParsed = await parseMultiSheetAsSupplies(buffer)
+
+  // Upload the Excel ONCE — all supplies in this file share the same document URL
+  let excelFileUrl: string | undefined
+  try {
+    const ts = Date.now()
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+    const storagePath = `excels/multi/${ts}_${safeName}`
+    const { error: upErr } = await supabase.storage.from('documents').upload(storagePath, buffer, {
+      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      upsert: false,
+    })
+    if (!upErr) {
+      const { data: urlData } = supabase.storage.from('documents').getPublicUrl(storagePath)
+      excelFileUrl = urlData?.publicUrl
+    }
+  } catch { /* non-fatal */ }
 
   const results: SupplyImportResult[] = []
   // Process in batches of 5 to avoid overwhelming Supabase
@@ -953,7 +1153,7 @@ async function processMultiSheetFile(
   for (let i = 0; i < allParsed.length; i += BATCH) {
     const batch = allParsed.slice(i, i + BATCH)
     const settled = await Promise.allSettled(
-      batch.map(p => processSupply(p, resolvedClientId, newClientName, supabase, userId))
+      batch.map(p => processSupply(p, resolvedClientId, newClientName, supabase, userId, forceUpdate, excelFileUrl))
     )
     for (const r of settled) {
       results.push(
@@ -993,6 +1193,7 @@ export async function POST(req: NextRequest) {
     const newClientName = (formData.get('newClientName') as string | null)?.trim() || ''
     const targetCups    = (formData.get('targetCups')   as string | null)?.trim().toUpperCase() || ''
     const forceMulti    = formData.get('multiSupply') === 'true'
+    const forceUpdate   = formData.get('forceUpdate')  === 'true'
     const files = formData.getAll('files') as File[]
 
     if (!files.length) {
@@ -1058,7 +1259,7 @@ export async function POST(req: NextRequest) {
       }
 
       if (isMulti) {
-        const multiResults = await processMultiSheetFile(file, finalClientId, newClientName, supabase, user?.id)
+        const multiResults = await processMultiSheetFile(file, finalClientId, newClientName, supabase, user?.id, forceUpdate)
         results.push(...multiResults)
       } else {
         // Standard single-supply per file, in batches of 5
@@ -1067,7 +1268,7 @@ export async function POST(req: NextRequest) {
         for (let i = 0; i < singleFiles.length; i += BATCH_SIZE) {
           const batch = singleFiles.slice(i, i + BATCH_SIZE)
           const settled = await Promise.allSettled(
-            batch.map(f => processFile(f, finalClientId, newClientName, supabase, user?.id, targetCups))
+            batch.map(f => processFile(f, finalClientId, newClientName, supabase, user?.id, targetCups, forceUpdate))
           )
           for (const r of settled) {
             results.push(

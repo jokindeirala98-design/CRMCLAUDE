@@ -72,7 +72,7 @@ function getRowU(
 // Some Excel templates embed Spanish period names in row labels instead of P1/P2 codes.
 const PNAME_ES: Record<string, string[]> = {
   P1: ['Punta'],
-  P2: ['Llano'],
+  P2: ['Llano', 'Valle'],  // Algunas plantillas (Estella 2.0TD) etiquetan potencia P2 como "Valle"
   P3: ['Valle'],
   P4: ['Valle', 'Supervalle'],
   P5: ['Supervalle', 'Super Valle'],
