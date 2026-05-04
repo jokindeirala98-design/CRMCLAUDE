@@ -23,7 +23,7 @@ interface BulkUploadModalProps {
 
 type ExcelResult = {
   fileName: string; cups?: string; tarifa?: string; supplyId?: string
-  ok: boolean; error?: string; invoicesCreated?: number; invoicesSkipped?: number; isNew?: boolean
+  ok: boolean; error?: string; invoicesCreated?: number; invoicesSkipped?: number; invoicesUpdated?: number; isNew?: boolean
 }
 
 const CUPS_RE = /^ES[A-Z0-9]{18}/i
@@ -65,6 +65,9 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
   const [xlsxResults,   setXlsxResults]   = useState<ExcelResult[]>([])
   const [xlsxErr,       setXlsxErr]       = useState('')
 
+  // ── Excel options ──
+  const [forceUpdate, setForceUpdate] = useState(false)
+
   // ── CUPS quick-create ──
   const [cupsInput,      setCupsInput]      = useState('')
   const [cupsLoading,    setCupsLoading]    = useState(false)
@@ -88,6 +91,7 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
     setCupsInput(''); setCupsLoading(false); setCupsSuccessId(null); setCupsSuccessMsg(''); setCupsErr('')
     setClientId(preselectedClientId || '')
     setNewClientName('')
+    setForceUpdate(false)
 
     const fetchClients = async () => {
       const supabase = createClient()
@@ -202,6 +206,8 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
       if (!clientId && newClientName.trim()) fd.append('newClientName', newClientName.trim())
       // Pass CUPS so the API can match/create the right supply (needed for Excels without CUPS row)
       if (cupsInput.trim()) fd.append('targetCups', cupsInput.trim().toUpperCase())
+      if (forceUpdate) fd.append('forceUpdate', 'true')
+      fd.append('multiSupply', 'true')
       for (const { file } of xlsxFiles) fd.append('files', file)
 
       const res = await fetch('/api/supplies/import-from-excel', {
@@ -469,6 +475,21 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
                             </div>
                           ))}
                         </div>
+                        {/* Force-update option */}
+                        <label className="flex items-start gap-2.5 cursor-pointer group select-none mt-1">
+                          <input
+                            type="checkbox"
+                            checked={forceUpdate}
+                            onChange={(e) => setForceUpdate(e.target.checked)}
+                            className="mt-0.5 w-3.5 h-3.5 accent-brand cursor-pointer flex-shrink-0"
+                          />
+                          <span className="text-xs text-ink-3 group-hover:text-ink transition-colors leading-snug">
+                            <span className="font-medium text-ink">Actualizar facturas existentes</span>
+                            <span className="block text-[10px] mt-0.5 text-ink-3/80">
+                              Vuelve a importar los datos de facturas ya guardadas (útil para corregir precios)
+                            </span>
+                          </span>
+                        </label>
                       </div>
                     )}
 
@@ -532,6 +553,7 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
                             </div>
                             <p className="mt-0.5 text-ink-3 pl-5 text-[10px]">
                               {r.isNew ? 'Nuevo' : 'Existente'} · {r.invoicesCreated} factura{r.invoicesCreated !== 1 ? 's' : ''}
+                              {r.invoicesUpdated ? ` · ${r.invoicesUpdated} actualizadas` : ''}
                               {r.invoicesSkipped ? ` (+${r.invoicesSkipped} ya existían)` : ''}
                             </p>
                           </div>
