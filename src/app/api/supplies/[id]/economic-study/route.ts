@@ -467,26 +467,49 @@ function extractPowerPricesFromMostRecentInvoice(
     }
 
     // ── Source 2: rawLineItems ─────────────────────────────────────────────
+    //
+    // IMPORTANT: some invoices (e.g. Nieves Electricidad) repeat the power
+    // charge twice: once as "Facturación potencia contratada" (category='potencia')
+    // and again as "Coste peajes de transporte" (category='potencia_peaje') with
+    // the same amounts.  Naively summing both totals doubles the price.
+    //
+    // Two-tier strategy:
+    //   MAIN tier  (category='potencia')                → the full power charge
+    //   SUB  tier  (potencia_peaje/cargo/comercializacion) → sub-breakdown only
+    // If main items exist for a period → use ONLY main (ignores sub to avoid doubling).
+    // If no main items → sum sub-categories (for formats like COX where only
+    // sub-categories are present and must be added together).
     const rawItems: any[] | undefined = eco.rawLineItems ?? ed.rawLineItems
     if (Array.isArray(rawItems) && rawItems.length > 0) {
       type PRow = { kw: number; dias: number; total: number; precioUnitario: number }
-      const byPeriod: Record<string, PRow> = {}
+      const mainByPeriod: Record<string, PRow> = {}   // category === 'potencia'
+      const subByPeriod:  Record<string, PRow> = {}   // peaje / cargo / comercializacion
 
       for (const item of rawItems) {
         if (!POTENCIA_CATS.has(item.category)) continue
         const p = item.periodo as string
         if (!p || !PERIOD_KEYS.includes(p)) continue
-        if (!byPeriod[p]) byPeriod[p] = { kw: 0, dias: 0, total: 0, precioUnitario: 0 }
 
-        const itemKw   = Number(item.kw)           || 0
+        const isMain = item.category === 'potencia'
+        const target = isMain ? mainByPeriod : subByPeriod
+        if (!target[p]) target[p] = { kw: 0, dias: 0, total: 0, precioUnitario: 0 }
+
+        const itemKw   = Number(item.kw)            || 0
         const itemDias = normDias(Number(item.dias) || 0) || billingDays
-        const itemTot  = Number(item.total)         || 0
-        const itemUnit = Number(item.precioUnitario)|| 0
+        const itemTot  = Number(item.total)          || 0
+        const itemUnit = Number(item.precioUnitario) || 0
 
-        if (itemKw   > 0) byPeriod[p].kw   = itemKw
-        if (itemDias > 0) byPeriod[p].dias  = itemDias
-        byPeriod[p].total += itemTot
-        if (itemUnit > 0 && byPeriod[p].precioUnitario === 0) byPeriod[p].precioUnitario = itemUnit
+        if (itemKw   > 0) target[p].kw   = itemKw
+        if (itemDias > 0) target[p].dias  = itemDias
+        target[p].total += itemTot   // sum within the same tier only
+        if (itemUnit > 0 && target[p].precioUnitario === 0) target[p].precioUnitario = itemUnit
+      }
+
+      // Merge: prefer main category; fall back to sub-categories per period
+      const byPeriod: Record<string, PRow> = {}
+      for (const p of PERIOD_KEYS) {
+        if (mainByPeriod[p]) byPeriod[p] = mainByPeriod[p]
+        else if (subByPeriod[p]) byPeriod[p] = subByPeriod[p]
       }
 
       for (let i = 0; i < periodCount; i++) {
@@ -514,41 +537,46 @@ function extractPowerPricesFromMostRecentInvoice(
     return null
   }
 
-  // 3. Use the MOST RECENT invoice's prices for each period.
-  // Iterate invoices from most-recent (preferred year first) → fill each period
-  // from the freshest invoice that has data for it → stop when all periods filled.
-  // This guarantees the comparativa always reflects the latest tariff prices.
-  const bestPrices = Array(periodCount).fill(0)
+  // 3. Collect prices from ALL matching invoices, then return the MODE per period.
+  // (most prevalent price wins; ties broken by recency via preferredFirst order)
+  // This is more robust than using any single invoice — a mis-extracted invoice
+  // won't skew the result if the correct price appears in most others.
+  const allPricesByPeriod: number[][] = Array.from({ length: periodCount }, () => [])
   let firstSourceYear: number | null = null
   let firstSourceDate = ''
 
   for (const inv of preferredFirst) {
-    // Skip if we already have prices for all periods
-    if (bestPrices.every(p => p > 0)) break
-
     const result = tryInvoice(inv)
     if (!result) continue
-
-    let usedAny = false
-    for (let i = 0; i < periodCount; i++) {
-      if (bestPrices[i] > 0) continue          // already filled from a more-recent invoice
-      if (result[i] > 0) { bestPrices[i] = result[i]; usedAny = true }
-    }
-
-    if (usedAny && !firstSourceYear) {
+    if (!firstSourceYear) {
       firstSourceYear = invoiceYear(inv)
       firstSourceDate = invoiceSortKey(inv)
     }
+    for (let i = 0; i < periodCount; i++) {
+      if (result[i] > 0) allPricesByPeriod[i].push(result[i])
+    }
   }
 
-  const hasAny = bestPrices.some(p => p > 0)
+  const hasAny = allPricesByPeriod.some(arr => arr.length > 0)
   if (!hasAny) {
     console.warn('[economic-study] ⚠ no power price data in any invoice — BOE fallback')
     return empty
   }
 
-  console.log(`[economic-study] ✓ most-recent prices (y=${firstSourceYear} ${firstSourceDate})`, bestPrices)
-  return { prices: bestPrices, sourceYear: firstSourceYear, sourceDate: firstSourceDate }
+  // Mode per period: round to 6 decimals for grouping, pick most frequent
+  const modalPrices = allPricesByPeriod.map(arr => {
+    if (!arr.length) return 0
+    const counts: Record<string, number> = {}
+    for (const p of arr) {
+      const key = p.toFixed(6)
+      counts[key] = (counts[key] || 0) + 1
+    }
+    const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]
+    return parseFloat(best)
+  })
+
+  console.log(`[economic-study] ✓ modal prices from ${allPricesByPeriod.map(a => a.length)} invoices per period`, modalPrices)
+  return { prices: modalPrices, sourceYear: firstSourceYear, sourceDate: firstSourceDate }
 }
 
 /**
