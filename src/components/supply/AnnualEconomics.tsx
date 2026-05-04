@@ -126,16 +126,43 @@ const PERIOD_COLORS: Record<string, string> = {
   P4: '#E8D1A0', P5: '#B8A8C5', P6: '#6B8068',
 }
 
-/** Returns true for 2.0TD tariffs (doméstico, only P1+P2) */
+/** Returns true for 2.0TD tariffs (doméstico, ≤15 kW) */
 function is2TDTariff(tarifa?: string | null): boolean {
   if (!tarifa) return false
   const t = tarifa.trim().toUpperCase().replace(/\s+/g, '')
   return t.startsWith('2.0') || t === '2.0TD' || t === '20TD'
 }
 
-/** Returns active periods based on tariff — P1+P2 only for 2.0TD, P1–P6 otherwise */
+/** Returns true for 3.0TD tariffs (industrial, 15–450 kW, 3 períodos) */
+function is3TDTariff(tarifa?: string | null): boolean {
+  if (!tarifa) return false
+  const t = tarifa.trim().toUpperCase().replace(/\s+/g, '')
+  return t.startsWith('3.0') || t === '3.0TD' || t === '30TD'
+}
+
+/**
+ * Returns active POWER (potencia contratada) periods based on tariff.
+ * - 2.0TD: P1 (Punta) + P2 (Valle) → 2 períodos
+ * - 3.0TD, 6.xTD: P1–P6 → 6 períodos
+ */
+function getActivePowerPeriods(tarifa?: string | null): string[] {
+  if (is2TDTariff(tarifa)) return ['P1', 'P2']
+  return PERIODS
+}
+
+/**
+ * Returns active ENERGY CONSUMPTION periods based on tariff.
+ * - 2.0TD: P1 (Punta) + P2 (Llano) + P3 (Valle) → 3 períodos  ⚠️ ≠ power periods
+ * - 3.0TD, 6.xTD: P1–P6 → 6 períodos
+ */
+function getActiveConsumoPeriods(tarifa?: string | null): string[] {
+  if (is2TDTariff(tarifa)) return ['P1', 'P2', 'P3']
+  return PERIODS
+}
+
+/** Returns active periods for consumption (canonical alias). */
 function getActivePeriods(tarifa?: string | null): string[] {
-  return is2TDTariff(tarifa) ? ['P1', 'P2'] : PERIODS
+  return getActiveConsumoPeriods(tarifa)
 }
 const CANONICAL_MONTHS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
 const CANONICAL_MONTHS_FULL = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
@@ -846,13 +873,15 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
 
   const isGas = isGasSupply(invoices, authoritativeType)
 
-  // Detect active periods — 2.0TD only uses P1+P2
+  // Detect active periods — differentiate power (potencia) vs energy (consumo) periods.
+  // 2.0TD: power=P1+P2, consumo=P1+P2+P3 | 3.0TD: both=P1-P3 | 6.xTD: both=P1-P6
   const tarifa = invoices.find(inv => getEco(inv)?.tarifa || inv.extracted_data?.tariff)
     ?.extracted_data?.tariff as string | undefined
     || invoices.find(inv => getEco(inv)?.tarifa)
     ? getEco(invoices.find(inv => getEco(inv)?.tarifa)!)?.tarifa
     : undefined
-  const activePeriods = getActivePeriods(tarifa)
+  const activePeriods = getActiveConsumoPeriods(tarifa)
+  const activePowerPeriods = getActivePowerPeriods(tarifa)
 
   // ── Common header rows (both luz & gas) ──
   const headerRows: RowDef[] = [
@@ -963,7 +992,7 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
     },
     { key: 'sep_gas2', label: '', isSeparator: true, render: () => null },
     {
-      key: 'impuestoHidrocarb', label: 'IMPUESTO HIDROCARBUROS (€)',
+      key: 'impuestoHidrocarb', label: 'IMPUESTO S/ GAS NATURAL (€)',
       render: (eco) => <span className="text-[#4F5C53] text-sm">{fmt(eco?.gasPricing?.impuestoHidrocarbTotal)}</span>,
     },
     {
@@ -1024,14 +1053,21 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
       isSectionHeader: true,
       render: (eco) => <span className="text-[#2D3A33] font-bold text-sm">{fmt(eco?.costeTotalPotencia)}</span>,
     },
-    ...activePeriods.map(p => ({
+    ...activePowerPeriods.map(p => ({
       key: `potencia_${p}`,
       label: `POTENCIA ${p}`,
       indent: true,
       render: (eco: BillEconomics | null) => {
         const item = eco?.potencia?.find(c => c.periodo === p)
         if (!item || !item.total) return <span className="text-[#8A9A8E] text-sm">—</span>
-        return <span className="text-[#5A6B5F] text-sm">{fmt(item.total)} €</span>
+        return (
+          <div>
+            <div className="text-[#5A6B5F] text-sm">{fmt(item.total)} €</div>
+            {item.kw > 0 && item.precioKwDia > 0 && (
+              <div className="text-[#8A9A8E] text-xs">{fmt(item.kw, 1)} kW · {fmt(item.precioKwDia, 4)} €/kW·día</div>
+            )}
+          </div>
+        )
       },
     })),
     { key: 'sep3', label: '', isSeparator: true, render: () => null },
@@ -2745,8 +2781,9 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
   const tarifa = firstEco?.tarifa || firstEd?.tariff || '—'
   const titular = firstEco?.titular || (firstEd?.holder_name as string) || supplyName || 'PROYECTO'
 
-  // Active periods: P1+P2 only for 2.0TD, P1–P6 for everything else
-  const activePeriods = getActivePeriods(tarifa !== '—' ? tarifa : null)
+  // Energy consumption periods (used for kWh/€ matrices and price stats).
+  // 2.0TD: P1+P2+P3 | 3.0TD: P1-P3 | 6.xTD: P1-P6
+  const activePeriods = getActiveConsumoPeriods(tarifa !== '—' ? tarifa : null)
 
   // All computed data
   const { chartData, pieData, summaryStats, tableData, excessData, totalExcessAmount, hasExcesses, averagePriceStats } = useMemo(() => {
