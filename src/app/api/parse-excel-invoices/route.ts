@@ -2,32 +2,33 @@ import { NextRequest, NextResponse } from 'next/server'
 import ExcelJS from 'exceljs'
 
 // ── Label normaliser ──────────────────────────────────────────────────────────
-// Keeps parentheses content (normalised) so rows with the same prefix but
-// different units are still distinguishable.
-// e.g.  "Potencia P1 (kW)"       → "potencia p1 kw"
-//       "Potencia P1 (€/kW día)" → "potencia p1 eur kw dia"
-//       "Potencia P1 (€)"        → "potencia p1 eur"
+// Strips accents, normalises punctuation, handles currency symbols and units.
+// e.g.  "Potencia P1 (kW)"        → "potencia p1 kw"
+//       "Potencia P1 (€/kW·día)"  → "potencia p1 eur kw dia"
+//       "Potencia P1 (€)"         → "potencia p1 eur"
+//       "Consumo P1 (Punta)"      → "consumo p1 punta"
+//       "€/kW·año"                → "eur kw ano"
 function normLabel(s: string): string {
   if (!s) return ''
   return s
     .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // strip accents
-    .replace(/[€]/g, 'eur')                           // € → eur
-    .replace(/[()]/g, ' ')                             // open parens without removing content
-    .replace(/[\/\-\*]/g, ' ')                         // separators → space
+    .normalize('NFD').replace(/[̀-ͯ]/g, '') // strip accents (á→a, ó→o …)
+    .replace(/[€]/g, 'eur')                            // € → eur
+    .replace(/[()]/g, ' ')                              // parentheses → space (keeps content)
+    .replace(/[/\-*·•]/g, ' ')                          // / - * · • → space
     .replace(/\s+/g, ' ')
     .trim()
 }
 
-// ── Row lookup ────────────────────────────────────────────────────────────────
-// Build a cache of { normalisedLabel → row } for the whole sheet once.
+// ── Row lookup by label (col A) ───────────────────────────────────────────────
+// Build a cache { normLabel(colA) → row }.  First match wins (handles most sheets).
 function buildRowMap(ws: ExcelJS.Worksheet): Map<string, ExcelJS.Row> {
   const map = new Map<string, ExcelJS.Row>()
   ws.eachRow((row, _n) => {
     const raw = row.getCell(1).value
     if (raw && typeof raw === 'string') {
       const key = normLabel(raw)
-      if (!map.has(key)) map.set(key, row)   // first match wins
+      if (!map.has(key)) map.set(key, row)
     }
   })
   return map
@@ -35,6 +36,47 @@ function buildRowMap(ws: ExcelJS.Worksheet): Map<string, ExcelJS.Row> {
 
 function getRow(map: Map<string, ExcelJS.Row>, label: string): ExcelJS.Row | undefined {
   return map.get(normLabel(label))
+}
+
+// ── Unit-qualified row lookup (col A + col B) ─────────────────────────────────
+// Handles formats where the same col-A label repeats with different units in col B.
+// Example (Ayuntamiento-style Excel):
+//   row N:    colA="Potencia P1 (Punta)"  colB="kW"       → contracted power
+//   row N+1:  colA="Potencia P1 (Punta)"  colB="€"        → total cost
+//   row N+2:  colA="Potencia P1 (Punta)"  colB="€/kW·día" → price/kW·day
+// Key: normLabel(colA) + '§' + normLabel(colB)
+function buildRowMapByUnit(ws: ExcelJS.Worksheet): Map<string, ExcelJS.Row> {
+  const map = new Map<string, ExcelJS.Row>()
+  ws.eachRow((row) => {
+    const a = row.getCell(1).value
+    const b = row.getCell(2).value
+    if (!a || typeof a !== 'string') return
+    const unitRaw = b !== null && b !== undefined ? String(b).trim() : ''
+    if (!unitRaw) return
+    const key = `${normLabel(a)}§${normLabel(unitRaw)}`
+    if (!map.has(key)) map.set(key, row)
+  })
+  return map
+}
+
+// Get a row by its (label, unit) pair from the unit-qualified map.
+function getRowU(
+  umap: Map<string, ExcelJS.Row>,
+  label: string,
+  unit: string,
+): ExcelJS.Row | undefined {
+  return umap.get(`${normLabel(label)}§${normLabel(unit)}`)
+}
+
+// ── Spanish period name aliases ───────────────────────────────────────────────
+// Some Excel templates embed Spanish period names in row labels instead of P1/P2 codes.
+const PNAME_ES: Record<string, string[]> = {
+  P1: ['Punta'],
+  P2: ['Llano'],
+  P3: ['Valle'],
+  P4: ['Valle', 'Supervalle'],
+  P5: ['Supervalle', 'Super Valle'],
+  P6: ['Supervalle', 'Super Valle', 'Nocturno'],
 }
 
 // ── Cell value helpers ────────────────────────────────────────────────────────
@@ -91,7 +133,7 @@ function parseDate(raw: any): string | null {
   // YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10)
   // DD/MM/YYYY or DD-MM-YYYY
-  const m1 = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/)
+  const m1 = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/)
   if (m1) {
     const [, d, mo, y] = m1
     return `${y.length === 2 ? '20' + y : y}-${mo.padStart(2,'0')}-${d.padStart(2,'0')}`
@@ -99,7 +141,7 @@ function parseDate(raw: any): string | null {
   // "Enero 2025" / "enero 2025"
   const m2 = s.match(/^([a-záéíóúüñ]+)\s+(\d{4})$/i)
   if (m2) {
-    const mon = MONTHS[m2[1].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')]
+    const mon = MONTHS[m2[1].toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'')]
     if (mon) return `${m2[2]}-${mon}-01`
   }
   return null
@@ -130,8 +172,7 @@ function normTariff(t: string): string {
 // Find the column index for each month based on the header row.
 // Returns [colIndex, ...] for columns that have date headers.
 function detectMonthCols(ws: ExcelJS.Worksheet, rowMap: Map<string, ExcelJS.Row>): number[] {
-  // Strategy 1: look for a "Concepto / Periodo" or similar header row, use month-named columns
-  // Strategy 2: look at "Fecha Inicio" row and grab all non-empty columns after col 1
+  // Strategy 1: look for a "Fecha Inicio" row, use all non-empty columns after col 1
   const fechaRow = getRow(rowMap, 'Fecha Inicio')
   if (fechaRow) {
     const cols: number[] = []
@@ -294,6 +335,241 @@ function buildGasInvoices(
   return invoices
 }
 
+// ── Electricity: extract potencia for one period ──────────────────────────────
+// Tries many label variants and normalises prices to €/kW·día regardless of
+// whether the source invoice stores them per day, per month or per year.
+function extractPotenciaPeriod(
+  pid: string,
+  col: number,
+  dias: number,
+  rowMap: Map<string, ExcelJS.Row>,
+  umap: Map<string, ExcelJS.Row>,
+): { periodo: string; kw: number; precioKwDia: number; dias: number; total: number } | null {
+  const pnames = PNAME_ES[pid] ?? []
+
+  // ── kW contracted ──────────────────────────────────────────────────────────
+  let kw = cellNum(getRow(rowMap, `Potencia ${pid} kw`), col)
+         || cellNum(getRow(rowMap, `Potencia ${pid} (kW)`), col)
+  if (!kw) {
+    for (const pn of pnames) {
+      kw = cellNum(getRowU(umap, `Potencia ${pid} (${pn})`, 'kW'), col)
+         || cellNum(getRowU(umap, `Potencia ${pid} ${pn}`, 'kW'), col)
+         || cellNum(getRowU(umap, `Termino potencia ${pid} (${pn})`, 'kW'), col)
+      if (kw) break
+    }
+  }
+
+  // ── Total € ────────────────────────────────────────────────────────────────
+  // First try explicit total labels, then unit-qualified with Spanish names,
+  // then sum of peajes + cargos totals.
+  let total = cellNum(getRow(rowMap, `Potencia ${pid} eur`), col)
+            || cellNum(getRow(rowMap, `Potencia ${pid} (€)`), col)
+  if (!total) {
+    for (const pn of pnames) {
+      total = cellNum(getRowU(umap, `Potencia ${pid} (${pn})`, '€'), col)
+            || cellNum(getRowU(umap, `Potencia ${pid} ${pn}`, '€'), col)
+            || cellNum(getRowU(umap, `Termino potencia ${pid} (${pn})`, '€'), col)
+      if (total) break
+    }
+  }
+  if (!total) {
+    // Try sum of peaje + cargo totals
+    let tPeaje = cellNum(getRow(rowMap, `Potencia ${pid} peajes eur`), col)
+               || cellNum(getRow(rowMap, `Potencia ${pid} peajes (€)`), col)
+    let tCargo  = cellNum(getRow(rowMap, `Potencia ${pid} cargos eur`), col)
+               || cellNum(getRow(rowMap, `Potencia ${pid} cargos (€)`), col)
+    if (!tPeaje || !tCargo) {
+      for (const pn of pnames) {
+        tPeaje = tPeaje
+               || cellNum(getRowU(umap, `Potencia ${pid} (${pn}) Peajes`, '€'), col)
+               || cellNum(getRowU(umap, `Peajes Potencia ${pid} (${pn})`, '€'), col)
+               || cellNum(getRowU(umap, `Termino potencia peajes ${pid} (${pn})`, '€'), col)
+        tCargo  = tCargo
+               || cellNum(getRowU(umap, `Potencia ${pid} (${pn}) Cargos`, '€'), col)
+               || cellNum(getRowU(umap, `Cargos Potencia ${pid} (${pn})`, '€'), col)
+               || cellNum(getRowU(umap, `Termino potencia cargos ${pid} (${pn})`, '€'), col)
+        if (tPeaje || tCargo) break
+      }
+    }
+    if (tPeaje > 0 || tCargo > 0) total = tPeaje + tCargo
+  }
+
+  // ── Price €/kW·día ─────────────────────────────────────────────────────────
+  // Priority: direct per-day → per-day via unit-qualified → peaje+cargo per-day
+  //           → annual (÷365) → monthly (÷dias) → back-calc from total
+  let precioKwDia = cellNum(getRow(rowMap, `Potencia ${pid} eur kw dia`), col)
+                  || cellNum(getRow(rowMap, `Potencia ${pid} (€/kW día)`), col)
+                  || cellNum(getRow(rowMap, `Precio potencia ${pid} eur kw dia`), col)
+                  || cellNum(getRow(rowMap, `Precio ${pid} eur kw dia`), col)
+
+  // Unit-qualified per-day with Spanish period names
+  if (!precioKwDia) {
+    for (const pn of pnames) {
+      precioKwDia = cellNum(getRowU(umap, `Potencia ${pid} (${pn})`, '€/kW día'), col)
+                  || cellNum(getRowU(umap, `Potencia ${pid} ${pn}`, '€/kW día'), col)
+                  || cellNum(getRowU(umap, `Potencia ${pid} (${pn})`, '€/kW·día'), col)
+                  || cellNum(getRowU(umap, `Termino potencia ${pid} (${pn})`, '€/kW día'), col)
+      if (precioKwDia) break
+    }
+  }
+
+  // Split peajes + cargos per-day
+  if (!precioKwDia) {
+    let peaje = cellNum(getRow(rowMap, `Potencia ${pid} peajes eur kw dia`), col)
+              || cellNum(getRow(rowMap, `Potencia ${pid} peajes (€/kW día)`), col)
+              || cellNum(getRow(rowMap, `Peaje potencia ${pid} eur kw dia`), col)
+              || cellNum(getRow(rowMap, `Potencia peajes ${pid} eur kw dia`), col)
+              || cellNum(getRow(rowMap, `Termino potencia peajes ${pid} eur kw dia`), col)
+    let cargo  = cellNum(getRow(rowMap, `Potencia ${pid} cargos eur kw dia`), col)
+              || cellNum(getRow(rowMap, `Potencia ${pid} cargos (€/kW día)`), col)
+              || cellNum(getRow(rowMap, `Cargo potencia ${pid} eur kw dia`), col)
+              || cellNum(getRow(rowMap, `Potencia cargos ${pid} eur kw dia`), col)
+              || cellNum(getRow(rowMap, `Termino potencia cargos ${pid} eur kw dia`), col)
+    if (!peaje || !cargo) {
+      for (const pn of pnames) {
+        peaje = peaje
+              || cellNum(getRowU(umap, `Potencia ${pid} (${pn}) Peajes`, '€/kW día'), col)
+              || cellNum(getRowU(umap, `Peajes Potencia ${pid} (${pn})`, '€/kW día'), col)
+              || cellNum(getRowU(umap, `Termino potencia peajes ${pid} (${pn})`, '€/kW día'), col)
+              || cellNum(getRowU(umap, `Potencia ${pid} (${pn}) Peajes`, '€/kW·día'), col)
+              || cellNum(getRowU(umap, `Peajes Potencia ${pid} (${pn})`, '€/kW·día'), col)
+        cargo  = cargo
+              || cellNum(getRowU(umap, `Potencia ${pid} (${pn}) Cargos`, '€/kW día'), col)
+              || cellNum(getRowU(umap, `Cargos Potencia ${pid} (${pn})`, '€/kW día'), col)
+              || cellNum(getRowU(umap, `Termino potencia cargos ${pid} (${pn})`, '€/kW día'), col)
+              || cellNum(getRowU(umap, `Potencia ${pid} (${pn}) Cargos`, '€/kW·día'), col)
+              || cellNum(getRowU(umap, `Cargos Potencia ${pid} (${pn})`, '€/kW·día'), col)
+        if (peaje || cargo) break
+      }
+    }
+    if (peaje > 0 || cargo > 0) precioKwDia = peaje + cargo
+  }
+
+  // Annual price (€/kW·año) → divide by 365
+  if (!precioKwDia) {
+    let precioAnual = cellNum(getRow(rowMap, `Potencia ${pid} eur kw ano`), col)
+                    || cellNum(getRow(rowMap, `Precio potencia ${pid} eur kw ano`), col)
+                    || cellNum(getRow(rowMap, `Potencia ${pid} (€/kW año)`), col)
+    if (!precioAnual) {
+      for (const pn of pnames) {
+        precioAnual = cellNum(getRowU(umap, `Potencia ${pid} (${pn})`, '€/kW año'), col)
+                    || cellNum(getRowU(umap, `Potencia ${pid} (${pn})`, '€/kW·año'), col)
+                    || cellNum(getRowU(umap, `Potencia ${pid} ${pn}`, '€/kW año'), col)
+        if (precioAnual) break
+      }
+    }
+    if (precioAnual > 0) precioKwDia = Math.round((precioAnual / 365) * 1000000) / 1000000
+  }
+
+  // Monthly price (€/kW·mes) → divide by number of days in period
+  if (!precioKwDia && dias > 0) {
+    let precioMes = cellNum(getRow(rowMap, `Potencia ${pid} eur kw mes`), col)
+                  || cellNum(getRow(rowMap, `Precio potencia ${pid} eur kw mes`), col)
+                  || cellNum(getRow(rowMap, `Potencia ${pid} (€/kW mes)`), col)
+    if (!precioMes) {
+      for (const pn of pnames) {
+        precioMes = cellNum(getRowU(umap, `Potencia ${pid} (${pn})`, '€/kW mes'), col)
+                  || cellNum(getRowU(umap, `Potencia ${pid} (${pn})`, '€/kW·mes'), col)
+                  || cellNum(getRowU(umap, `Potencia ${pid} ${pn}`, '€/kW mes'), col)
+        if (precioMes) break
+      }
+    }
+    if (precioMes > 0) precioKwDia = Math.round((precioMes / dias) * 1000000) / 1000000
+  }
+
+  // Back-calculate from total when all price lookups failed
+  if (!precioKwDia && kw > 0 && total > 0 && dias > 0) {
+    precioKwDia = Math.round((total / (kw * dias)) * 100000) / 100000
+  }
+
+  if (kw === 0 && total === 0) return null
+  return { periodo: pid, kw, precioKwDia, dias, total }
+}
+
+// ── Electricity: extract consumo for one period ───────────────────────────────
+function extractConsumoPeriod(
+  pid: string,
+  col: number,
+  rowMap: Map<string, ExcelJS.Row>,
+  umap: Map<string, ExcelJS.Row>,
+): { periodo: string; kwh: number; precioKwh: number; total: number } | null {
+  const pnames = PNAME_ES[pid] ?? []
+
+  // ── kWh consumed ───────────────────────────────────────────────────────────
+  let kwh = cellNum(getRow(rowMap, `Consumo ${pid} kwh`), col)
+           || cellNum(getRow(rowMap, `Consumo ${pid} (kWh)`), col)
+  if (!kwh) {
+    for (const pn of pnames) {
+      kwh = cellNum(getRowU(umap, `Consumo ${pid} (${pn})`, 'kWh'), col)
+           || cellNum(getRowU(umap, `Consumo ${pid} ${pn}`, 'kWh'), col)
+           || cellNum(getRowU(umap, `Energia ${pid} (${pn})`, 'kWh'), col)
+      if (kwh) break
+    }
+  }
+
+  // ── Price €/kWh ────────────────────────────────────────────────────────────
+  let precio = cellNum(getRow(rowMap, `Precio ${pid} eur kwh`), col)
+             || cellNum(getRow(rowMap, `Precio ${pid} (€/kWh)`), col)
+             || cellNum(getRow(rowMap, `Precio energia ${pid} eur kwh`), col)
+             || cellNum(getRow(rowMap, `Energia ${pid} eur kwh`), col)
+  if (!precio) {
+    for (const pn of pnames) {
+      precio = cellNum(getRowU(umap, `Precio ${pid} (${pn})`, '€/kWh'), col)
+             || cellNum(getRowU(umap, `Precio ${pid} ${pn}`, '€/kWh'), col)
+             || cellNum(getRowU(umap, `Precio energia ${pid} (${pn})`, '€/kWh'), col)
+             || cellNum(getRowU(umap, `Energia ${pid} (${pn})`, '€/kWh'), col)
+             || cellNum(getRowU(umap, `Precio ${pid} (${pn})`, '€/kWh·'), col)
+      if (precio) break
+    }
+  }
+
+  // Split peajes + cargos energy price
+  if (!precio) {
+    let peaje = cellNum(getRow(rowMap, `Precio ${pid} peajes eur kwh`), col)
+              || cellNum(getRow(rowMap, `Energia peajes ${pid} eur kwh`), col)
+              || cellNum(getRow(rowMap, `Energia facturada peajes ${pid} eur kwh`), col)
+              || cellNum(getRow(rowMap, `Termino energia peajes ${pid} eur kwh`), col)
+    let cargo  = cellNum(getRow(rowMap, `Precio ${pid} cargos eur kwh`), col)
+              || cellNum(getRow(rowMap, `Energia cargos ${pid} eur kwh`), col)
+              || cellNum(getRow(rowMap, `Energia facturada cargos ${pid} eur kwh`), col)
+              || cellNum(getRow(rowMap, `Termino energia cargos ${pid} eur kwh`), col)
+    if (!peaje || !cargo) {
+      for (const pn of pnames) {
+        peaje = peaje
+              || cellNum(getRowU(umap, `Energia peajes ${pid} (${pn})`, '€/kWh'), col)
+              || cellNum(getRowU(umap, `Precio ${pid} (${pn}) Peajes`, '€/kWh'), col)
+        cargo  = cargo
+              || cellNum(getRowU(umap, `Energia cargos ${pid} (${pn})`, '€/kWh'), col)
+              || cellNum(getRowU(umap, `Precio ${pid} (${pn}) Cargos`, '€/kWh'), col)
+        if (peaje || cargo) break
+      }
+    }
+    if (peaje > 0 || cargo > 0) precio = peaje + cargo
+  }
+
+  // ── Total € for this period ────────────────────────────────────────────────
+  let totalExplicit = cellNum(getRow(rowMap, `Consumo ${pid} eur`), col)
+                    || cellNum(getRow(rowMap, `Consumo ${pid} (€)`), col)
+                    || cellNum(getRow(rowMap, `Coste consumo ${pid} eur`), col)
+  if (!totalExplicit) {
+    for (const pn of pnames) {
+      totalExplicit = cellNum(getRowU(umap, `Consumo ${pid} (${pn})`, '€'), col)
+                    || cellNum(getRowU(umap, `Energia ${pid} (${pn})`, '€'), col)
+                    || cellNum(getRowU(umap, `Coste consumo ${pid} (${pn})`, '€'), col)
+      if (totalExplicit) break
+    }
+  }
+
+  // Back-calculate price from total when no price label found
+  if (!precio && kwh > 0 && totalExplicit > 0) {
+    precio = Math.round((totalExplicit / kwh) * 100000) / 100000
+  }
+
+  const total = totalExplicit || (kwh > 0 && precio > 0 ? Math.round(kwh * precio * 100) / 100 : 0)
+  if (kwh === 0) return null
+  return { periodo: pid, kwh, precioKwh: precio, total }
+}
+
 // ── Main handler ──────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
@@ -342,6 +618,9 @@ export async function POST(req: NextRequest) {
           const comercializadora = cellStr(comRow, 2)
           const tariff       = normTariff(rawTariff)
 
+          // Build unit-qualified map once (handles duplicate row labels with different units)
+          const umap = buildRowMapByUnit(ws)
+
           // ── Month columns ─────────────────────────────────────────────────────────
           const monthCols = detectMonthCols(ws, rowMap)
           if (monthCols.length === 0) continue
@@ -359,93 +638,18 @@ export async function POST(req: NextRequest) {
 
             const dias = daysBetween(periodStart, periodEnd!)
 
-            // Potencias P1-P6
-            // Many Spanish invoices split the power price into two regulated components:
-            //   - Peajes ATR (tarifa de acceso)
-            //   - Cargos regulados
-            // The total €/kW·día = peaje + cargo.  We try both combined and split labels.
-            const potencia = []
+            // ── Potencias P1–P6 ───────────────────────────────────────────────────
+            const potencia: any[] = []
             for (let p = 1; p <= 6; p++) {
-              const pid  = `P${p}`
-              const kw   = cellNum(getRow(rowMap, `Potencia ${pid} kw`), col)
-                        || cellNum(getRow(rowMap, `Potencia ${pid} (kW)`), col)
-
-              // ── Try combined price label first ────────────────────────────────────
-              let precioKwDia = cellNum(getRow(rowMap, `Potencia ${pid} eur kw dia`), col)
-                             || cellNum(getRow(rowMap, `Potencia ${pid} (€/kW día)`), col)
-                             || cellNum(getRow(rowMap, `Precio potencia ${pid} eur kw dia`), col)
-                             || cellNum(getRow(rowMap, `Precio ${pid} eur kw dia`), col)
-
-              // ── Try split peaje + cargo price labels ──────────────────────────────
-              if (precioKwDia === 0) {
-                const peaje = cellNum(getRow(rowMap, `Potencia ${pid} peajes eur kw dia`), col)
-                           || cellNum(getRow(rowMap, `Potencia ${pid} peajes (€/kW día)`), col)
-                           || cellNum(getRow(rowMap, `Peaje potencia ${pid} eur kw dia`), col)
-                           || cellNum(getRow(rowMap, `Potencia peajes ${pid} eur kw dia`), col)
-                           || cellNum(getRow(rowMap, `Termino potencia peajes ${pid} eur kw dia`), col)
-                const cargo = cellNum(getRow(rowMap, `Potencia ${pid} cargos eur kw dia`), col)
-                           || cellNum(getRow(rowMap, `Potencia ${pid} cargos (€/kW día)`), col)
-                           || cellNum(getRow(rowMap, `Cargo potencia ${pid} eur kw dia`), col)
-                           || cellNum(getRow(rowMap, `Potencia cargos ${pid} eur kw dia`), col)
-                           || cellNum(getRow(rowMap, `Termino potencia cargos ${pid} eur kw dia`), col)
-                if (peaje > 0 || cargo > 0) precioKwDia = peaje + cargo
-              }
-
-              // ── Try combined total label, then split peaje+cargo totals ───────────
-              let total = cellNum(getRow(rowMap, `Potencia ${pid} eur`), col)
-                       || cellNum(getRow(rowMap, `Potencia ${pid} (€)`), col)
-              if (total === 0) {
-                const totalPeaje = cellNum(getRow(rowMap, `Potencia ${pid} peajes eur`), col)
-                                || cellNum(getRow(rowMap, `Potencia ${pid} peajes (€)`), col)
-                const totalCargo = cellNum(getRow(rowMap, `Potencia ${pid} cargos eur`), col)
-                                || cellNum(getRow(rowMap, `Potencia ${pid} cargos (€)`), col)
-                if (totalPeaje > 0 || totalCargo > 0) total = totalPeaje + totalCargo
-              }
-
-              // ── Back-calculate price from total when no price label found ─────────
-              if (precioKwDia === 0 && kw > 0 && total > 0 && dias > 0) {
-                precioKwDia = Math.round((total / (kw * dias)) * 100000) / 100000
-              }
-              if (kw > 0 || total > 0) potencia.push({ periodo: pid, kw, precioKwDia, dias, total })
+              const entry = extractPotenciaPeriod(`P${p}`, col, dias, rowMap, umap)
+              if (entry) potencia.push(entry)
             }
 
-            // Consumos P1-P6
-            // Similarly, energy prices can appear split as peajes + cargos per period.
-            const consumo = []
+            // ── Consumos P1–P6 ────────────────────────────────────────────────────
+            const consumo: any[] = []
             for (let p = 1; p <= 6; p++) {
-              const pid    = `P${p}`
-              const kwh    = cellNum(getRow(rowMap, `Consumo ${pid} kwh`), col)
-                          || cellNum(getRow(rowMap, `Consumo ${pid} (kWh)`), col)
-
-              // ── Try combined price label first ────────────────────────────────────
-              let precio = cellNum(getRow(rowMap, `Precio ${pid} eur kwh`), col)
-                        || cellNum(getRow(rowMap, `Precio ${pid} (€/kWh)`), col)
-                        || cellNum(getRow(rowMap, `Precio energia ${pid} eur kwh`), col)
-                        || cellNum(getRow(rowMap, `Energia ${pid} eur kwh`), col)
-
-              // ── Try split peaje + cargo energy price labels ───────────────────────
-              if (precio === 0) {
-                const peaje = cellNum(getRow(rowMap, `Precio ${pid} peajes eur kwh`), col)
-                           || cellNum(getRow(rowMap, `Energia peajes ${pid} eur kwh`), col)
-                           || cellNum(getRow(rowMap, `Energia facturada peajes ${pid} eur kwh`), col)
-                           || cellNum(getRow(rowMap, `Termino energia peajes ${pid} eur kwh`), col)
-                const cargo = cellNum(getRow(rowMap, `Precio ${pid} cargos eur kwh`), col)
-                           || cellNum(getRow(rowMap, `Energia cargos ${pid} eur kwh`), col)
-                           || cellNum(getRow(rowMap, `Energia facturada cargos ${pid} eur kwh`), col)
-                           || cellNum(getRow(rowMap, `Termino energia cargos ${pid} eur kwh`), col)
-                if (peaje > 0 || cargo > 0) precio = peaje + cargo
-              }
-
-              // ── Try explicit consumo total row for this period ────────────────────
-              const totalExplicit = cellNum(getRow(rowMap, `Consumo ${pid} eur`), col)
-                                 || cellNum(getRow(rowMap, `Consumo ${pid} (€)`), col)
-                                 || cellNum(getRow(rowMap, `Coste consumo ${pid} eur`), col)
-              // ── Back-calculate price from total when no price label found ─────────
-              if (precio === 0 && kwh > 0 && totalExplicit > 0) {
-                precio = Math.round((totalExplicit / kwh) * 100000) / 100000
-              }
-              const total = totalExplicit || (kwh > 0 && precio > 0 ? Math.round(kwh * precio * 100) / 100 : 0)
-              if (kwh > 0) consumo.push({ periodo: pid, kwh, precioKwh: precio, total })
+              const entry = extractConsumoPeriod(`P${p}`, col, rowMap, umap)
+              if (entry) consumo.push(entry)
             }
 
             // Totals
