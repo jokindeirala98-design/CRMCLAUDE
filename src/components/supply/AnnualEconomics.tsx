@@ -3090,11 +3090,18 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
       }
     }
 
-    // Weighted average per period (fall back to overall average if no data for that period)
+    // Weighted average per period.
+    // Primary: c.precioKwh weighted sum (works when invoices have explicit unit price).
+    // Fallback A: averagePriceStats per period — computed from item.total/kwh, so it works
+    //   even when precioKwh is 0 (e.g. Excel imports where only totals are stored).
+    // Fallback B: global average precio promedio.
     const fallbackPrice = summaryStats.precioPromedio
-    const priceP1 = periodKwh.P1 > 0 ? periodWsum.P1 / periodKwh.P1 : fallbackPrice
-    const priceP2 = periodKwh.P2 > 0 ? periodWsum.P2 / periodKwh.P2 : fallbackPrice
-    const priceP3 = periodKwh.P3 > 0 ? periodWsum.P3 / periodKwh.P3 : fallbackPrice
+    const avgStatP1 = averagePriceStats.find(s => s.period === 'P1')?.avgPrice || 0
+    const avgStatP2 = averagePriceStats.find(s => s.period === 'P2')?.avgPrice || 0
+    const avgStatP3 = averagePriceStats.find(s => s.period === 'P3')?.avgPrice || 0
+    const priceP1 = periodKwh.P1 > 0 ? periodWsum.P1 / periodKwh.P1 : (avgStatP1 || fallbackPrice)
+    const priceP2 = periodKwh.P2 > 0 ? periodWsum.P2 / periodKwh.P2 : (avgStatP2 || fallbackPrice)
+    const priceP3 = periodKwh.P3 > 0 ? periodWsum.P3 / periodKwh.P3 : (avgStatP3 || fallbackPrice)
 
     // ── Caso 4 detection: indexed tariff ──────────────────────────────────
     // If prices for the SAME period vary significantly across invoices (>10% spread),
@@ -3154,7 +3161,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
       currentPowerP1, currentPowerP2,
       isIndexed, energyPricingFormat: isIndexed ? 'indexado' : (majorityFormat || 'precio_unico'),
     }
-  }, [is2TD, consumoPeriodos, effectivePotencia, summaryStats.precioPromedio, validInvoices])
+  }, [is2TD, consumoPeriodos, effectivePotencia, summaryStats.precioPromedio, validInvoices, averagePriceStats])
 
   // ESC key to exit fullscreen report
   useEffect(() => {
