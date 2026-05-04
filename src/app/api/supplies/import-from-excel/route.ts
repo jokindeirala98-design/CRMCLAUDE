@@ -186,6 +186,25 @@ function daysBetween(a: string, b: string): number {
   return Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000) + 1
 }
 
+/** True when `iso` is the last calendar day of its month.
+ *  Used to detect "meter-reading" date format (Iberdrola/Estella):
+ *  Fecha Inicio = last reading date (exclusive start), so billing days = end − start (no +1). */
+function isMonthEnd(iso: string): boolean {
+  if (!iso) return false
+  const d = new Date(iso + 'T00:00:00')
+  const next = new Date(d.getTime() + 86400000)
+  return next.getDate() === 1
+}
+
+function billingDays(start: string, end: string): number {
+  // Meter-reading format: Fecha Inicio is the last day of the previous month (exclusive).
+  // Billing days = end − start (no +1). Example: 31/08 → 30/09 = 30 days (September).
+  // Standard format: Fecha Inicio is the first day of the billing period (inclusive).
+  // Billing days = end − start + 1. Example: 01/09 → 30/09 = 30 days.
+  const raw = Math.round((new Date(end + 'T00:00:00').getTime() - new Date(start + 'T00:00:00').getTime()) / 86400000)
+  return isMonthEnd(start) ? raw : raw + 1
+}
+
 function detectMonthCols(ws: ExcelJS.Worksheet, rowMap: Map<string, ExcelJS.Row>): number[] {
   const fechaRow = getRow(rowMap, 'Fecha Inicio')
   if (fechaRow) {
@@ -323,7 +342,7 @@ function parseLabelBased(ws: ExcelJS.Worksheet, fileName: string): ParsedSupplyF
     if (periodStart && !periodEnd) periodEnd = lastDayOfMonth(periodStart)
     if (!periodStart) continue
 
-    const dias = daysBetween(periodStart, periodEnd!)
+    const dias = billingDays(periodStart, periodEnd!)
 
     // Precio horario uniforme (algunas facturas: Endesa "Energía Precio horario")
     const precioHorario = cellNum(getRow(rowMap, 'Precio Horario'), col)
