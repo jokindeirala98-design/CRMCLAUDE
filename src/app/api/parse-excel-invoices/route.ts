@@ -487,15 +487,23 @@ function extractPotenciaPeriod(
 }
 
 // ── Electricity: extract consumo for one period ───────────────────────────────
+// precioHorario: the uniform commercial/market price (€/kWh) that applies equally
+// to all kWh regardless of period.  In some invoices (e.g. Endesa, Naturgy) this
+// appears as "Energía Precio horario" and is ADDED to the per-period peaje + cargo
+// to produce the full price.  When the price is extracted from a single direct
+// label it is already complete; precioHorario is only added to split prices.
 function extractConsumoPeriod(
   pid: string,
   col: number,
   rowMap: Map<string, ExcelJS.Row>,
   umap: Map<string, ExcelJS.Row>,
+  precioHorario: number,   // 0 when not present in this sheet
 ): { periodo: string; kwh: number; precioKwh: number; total: number } | null {
   const pnames = PNAME_ES[pid] ?? []
 
   // ── kWh consumed ───────────────────────────────────────────────────────────
+  // Try dedicated Consumo rows first, then fall back to kWh from peaje rows
+  // (some invoice-derived Excels store consumption only alongside access tariffs)
   let kwh = cellNum(getRow(rowMap, `Consumo ${pid} kwh`), col)
            || cellNum(getRow(rowMap, `Consumo ${pid} (kWh)`), col)
   if (!kwh) {
@@ -503,48 +511,73 @@ function extractConsumoPeriod(
       kwh = cellNum(getRowU(umap, `Consumo ${pid} (${pn})`, 'kWh'), col)
            || cellNum(getRowU(umap, `Consumo ${pid} ${pn}`, 'kWh'), col)
            || cellNum(getRowU(umap, `Energia ${pid} (${pn})`, 'kWh'), col)
+           // From peaje rows (invoice format: "Energía facturada peajes P1 (Punta)")
+           || cellNum(getRowU(umap, `Energia facturada peajes ${pid} (${pn})`, 'kWh'), col)
+           || cellNum(getRowU(umap, `Energia facturada peajes ${pid} ${pn}`, 'kWh'), col)
       if (kwh) break
     }
   }
+  // Last resort: kWh from peaje rows without Spanish names
+  if (!kwh) {
+    kwh = cellNum(getRow(rowMap, `Energia facturada peajes ${pid} kwh`), col)
+         || cellNum(getRowU(umap, `Energia facturada peajes ${pid}`, 'kWh'), col)
+  }
 
   // ── Price €/kWh ────────────────────────────────────────────────────────────
-  let precio = cellNum(getRow(rowMap, `Precio ${pid} eur kwh`), col)
-             || cellNum(getRow(rowMap, `Precio ${pid} (€/kWh)`), col)
-             || cellNum(getRow(rowMap, `Precio energia ${pid} eur kwh`), col)
-             || cellNum(getRow(rowMap, `Energia ${pid} eur kwh`), col)
-  if (!precio) {
+  // Strategy A: direct complete price (already includes all components).
+  //             → Do NOT add precioHorario on top.
+  let precioDirecto = cellNum(getRow(rowMap, `Precio ${pid} eur kwh`), col)
+                    || cellNum(getRow(rowMap, `Precio ${pid} (€/kWh)`), col)
+                    || cellNum(getRow(rowMap, `Precio energia ${pid} eur kwh`), col)
+                    || cellNum(getRow(rowMap, `Energia ${pid} eur kwh`), col)
+  if (!precioDirecto) {
     for (const pn of pnames) {
-      precio = cellNum(getRowU(umap, `Precio ${pid} (${pn})`, '€/kWh'), col)
-             || cellNum(getRowU(umap, `Precio ${pid} ${pn}`, '€/kWh'), col)
-             || cellNum(getRowU(umap, `Precio energia ${pid} (${pn})`, '€/kWh'), col)
-             || cellNum(getRowU(umap, `Energia ${pid} (${pn})`, '€/kWh'), col)
-             || cellNum(getRowU(umap, `Precio ${pid} (${pn})`, '€/kWh·'), col)
-      if (precio) break
+      precioDirecto = cellNum(getRowU(umap, `Precio ${pid} (${pn})`, '€/kWh'), col)
+                    || cellNum(getRowU(umap, `Precio ${pid} ${pn}`, '€/kWh'), col)
+                    || cellNum(getRowU(umap, `Precio energia ${pid} (${pn})`, '€/kWh'), col)
+                    || cellNum(getRowU(umap, `Energia ${pid} (${pn})`, '€/kWh'), col)
+      if (precioDirecto) break
     }
   }
 
-  // Split peajes + cargos energy price
-  if (!precio) {
-    let peaje = cellNum(getRow(rowMap, `Precio ${pid} peajes eur kwh`), col)
-              || cellNum(getRow(rowMap, `Energia peajes ${pid} eur kwh`), col)
-              || cellNum(getRow(rowMap, `Energia facturada peajes ${pid} eur kwh`), col)
-              || cellNum(getRow(rowMap, `Termino energia peajes ${pid} eur kwh`), col)
-    let cargo  = cellNum(getRow(rowMap, `Precio ${pid} cargos eur kwh`), col)
-              || cellNum(getRow(rowMap, `Energia cargos ${pid} eur kwh`), col)
-              || cellNum(getRow(rowMap, `Energia facturada cargos ${pid} eur kwh`), col)
-              || cellNum(getRow(rowMap, `Termino energia cargos ${pid} eur kwh`), col)
-    if (!peaje || !cargo) {
-      for (const pn of pnames) {
-        peaje = peaje
-              || cellNum(getRowU(umap, `Energia peajes ${pid} (${pn})`, '€/kWh'), col)
-              || cellNum(getRowU(umap, `Precio ${pid} (${pn}) Peajes`, '€/kWh'), col)
-        cargo  = cargo
-              || cellNum(getRowU(umap, `Energia cargos ${pid} (${pn})`, '€/kWh'), col)
-              || cellNum(getRowU(umap, `Precio ${pid} (${pn}) Cargos`, '€/kWh'), col)
-        if (peaje || cargo) break
-      }
+  // Strategy B: split peaje + cargo price.
+  //             → ADD precioHorario when present (horario + peaje + cargo = full price).
+  let peaje = 0, cargo = 0
+  if (!precioDirecto) {
+    peaje = cellNum(getRow(rowMap, `Precio ${pid} peajes eur kwh`), col)
+           || cellNum(getRow(rowMap, `Energia peajes ${pid} eur kwh`), col)
+           || cellNum(getRow(rowMap, `Energia facturada peajes ${pid} eur kwh`), col)
+           || cellNum(getRow(rowMap, `Energia facturada peajes ${pid}`), col)
+           || cellNum(getRow(rowMap, `Termino energia peajes ${pid} eur kwh`), col)
+    cargo  = cellNum(getRow(rowMap, `Precio ${pid} cargos eur kwh`), col)
+           || cellNum(getRow(rowMap, `Energia cargos ${pid} eur kwh`), col)
+           || cellNum(getRow(rowMap, `Energia facturada cargos ${pid} eur kwh`), col)
+           || cellNum(getRow(rowMap, `Energia facturada cargos ${pid}`), col)
+           || cellNum(getRow(rowMap, `Termino energia cargos ${pid} eur kwh`), col)
+    for (const pn of pnames) {
+      peaje = peaje
+             || cellNum(getRowU(umap, `Energia facturada peajes ${pid} (${pn})`, '€/kWh'), col)
+             || cellNum(getRowU(umap, `Energia peajes ${pid} (${pn})`, '€/kWh'), col)
+             || cellNum(getRowU(umap, `Precio ${pid} (${pn}) Peajes`, '€/kWh'), col)
+      cargo  = cargo
+             || cellNum(getRowU(umap, `Energia facturada cargos ${pid} (${pn})`, '€/kWh'), col)
+             || cellNum(getRowU(umap, `Energia facturada (cargos) ${pid} (${pn})`, '€/kWh'), col)
+             || cellNum(getRowU(umap, `Energia cargos ${pid} (${pn})`, '€/kWh'), col)
+             || cellNum(getRowU(umap, `Precio ${pid} (${pn}) Cargos`, '€/kWh'), col)
+      if (peaje || cargo) break
     }
-    if (peaje > 0 || cargo > 0) precio = peaje + cargo
+  }
+
+  // Compute final price
+  let precio: number
+  if (precioDirecto > 0) {
+    // Complete price — horario already included (or not applicable)
+    precio = precioDirecto
+  } else if (peaje > 0 || cargo > 0) {
+    // Partial price — add the uniform horario component
+    precio = (precioHorario || 0) + peaje + cargo
+  } else {
+    precio = 0
   }
 
   // ── Total € for this period ────────────────────────────────────────────────
@@ -560,7 +593,7 @@ function extractConsumoPeriod(
     }
   }
 
-  // Back-calculate price from total when no price label found
+  // Back-calculate price from total when all price lookups failed
   if (!precio && kwh > 0 && totalExplicit > 0) {
     precio = Math.round((totalExplicit / kwh) * 100000) / 100000
   }
@@ -638,6 +671,20 @@ export async function POST(req: NextRequest) {
 
             const dias = daysBetween(periodStart, periodEnd!)
 
+            // ── Precio horario (uniform commercial price, same for all kWh) ────────
+            // Some invoices (Endesa "Precio horario", Naturgy, etc.) show a single
+            // energy price that applies to all periods, then add per-period access
+            // tariff (peaje ATR) and regulatory charges (cargos) on top.
+            // Full price per period = horario + peaje_P + cargo_P.
+            const precioHorario = cellNum(getRow(rowMap, 'Precio Horario'), col)
+                                || cellNum(getRow(rowMap, 'Energia Precio Horario'), col)
+                                || cellNum(getRow(rowMap, 'Precio Energia Horario'), col)
+                                || cellNum(getRow(rowMap, 'Precio horario energia'), col)
+                                || cellNum(getRowU(umap, 'Energia Precio horario', '€/kWh'), col)
+                                || cellNum(getRowU(umap, 'Precio horario', '€/kWh'), col)
+                                || cellNum(getRow(rowMap, 'Precio energia mercado'), col)
+                                || cellNum(getRow(rowMap, 'Precio mercado'), col)
+
             // ── Potencias P1–P6 ───────────────────────────────────────────────────
             const potencia: any[] = []
             for (let p = 1; p <= 6; p++) {
@@ -648,7 +695,7 @@ export async function POST(req: NextRequest) {
             // ── Consumos P1–P6 ────────────────────────────────────────────────────
             const consumo: any[] = []
             for (let p = 1; p <= 6; p++) {
-              const entry = extractConsumoPeriod(`P${p}`, col, rowMap, umap)
+              const entry = extractConsumoPeriod(`P${p}`, col, rowMap, umap, precioHorario)
               if (entry) consumo.push(entry)
             }
 
