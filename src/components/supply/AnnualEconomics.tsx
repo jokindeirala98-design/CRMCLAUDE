@@ -1691,59 +1691,73 @@ function extractCurrentPowerPrices(invoices: InvoiceRow[]): { P1: number; P2: nu
     return m ? `P${m[1]}` : null
   }
 
+  // Returns all economics sub-objects from ALL known storage paths for an invoice.
+  // Checked in order: extracted_data.economics, economics_data, invoice_json.economics,
+  // extracted_data (top-level fallback for older records).
+  const getEcoSources = (inv: InvoiceRow): any[] => {
+    const ed  = inv.extracted_data as any
+    const emd = inv.economics_data  as any
+    const ij  = (inv as any).invoice_json
+    return [
+      ed?.economics,
+      emd?.economics ?? (Array.isArray(emd?.potencia) ? emd : null),
+      ij?.economics,
+      ed,   // top-level extracted_data (older records store potencia[] here directly)
+    ].filter(Boolean)
+  }
+
   for (const inv of sorted) {
-    const ed = inv.extracted_data as any
     const prices: Record<string, number> = {}
 
-    // ── Path A: potencia[] array (rebuilt by postProcessEconomics) ───────────
-    // Each item has: periodo, kw, dias, precioKwDia (may be null), total
-    const potArr: any[] = ed?.economics?.potencia || ed?.potencia || []
-    for (const item of potArr) {
-      const p = normPeriod(item.periodo)
-      if (!p || !['P1', 'P2', 'P3'].includes(p)) continue
-      let price = Number(item.precioKwDia) || Number(item.precioKw) || Number(item.precioUnitario) || 0
-      if (!price) {
-        // precioKwDia is null when Gemini didn't extract kw/dias from raw lines —
-        // compute it ourselves from total / (kw * dias)
-        const kw   = Number(item.kw)    || 0
-        const dias = Number(item.dias)  || 0
-        const tot  = Number(item.total) || 0
-        if (kw > 0 && dias > 0 && tot > 0) price = tot / (kw * dias)
-      }
-      if (price > 0 && price < 5) prices[p] = price
-    }
-
-    // ── Path B: rawLineItems fallback ────────────────────────────────────────
-    // When potencia[] items lack kw/dias (precioKwDia stays null), sum the
-    // precioUnitario (€/kW·día) of peaje + cargo + comercializacion per period.
-    // This is exactly what postProcessEconomics would compute given complete data.
-    if (!prices.P1 && !prices.P2 && !prices.P3) {
-      const rawItems: any[] = ed?.economics?.rawLineItems || ed?.rawLineItems || []
-      const potCats = ['potencia_peaje', 'potencia_cargo', 'potencia_comercializacion']
-      for (const item of rawItems) {
-        const cat = String(item.category || '').toLowerCase()
-        if (!potCats.includes(cat)) continue
+    for (const eco of getEcoSources(inv)) {
+      // ── Path A: potencia[] array ─────────────────────────────────────────────
+      const potArr: any[] = Array.isArray(eco?.potencia) ? eco.potencia : []
+      for (const item of potArr) {
         const p = normPeriod(item.periodo)
         if (!p || !['P1', 'P2', 'P3'].includes(p)) continue
-        let price = Number(item.precioUnitario) || 0
+        let price = Number(item.precioKwDia) || Number(item.precioKw) || Number(item.precioUnitario) || 0
         if (!price) {
-          const kw   = Number(item.kw)    || 0
-          const dias = Number(item.dias)  || 0
+          const kw   = Number(item.kw)   || 0
+          const dias = Number(item.dias) || 0
           const tot  = Number(item.total) || 0
           if (kw > 0 && dias > 0 && tot > 0) price = tot / (kw * dias)
         }
-        // Sum peaje + cargo + comer to get combined €/kW·día for this period
-        if (price > 0 && price < 5) prices[p] = (prices[p] || 0) + price
+        if (price > 0 && price < 5) prices[p] = price
       }
+
+      // ── Path B: rawLineItems fallback ────────────────────────────────────────
+      if (!prices.P1 && !prices.P2 && !prices.P3) {
+        const rawItems: any[] = Array.isArray(eco?.rawLineItems) ? eco.rawLineItems : []
+        const potCats = ['potencia_peaje', 'potencia_cargo', 'potencia_comercializacion']
+        for (const item of rawItems) {
+          const cat = String(item.category || '').toLowerCase()
+          if (!potCats.includes(cat)) continue
+          const p = normPeriod(item.periodo)
+          if (!p || !['P1', 'P2', 'P3'].includes(p)) continue
+          let price = Number(item.precioUnitario) || 0
+          if (!price) {
+            const kw   = Number(item.kw)   || 0
+            const dias = Number(item.dias) || 0
+            const tot  = Number(item.total) || 0
+            if (kw > 0 && dias > 0 && tot > 0) price = tot / (kw * dias)
+          }
+          if (price > 0 && price < 5) prices[p] = (prices[p] || 0) + price
+        }
+      }
+
+      // Found data in this source — no need to try further sources
+      if (prices.P1 || prices.P2 || prices.P3) break
     }
 
     if (prices.P1 || prices.P2 || prices.P3) {
       const p1 = prices.P1 || 0
-      // 2.0TD labels the off-peak period as P3 (not P2). Fall back: P3 → P2 → P1.
+      // 2.0TD: off-peak is P3 in SIPS but P2 in Voltis model. Fall back: P3 → P2 → P1.
       const p2 = prices.P2 > 0 ? prices.P2 : (prices.P3 > 0 ? prices.P3 : p1)
       return { P1: p1, P2: p2 }
     }
   }
+
+  // No fallback: prices must come from actual invoice/Excel data.
   return { P1: 0, P2: 0 }
 }
 
@@ -3013,8 +3027,20 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
     }).slice(-12)
 
     for (const inv of last12ForStudy) {
-      const eco = (inv.economics_data || inv.invoice_json?.economics || inv.extracted_data?.economics) as any
+      // Check all known data paths — use the first one that has consumo[] with data.
+      // Order: extracted_data.economics → economics_data → invoice_json.economics → extracted_data (top-level)
+      const ed  = inv.extracted_data as any
+      const emd = inv.economics_data  as any
+      const ij  = (inv as any).invoice_json
+      const ecoSources: any[] = [
+        ed?.economics,
+        Array.isArray(emd?.consumo) ? emd : emd?.economics,
+        ij?.economics,
+        ed,
+      ].filter(v => v && Array.isArray(v?.consumo) && v.consumo.length > 0)
+      const eco = ecoSources[0]
       if (!eco?.consumo?.length) continue
+
       for (const c of eco.consumo) {
         const p = c.periodo as 'P1' | 'P2' | 'P3'
         if (!['P1', 'P2', 'P3'].includes(p)) continue
@@ -3046,7 +3072,11 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
 
     // Detect energyPricingFormat from the majority of invoices
     const formats = validInvoices.map(inv => {
-      const eco = (inv.economics_data || inv.invoice_json?.economics || inv.extracted_data?.economics) as any
+      const ed  = inv.extracted_data as any
+      const emd = inv.economics_data  as any
+      const ij  = (inv as any).invoice_json
+      const eco = [ed?.economics, emd?.economics, ij?.economics, emd, ed]
+        .find(v => v?.energyPricingFormat) as any
       return eco?.energyPricingFormat as string | undefined
     }).filter(Boolean)
     const majorityFormat = formats.length > 0

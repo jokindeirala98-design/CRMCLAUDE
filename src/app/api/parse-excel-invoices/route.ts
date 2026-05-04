@@ -365,10 +365,16 @@ export async function POST(req: NextRequest) {
               const pid  = `P${p}`
               const kw         = cellNum(getRow(rowMap, `Potencia ${pid} kw`), col)
                               || cellNum(getRow(rowMap, `Potencia ${pid} (kW)`), col)
-              const precioKwDia= cellNum(getRow(rowMap, `Potencia ${pid} eur kw dia`), col)
+              let precioKwDia  = cellNum(getRow(rowMap, `Potencia ${pid} eur kw dia`), col)
                               || cellNum(getRow(rowMap, `Potencia ${pid} (€/kW día)`), col)
+                              || cellNum(getRow(rowMap, `Precio potencia ${pid} eur kw dia`), col)
+                              || cellNum(getRow(rowMap, `Precio ${pid} eur kw dia`), col)
               const total      = cellNum(getRow(rowMap, `Potencia ${pid} eur`), col)
                               || cellNum(getRow(rowMap, `Potencia ${pid} (€)`), col)
+              // Back-calculate price from total when label not matched
+              if (precioKwDia === 0 && kw > 0 && total > 0 && dias > 0) {
+                precioKwDia = Math.round((total / (kw * dias)) * 100000) / 100000
+              }
               if (kw > 0 || total > 0) potencia.push({ periodo: pid, kw, precioKwDia, dias, total })
             }
 
@@ -378,9 +384,19 @@ export async function POST(req: NextRequest) {
               const pid    = `P${p}`
               const kwh    = cellNum(getRow(rowMap, `Consumo ${pid} kwh`), col)
                           || cellNum(getRow(rowMap, `Consumo ${pid} (kWh)`), col)
-              const precio = cellNum(getRow(rowMap, `Precio ${pid} eur kwh`), col)
+              let precio   = cellNum(getRow(rowMap, `Precio ${pid} eur kwh`), col)
                           || cellNum(getRow(rowMap, `Precio ${pid} (€/kWh)`), col)
-              const total  = kwh > 0 && precio > 0 ? Math.round(kwh * precio * 100) / 100 : 0
+                          || cellNum(getRow(rowMap, `Precio energia ${pid} eur kwh`), col)
+                          || cellNum(getRow(rowMap, `Energia ${pid} eur kwh`), col)
+              // Try explicit consumo total row for this period
+              const totalExplicit = cellNum(getRow(rowMap, `Consumo ${pid} eur`), col)
+                                 || cellNum(getRow(rowMap, `Consumo ${pid} (€)`), col)
+                                 || cellNum(getRow(rowMap, `Coste consumo ${pid} eur`), col)
+              // Back-calculate price from total when label not matched
+              if (precio === 0 && kwh > 0 && totalExplicit > 0) {
+                precio = Math.round((totalExplicit / kwh) * 100000) / 100000
+              }
+              const total  = totalExplicit || (kwh > 0 && precio > 0 ? Math.round(kwh * precio * 100) / 100 : 0)
               if (kwh > 0) consumo.push({ periodo: pid, kwh, precioKwh: precio, total })
             }
 
