@@ -852,13 +852,14 @@ function ReExtractBanner({ invoices, onDone }: { invoices: InvoiceRow[]; onDone:
 
 // ─── FileTable View ──────────────────────────────────────────────────────────
 
-function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, authoritativeType }: {
+function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, authoritativeType, potenciaContratada }: {
   invoices: InvoiceRow[]
   onRescan?: (inv: InvoiceRow) => void
   onDelete?: (inv: InvoiceRow) => void
   busyRescan?: string | null
   busyDelete?: string | null
   authoritativeType?: string
+  potenciaContratada?: Record<string, number>
 }) {
   type RowDef = {
     key: string
@@ -1057,14 +1058,31 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
       key: `potencia_${p}`,
       label: `POTENCIA ${p}`,
       indent: true,
-      render: (eco: BillEconomics | null) => {
+      render: (eco: BillEconomics | null, inv: InvoiceRow) => {
         const item = eco?.potencia?.find(c => c.periodo === p)
         if (!item || !item.total) return <span className="text-[#8A9A8E] text-sm">—</span>
+        // kW: prefer stored value, fall back to supply's SIPS contracted power
+        const kw = Number(item.kw) > 0
+          ? Number(item.kw)
+          : (Number(potenciaContratada?.[p]) || 0)
+        // días: prefer stored value, fall back to invoice billing period length
+        const rawDias = Number(item.dias) || 0
+        const billingDays = (() => {
+          const start = inv.period_start ? new Date(inv.period_start) : null
+          const end   = inv.period_end   ? new Date(inv.period_end)   : null
+          if (!start || !end || isNaN(start.getTime()) || isNaN(end.getTime())) return 0
+          const diff = Math.round((end.getTime() - start.getTime()) / 86_400_000)
+          return diff > 0 && diff <= 366 ? diff + 1 : 0
+        })()
+        const dias = rawDias > 0 ? rawDias : billingDays
+        const precioKwDia = Number(item.precioKwDia) > 0
+          ? Number(item.precioKwDia)
+          : (kw > 0 && dias > 0 ? item.total / (kw * dias) : 0)
         return (
           <div>
             <div className="text-[#5A6B5F] text-sm">{fmt(item.total)} €</div>
-            {item.kw > 0 && item.precioKwDia > 0 && (
-              <div className="text-[#8A9A8E] text-xs">{fmt(item.kw, 1)} kW · {fmt(item.precioKwDia, 4)} €/kW·día</div>
+            {kw > 0 && precioKwDia > 0 && (
+              <div className="text-[#8A9A8E] text-xs">{fmt(kw, 1)} kW · {fmt(precioKwDia, 4)} €/kW·día</div>
             )}
           </div>
         )
@@ -4442,6 +4460,7 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
           busyRescan={busyRescan}
           busyDelete={busyDelete}
           authoritativeType={propSupplyType}
+          potenciaContratada={potenciaContratada}
         />
       ) : (
         <div className="flex flex-col items-center justify-center py-16 text-[#8A9A8E] gap-3">

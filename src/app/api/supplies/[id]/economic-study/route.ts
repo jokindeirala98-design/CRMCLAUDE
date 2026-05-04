@@ -514,44 +514,41 @@ function extractPowerPricesFromMostRecentInvoice(
     return null
   }
 
-  // 3. Collect prices from ALL matching invoices, then return the MODE per period
-  // (most prevalent price wins; if tie, most recent wins)
-  const allPricesByPeriod: number[][] = Array.from({ length: periodCount }, () => [])
+  // 3. Use the MOST RECENT invoice's prices for each period.
+  // Iterate invoices from most-recent (preferred year first) → fill each period
+  // from the freshest invoice that has data for it → stop when all periods filled.
+  // This guarantees the comparativa always reflects the latest tariff prices.
+  const bestPrices = Array(periodCount).fill(0)
   let firstSourceYear: number | null = null
   let firstSourceDate = ''
 
   for (const inv of preferredFirst) {
+    // Skip if we already have prices for all periods
+    if (bestPrices.every(p => p > 0)) break
+
     const result = tryInvoice(inv)
     if (!result) continue
-    if (!firstSourceYear) {
+
+    let usedAny = false
+    for (let i = 0; i < periodCount; i++) {
+      if (bestPrices[i] > 0) continue          // already filled from a more-recent invoice
+      if (result[i] > 0) { bestPrices[i] = result[i]; usedAny = true }
+    }
+
+    if (usedAny && !firstSourceYear) {
       firstSourceYear = invoiceYear(inv)
       firstSourceDate = invoiceSortKey(inv)
     }
-    for (let i = 0; i < periodCount; i++) {
-      if (result[i] > 0) allPricesByPeriod[i].push(result[i])
-    }
   }
 
-  const hasAny = allPricesByPeriod.some(arr => arr.length > 0)
+  const hasAny = bestPrices.some(p => p > 0)
   if (!hasAny) {
     console.warn('[economic-study] ⚠ no power price data in any invoice — BOE fallback')
     return empty
   }
 
-  // Mode per period: round to 6 decimals for grouping, pick most frequent
-  const modalPrices = allPricesByPeriod.map(arr => {
-    if (!arr.length) return 0
-    const counts: Record<string, number> = {}
-    for (const p of arr) {
-      const key = p.toFixed(6)
-      counts[key] = (counts[key] || 0) + 1
-    }
-    const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]
-    return parseFloat(best)
-  })
-
-  console.log(`[economic-study] ✓ modal prices from ${allPricesByPeriod.map(a => a.length)} invoices per period`, modalPrices)
-  return { prices: modalPrices, sourceYear: firstSourceYear, sourceDate: firstSourceDate }
+  console.log(`[economic-study] ✓ most-recent prices (y=${firstSourceYear} ${firstSourceDate})`, bestPrices)
+  return { prices: bestPrices, sourceYear: firstSourceYear, sourceDate: firstSourceDate }
 }
 
 /**
