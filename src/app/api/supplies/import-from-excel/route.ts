@@ -186,27 +186,24 @@ function daysBetween(a: string, b: string): number {
   return Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000) + 1
 }
 
-/** True when `iso` is the last calendar day of its month.
- *  Used to detect "meter-reading" date format (Iberdrola/Estella):
- *  Fecha Inicio = last reading date (exclusive start), so billing days = end − start (no +1). */
-function isMonthEnd(iso: string): boolean {
-  if (!iso) return false
-  const d = new Date(iso + 'T00:00:00')
-  const next = new Date(d.getTime() + 86400000)
-  return next.getDate() === 1
-}
-
 function billingDays(start: string, end: string): number {
-  // Meter-reading format: Fecha Inicio is the last day of the previous month (exclusive).
-  // Billing days = end − start (no +1). Example: 31/08 → 30/09 = 30 days (September).
-  // Standard format: Fecha Inicio is the first day of the billing period (inclusive).
-  // Billing days = end − start + 1. Example: 01/09 → 30/09 = 30 days.
+  // Iberdrola meter-reading format: Fecha Inicio is the PREVIOUS reading date (exclusive).
+  // Billing days = end − start (no +1).
+  //   Example full month:  31/08 → 30/09 = 30 days (Sept) ✓
+  //   Example partial:     17/08 → 09/09 = 23 days        ✓
+  // Standard format (Fecha Inicio = 1st of month, inclusive):
+  //   01/09 → 30/09 = 29 raw + 1 = 30 days ✓
+  // Heuristic: only add +1 when start day = 1 (first-of-month inclusive format).
+  // Any other start day → meter-reading format → no +1.
   const raw = Math.round((new Date(end + 'T00:00:00').getTime() - new Date(start + 'T00:00:00').getTime()) / 86400000)
-  return isMonthEnd(start) ? raw : raw + 1
+  const startDay = new Date(start + 'T00:00:00').getDate()
+  return startDay === 1 ? raw + 1 : raw
 }
 
 function detectMonthCols(ws: ExcelJS.Worksheet, rowMap: Map<string, ExcelJS.Row>): number[] {
   const fechaRow = getRow(rowMap, 'Fecha Inicio')
+    || getRow(rowMap, 'Periodo desde')
+    || getRow(rowMap, 'Nº Factura')
   if (fechaRow) {
     const cols: number[] = []
     fechaRow.eachCell({ includeEmpty: false }, (cell, colNum) => {
@@ -318,6 +315,13 @@ function parseLabelBased(ws: ExcelJS.Worksheet, fileName: string): ParsedSupplyF
     || cellStr(getRow(rowMap, 'Tariff'), 2) || cellStr(getRow(rowMap, 'Tariff'), staticCol)
   const tarifa = normalizeTariff(rawTariff)
 
+  // Detect supply type: explicit "Tipo" row (gas/luz) or gas tariff prefix (RL.x)
+  const tipoRow = getRow(rowMap, 'Tipo')
+  const tipoVal = tipoRow ? cellStr(tipoRow, staticCol).toLowerCase().trim() : ''
+  const supplyType: 'gas' | 'luz' =
+    (tipoVal === 'gas' || rawTariff.trim().toUpperCase().replace(/\s+/g, '').startsWith('RL'))
+      ? 'gas' : 'luz'
+
   const comRow = getRow(rowMap, 'Compañia') ?? getRow(rowMap, 'Compania') ?? getRow(rowMap, 'Empresa')
     ?? getRow(rowMap, 'Comercializadora') ?? getRow(rowMap, 'Suministrador')
   const compania = cellStr(comRow, 2) || cellStr(comRow, staticCol)
@@ -331,7 +335,9 @@ function parseLabelBased(ws: ExcelJS.Worksheet, fileName: string): ParsedSupplyF
 
   for (const col of monthCols) {
     let rawStart: any = getRow(rowMap, 'Fecha Inicio')?.getCell(col).value
+      ?? getRow(rowMap, 'Periodo desde')?.getCell(col).value
     const rawEnd: any = getRow(rowMap, 'Fecha Fin')?.getCell(col).value
+      ?? getRow(rowMap, 'Periodo hasta')?.getCell(col).value
     // Fallback: when no explicit "Fecha Inicio" row, derive the date from the
     // column header (month name in row 1 or row 2 — covers both transposed variants)
     if (!rawStart) {
@@ -446,14 +452,31 @@ function parseLabelBased(ws: ExcelJS.Worksheet, fileName: string): ParsedSupplyF
       if (kwh > 0) consumo.push({ periodo: pid, kwh, precioKwh: precio, total })
     }
 
+    // Gas: single-period energy (no P1-P6 breakdown) — Naturgy format
+    if (consumo.length === 0) {
+      const gasKwh = cellNum(getRow(rowMap, 'Consumo total (kWh)'), col)
+      const gasPrecio = cellNum(getRow(rowMap, 'Precio medio energía (€/kWh)'), col)
+        || cellNum(getRow(rowMap, 'Precio medio energia (€/kWh)'), col)
+      const gasConsumoEur = cellNum(getRow(rowMap, 'Consumo energía (€)'), col)
+        || cellNum(getRow(rowMap, 'Consumo energia (€)'), col)
+      if (gasKwh > 0) {
+        const price = gasPrecio || (gasConsumoEur > 0 ? gasConsumoEur / gasKwh : 0)
+        consumo.push({ periodo: 'P1', kwh: gasKwh, precioKwh: price,
+          total: gasConsumoEur || Math.round(gasKwh * price * 100) / 100 })
+      }
+    }
+
     const consumoTotalKwh    = cellNum(getRow(rowMap, 'TOTAL CONSUMO (kWh)'), col)
       || cellNum(getRow(rowMap, 'total consumo kwh'), col)
       || cellNum(getRow(rowMap, 'TOTAL CONSUMO'), col)
+      || cellNum(getRow(rowMap, 'Consumo total (kWh)'), col)
       || consumo.reduce((a, c) => a + c.kwh, 0)
 
     const costeTotalConsumo  = cellNum(getRow(rowMap, 'TOTAL COSTE CONSUMO (€)'), col)
       || cellNum(getRow(rowMap, 'total coste consumo eur'), col)
       || cellNum(getRow(rowMap, 'TOTAL COSTE CONSUMO'), col)
+      || cellNum(getRow(rowMap, 'Consumo energía (€)'), col)
+      || cellNum(getRow(rowMap, 'Consumo energia (€)'), col)
       || consumo.reduce((a, c) => a + c.total, 0)
 
     const costeTotalPotencia = cellNum(getRow(rowMap, 'TOTAL COSTE POTENCIA (€)'), col)
@@ -461,14 +484,49 @@ function parseLabelBased(ws: ExcelJS.Worksheet, fileName: string): ParsedSupplyF
       || cellNum(getRow(rowMap, 'TOTAL COSTE POTENCIA'), col)
       || potencia.reduce((a, p) => a + p.total, 0)
 
+    // Gas-specific fields (read before totalFactura so IVA is available)
+    const terminoFijoDiario = cellNum(getRow(rowMap, 'Término Fijo'), col)
+      || cellNum(getRow(rowMap, 'Termino Fijo'), col)
+      || cellNum(getRow(rowMap, 'Término Fijo (€/día)'), col)
+      || cellNum(getRow(rowMap, 'Termino Fijo (€/dia)'), col)
+    const terminoFijoTotal  = cellNum(getRow(rowMap, 'Término Fijo Total'), col)
+      || cellNum(getRow(rowMap, 'Termino Fijo Total'), col)
+      || cellNum(getRow(rowMap, 'Término fijo (€)'), col)
+      || cellNum(getRow(rowMap, 'Termino fijo (€)'), col)
+    const impuestoHidrocarb = cellNum(getRow(rowMap, 'Impuesto Hidrocarburos'), col)
+      || cellNum(getRow(rowMap, 'Imp Hidrocarburos'), col)
+      || cellNum(getRow(rowMap, 'IE Hidrocarburos (€)'), col)
+
+    // IVA — Naturgy gas stores as decimal (0.21); convert to percentage
+    const rawIvaPct = cellNum(getRow(rowMap, 'IVA %'), col)
+      || cellNum(getRow(rowMap, 'IVA (%)'), col)
+      || cellNum(getRow(rowMap, 'IVA'), col)
+    const ivaPct = rawIvaPct > 0 && rawIvaPct < 1 ? Math.round(rawIvaPct * 100) : rawIvaPct
+
+    // Total gas base (Naturgy: "Total gas (€)" = base imponible pre-IVA)
+    const totalGasBase = cellNum(getRow(rowMap, 'Total gas (€)'), col)
     const totalFactura = cellNum(getRow(rowMap, 'TOTAL FACTURA (€)'), col)
       || cellNum(getRow(rowMap, 'total factura eur'), col)
       || cellNum(getRow(rowMap, 'TOTAL FACTURA'), col)
+      || (totalGasBase > 0 && ivaPct > 0
+          ? Math.round(totalGasBase * (1 + ivaPct / 100) * 100) / 100
+          : totalGasBase)
 
     if (consumoTotalKwh === 0 && totalFactura === 0 && costeTotalConsumo === 0) continue
 
-    // Generate a pseudo-numFactura from the period
-    const numFactura = `${periodStart.slice(0,7)}`
+    // Factura number: explicit row or fallback to period
+    const numFactura = cellStr(getRow(rowMap, 'Nº Factura'), col)
+      || cellStr(getRow(rowMap, 'Num Factura'), col)
+      || `${periodStart.slice(0,7)}`
+
+    // IVA total: explicit row or compute from base × fraction
+    const rawIvaTotal = cellNum(getRow(rowMap, 'IVA / IGIC (€)'), col)
+      || cellNum(getRow(rowMap, 'IVA/IGIC (€)'), col)
+      || cellNum(getRow(rowMap, 'IVA (€)'), col)
+      || cellNum(getRow(rowMap, 'IVA / IGIC'), col)
+    const ivaTotal = rawIvaTotal
+      || (totalGasBase > 0 && ivaPct > 0
+          ? Math.round(totalGasBase * (ivaPct / 100) * 100) / 100 : 0)
 
     invoices.push({
       numFactura,
@@ -484,8 +542,7 @@ function parseLabelBased(ws: ExcelJS.Worksheet, fileName: string): ParsedSupplyF
       costeNetoConsumo:   costeTotalConsumo,
       costeTotalConsumo,
       costeTotalPotencia,
-      iva:              cellNum(getRow(rowMap, 'IVA %'), col)
-                      || cellNum(getRow(rowMap, 'IVA'), col),
+      iva:              ivaPct,
       peajes:           cellNum(getRow(rowMap, 'Financiacion Bono Social (€)'), col)
                       + cellNum(getRow(rowMap, 'Bono Social (€)'), col)
                       + cellNum(getRow(rowMap, 'Bono Social'), col)
@@ -499,6 +556,7 @@ function parseLabelBased(ws: ExcelJS.Worksheet, fileName: string): ParsedSupplyF
       alquiler:         cellNum(getRow(rowMap, 'Alquiler Equipos de Medida (€)'), col)
                       || cellNum(getRow(rowMap, 'Alquiler (€)'), col)
                       || cellNum(getRow(rowMap, 'Alquiler Contadores (€)'), col)
+                      || cellNum(getRow(rowMap, 'Alquiler contador (€)'), col)
                       || cellNum(getRow(rowMap, 'Alquiler'), col),
       otros:            cellNum(getRow(rowMap, 'Exceso de Potencia (€)'), col)
                       + cellNum(getRow(rowMap, 'Exceso Potencia (€)'), col)
@@ -508,15 +566,15 @@ function parseLabelBased(ws: ExcelJS.Worksheet, fileName: string): ParsedSupplyF
                       + cellNum(getRow(rowMap, 'Reactiva'), col)
                       + cellNum(getRow(rowMap, 'Compensacion Excedentes (€)'), col)
                       + cellNum(getRow(rowMap, 'Compensacion Excedentes'), col),
-      ivaTotal:         cellNum(getRow(rowMap, 'IVA / IGIC (€)'), col)
-                      || cellNum(getRow(rowMap, 'IVA/IGIC (€)'), col)
-                      || cellNum(getRow(rowMap, 'IVA (€)'), col)
-                      || cellNum(getRow(rowMap, 'IVA / IGIC'), col),
+      ivaTotal,
       totalFactura,
+      terminoFijoDiario: terminoFijoDiario || undefined,
+      terminoFijoTotal:  terminoFijoTotal  || undefined,
+      impuestoHidrocarb: impuestoHidrocarb || undefined,
     })
   }
 
-  return { fileName, cups, titular, compania, tarifa, locationName: locationName || undefined, invoices }
+  return { fileName, cups, titular, compania, tarifa, locationName: locationName || undefined, invoices, supplyType }
 }
 
 const CUPS_RE = /^ES[A-Z0-9]{18,20}$/i
@@ -542,6 +600,10 @@ interface ParsedInvoice {
   otros: number
   ivaTotal: number
   totalFactura: number
+  // Gas-specific
+  terminoFijoDiario?: number
+  terminoFijoTotal?: number
+  impuestoHidrocarb?: number
 }
 
 interface ParsedSupplyFile {
@@ -552,6 +614,7 @@ interface ParsedSupplyFile {
   tarifa: string
   locationName?: string
   invoices: ParsedInvoice[]
+  supplyType?: 'gas' | 'luz'
 }
 
 // ── Transposed-sheet detection (module-level so it can be reused) ─────────────
@@ -576,6 +639,13 @@ function isTransposedSheet(ws: ExcelJS.Worksheet): boolean {
         if (Object.keys(MONTHS_MAP).some(m => h.startsWith(m))) return true
       }
     }
+  }
+
+  // Signature C: label-based with CUPS value in B1 (Naturgy gas per-sheet format)
+  // A1="CUPS", B1=actual CUPS string → each row is label/data (no month names needed)
+  if (a1 === 'cups') {
+    const b1 = s(ws.getCell(1, 2).value).toUpperCase().replace(/\s/g, '')
+    if (CUPS_RE.test(b1)) return true
   }
 
   return false
@@ -792,6 +862,8 @@ async function processSupply(
   excelFileUrl?: string,  // URL del Excel en Storage (para mostrarlo en documentos)
 ): Promise<SupplyImportResult> {
   const fileName = parsed.fileName
+  const isGas = parsed.supplyType === 'gas'
+    || (parsed.tarifa || '').trim().toUpperCase().replace(/\s+/g, '').startsWith('RL')
   try {
     const annualData = buildAnnualConsumptionData(parsed)
 
@@ -810,7 +882,7 @@ async function processSupply(
         .from('supplies')
         .select('id, consumption_data')
         .eq('client_id', resolvedClientId)
-        .eq('type', 'luz')
+        .eq('type', isGas ? 'gas' : 'luz')
         .or('cups.is.null,cups.eq.')
         .limit(1)
         .maybeSingle()
@@ -845,7 +917,7 @@ async function processSupply(
         cups: parsed.cups,
         client_id: resolvedClientId,
         tariff: parsed.tarifa,
-        type: 'luz',
+        type: isGas ? 'gas' : 'luz',
         status: 'estudio_en_curso',
         consumption_data: annualData,
         created_at: new Date().toISOString(),
@@ -883,7 +955,7 @@ async function processSupply(
     }
 
     // ── SIPS fetch + power study (fire and forget) ────────────────────────────
-    if (!existingSupply || isNoCupsUpgrade) {
+    if ((!existingSupply || isNoCupsUpgrade) && !isGas) {
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
       void fetchSipsForCups(parsed.cups, 'luz').then(async (sipsData) => {
         if (!sipsData) return
@@ -968,18 +1040,22 @@ async function processSupply(
         continue
       }
 
+      const consumoFiltered = inv.consumo.filter(c => c.kwh > 0 || c.total > 0).map(c => ({
+        ...c,
+        total: c.total || c.kwh * c.precioKwh,
+      }))
+      const gasPrecioKwh = consumoFiltered[0]?.precioKwh
+        || (inv.consumoTotalKwh > 0 && inv.costeTotalConsumo > 0
+          ? Math.round((inv.costeTotalConsumo / inv.consumoTotalKwh) * 1e6) / 1e6 : 0)
       const economics = {
         fechaInicio:   inv.fechaInicio,
         fechaFin:      inv.fechaFin,
         cups:          parsed.cups,
         tarifa:        parsed.tarifa,
-        supply_type:   'luz' as const,
+        supply_type:   (isGas ? 'gas' : 'luz') as 'gas' | 'luz',
         comercializadora: parsed.compania || undefined,
         potencia:      inv.potencia.filter(p => p.kw > 0 || p.total > 0),
-        consumo:       inv.consumo.filter(c => c.kwh > 0 || c.total > 0).map(c => ({
-          ...c,
-          total: c.total || c.kwh * c.precioKwh,
-        })),
+        consumo:       consumoFiltered,
         consumoTotalKwh:    inv.consumoTotalKwh,
         costeBrutoConsumo:  inv.costeBrutoConsumo,
         descuentoEnergia:   inv.descuentoEnergia,
@@ -996,6 +1072,18 @@ async function processSupply(
           inv.ivaTotal > 0          && { concepto: `IVA ${inv.iva}%`,       total: inv.ivaTotal },
         ].filter(Boolean),
         totalFactura: inv.totalFactura,
+        ...(isGas && {
+          gasPricing: {
+            precioKwh:              gasPrecioKwh,
+            terminoFijoDiario:      inv.terminoFijoDiario || 0,
+            diasFacturados:         inv.dias || 0,
+            terminoFijoTotal:       inv.terminoFijoTotal  || inv.costeTotalPotencia || 0,
+            impuestoHidrocarbTotal: inv.impuestoHidrocarb || inv.impuestoElectrico  || 0,
+            alquilerTotal:          inv.alquiler || 0,
+            ivaPorcentaje:          inv.iva || 0,
+            ivaTotal:               inv.ivaTotal || 0,
+          }
+        }),
       }
 
       toInsert.push({
@@ -1030,17 +1118,21 @@ async function processSupply(
     // ── forceUpdate: actualizar facturas existentes con datos re-parseados ────
     if (forceUpdate && toUpdate.length > 0) {
       for (const inv of toUpdate) {
+        const consumoFiltered2 = inv.consumo.filter(c => c.kwh > 0 || c.total > 0).map(c => ({
+          ...c, total: c.total || c.kwh * c.precioKwh,
+        }))
+        const gasPrecioKwh2 = consumoFiltered2[0]?.precioKwh
+          || (inv.consumoTotalKwh > 0 && inv.costeTotalConsumo > 0
+            ? Math.round((inv.costeTotalConsumo / inv.consumoTotalKwh) * 1e6) / 1e6 : 0)
         const economics = {
           fechaInicio:   inv.fechaInicio,
           fechaFin:      inv.fechaFin,
           cups:          parsed.cups,
           tarifa:        parsed.tarifa,
-          supply_type:   'luz' as const,
+          supply_type:   (isGas ? 'gas' : 'luz') as 'gas' | 'luz',
           comercializadora: parsed.compania || undefined,
           potencia:      inv.potencia.filter(p => p.kw > 0 || p.total > 0),
-          consumo:       inv.consumo.filter(c => c.kwh > 0 || c.total > 0).map(c => ({
-            ...c, total: c.total || c.kwh * c.precioKwh,
-          })),
+          consumo:       consumoFiltered2,
           consumoTotalKwh:    inv.consumoTotalKwh,
           costeBrutoConsumo:  inv.costeBrutoConsumo,
           descuentoEnergia:   inv.descuentoEnergia,
@@ -1050,6 +1142,18 @@ async function processSupply(
           costeMedioKwh: inv.consumoTotalKwh > 0 ? inv.costeTotalConsumo / inv.consumoTotalKwh : 0,
           costeMedioKwhNeto: inv.consumoTotalKwh > 0 ? inv.costeNetoConsumo / inv.consumoTotalKwh : 0,
           totalFactura: inv.totalFactura,
+          ...(isGas && {
+            gasPricing: {
+              precioKwh:              gasPrecioKwh2,
+              terminoFijoDiario:      inv.terminoFijoDiario || 0,
+              diasFacturados:         inv.dias || 0,
+              terminoFijoTotal:       inv.terminoFijoTotal  || inv.costeTotalPotencia || 0,
+              impuestoHidrocarbTotal: inv.impuestoHidrocarb || inv.impuestoElectrico  || 0,
+              alquilerTotal:          inv.alquiler || 0,
+              ivaPorcentaje:          inv.iva || 0,
+              ivaTotal:               inv.ivaTotal || 0,
+            }
+          }),
         }
         await supabase.from('invoices')
           .update({ extracted_data: { economics, source: 'excel_import_updated', numFactura: inv.numFactura } })

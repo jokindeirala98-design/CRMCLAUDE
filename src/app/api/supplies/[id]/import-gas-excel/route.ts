@@ -23,6 +23,7 @@ import * as htmlparser2 from 'htmlparser2'
 import { DomHandler } from 'domhandler'
 import { findAll, textContent } from 'domutils'
 import { unzipSync } from 'fflate'
+import { createServerSupabaseClient } from '@/lib/supabase/server'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -426,16 +427,9 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
-    // ── Auth ──────────────────────────────────────────────────────────────────
-    const authHeader = req.headers.get('Authorization')
-    const token = authHeader?.replace('Bearer ', '').trim()
-    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-    const anonClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
-    const { data: { user } } = await anonClient.auth.getUser(token)
+    // ── Auth: cookie-based session (supports email + Google OAuth) ────────────
+    const authClient = createServerSupabaseClient()
+    const { data: { user } } = await authClient.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const supabase = createClient(
