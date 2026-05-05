@@ -256,27 +256,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true })
   }
 
-  // Respond to Telegram immediately — avoids "Read timeout expired" errors.
-  // Processing continues in the background via waitUntil (Vercel Edge) or
-  // a detached promise (Node runtime). Telegram only needs the 200 OK.
-  const process = async () => {
-    try {
-      if (update.callback_query) {
-        await handleCallback(update.callback_query)
-      } else if (update.message) {
-        await handleMessage(update.message)
-      }
-    } catch (err) {
-      console.error('[Telegram Webhook] Error:', err)
+  // Process synchronously — Vercel Node.js serverless exits as soon as the HTTP
+  // response is returned, so any fire-and-forget promise is silently killed before
+  // Gemini analysis or DB writes complete. We must await everything here.
+  //
+  // Telegram will retry with the same update_id if it doesn't receive 200 OK
+  // within ~30s. processTelegramInboxItem already checks status !== 'pending'
+  // before processing, so duplicate deliveries are handled at the DB layer.
+  try {
+    if (update.callback_query) {
+      await handleCallback(update.callback_query)
+    } else if (update.message) {
+      await handleMessage(update.message)
     }
-  }
-
-  // Use waitUntil if available (Vercel), otherwise fire-and-forget
-  const ctx = (globalThis as any)[Symbol.for('__next_request_context__')]
-  if (ctx?.waitUntil) {
-    ctx.waitUntil(process())
-  } else {
-    process().catch(console.error)
+  } catch (err) {
+    console.error('[Telegram Webhook] Error:', err)
   }
 
   return NextResponse.json({ ok: true })
