@@ -29,46 +29,66 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const authClient = getAuthClient()
 
     const initAuth = async () => {
-      // Read the current session from browser cookies
-      const { data: { session }, error } = await authClient.auth.getSession()
+      try {
+        // Read the current session from browser cookies
+        const { data: { session }, error } = await authClient.auth.getSession()
 
-      if (error || !session?.user) {
+        if (error || !session?.user) {
+          if (mounted) {
+            setUser(null)
+            setLoading(false)
+            setAuthChecked(true)
+            router.replace('/login')
+          }
+          return
+        }
+
+        // Fetch the users_profile row for this session
+        const db = createClient()
+        const { data: profile } = await db
+          .from('users_profile')
+          .select('*')
+          .eq('id', session.user.id)
+          .single()
+
+        if (!mounted) return
+
+        if (profile) {
+          setUser(profile as UserProfile)
+        } else {
+          // Authenticated but no profile row — sign out and redirect
+          await authClient.auth.signOut()
+          setUser(null)
+          setLoading(false)
+          setAuthChecked(true)
+          router.replace('/login')
+          return
+        }
+
+        setLoading(false)
+        setAuthChecked(true)
+      } catch {
+        // Network error or unexpected failure — fail safe: redirect to login
         if (mounted) {
           setUser(null)
           setLoading(false)
           setAuthChecked(true)
           router.replace('/login')
         }
-        return
       }
+    }
 
-      // Fetch the users_profile row for this session
-      const db = createClient()
-      const { data: profile } = await db
-        .from('users_profile')
-        .select('*')
-        .eq('id', session.user.id)
-        .single()
-
-      if (!mounted) return
-
-      if (profile) {
-        setUser(profile as UserProfile)
-      } else {
-        // Authenticated but no profile row — sign out and redirect
-        await authClient.auth.signOut()
+    // Safety net: if initAuth takes more than 8s, unblock the UI
+    const timeout = setTimeout(() => {
+      if (mounted) {
         setUser(null)
         setLoading(false)
         setAuthChecked(true)
         router.replace('/login')
-        return
       }
+    }, 8000)
 
-      setLoading(false)
-      setAuthChecked(true)
-    }
-
-    initAuth()
+    initAuth().finally(() => clearTimeout(timeout))
 
     // Keep store in sync after login / logout events
     const { data: { subscription } } = authClient.auth.onAuthStateChange(
@@ -111,7 +131,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   if (!authChecked) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-bg">
-        <div className="w-8 h-8 border-3 border-brand border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-[3px] border-brand border-t-transparent rounded-full animate-spin" />
       </div>
     )
   }
