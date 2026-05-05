@@ -11,6 +11,7 @@ import { Header } from '@/components/layout/Header'
 import { Button } from '@/components/ui/Button'
 import { NewContractModal } from '@/components/modals/NewContractModal'
 import { createClient } from '@/lib/supabase/client'
+import { useAuthStore } from '@/stores/auth'
 import { formatDate, formatCurrency } from '@/lib/utils/format'
 import { generatePropuestaHTML, generateContratoHTML, generateAndDownloadPDF, writePDFToWindow } from '@/lib/voltis-contract-templates'
 
@@ -41,6 +42,7 @@ const TYPE_LABEL: Record<string, string> = {
 
 export default function ContractsPage() {
   const router = useRouter()
+  const { user } = useAuthStore()
   const [contracts, setContracts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -55,7 +57,18 @@ export default function ContractsPage() {
   const fetchContracts = useCallback(async () => {
     setLoading(true)
     const supabase = createClient()
-    const { data } = await supabase
+    const isAdmin = user?.role === 'admin'
+
+    // Get user's client IDs if commercial
+    let myClientIds: string[] | null = null
+    if (!isAdmin && user) {
+      const { data: myClients } = await supabase
+        .from('clients').select('id').eq('commercial_id', user.id)
+      myClientIds = (myClients || []).map((c: any) => c.id)
+      if (myClientIds.length === 0) { setContracts([]); setLoading(false); return }
+    }
+
+    let query = supabase
       .from('service_contracts')
       .select(`
         id, contract_type, is_renewal, ahorro_confirmado, fee_amount,
@@ -67,9 +80,13 @@ export default function ContractsPage() {
         )
       `)
       .order('created_at', { ascending: false })
+
+    if (myClientIds !== null) query = query.in('client_id', myClientIds)
+
+    const { data } = await query
     setContracts(data || [])
     setLoading(false)
-  }, [])
+  }, [user])
 
   useEffect(() => { fetchContracts() }, [fetchContracts])
 

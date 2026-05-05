@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/Button'
 import { Badge, StatusBadge } from '@/components/ui/Badge'
 import { BulkUploadModal } from '@/components/modals/BulkUploadModal'
 import { createClient } from '@/lib/supabase/client'
+import { useAuthStore } from '@/stores/auth'
 import { cn } from '@/lib/utils/cn'
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -279,6 +280,7 @@ function MobileGroupRow({ group, consumptionMap, onClick }: {
 
 export default function SuppliesPage() {
   const router = useRouter()
+  const { user } = useAuthStore()
   const [supplies, setSupplies] = useState<Supply[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
@@ -354,12 +356,24 @@ export default function SuppliesPage() {
   const fetchSupplies = useCallback(async () => {
     setLoading(true)
     const supabase = createClient()
+    const isAdmin = user?.role === 'admin'
+
+    // Get user's client IDs if commercial
+    let myClientIds: string[] | null = null
+    if (!isAdmin && user) {
+      const { data: myClients } = await supabase
+        .from('clients').select('id').eq('commercial_id', user.id)
+      myClientIds = (myClients || []).map((c: any) => c.id)
+      if (myClientIds.length === 0) { setSupplies([]); setConsumptionMap({}); setLoading(false); return }
+    }
+
+    const baseSelect = 'id, name, cups, tariff, type, status, address, created_at, updated_at, client_id, consumption_data, comercializadora_id, client:clients(name, cif_nif)'
+    let suppliesQ = supabase.from('supplies').select(baseSelect).order('created_at', { ascending: false })
+    if (filter !== 'all') suppliesQ = suppliesQ.eq('status', filter)
+    if (myClientIds !== null) suppliesQ = suppliesQ.in('client_id', myClientIds)
+
     const [suppliesResult, invoicesResult] = await Promise.all([
-      supabase
-        .from('supplies')
-        .select('id, name, cups, tariff, type, status, address, created_at, updated_at, client_id, consumption_data, comercializadora_id, client:clients(name, cif_nif)')
-        .order('created_at', { ascending: false })
-        .then(r => filter !== 'all' ? supabase.from('supplies').select('id, name, cups, tariff, type, status, address, created_at, updated_at, client_id, consumption_data, comercializadora_id, client:clients(name, cif_nif)').eq('status', filter).order('created_at', { ascending: false }) : r),
+      suppliesQ,
       supabase.from('invoices').select('supply_id, extracted_data').not('extracted_data', 'is', null),
     ])
 
@@ -392,7 +406,7 @@ export default function SuppliesPage() {
     setConsumptionMap(consumptionData)
     setSupplies(suppliesResult.data || [])
     setLoading(false)
-  }, [filter])
+  }, [filter, user])
 
   useEffect(() => { fetchSupplies() }, [fetchSupplies])
 

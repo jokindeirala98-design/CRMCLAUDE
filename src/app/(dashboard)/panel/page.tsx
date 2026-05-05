@@ -122,22 +122,33 @@ export default function PanelPage() {
   const fetchMetrics = useCallback(async () => {
     const supabase = createClient()
     setLoading(true)
+    const isAdmin = user?.role === 'admin'
+
+    // Scope to user's clients if commercial
+    let myClientIds: string[] | null = null
+    if (!isAdmin && user) {
+      const { data: myClients } = await supabase
+        .from('clients').select('id').eq('commercial_id', user.id)
+      myClientIds = (myClients || []).map((c: any) => c.id)
+    }
 
     try {
+      // Build scoped queries
+      let clientsQ = supabase.from('clients').select('id, type', { count: 'exact' })
+      let suppliesQ = supabase.from('supplies').select('id, status', { count: 'exact' })
+      if (myClientIds !== null) {
+        clientsQ = myClientIds.length ? clientsQ.in('id', myClientIds) : clientsQ.eq('id', 'none')
+        suppliesQ = myClientIds.length ? suppliesQ.in('client_id', myClientIds) : suppliesQ.eq('id', 'none')
+      }
+
       const [
         { count: clientCount, data: clientsData },
         { count: suppliesTotal, data: suppliesData },
         { data: subscriptionsData },
         { data: billingData },
       ] = await Promise.all([
-        supabase
-          .from('clients')
-          .select('id, type', { count: 'exact', head: true })
-          .then((res) => ({ count: res.count || 0, data: res.data })),
-        supabase
-          .from('supplies')
-          .select('id, status', { count: 'exact' })
-          .then((res) => ({ count: res.count || 0, data: res.data })),
+        clientsQ.then((res) => ({ count: res.count || 0, data: res.data })),
+        suppliesQ.then((res) => ({ count: res.count || 0, data: res.data })),
         supabase.from('subscriptions').select('*').eq('status', 'active'),
         supabase
           .from('billing')
@@ -146,12 +157,8 @@ export default function PanelPage() {
       ])
 
       // Count clients by type
-      const clients = await supabase
-        .from('clients')
-        .select('id, type', { count: 'exact' })
-
-      if (clients.data) {
-        const typeCounts = clients.data.reduce(
+      if (clientsData) {
+        const typeCounts = clientsData.reduce(
           (acc: any, client: any) => {
             acc[client.type] = (acc[client.type] || 0) + 1
             return acc
@@ -162,7 +169,7 @@ export default function PanelPage() {
           empresa: typeCounts['empresa'] || 0,
           particular: typeCounts['particular'] || 0,
         })
-        setClientsCount(clients.count || 0)
+        setClientsCount(clientCount || 0)
       }
 
       // Process supplies
@@ -205,17 +212,34 @@ export default function PanelPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [user])
 
   // Fetch pending prescorings count
   const fetchPendingPrescorings = useCallback(async () => {
     if (!hasPermission('prescorings')) return
     const supabase = createClient()
+    const isAdmin = user?.role === 'admin'
     try {
-      const { count } = await supabase
+      let prescoringQ = supabase
         .from('prescorings')
         .select('id', { count: 'exact', head: true })
         .eq('status', 'pending')
+
+      // Scope to user's prescorings if commercial
+      if (!isAdmin && user) {
+        const { data: myClients } = await supabase.from('clients').select('id').eq('commercial_id', user.id)
+        const myClientIds = (myClients || []).map((c: any) => c.id)
+        if (myClientIds.length > 0) {
+          const { data: mySupplies } = await supabase.from('supplies').select('id').in('client_id', myClientIds)
+          const mySupplyIds = (mySupplies || []).map((s: any) => s.id)
+          if (mySupplyIds.length > 0) prescoringQ = prescoringQ.in('supply_id', mySupplyIds)
+          else { setPendingPrescoringCount(0); return }
+        } else {
+          setPendingPrescoringCount(0); return
+        }
+      }
+
+      const { count } = await prescoringQ
       const newCount = count || 0
       // If count increased (new prescoring added), un-dismiss the alert
       setPendingPrescoringCount(prev => {
@@ -225,7 +249,7 @@ export default function PanelPage() {
     } catch (error) {
       console.error('Error fetching pending prescorings:', error)
     }
-  }, [hasPermission])
+  }, [hasPermission, user])
 
   // Fetch tasks
   const fetchTasks = useCallback(async () => {

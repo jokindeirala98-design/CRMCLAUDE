@@ -292,13 +292,32 @@ export default function PrescoringsPage() {
   // ---- FETCH ----
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const { data } = await supabase
+    const isAdmin = user?.role === 'admin'
+
+    let prescoringQuery = supabase
       .from('prescorings')
       .select('*')
       .order('requested_at', { ascending: false })
+
+    if (!isAdmin && user) {
+      // Commercial: filter to prescorings of their own clients' supplies
+      const { data: myClients } = await supabase
+        .from('clients').select('id').eq('commercial_id', user.id)
+      const myClientIds = (myClients || []).map((c: any) => c.id)
+      if (myClientIds.length === 0) { setPrescorings([]); setLoading(false); return }
+
+      const { data: mySupplies } = await supabase
+        .from('supplies').select('id').in('client_id', myClientIds)
+      const mySupplyIds = (mySupplies || []).map((s: any) => s.id)
+      if (mySupplyIds.length === 0) { setPrescorings([]); setLoading(false); return }
+
+      prescoringQuery = prescoringQuery.in('supply_id', mySupplyIds)
+    }
+
+    const { data } = await prescoringQuery
     setPrescorings((data || []) as Prescoring[])
     setLoading(false)
-  }, [])
+  }, [user])
 
   useEffect(() => { fetchData() }, [fetchData])
 
