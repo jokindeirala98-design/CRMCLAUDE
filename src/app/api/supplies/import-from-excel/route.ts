@@ -1088,13 +1088,13 @@ async function processSupply(
 
       toInsert.push({
         supply_id:         supplyId,
-        file_url:          '',
-        file_type:         'pdf',
+        file_url:          excelFileUrl || '',
+        file_type:         excelFileUrl ? 'excel' : 'pdf',
         period_start:      inv.fechaInicio || null,
         period_end:        inv.fechaFin    || null,
         total_amount:      inv.totalFactura || null,
         extraction_status: 'completed',
-        extracted_data:    { economics, source: 'excel_import', numFactura: inv.numFactura },
+        extracted_data:    { economics, source: 'excel_import', numFactura: inv.numFactura, import_filename: parsed.fileName },
         created_at:        new Date().toISOString(),
       })
     }

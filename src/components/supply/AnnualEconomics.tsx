@@ -71,6 +71,7 @@ export interface BillEconomics {
 export interface InvoiceRow {
   id: string
   file_url?: string
+  file_type?: string
   period_start?: string
   period_end?: string
   total_amount?: number
@@ -86,6 +87,7 @@ export interface InvoiceRow {
     holder_name?: string
     holder_cif_nif?: string
     supply_address?: string
+    import_filename?: string
     [key: string]: unknown
   } | null
 }
@@ -1139,50 +1141,54 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
             </th>
             {invoices.map((inv, i) => {
               const eco = getEco(inv)
-              const rawData = (inv as any).extracted_data
+              const rawData = inv.extracted_data
               const isExcelImport = rawData?.source === 'excel_import'
-              const importFile = rawData?.import_filename as string | undefined
-              const hasPdf = !!inv.file_url
-              const fileName = hasPdf
-                ? inv.file_url!.split('/').pop()!
-                : (importFile || `FACT ${i + 1}`)
-              const fileLabel = hasPdf ? fileName : (importFile ? `📊 ${importFile}` : `FACT ${i + 1}`)
+              // file_type from DB ('pdf' | 'excel') or infer from URL
+              const fileType = inv.file_type
+                || (inv.file_url?.match(/\.(xlsx?|ods)(\?|$)/i) ? 'excel' : 'pdf')
+              const isExcelFile = fileType === 'excel'
+              const hasFile = !!inv.file_url
+              // Display name: prefer import_filename stored in extracted_data for Excel
+              const importFilename = rawData?.import_filename as string | undefined
+              const storedFileName = inv.file_url?.split('/').pop()?.replace(/\?.*$/, '') || ''
+              const displayName = isExcelFile
+                ? (importFilename || storedFileName || `FACT ${i + 1}`)
+                : (storedFileName || `FACT ${i + 1}`)
 
               return (
                 <th key={inv.id} className="py-3 px-4 min-w-[260px]" style={{ minWidth: 260 }}>
                   <div className="text-xs text-[#5A6B5F] font-normal mb-1">FACT {i + 1}</div>
-                  {/* Filename — clickable if there's a PDF to open */}
-                  {hasPdf ? (
+                  {/* Filename — clickable to open/download the source file */}
+                  {hasFile ? (
                     <a
                       href={inv.file_url!}
                       target="_blank"
                       rel="noopener noreferrer"
+                      download={isExcelFile ? displayName : undefined}
                       onClick={e => e.stopPropagation()}
-                      title="Abrir factura PDF"
-                      className="block text-[#2D3A33] text-xs font-medium truncate max-w-[230px] hover:text-[#6B8068] hover:underline transition-colors cursor-pointer"
+                      title={isExcelFile ? `Descargar Excel: ${displayName}` : `Abrir factura PDF`}
+                      className="flex items-center gap-1 text-[#2D3A33] text-xs font-medium truncate max-w-[230px] hover:text-[#6B8068] hover:underline transition-colors cursor-pointer"
                     >
-                      {fileName}
+                      {isExcelFile && <span className="flex-shrink-0 text-[10px]">📊</span>}
+                      <span className="truncate">{displayName}</span>
                     </a>
                   ) : (
-                    <div
-                      className="text-[#2D3A33] text-xs font-medium truncate max-w-[230px]"
-                      title={isExcelImport ? `Datos importados desde Excel: ${importFile || ''}` : undefined}
-                    >
-                      {fileLabel}
+                    <div className="text-[#2D3A33] text-xs font-medium truncate max-w-[230px] text-ink-3">
+                      {displayName}
                     </div>
                   )}
                   <div className="mt-1 flex items-center gap-1.5 flex-wrap">
                     {eco ? (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-ok-container/400/20 text-ok text-[10px]">
-                        <span className="w-1.5 h-1.5 rounded-full bg-ok inline-block" /> Extraído ✓
+                        <span className="w-1.5 h-1.5 rounded-full bg-ok inline-block" /> {isExcelImport ? 'Excel ✓' : 'Extraído ✓'}
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warn-container/400/20 text-warn text-[10px]">
                         <span className="w-1.5 h-1.5 rounded-full bg-warn inline-block" /> Sin datos
                       </span>
                     )}
-                    {/* Re-escanear: solo cuando hay PDF real (funciona) */}
-                    {onRescan && hasPdf && (
+                    {/* Re-escanear: solo para PDFs con IA (no para Excel) */}
+                    {onRescan && hasFile && !isExcelFile && (
                       <button
                         onClick={(e) => { e.stopPropagation(); onRescan(inv) }}
                         disabled={busyRescan === inv.id}
