@@ -338,7 +338,8 @@ export async function processJobInBackground(jobId: string): Promise<void> {
   if (!currentJob.clientId) {
     updateJob(jobId, { status: 'analyzing' })
 
-    const analyzedFiles = currentJob.files.filter(f => f.status === 'done' && f.extractedData?.mode === 'gemini')
+    // Accept both 'gemini' and 'claude' (Claude fallback when Gemini key is invalid)
+    const analyzedFiles = currentJob.files.filter(f => f.status === 'done' && (f.extractedData?.mode === 'gemini' || f.extractedData?.mode === 'claude'))
 
     // Build candidates from ALL analyzed files
     const candidates = analyzedFiles.map(f => {
@@ -451,9 +452,10 @@ export async function processJobInBackground(jobId: string): Promise<void> {
 
   // ── Phase 0: Update Client Documents (DCs) ──
   // Extract CIF, NIF, IBAN and update client profile if found
-  const clientDocs = currentJob.files.filter((f) => 
-    f.status === 'done' && 
-    f.extractedData?.mode === 'gemini' && 
+  // Accept both 'gemini' and 'claude' (Claude fallback when Gemini key is invalid)
+  const clientDocs = currentJob.files.filter((f) =>
+    f.status === 'done' &&
+    (f.extractedData?.mode === 'gemini' || f.extractedData?.mode === 'claude') &&
     ['cif', 'nif', 'iban'].includes(f.extractedData?.documentType)
   )
 
@@ -481,9 +483,10 @@ export async function processJobInBackground(jobId: string): Promise<void> {
   // ── Phase 2: Group by CUPS (Invoices only) ──
   updateJob(jobId, { status: 'grouping' })
 
-  const analyzedInvoices = currentJob.files.filter((f) => 
-    f.status === 'done' && 
-    f.extractedData?.mode === 'gemini' &&
+  // Accept both 'gemini' and 'claude' (Claude fallback when Gemini key is invalid)
+  const analyzedInvoices = currentJob.files.filter((f) =>
+    f.status === 'done' &&
+    (f.extractedData?.mode === 'gemini' || f.extractedData?.mode === 'claude') &&
     f.extractedData?.documentType === 'factura'
   )
 
@@ -606,6 +609,9 @@ export async function processJobInBackground(jobId: string): Promise<void> {
     const newSuppliesForSips: Array<{ supplyId: string; cups: string; holderName: string; supplyType: string }> = []
     const allSuppliesForSips: Array<{ supplyId: string; cups: string; holderName: string; supplyType: string }> = []
 
+    // Cache for auth user (reused across groups)
+    const { data: { user: authUserPhase3 } } = await supabase.auth.getUser()
+
     for (const group of allGroups) {
       const first = group.files[0].extractedData!
       const cups = group.cups || null
@@ -617,6 +623,70 @@ export async function processJobInBackground(jobId: string): Promise<void> {
         : (first.supply_type === 'gas' ? 'gas'
           : first.supply_type === 'telefonia' ? 'telefonia'
           : 'luz')
+
+      // ── Resolve correct client for this CUPS group ──────────────────────────
+      // Each invoice may belong to a different client (multi-client batch upload).
+      // Use holder_cif_nif / holder_name from the invoice to find or create the
+      // right client, falling back to the job-level client only if no data available.
+      let groupClientId = currentJob.clientId
+
+      const holderCifNif = cleanIdentifier(first.holder_cif_nif || first.cif || first.nif)
+      const holderName = (first.holder_name || first.account_holder || '').trim()
+
+      if (holderCifNif && holderCifNif.length >= 8) {
+        // 1. Try match by CIF/NIF
+        try {
+          const { data: byId } = await supabase
+            .from('clients')
+            .select('id')
+            .or(`cif_nif.ilike.%${holderCifNif}%,cif.ilike.%${holderCifNif}%,nif.ilike.%${holderCifNif}%`)
+            .limit(1)
+            .maybeSingle()
+          if (byId) {
+            groupClientId = byId.id
+          } else if (holderName) {
+            // 2. Create new client with invoice data
+            const isAyunt = /ayuntamiento|ajuntament|concello|diputaci/i.test(holderName)
+            const isParticular = /^\d/.test(holderCifNif)
+            const clientType = isAyunt ? 'ayuntamiento' : isParticular ? 'particular' : 'empresa'
+            const { data: newC } = await supabase
+              .from('clients')
+              .insert({
+                name: holderName,
+                cif_nif: holderCifNif,
+                type: clientType,
+                marketing_consent: false,
+                origin: 'captacion',
+                ...(authUserPhase3?.id ? { commercial_id: authUserPhase3.id } : {}),
+              })
+              .select('id')
+              .single()
+            if (newC) {
+              groupClientId = newC.id
+              console.log(`[UploadQueue] Created client for CUPS ${cups}: ${holderName} (${holderCifNif})`)
+            }
+          }
+        } catch (err) {
+          console.warn('[UploadQueue] Client resolution error for', cups, err)
+        }
+      } else if (holderName && holderName !== currentJob.clientName) {
+        // No CIF/NIF but have a name — try name match
+        try {
+          const words = holderName.split(/\s+/).filter((w: string) => w.length >= 4)
+          const keyword = [...words].sort((a: string, b: string) => b.length - a.length)[0]
+          if (keyword) {
+            const { data: byName } = await supabase
+              .from('clients')
+              .select('id')
+              .ilike('name', `%${keyword}%`)
+              .limit(1)
+              .maybeSingle()
+            if (byName) groupClientId = byName.id
+          }
+        } catch (err) {
+          console.warn('[UploadQueue] Client name lookup error for', cups, err)
+        }
+      }
 
       // Check if supply already exists
       let supplyId: string | null = null
@@ -636,7 +706,7 @@ export async function processJobInBackground(jobId: string): Promise<void> {
             allSuppliesForSips.push({
               supplyId,
               cups,
-              holderName: first.holder_name || currentJob.clientName || '',
+              holderName: holderName || currentJob.clientName || '',
               supplyType: type,
             })
           }
@@ -661,7 +731,7 @@ export async function processJobInBackground(jobId: string): Promise<void> {
         const { data: newSupply, error: supplyErr } = await supabase
           .from('supplies')
           .insert({
-            client_id: currentJob.clientId,
+            client_id: groupClientId,
             cups,
             type,
             tariff,
@@ -699,7 +769,7 @@ export async function processJobInBackground(jobId: string): Promise<void> {
             newSuppliesForSips.push({
               supplyId,
               cups,
-              holderName: first.holder_name || currentJob.clientName || '',
+              holderName: holderName || currentJob.clientName || '',
               supplyType: type,
             })
           }
@@ -716,7 +786,7 @@ export async function processJobInBackground(jobId: string): Promise<void> {
             file_url: f.url,
             file_type: f.file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image',
             extracted_data: f.extractedData ? JSON.parse(JSON.stringify(f.extractedData)) : null,
-            extraction_status: f.extractedData?.mode === 'gemini' ? 'completed' : 'pending',
+            extraction_status: (f.extractedData?.mode === 'gemini' || f.extractedData?.mode === 'claude') ? 'completed' : 'pending',
             period_start: eco?.fechaInicio ? toIsoDate(eco.fechaInicio) : toIsoDate(f.extractedData?.billing_period?.split(/\s*[-–]\s*/)?.[0]),
             period_end: eco?.fechaFin ? toIsoDate(eco.fechaFin) : toIsoDate(f.extractedData?.billing_period?.split(/\s*[-–]\s*/)?.[1]),
             total_amount: eco?.totalFactura ?? (f.extractedData?.total_amount ? parseFloat(f.extractedData.total_amount) : null),

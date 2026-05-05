@@ -279,6 +279,7 @@ export default function PrescoringsPage() {
   const [section, setSection] = useState<'pending' | 'sent'>('pending')
   const [searchQuery, setSearchQuery] = useState('')
   const [sendingAll, setSendingAll] = useState(false)
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc')
   const [showExportMenu, setShowExportMenu] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
@@ -347,20 +348,26 @@ export default function PrescoringsPage() {
   // Approved items (keep for reference but don't show in main tabs)
   const approvedItems = prescorings.filter(p => p.status === 'approved')
 
-  // Apply search filter
-  const applySearch = (items: Prescoring[]) => {
-    if (!searchQuery.trim()) return items
-    const q = searchQuery.toLowerCase()
-    return items.filter(p =>
-      (p.client_name || '').toLowerCase().includes(q) ||
-      (p.cups || '').toLowerCase().includes(q) ||
-      (p.cif || '').toLowerCase().includes(q) ||
-      (p.poblacion || '').toLowerCase().includes(q)
-    )
+  // Apply search filter + sort
+  const applySearchAndSort = (items: Prescoring[]) => {
+    let result = items
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      result = result.filter(p =>
+        (p.client_name || '').toLowerCase().includes(q) ||
+        (p.cups || '').toLowerCase().includes(q) ||
+        (p.cif || '').toLowerCase().includes(q) ||
+        (p.poblacion || '').toLowerCase().includes(q)
+      )
+    }
+    if (sortOrder === 'asc') {
+      result = [...result].sort((a, b) => new Date(a.requested_at || 0).getTime() - new Date(b.requested_at || 0).getTime())
+    }
+    return result
   }
 
-  const filteredPending = applySearch(pendingItems)
-  const filteredSent = applySearch(sentItems)
+  const filteredPending = applySearchAndSort(pendingItems)
+  const filteredSent = applySearchAndSort(sentItems)
 
   const pendingCount = pendingItems.filter(p => p.status === 'pending').length
   const rejectedCount = pendingItems.filter(p => p.status === 'rejected').length
@@ -571,6 +578,19 @@ export default function PrescoringsPage() {
                 placeholder="Buscar..."
                 className="w-full sm:w-48 pl-8 pr-3 py-2.5 text-xs bg-bg-2 border-0 rounded-lg outline-none focus:ring-1 focus:ring-primary/30 text-ink placeholder:text-ink-3/50"
               />
+            </div>
+            {/* Sort order */}
+            <div className="flex bg-bg-2 rounded-lg p-0.5">
+              <button
+                onClick={() => setSortOrder('desc')}
+                className={`px-2.5 py-2 rounded text-[11px] font-semibold transition-all ${sortOrder === 'desc' ? 'bg-white text-brand shadow-sm' : 'text-ink-3 hover:text-ink'}`}
+                title="Más recientes primero"
+              >↓</button>
+              <button
+                onClick={() => setSortOrder('asc')}
+                className={`px-2.5 py-2 rounded text-[11px] font-semibold transition-all ${sortOrder === 'asc' ? 'bg-white text-brand shadow-sm' : 'text-ink-3 hover:text-ink'}`}
+                title="Más antiguos primero"
+              >↑</button>
             </div>
 
             {section === 'pending' && pendingItems.length > 0 && (

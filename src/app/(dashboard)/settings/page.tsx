@@ -372,6 +372,34 @@ export default function SettingsPage() {
     }
   }
 
+  const handleResetPassword = async (userId: string, userEmail: string, userName: string) => {
+    const newPass = prompt(`Nueva contraseña para ${userName} (mínimo 8 caracteres).\nDeja en blanco para enviar email de recuperación a ${userEmail}:`)
+    if (newPass === null) return // cancelled
+    try {
+      const body = newPass.trim()
+        ? { userId, newPassword: newPass.trim() }
+        : { email: userEmail }
+      if (body.newPassword && body.newPassword.length < 8) {
+        toast('error', 'La contraseña debe tener al menos 8 caracteres')
+        return
+      }
+      const res = await fetch('/api/invite-user', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error)
+      if (result.mode === 'email_sent') {
+        toast('success', `Email de recuperación enviado a ${userEmail}`)
+      } else {
+        toast('success', `Contraseña de ${userName} actualizada`)
+      }
+    } catch (err: any) {
+      toast('error', err.message || 'Error al restablecer contraseña')
+    }
+  }
+
   const handleCancelInvitation = async (invitationId: string) => {
     if (!confirm('¿Cancelar esta invitación?')) return
     try {
@@ -1141,6 +1169,15 @@ export default function SettingsPage() {
                             onClick={() => startEditingPermissions(member.id, member.role, member.permissions || {})}
                           >
                             <Edit2 className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="tertiary"
+                            onClick={() => handleResetPassword(member.id, member.email, member.full_name || member.email)}
+                            title="Restablecer contraseña"
+                            className="text-ink-3 hover:text-brand"
+                          >
+                            <Key className="w-4 h-4" />
                           </Button>
                           {member.id !== user?.id && (
                             <Button

@@ -317,7 +317,7 @@ export async function processTelegramInboxItem(
   const rawCups = extractedData?.cups || null
   const cups = rawCups ? normalizeCups(rawCups) : null
   const holderName = extractedData?.holder_name || extractedData?.economics?.titular || null
-  const holderCif = extractedData?.holder_cif || extractedData?.economics?.cif_titular || null
+  const holderCif = extractedData?.holder_cif_nif || extractedData?.holder_cif || extractedData?.economics?.cif_titular || null
   const tariff = extractedData?.tariff || extractedData?.economics?.tarifa || null
   const address = extractedData?.supply_address || extractedData?.billing_address || null
   // Detect supply type: gas ONLY if tariff is RL.x (gas access tariff) or supply_type explicitly gas.

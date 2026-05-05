@@ -462,7 +462,7 @@ LUZ-0. **rawLineItems — CAMPO OBLIGATORIO (LUZ Y GAS):**
    LUZ:
      energia_comercializacion | energia_peaje | energia_cargo
      potencia_peaje | potencia_cargo | potencia_comercializacion
-     alquiler_equipos | bono_social | compensacion_excedentes
+     alquiler_equipos | bono_social | compensacion_excedentes | autoconsumo_variable
      impuesto_electrico | exceso_potencia | descuento_energia | descuento_potencia
    GAS:
      gas_termino_variable  (Consumo gas / Término de energía / kWh × €/kWh)

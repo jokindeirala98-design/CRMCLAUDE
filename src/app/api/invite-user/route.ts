@@ -131,17 +131,92 @@ export async function DELETE(req: NextRequest) {
     if (!userId) return NextResponse.json({ error: 'userId requerido' }, { status: 400 })
     if (userId === user.id) return NextResponse.json({ error: 'No puedes eliminarte a ti mismo' }, { status: 400 })
 
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!serviceKey) {
+      return NextResponse.json(
+        { error: 'SUPABASE_SERVICE_ROLE_KEY no configurada en Vercel → Settings → Environment Variables' },
+        { status: 500 }
+      )
+    }
+
     const adminSupabase = createSupabaseClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      serviceKey,
       { auth: { persistSession: false, autoRefreshToken: false } }
     )
 
-    // Delete from auth (cascades to users_profile via FK)
+    // Always remove the profile row first (safe regardless of auth state)
+    await adminSupabase.from('users_profile').delete().eq('id', userId)
+
+    // Then delete from auth — may fail if user was never confirmed, that's OK
     const { error } = await adminSupabase.auth.admin.deleteUser(userId)
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (error) {
+      // If auth delete failed but profile is gone, return partial success
+      console.warn('[invite-user] auth.admin.deleteUser failed (profile already removed):', error.message)
+      if (error.message?.toLowerCase().includes('not found') || error.message?.toLowerCase().includes('loading')) {
+        // User not in auth but profile removed — treat as success
+        return NextResponse.json({ ok: true, warning: 'Perfil eliminado, usuario de auth no encontrado' })
+      }
+      return NextResponse.json({ error: `Error eliminando usuario: ${error.message}` }, { status: 500 })
+    }
 
     return NextResponse.json({ ok: true })
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || 'Error interno' }, { status: 500 })
+  }
+}
+
+/**
+ * PATCH /api/invite-user
+ * Sends a password reset email to a team member (admin only).
+ * Body: { email }
+ */
+export async function PATCH(req: NextRequest) {
+  try {
+    const supabaseUser = createServerSupabaseClient()
+    const { data: { user }, error: authErr } = await supabaseUser.auth.getUser()
+    if (authErr || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+    const { data: callerProfile } = await supabaseUser
+      .from('users_profile').select('role').eq('id', user.id).single()
+    if (callerProfile?.role !== 'admin') {
+      return NextResponse.json({ error: 'Solo administradores pueden restablecer contraseñas' }, { status: 403 })
+    }
+
+    const { email, userId, newPassword } = await req.json()
+
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!serviceKey) {
+      return NextResponse.json(
+        { error: 'SUPABASE_SERVICE_ROLE_KEY no configurada en Vercel → Settings → Environment Variables' },
+        { status: 500 }
+      )
+    }
+
+    const adminSupabase = createSupabaseClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      serviceKey,
+      { auth: { persistSession: false, autoRefreshToken: false } }
+    )
+
+    // Option A: Admin sets a new password directly
+    if (userId && newPassword) {
+      const { error } = await adminSupabase.auth.admin.updateUserById(userId, { password: newPassword })
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json({ ok: true, mode: 'password_set' })
+    }
+
+    // Option B: Send password reset email
+    if (email) {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
+      const { error } = await adminSupabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${appUrl}/auth/set-password`,
+      })
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json({ ok: true, mode: 'email_sent' })
+    }
+
+    return NextResponse.json({ error: 'Se requiere email o userId + newPassword' }, { status: 400 })
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Error interno' }, { status: 500 })
   }

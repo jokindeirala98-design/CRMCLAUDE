@@ -91,6 +91,7 @@ export default function ClientsPage() {
   const [statusFilter, setStatusFilter]     = useState('')
   const [commercialFilter, setCommercialFilter] = useState('')
   const [typeFilter, setTypeFilter]         = useState('')
+  const [sortOrder, setSortOrder]           = useState<'desc' | 'asc'>('desc')
   const [viewMode, setViewMode]             = useState<'grid' | 'list'>('grid')
   const [showFilters, setShowFilters]       = useState(false)
   const [selectedClient, setSelectedClient] = useState<any>(null)
@@ -217,7 +218,7 @@ export default function ClientsPage() {
   }, [])
 
   const filtered = useMemo(() => {
-    return clients.filter(c => {
+    const result = clients.filter(c => {
       if (search) {
         const q = search.toLowerCase()
         const nameMatch  = c.name?.toLowerCase().includes(q)
@@ -234,9 +235,14 @@ export default function ClientsPage() {
       if (typeFilter && c.type !== typeFilter) return false
       return true
     })
-  }, [clients, search, statusFilter, commercialFilter, typeFilter])
+    if (sortOrder === 'asc') {
+      result.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+    }
+    // desc: DB already returns created_at DESC, no re-sort needed
+    return result
+  }, [clients, search, statusFilter, commercialFilter, typeFilter, sortOrder])
 
-  const activeFilterCount = [statusFilter, commercialFilter, typeFilter].filter(Boolean).length
+  const activeFilterCount = [statusFilter, commercialFilter, typeFilter, sortOrder !== 'desc' ? 'sort' : ''].filter(Boolean).length
 
   const handleSaveSupplyName = async (supplyId: string) => {
     const supabase = createClient()
@@ -438,9 +444,29 @@ export default function ClientsPage() {
               </div>
             </div>
 
+            {/* Sort order */}
+            <div className="space-y-1.5">
+              <p className="label-mono text-ink-4">Orden</p>
+              <div className="flex gap-1.5">
+                {([['desc', 'Más recientes'], ['asc', 'Más antiguos']] as const).map(([val, label]) => (
+                  <button
+                    key={val}
+                    onClick={() => setSortOrder(val)}
+                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+                      sortOrder === val
+                        ? 'bg-ink text-bg'
+                        : 'bg-bg-2 text-ink-3 hover:text-ink border border-line'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {activeFilterCount > 0 && (
               <button
-                onClick={() => { setStatusFilter(''); setCommercialFilter(''); setTypeFilter('') }}
+                onClick={() => { setStatusFilter(''); setCommercialFilter(''); setTypeFilter(''); setSortOrder('desc') }}
                 className="px-2.5 py-1 rounded-md text-xs font-medium text-err bg-err-container hover:brightness-95 transition-colors ml-auto self-end"
               >
                 Limpiar filtros

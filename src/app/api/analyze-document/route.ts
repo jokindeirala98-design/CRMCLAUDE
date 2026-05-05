@@ -5,9 +5,8 @@ import {
 } from '@/lib/gemini'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 
-// Vercel Hobby plan: max 10s per function
-// Max duration for Hobby/Pro plans (Vercel)
-export const maxDuration = 60
+// Max duration for Pro plans (Vercel) — matches analyze-invoice for complex multi-page PDFs
+export const maxDuration = 120
 
 interface DocumentAnalysisRequest {
   file_base64: string

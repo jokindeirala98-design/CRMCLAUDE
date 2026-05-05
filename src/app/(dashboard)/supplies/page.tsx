@@ -284,7 +284,7 @@ export default function SuppliesPage() {
   const [supplies, setSupplies] = useState<Supply[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
-  const [sortBy, setSortBy] = useState<'recent' | 'consumption_desc' | 'consumption_asc'>('consumption_desc')
+  const [sortBy, setSortBy] = useState<'recent' | 'oldest' | 'consumption_desc' | 'consumption_asc'>('consumption_desc')
   const [consumptionMap, setConsumptionMap] = useState<Record<string, number>>({})
   const [showNewModal, setShowNewModal] = useState(false)
   const [openGroup, setOpenGroup] = useState<SupplyGroup | null>(null)
@@ -416,6 +416,7 @@ export default function SuppliesPage() {
     const sorted = [...supplies].sort((a, b) => {
       if (sortBy === 'consumption_desc') return (consumptionMap[b.id] || 0) - (consumptionMap[a.id] || 0)
       if (sortBy === 'consumption_asc') return (consumptionMap[a.id] || 0) - (consumptionMap[b.id] || 0)
+      if (sortBy === 'oldest') return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
       return 0
     })
     const clientMap = new Map<string, Supply[]>()
@@ -563,7 +564,7 @@ export default function SuppliesPage() {
             ))}
           </div>
           <div className="flex gap-2">
-            {[{ key: 'recent', label: 'Más recientes' }, { key: 'consumption_desc', label: 'Consumo ↓' }, { key: 'consumption_asc', label: 'Consumo ↑' }].map(({ key, label }) => (
+            {[{ key: 'recent', label: 'Más recientes' }, { key: 'oldest', label: 'Más antiguos' }, { key: 'consumption_desc', label: 'Consumo ↓' }, { key: 'consumption_asc', label: 'Consumo ↑' }].map(({ key, label }) => (
               <button key={key} onClick={() => setSortBy(key as any)}
                 className={cn('px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all',
                   sortBy === key ? 'bg-brand text-white' : 'bg-bg-2 text-ink-3 hover:text-ink')}>
