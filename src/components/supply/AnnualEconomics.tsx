@@ -1138,12 +1138,39 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
               {isGas ? '🔥 GAS NATURAL' : 'CONCEPTO / PERIODO'}
             </th>
             {invoices.map((inv, i) => {
-              const fileName = inv.file_url?.split('/').pop() || `FACT ${i + 1}`
               const eco = getEco(inv)
+              const rawData = (inv as any).extracted_data
+              const isExcelImport = rawData?.source === 'excel_import'
+              const importFile = rawData?.import_filename as string | undefined
+              const hasPdf = !!inv.file_url
+              const fileName = hasPdf
+                ? inv.file_url!.split('/').pop()!
+                : (importFile || `FACT ${i + 1}`)
+              const fileLabel = hasPdf ? fileName : (importFile ? `📊 ${importFile}` : `FACT ${i + 1}`)
+
               return (
                 <th key={inv.id} className="py-3 px-4 min-w-[260px]" style={{ minWidth: 260 }}>
                   <div className="text-xs text-[#5A6B5F] font-normal mb-1">FACT {i + 1}</div>
-                  <div className="text-[#2D3A33] text-xs font-medium truncate max-w-[230px]">{fileName}</div>
+                  {/* Filename — clickable if there's a PDF to open */}
+                  {hasPdf ? (
+                    <a
+                      href={inv.file_url!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      title="Abrir factura PDF"
+                      className="block text-[#2D3A33] text-xs font-medium truncate max-w-[230px] hover:text-[#6B8068] hover:underline transition-colors cursor-pointer"
+                    >
+                      {fileName}
+                    </a>
+                  ) : (
+                    <div
+                      className="text-[#2D3A33] text-xs font-medium truncate max-w-[230px]"
+                      title={isExcelImport ? `Datos importados desde Excel: ${importFile || ''}` : undefined}
+                    >
+                      {fileLabel}
+                    </div>
+                  )}
                   <div className="mt-1 flex items-center gap-1.5 flex-wrap">
                     {eco ? (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-ok-container/400/20 text-ok text-[10px]">
@@ -1154,11 +1181,12 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
                         <span className="w-1.5 h-1.5 rounded-full bg-warn inline-block" /> Sin datos
                       </span>
                     )}
-                    {onRescan && (
+                    {/* Re-escanear: solo cuando hay PDF real (funciona) */}
+                    {onRescan && hasPdf && (
                       <button
                         onClick={(e) => { e.stopPropagation(); onRescan(inv) }}
                         disabled={busyRescan === inv.id}
-                        title="Re-escanear factura"
+                        title="Volver a analizar el PDF con IA y actualizar los datos"
                         className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-info-container/400/20 hover:bg-info-container/400/30 text-info text-[10px] transition disabled:opacity-50"
                       >
                         {busyRescan === inv.id ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <RefreshCw className="w-2.5 h-2.5" />}
