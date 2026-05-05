@@ -9,6 +9,10 @@ import { normalizeCups, cupsBase20 } from '@/lib/utils/cups'
 import { fetchSipsForCups } from '@/lib/sips'
 import { normalizeTariff } from '@/lib/consumption-utils'
 
+// Extend Vercel function timeout to 60s (requires Vercel Pro for >10s, but
+// declaring it avoids premature cuts on serverless cold starts)
+export const maxDuration = 60
+
 /* ─── Types ────────────────────────────────────────────────────────────────── */
 interface TelegramUpdate {
   update_id: number
@@ -245,20 +249,37 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  let update: TelegramUpdate
   try {
-    const update: TelegramUpdate = await req.json()
-
-    if (update.callback_query) {
-      await handleCallback(update.callback_query)
-    } else if (update.message) {
-      await handleMessage(update.message)
-    }
-
-    return NextResponse.json({ ok: true })
-  } catch (err) {
-    console.error('[Telegram Webhook] Error:', err)
+    update = await req.json()
+  } catch {
     return NextResponse.json({ ok: true })
   }
+
+  // Respond to Telegram immediately — avoids "Read timeout expired" errors.
+  // Processing continues in the background via waitUntil (Vercel Edge) or
+  // a detached promise (Node runtime). Telegram only needs the 200 OK.
+  const process = async () => {
+    try {
+      if (update.callback_query) {
+        await handleCallback(update.callback_query)
+      } else if (update.message) {
+        await handleMessage(update.message)
+      }
+    } catch (err) {
+      console.error('[Telegram Webhook] Error:', err)
+    }
+  }
+
+  // Use waitUntil if available (Vercel), otherwise fire-and-forget
+  const ctx = (globalThis as any)[Symbol.for('__next_request_context__')]
+  if (ctx?.waitUntil) {
+    ctx.waitUntil(process())
+  } else {
+    process().catch(console.error)
+  }
+
+  return NextResponse.json({ ok: true })
 }
 
 export async function GET() {
