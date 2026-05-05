@@ -7,8 +7,9 @@ import {
   CreditCard, Zap, Edit2, Trash2, Plus, ExternalLink, FileCheck,
   Send, Sparkles, AlertTriangle, BarChart3,
   Check, XCircle, Clock, DollarSign, Pencil, X, Flame, Phone as PhoneIcon,
-  Loader2, Activity, ShieldOff, ShieldCheck, Copy, CheckCheck,
+  Loader2, Activity, ShieldOff, ShieldCheck, Copy, CheckCheck, UserCog,
 } from 'lucide-react'
+import { useAuthStore } from '@/stores/auth'
 import { Header } from '@/components/layout/Header'
 import { Card } from '@/components/ui/Card'
 import { StatusBadge } from '@/components/ui/Badge'
@@ -26,6 +27,7 @@ import ContractSection from '@/components/clients/ContractSection'
 export default function ClientDetailPage() {
   const { id } = useParams()
   const router = useRouter()
+  const { isAdmin } = useAuthStore()
   const [client, setClient] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [showBulkUpload, setShowBulkUpload] = useState(false)
@@ -40,6 +42,11 @@ export default function ClientDetailPage() {
   const [dismissingTaskIds, setDismissingTaskIds] = useState<Set<string>>(new Set())
   const [togglingFallen, setTogglingFallen] = useState(false)
   const [supplySearch, setSupplySearch] = useState('')
+  // Reasignación de comercial
+  const [editingCommercial, setEditingCommercial] = useState(false)
+  const [allUsers, setAllUsers] = useState<any[]>([])
+  const [selectedUserId, setSelectedUserId] = useState<string>('')
+  const [savingCommercial, setSavingCommercial] = useState(false)
 
   const fetchClient = useCallback(async () => {
     const supabase = createClient()
@@ -93,6 +100,40 @@ export default function ClientDetailPage() {
       ),
     }))
     setEditingSupplyName(null)
+  }
+
+  // ── Reasignación de comercial ──────────────────────────────────────────────
+  const openEditCommercial = async () => {
+    if (allUsers.length === 0) {
+      const supabase = createClient()
+      const { data } = await supabase
+        .from('users_profile')
+        .select('id, full_name, email, role')
+        .order('full_name')
+      setAllUsers(data || [])
+    }
+    setSelectedUserId(client?.commercial_id || '')
+    setEditingCommercial(true)
+  }
+
+  const saveCommercial = async () => {
+    if (savingCommercial) return
+    setSavingCommercial(true)
+    const supabase = createClient()
+    const { error } = await supabase
+      .from('clients')
+      .update({ commercial_id: selectedUserId || null })
+      .eq('id', id)
+    if (!error) {
+      const newCommercial = allUsers.find(u => u.id === selectedUserId) || null
+      setClient((prev: any) => ({
+        ...prev,
+        commercial_id: selectedUserId || null,
+        commercial: newCommercial ? { full_name: newCommercial.full_name, email: newCommercial.email } : null,
+      }))
+      setEditingCommercial(false)
+    }
+    setSavingCommercial(false)
   }
 
   const handleDelete = async () => {
@@ -398,17 +439,61 @@ export default function ClientDetailPage() {
               <Pencil className="w-3.5 h-3.5" /> Asignacion
             </h3>
             <div className="space-y-4">
-              <div className="flex items-center gap-3 bg-bg-2 p-3 rounded-2xl border border-line-2-variant/10">
-                <div className="w-10 h-10 rounded-full bg-brand flex items-center justify-center flex-shrink-0">
-                  <span className="text-white text-sm font-bold">
-                    {getUserInitials(client.commercial?.full_name || client.commercial?.email)?.charAt(0) || '?'}
-                  </span>
+              {/* Comercial asignado */}
+              {editingCommercial ? (
+                <div className="space-y-2">
+                  <p className="text-[10px] text-ink-3 uppercase font-bold px-1">Seleccionar comercial</p>
+                  <select
+                    value={selectedUserId}
+                    onChange={e => setSelectedUserId(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-line bg-bg text-sm text-ink focus:outline-none focus:ring-2 focus:ring-brand/30"
+                  >
+                    <option value="">— Sin asignar —</option>
+                    {allUsers.map(u => (
+                      <option key={u.id} value={u.id}>
+                        {u.full_name || u.email}{u.role ? ` (${u.role})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      onClick={saveCommercial}
+                      disabled={savingCommercial}
+                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-brand text-white rounded-xl text-sm font-semibold hover:bg-brand/90 transition-all disabled:opacity-50"
+                    >
+                      {savingCommercial ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                      Guardar
+                    </button>
+                    <button
+                      onClick={() => setEditingCommercial(false)}
+                      className="px-3 py-2 rounded-xl text-sm text-ink-3 hover:bg-line/60 transition-all"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-[10px] text-ink-3 uppercase font-bold">Comercial asignado</p>
-                  <p className="text-sm font-semibold">{client.commercial?.full_name || 'Sin asignar'}</p>
+              ) : (
+                <div className="flex items-center gap-3 bg-bg-2 p-3 rounded-2xl border border-line-2-variant/10">
+                  <div className="w-10 h-10 rounded-full bg-brand flex items-center justify-center flex-shrink-0">
+                    <span className="text-white text-sm font-bold">
+                      {getUserInitials(client.commercial?.full_name || client.commercial?.email)?.charAt(0) || '?'}
+                    </span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] text-ink-3 uppercase font-bold">Comercial asignado</p>
+                    <p className="text-sm font-semibold truncate">{client.commercial?.full_name || 'Sin asignar'}</p>
+                  </div>
+                  {isAdmin() && (
+                    <button
+                      onClick={openEditCommercial}
+                      className="p-1.5 rounded-lg text-ink-4 hover:bg-line/60 hover:text-ink transition-all flex-shrink-0"
+                      title="Cambiar comercial"
+                    >
+                      <UserCog className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
-              </div>
+              )}
               <div className="flex items-center gap-2 px-3">
                 <div className={`p-1 rounded-full ${client.marketing_consent ? 'bg-success/10 text-ok' : 'bg-bg-2 text-ink-3/40'}`}>
                   <Check className="w-3 h-3" />
