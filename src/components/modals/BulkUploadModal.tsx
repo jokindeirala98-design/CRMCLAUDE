@@ -199,7 +199,11 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
     setXlsxImporting(true); setXlsxErr(''); setXlsxResults([])
     try {
       let accessToken: string | null = null
-      try { const raw = localStorage.getItem('voltis-auth'); if (raw) accessToken = JSON.parse(raw)?.access_token ?? null } catch {}
+      try {
+        const { createClient } = await import('@/lib/supabase/client')
+        const { data: { session } } = await createClient().auth.getSession()
+        accessToken = session?.access_token ?? null
+      } catch {}
 
       const fd = new FormData()
       if (clientId) fd.append('clientId', clientId)

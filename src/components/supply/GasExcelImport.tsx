@@ -40,10 +40,10 @@ export function GasExcelImport({ supplyId, cups, existingData, onImported }: Pro
   const [saved, setSaved] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const getToken = () => {
+  const getToken = async () => {
     try {
-      const r = localStorage.getItem('voltis-auth')
-      return r ? JSON.parse(r)?.access_token ?? null : null
+      const { data: { session } } = await createClient().auth.getSession()
+      return session?.access_token ?? null
     } catch { return null }
   }
 
@@ -59,7 +59,7 @@ export function GasExcelImport({ supplyId, cups, existingData, onImported }: Pro
     for (const f of newFiles) formData.append('file', f)
     if (cups) formData.append('targetCups', cups)
 
-    const token = getToken()
+    const token = await getToken()
     try {
       const res = await fetch(`/api/supplies/${supplyId}/import-gas-excel`, {
         method: 'POST',

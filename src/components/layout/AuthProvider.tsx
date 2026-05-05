@@ -6,95 +6,97 @@ import { getAuthClient, createClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/auth'
 import type { UserProfile } from '@/types/database'
 
+/**
+ * AuthProvider — initialises the auth state from the Supabase session stored
+ * in browser cookies (set by createBrowserClient / @supabase/ssr).
+ *
+ * Flow:
+ *   1. On mount: call supabase.auth.getSession() — reads the persisted cookie.
+ *   2. If session exists: fetch users_profile row → store in Zustand.
+ *   3. If no session or no profile: redirect to /login.
+ *   4. onAuthStateChange keeps the store in sync after login/logout.
+ *
+ * This replaces the broken pattern of reading `voltis-auth` from localStorage,
+ * which never existed (Supabase SSR uses document.cookie, not localStorage).
+ */
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const { setUser, setLoading } = useAuthStore()
   const router = useRouter()
   const [authChecked, setAuthChecked] = useState(false)
-  const [authenticated, setAuthenticated] = useState(false)
 
   useEffect(() => {
     let mounted = true
+    const authClient = getAuthClient()
 
-    const fetchProfile = async () => {
-      try {
-        // Read session directly from localStorage to avoid lock issues
-        const raw = localStorage.getItem('voltis-auth')
-        if (!raw) {
-          if (mounted) {
-            setLoading(false)
-            setAuthChecked(true)
-            // No session → redirect to login
-            router.replace('/login')
-          }
-          return
-        }
+    const initAuth = async () => {
+      // Read the current session from browser cookies
+      const { data: { session }, error } = await authClient.auth.getSession()
 
-        const session = JSON.parse(raw)
-        if (!session?.user?.id) {
-          if (mounted) {
-            setLoading(false)
-            setAuthChecked(true)
-            router.replace('/login')
-          }
-          return
-        }
-
-        // Use data client (no auth lock) to fetch profile
-        const supabase = createClient()
-        const { data: profile, error } = await supabase
-          .from('users_profile')
-          .select('*')
-          .eq('id', session.user.id)
-          .single()
-
+      if (error || !session?.user) {
         if (mounted) {
-          if (profile && !error) {
-            setUser(profile as UserProfile)
-            setAuthenticated(true)
-          } else {
-            // Profile not found or error → invalid session, redirect
-            localStorage.removeItem('voltis-auth')
-            router.replace('/login')
-          }
-          setLoading(false)
-          setAuthChecked(true)
-        }
-      } catch (err) {
-        console.error('Auth error:', err)
-        if (mounted) {
+          setUser(null)
           setLoading(false)
           setAuthChecked(true)
           router.replace('/login')
         }
+        return
       }
+
+      // Fetch the users_profile row for this session
+      const db = createClient()
+      const { data: profile } = await db
+        .from('users_profile')
+        .select('*')
+        .eq('id', session.user.id)
+        .single()
+
+      if (!mounted) return
+
+      if (profile) {
+        setUser(profile as UserProfile)
+      } else {
+        // Authenticated but no profile row — sign out and redirect
+        await authClient.auth.signOut()
+        setUser(null)
+        setLoading(false)
+        setAuthChecked(true)
+        router.replace('/login')
+        return
+      }
+
+      setLoading(false)
+      setAuthChecked(true)
     }
 
-    fetchProfile()
+    initAuth()
 
-    // Listen for auth changes (login/logout) using the auth client
-    const authClient = getAuthClient()
+    // Keep store in sync after login / logout events
     const { data: { subscription } } = authClient.auth.onAuthStateChange(
       async (event, session) => {
         if (event === 'SIGNED_IN' && session?.user) {
-          // Wait a tick for localStorage to be updated by the auth client
-          setTimeout(async () => {
-            const db = createClient()
-            const { data: profile } = await db
-              .from('users_profile')
-              .select('*')
-              .eq('id', session.user.id)
-              .single()
-            if (mounted) {
-              setUser(profile as UserProfile | null)
-              if (profile) setAuthenticated(true)
-            }
-          }, 100)
+          const db = createClient()
+          const { data: profile } = await db
+            .from('users_profile')
+            .select('*')
+            .eq('id', session.user.id)
+            .single()
+          if (mounted) {
+            setUser(profile as UserProfile | null)
+          }
         } else if (event === 'SIGNED_OUT') {
           if (mounted) {
             setUser(null)
-            setAuthenticated(false)
             router.replace('/login')
           }
+        } else if (event === 'TOKEN_REFRESHED' && session?.user) {
+          // Session silently refreshed — keep profile up-to-date
+          const db = createClient()
+          const { data: profile } = await db
+            .from('users_profile')
+            .select('*')
+            .eq('id', session.user.id)
+            .single()
+          if (mounted && profile) setUser(profile as UserProfile)
         }
       }
     )
@@ -105,6 +107,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [setUser, setLoading, router])
 
+  // Show spinner until auth state is resolved
   if (!authChecked) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-bg">

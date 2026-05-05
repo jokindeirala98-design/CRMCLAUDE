@@ -72,7 +72,6 @@ export function MobileDrawer({ isOpen, onClose }: MobileDrawerProps) {
   const handleLogout = async () => {
     const supabase = getAuthClient()
     await supabase.auth.signOut()
-    localStorage.removeItem('voltis-auth')
     window.location.href = '/login'
   }
 

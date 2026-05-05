@@ -119,7 +119,7 @@ export default function SettingsPage() {
 
     if (!error) {
       setLinkCode(code)
-      toast('success', 'Código generado. Envíalo al bot de Telegram.')
+      toast('success', 'Código generado. Escanea el QR o toca el enlace de Telegram.')
     } else {
       toast('error', 'Error generando código')
     }
@@ -622,24 +622,46 @@ export default function SettingsPage() {
                 </Button>
               </div>
               {linkCode && (
-                <div className="p-4 bg-info-container/40 rounded-xl space-y-2">
-                  <p className="text-sm font-medium text-info">Tu codigo de vinculacion:</p>
-                  <div className="flex items-center gap-2">
-                    <code className="flex-1 px-3 py-2 bg-white rounded-lg text-lg font-mono font-bold text-info text-center">
-                      {linkCode}
-                    </code>
-                    <button
-                      onClick={copyCode}
-                      className="p-2 bg-white rounded-lg hover:bg-info-container transition-colors"
-                      title="Copiar comando"
-                    >
-                      {codeCopied ? <Check className="w-4 h-4 text-ok" /> : <Copy className="w-4 h-4 text-info" />}
-                    </button>
+                <div className="p-4 bg-info-container/40 rounded-xl space-y-4">
+                  <p className="text-sm font-medium text-info">Escanea el QR con tu móvil para vincular Telegram al instante:</p>
+                  <div className="flex flex-col sm:flex-row items-center gap-4">
+                    {/* QR code */}
+                    <div className="flex-shrink-0 p-2 bg-white rounded-xl shadow-sm">
+                      <img
+                        src={`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(`https://t.me/VoltisBot?start=${linkCode}`)}&size=160x160&margin=4`}
+                        alt="QR Telegram"
+                        width={160}
+                        height={160}
+                        className="rounded-lg"
+                      />
+                    </div>
+                    <div className="flex-1 space-y-3 text-center sm:text-left">
+                      <p className="text-sm text-info">
+                        Apunta la cámara al código QR → se abrirá <b>@VoltisBot</b> en Telegram → pulsa <b>Iniciar</b>.
+                      </p>
+                      <a
+                        href={`https://t.me/VoltisBot?start=${linkCode}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#229ED9] text-white rounded-xl text-sm font-semibold hover:bg-[#1a8bbf] transition-all"
+                      >
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.247-2.02 9.52c-.148.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.16 14.4l-2.96-.924c-.643-.204-.656-.643.136-.953l11.57-4.463c.537-.194 1.006.131.656 2.187z"/>
+                        </svg>
+                        Abrir en Telegram
+                      </a>
+                      <p className="text-xs text-info/70">
+                        O escribe en @VoltisBot: <code className="bg-white/60 px-1 py-0.5 rounded font-mono">/start {linkCode}</code>
+                        <button
+                          onClick={copyCode}
+                          className="ml-2 p-1 bg-white/60 rounded hover:bg-white transition-colors inline-flex"
+                          title="Copiar código"
+                        >
+                          {codeCopied ? <Check className="w-3 h-3 text-ok" /> : <Copy className="w-3 h-3 text-info" />}
+                        </button>
+                      </p>
+                    </div>
                   </div>
-                  <p className="text-xs text-info">
-                    Abre <b>@VoltisBot</b> en Telegram y envía:<br />
-                    <code>/start {linkCode}</code>
-                  </p>
                 </div>
               )}
             </div>
