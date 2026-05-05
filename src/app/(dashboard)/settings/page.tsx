@@ -23,6 +23,8 @@ export default function SettingsPage() {
   const [editingUserId, setEditingUserId] = useState<string | null>(null)
   const [editingPermissions, setEditingPermissions] = useState<Record<string, boolean>>({})
   const [editingRole, setEditingRole] = useState<string>('')
+  const [geminiStatus, setGeminiStatus] = useState<{ ok: boolean; model?: string; error?: string; keyPrefix?: string } | null>(null)
+  const [geminiLoading, setGeminiLoading] = useState(false)
   const [profile, setProfile] = useState({
     full_name: '',
     nickname: '',
@@ -379,6 +381,20 @@ export default function SettingsPage() {
       toast('success', 'Invitación cancelada')
     } catch {
       toast('error', 'Error al cancelar la invitación')
+    }
+  }
+
+  const handleTestGemini = async () => {
+    setGeminiLoading(true)
+    setGeminiStatus(null)
+    try {
+      const res = await fetch('/api/gemini/status')
+      const data = await res.json()
+      setGeminiStatus(data)
+    } catch {
+      setGeminiStatus({ ok: false, error: 'No se pudo conectar con el servidor' })
+    } finally {
+      setGeminiLoading(false)
     }
   }
 
@@ -882,6 +898,46 @@ export default function SettingsPage() {
             </p>
 
             <div className="space-y-4">
+              {/* Gemini AI */}
+              <div className="p-4 bg-bg-2 rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-sm text-ink">Gemini AI</span>
+                    <Badge variant="info">Extractor de facturas</Badge>
+                  </div>
+                  <a
+                    href="https://aistudio.google.com/app/apikey"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-brand flex items-center gap-1 hover:underline"
+                  >
+                    Gestionar clave <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+                <div className="text-xs text-ink-3 space-y-1">
+                  <p><code className="bg-white px-1.5 py-0.5 rounded">GEMINI_API_KEY</code> — Clave de Google AI Studio (gratuita)</p>
+                  <p className="text-ink-3/80">Si la clave caduca o se agota la cuota mensual, el extractor de facturas deja de funcionar. Renuévala en aistudio.google.com y actualízala en Vercel → Settings → Environment Variables.</p>
+                </div>
+                <div className="flex items-center gap-3 pt-1">
+                  <button
+                    onClick={handleTestGemini}
+                    disabled={geminiLoading}
+                    className="flex items-center gap-1.5 text-xs bg-white border border-border px-3 py-1.5 rounded-lg hover:bg-bg-2 transition-colors disabled:opacity-50"
+                  >
+                    <RotateCw className={`w-3.5 h-3.5 ${geminiLoading ? 'animate-spin' : ''}`} />
+                    {geminiLoading ? 'Probando…' : 'Probar clave'}
+                  </button>
+                  {geminiStatus && (
+                    <div className={`flex items-center gap-1.5 text-xs ${geminiStatus.ok ? 'text-green-700' : 'text-red-600'}`}>
+                      {geminiStatus.ok
+                        ? <><CheckCircle className="w-3.5 h-3.5" /> Activa — modelo: {geminiStatus.model}</>
+                        : <><AlertCircle className="w-3.5 h-3.5" /> {geminiStatus.error}</>
+                      }
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* DocuSign */}
               <div className="p-4 bg-bg-2 rounded-xl space-y-3">
                 <div className="flex items-center justify-between">
