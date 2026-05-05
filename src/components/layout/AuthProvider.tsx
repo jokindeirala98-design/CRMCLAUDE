@@ -90,7 +90,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     initAuth().finally(() => clearTimeout(timeout))
 
-    // Keep store in sync after login / logout events
+    // Keep store in sync after login / logout events.
+    // NOTE: SIGNED_IN can fire on initial page load when restoring session from cookies,
+    // racing with initAuth(). We only update user if we get a valid profile back — never
+    // call setUser(null) here (that would wipe the user that initAuth() already set).
     const { data: { subscription } } = authClient.auth.onAuthStateChange(
       async (event, session) => {
         if (event === 'SIGNED_IN' && session?.user) {
@@ -100,8 +103,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             .select('*')
             .eq('id', session.user.id)
             .single()
-          if (mounted) {
-            setUser(profile as UserProfile | null)
+          // Only update if we actually got a profile — don't clear existing user on fetch failure
+          if (mounted && profile) {
+            setUser(profile as UserProfile)
           }
         } else if (event === 'SIGNED_OUT') {
           if (mounted) {
