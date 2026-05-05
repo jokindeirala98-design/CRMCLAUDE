@@ -18,6 +18,7 @@ import { QuickContractModal } from '@/components/modals/QuickContractModal'
 import { NewIncidentModal } from '@/components/modals/NewIncidentModal'
 import { createClient } from '@/lib/supabase/client'
 import { formatDate, formatCurrency, calculateVAT, getUserInitials } from '@/lib/utils/format'
+import { normalizeTariff } from '@/lib/consumption-utils'
 import { getViewUrl } from '@/lib/utils/storage'
 import ConsumptionDistribution from './components/ConsumptionDistribution'
 import ContractSection from '@/components/clients/ContractSection'
@@ -608,7 +609,7 @@ export default function ClientDetailPage() {
                       <div className="grid grid-cols-2 gap-2 pt-1">
                         <div className="rounded-lg bg-bg-2/60 px-2.5 py-1.5">
                           <p className="text-[9px] uppercase tracking-wider text-ink-3/70 font-semibold">Tarifa</p>
-                          <p className="text-xs text-ink font-semibold truncate">{supply.tariff || '—'}</p>
+                          <p className="text-xs text-ink font-semibold truncate">{normalizeTariff(supply.tariff || '') || supply.tariff || '—'}</p>
                         </div>
                         <div className="rounded-lg bg-bg-2/60 px-2.5 py-1.5">
                           <p className="text-[9px] uppercase tracking-wider text-ink-3/70 font-semibold">Tipo</p>

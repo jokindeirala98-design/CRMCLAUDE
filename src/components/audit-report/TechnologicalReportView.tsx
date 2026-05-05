@@ -8,7 +8,7 @@ import {
 import { Button } from '@/components/ui/Button'
 import type { ConsumptionSnapshot, AuditReport } from '@/types/database'
 import {
-  formatKWh, formatNumber, rowTotal, classifyRows, totalConsumption, periodTotals,
+  formatKWh, formatNumber, rowTotal, classifyRows, totalConsumption, periodTotals, normalizeTariff,
 } from '@/lib/consumption-utils'
 
 // ─── Voltis Design Tokens (themeSalvia) ───────────────────────────────────────
@@ -463,7 +463,8 @@ export function TechnologicalReportView({
   // ─── Tariff grouping ──────────────────────────────────────────────────────
   const tariffGroups: Record<string, ConsumptionSnapshot[]> = {}
   reportRows.forEach(r => {
-    const t = (r.tariff || 'Sin tarifa').trim()
+    const raw = (r.tariff || '').trim()
+    const t = normalizeTariff(raw) || raw || 'Sin tarifa'
     if (!tariffGroups[t]) tariffGroups[t] = []
     tariffGroups[t].push(r)
   })

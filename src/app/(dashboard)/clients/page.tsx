@@ -13,6 +13,7 @@ import { Badge, StatusBadge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
 import { createClient } from '@/lib/supabase/client'
 import { getUserInitials } from '@/lib/utils/format'
+import { normalizeTariff } from '@/lib/consumption-utils'
 import { NewTaskModal } from '@/components/modals/NewTaskModal'
 import type { Client, SupplyStatus } from '@/types/database'
 
@@ -717,7 +718,9 @@ export default function ClientsPage() {
                     new Set(
                       (selectedClient.supplies || [])
                         .map((s: any) => {
-                          const t = (s.tariff || '').trim()
+                          const raw = (s.tariff || '').trim()
+                          const t = normalizeTariff(raw) || raw
+                          if (!t) return null
                           if (t.startsWith('6.4')) return '6.4TD'
                           if (t.startsWith('6.3')) return '6.3TD'
                           if (t.startsWith('6.2')) return '6.2TD'
@@ -725,7 +728,7 @@ export default function ClientsPage() {
                           if (t.startsWith('6')) return '6.xTD'
                           if (t.startsWith('3.0') || t.startsWith('30')) return '3.0TD'
                           if (t.startsWith('2.0') || t.startsWith('20')) return '2.0TD'
-                          return t || null
+                          return t
                         })
                         .filter(Boolean)
                     )
