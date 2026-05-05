@@ -625,10 +625,10 @@ export default function SettingsPage() {
                 <div className="p-4 bg-info-container/40 rounded-xl space-y-4">
                   <p className="text-sm font-medium text-info">Escanea el QR con tu móvil para vincular Telegram al instante:</p>
                   <div className="flex flex-col sm:flex-row items-center gap-4">
-                    {/* QR code */}
+                    {/* QR code — uses tg:// protocol to avoid Android stripping ?start= param */}
                     <div className="flex-shrink-0 p-2 bg-white rounded-xl shadow-sm">
                       <img
-                        src={`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(`https://t.me/VOLTISCRM_bot?start=${linkCode}`)}&size=160x160&margin=4`}
+                        src={`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(`tg://resolve?domain=VOLTISCRM_bot&start=${linkCode}`)}&size=160x160&margin=4`}
                         alt="QR Telegram"
                         width={160}
                         height={160}
@@ -637,7 +637,7 @@ export default function SettingsPage() {
                     </div>
                     <div className="flex-1 space-y-3 text-center sm:text-left">
                       <p className="text-sm text-info">
-                        Apunta la cámara al código QR → se abrirá <b>@VOLTISCRM_bot</b> en Telegram → pulsa <b>Iniciar</b>.
+                        Escanea el QR con la <b>cámara del móvil</b> → Telegram se abrirá con el código listo → pulsa <b>Iniciar</b>.
                       </p>
                       <a
                         href={`https://t.me/VOLTISCRM_bot?start=${linkCode}`}
@@ -648,10 +648,10 @@ export default function SettingsPage() {
                         <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
                           <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.247-2.02 9.52c-.148.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.16 14.4l-2.96-.924c-.643-.204-.656-.643.136-.953l11.57-4.463c.537-.194 1.006.131.656 2.187z"/>
                         </svg>
-                        Abrir en Telegram
+                        Pulsa aquí desde el móvil
                       </a>
                       <p className="text-xs text-info/70">
-                        O escribe en @VOLTISCRM_bot: <code className="bg-white/60 px-1 py-0.5 rounded font-mono">/start {linkCode}</code>
+                        O escribe en @VOLTISCRM_bot: <code className="bg-white/60 px-1 py-0.5 rounded font-mono">/vincular {linkCode}</code>
                         <button
                           onClick={copyCode}
                           className="ml-2 p-1 bg-white/60 rounded hover:bg-white transition-colors inline-flex"
