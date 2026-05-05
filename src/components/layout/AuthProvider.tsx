@@ -1,49 +1,51 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { getAuthClient, createClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/auth'
 import type { UserProfile } from '@/types/database'
 
 /**
- * AuthProvider — initialises the auth state from the Supabase session stored
- * in browser cookies (set by createBrowserClient / @supabase/ssr).
+ * AuthProvider — gestiona el estado de autenticación desde las cookies de Supabase.
  *
- * Flow:
- *   1. On mount: call supabase.auth.getSession() — reads the persisted cookie.
- *   2. If session exists: fetch users_profile row → store in Zustand.
- *   3. If no session or no profile: redirect to /login.
- *   4. onAuthStateChange keeps the store in sync after login/logout.
- *
- * This replaces the broken pattern of reading `voltis-auth` from localStorage,
- * which never existed (Supabase SSR uses document.cookie, not localStorage).
+ * Flujo:
+ *  1. Al montar: lee la sesión desde las cookies (getSession).
+ *  2. Si hay sesión válida → busca el perfil en users_profile → guarda en Zustand → muestra la app.
+ *  3. Si no hay sesión o no hay perfil → redirige a /login.
+ *  4. Solo escucha SIGNED_OUT para limpiar estado. NO maneja SIGNED_IN aquí,
+ *     para evitar la race condition donde el listener borra al usuario que initAuth acaba de setear.
+ *  5. Timeout de seguridad de 8s: si getSession tarda demasiado, va a /login.
  */
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const { setUser, setLoading } = useAuthStore()
   const router = useRouter()
   const [authChecked, setAuthChecked] = useState(false)
+  const resolvedRef = useRef(false)
 
   useEffect(() => {
     let mounted = true
     const authClient = getAuthClient()
 
+    // Resolve once — subsequent calls are no-ops (prevents double-resolve from timeout + initAuth)
+    const resolve = (user: UserProfile | null, redirect?: string) => {
+      if (!mounted || resolvedRef.current) return
+      resolvedRef.current = true
+      setUser(user)
+      setLoading(false)
+      setAuthChecked(true)
+      if (redirect) router.replace(redirect)
+    }
+
     const initAuth = async () => {
       try {
-        // Read the current session from browser cookies
         const { data: { session }, error } = await authClient.auth.getSession()
 
         if (error || !session?.user) {
-          if (mounted) {
-            setUser(null)
-            setLoading(false)
-            setAuthChecked(true)
-            router.replace('/login')
-          }
+          resolve(null, '/login')
           return
         }
 
-        // Fetch the users_profile row for this session
         const db = createClient()
         const { data: profile } = await db
           .from('users_profile')
@@ -54,84 +56,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!mounted) return
 
         if (profile) {
-          setUser(profile as UserProfile)
+          resolve(profile as UserProfile)
         } else {
-          // Authenticated but no profile row — sign out and redirect
-          await authClient.auth.signOut()
-          setUser(null)
-          setLoading(false)
-          setAuthChecked(true)
-          router.replace('/login')
-          return
+          // Usuario autenticado pero sin fila de perfil — cerrar sesión y redirigir
+          await authClient.auth.signOut().catch(() => {})
+          resolve(null, '/login')
         }
-
-        setLoading(false)
-        setAuthChecked(true)
       } catch {
-        // Network error or unexpected failure — fail safe: redirect to login
-        if (mounted) {
-          setUser(null)
-          setLoading(false)
-          setAuthChecked(true)
-          router.replace('/login')
-        }
+        // Error de red u otro — ir a login para no quedarse bloqueado
+        resolve(null, '/login')
       }
     }
 
-    // Safety net: if initAuth takes more than 8s, unblock the UI
-    const timeout = setTimeout(() => {
-      if (mounted) {
-        setUser(null)
-        setLoading(false)
-        setAuthChecked(true)
-        router.replace('/login')
-      }
-    }, 8000)
+    // Seguro de emergencia: si tarda más de 8s, desbloquear la UI
+    const timeout = setTimeout(() => resolve(null, '/login'), 8000)
 
     initAuth().finally(() => clearTimeout(timeout))
 
-    // Keep store in sync after login / logout events.
-    // NOTE: SIGNED_IN can fire on initial page load when restoring session from cookies,
-    // racing with initAuth(). We only update user if we get a valid profile back — never
-    // call setUser(null) here (that would wipe the user that initAuth() already set).
-    const { data: { subscription } } = authClient.auth.onAuthStateChange(
-      async (event, session) => {
-        if (event === 'SIGNED_IN' && session?.user) {
-          const db = createClient()
-          const { data: profile } = await db
-            .from('users_profile')
-            .select('*')
-            .eq('id', session.user.id)
-            .single()
-          // Only update if we actually got a profile — don't clear existing user on fetch failure
-          if (mounted && profile) {
-            setUser(profile as UserProfile)
-          }
-        } else if (event === 'SIGNED_OUT') {
-          if (mounted) {
-            setUser(null)
-            router.replace('/login')
-          }
-        } else if (event === 'TOKEN_REFRESHED' && session?.user) {
-          // Session silently refreshed — keep profile up-to-date
-          const db = createClient()
-          const { data: profile } = await db
-            .from('users_profile')
-            .select('*')
-            .eq('id', session.user.id)
-            .single()
-          if (mounted && profile) setUser(profile as UserProfile)
-        }
+    // Solo escuchar SIGNED_OUT — SIGNED_IN puede dispararse al restaurar cookies y
+    // crear una race condition que limpia al usuario que initAuth acaba de poner.
+    const { data: { subscription } } = authClient.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT' && mounted) {
+        resolvedRef.current = false
+        setUser(null)
+        setLoading(false)
+        router.replace('/login')
       }
-    )
+    })
 
     return () => {
       mounted = false
+      clearTimeout(timeout)
       subscription.unsubscribe()
     }
   }, [setUser, setLoading, router])
 
-  // Show spinner until auth state is resolved
+  // Mostrar spinner hasta que se resuelva el estado de auth
   if (!authChecked) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-bg">
