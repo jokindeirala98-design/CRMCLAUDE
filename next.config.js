@@ -15,7 +15,7 @@ const securityHeaders = [
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-      "img-src 'self' data: blob: https://wqzicwrmmwhnafaihhqh.supabase.co",
+      "img-src 'self' data: blob: https://wqzicwrmmwhnafaihhqh.supabase.co https://api.qrserver.com",
       "font-src 'self' data: https://fonts.gstatic.com",
       "connect-src 'self' https://wqzicwrmmwhnafaihhqh.supabase.co https://api.gocardless.com https://www.signwell.com https://generativelanguage.googleapis.com https://fonts.googleapis.com https://fonts.gstatic.com",
       "frame-src 'self' blob:",
