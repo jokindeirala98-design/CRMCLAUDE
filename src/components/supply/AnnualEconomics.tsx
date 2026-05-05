@@ -108,6 +108,8 @@ interface Props {
   consumoPeriodos?: Record<string, number>
   /** Client/supply name for display */
   clientName?: string
+  /** Supply name (e.g. "MENDIKUR Ayuntamiento") — takes priority over titular */
+  supplyName?: string
   /** Gas historical consumption from Excel import (gasHistory in consumption_data) */
   gasHistory?: GasHistoryPeriod[]
   /** Auto-open the report/informe view on mount (e.g. from Telegram deep link) */
@@ -4213,7 +4215,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated, supplyType: propSupplyType, potenciaContratada, consumoPeriodos, clientName, gasHistory, initialView, maximetroHistory, sipsHistory }: Props) {
+export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated, supplyType: propSupplyType, potenciaContratada, consumoPeriodos, clientName, supplyName: supplyNameProp, gasHistory, initialView, maximetroHistory, sipsHistory }: Props) {
   const [view, setView] = useState<'tabla' | 'informe'>(initialView ?? 'tabla')
   const [busyRescan, setBusyRescan] = useState<string | null>(null)
   const [busyDelete, setBusyDelete] = useState<string | null>(null)
@@ -4278,7 +4280,7 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
       return next
     })
   }
-  const supplyName = withEco.length > 0 ? getEco(withEco[0])?.titular : undefined
+  const supplyName = supplyNameProp || (withEco.length > 0 ? getEco(withEco[0])?.titular : undefined) || undefined
   const isGas = isGasSupply(invoices, propSupplyType)
 
   // Aggregate validation status across all invoices
@@ -4286,17 +4288,26 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
     let anyFail = false
     let anyWarn = false
     let totalWarnings = 0
+    const failDetails: string[] = []
+    const warnDetails: string[] = []
     for (const inv of withEco) {
-      const v = (getEco(inv) as any)?.validation
+      const eco = getEco(inv) as any
+      const v = eco?.validation
+      const label = inv.period_start ? inv.period_start.slice(0, 7) : inv.id.slice(0, 8)
       if (v) {
-        if (v.mathOk === false) anyFail = true
+        if (v.mathOk === false) {
+          anyFail = true
+          const diff = v.diff != null ? ` (diff: ${v.diff > 0 ? '+' : ''}${Number(v.diff).toFixed(2)} €)` : ''
+          failDetails.push(`${label}${diff}`)
+        }
         if (Array.isArray(v.warnings) && v.warnings.length > 0) {
           anyWarn = true
           totalWarnings += v.warnings.length
+          warnDetails.push(`${label}: ${v.warnings.join(', ')}`)
         }
       }
     }
-    return { anyFail, anyWarn, totalWarnings }
+    return { anyFail, anyWarn, totalWarnings, failDetails, warnDetails }
   })()
 
   // Re-scan a single invoice
@@ -4402,21 +4413,23 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
           {withEco.length > 0 && (
             validationSummary.anyFail ? (
               <span
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-err-container/400/20 text-err text-[10px] tracking-wide border border-err/30/30"
-                title="La suma de conceptos no cuadra con el total de la factura"
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-err text-[10px] tracking-wide border border-err/40 cursor-help"
+                style={{ background: 'rgba(220,38,38,0.08)' }}
+                title={`La suma de conceptos no cuadra con el total en ${validationSummary.failDetails.length} factura(s):\n${validationSummary.failDetails.join('\n')}`}
               >
-                ⚠ REVISAR EXTRACCIÓN
+                ⚠ {validationSummary.failDetails.length} factura{validationSummary.failDetails.length > 1 ? 's' : ''} con diff
               </span>
             ) : validationSummary.anyWarn ? (
               <span
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warn-container/400/20 text-warn text-[10px] tracking-wide border border-warn/30/30"
-                title={`${validationSummary.totalWarnings} aviso(s) en la extracción`}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-warn text-[10px] tracking-wide border border-warn/40 cursor-help"
+                style={{ background: 'rgba(202,138,4,0.08)' }}
+                title={`${validationSummary.totalWarnings} aviso(s):\n${validationSummary.warnDetails.join('\n')}`}
               >
-                ⚠ REVISAR AVISOS
+                ⚠ {validationSummary.totalWarnings} aviso{validationSummary.totalWarnings > 1 ? 's' : ''}
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-ok-container/400/20 text-ok text-[10px] tracking-wide border border-ok/30/30">
-                AI VERIFIED ✓
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] tracking-wide border border-ok/40" style={{ background: 'rgba(22,163,74,0.08)', color: '#16a34a' }}>
+                ✓ validado
               </span>
             )
           )}
