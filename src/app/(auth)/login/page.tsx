@@ -36,8 +36,10 @@ function LoginForm() {
       return
     }
 
-    router.refresh()
-    router.push('/panel')
+    // Use full page reload to ensure clean state after login.
+    // router.push() can cause hydration mismatches when session cookies
+    // are set by signInWithPassword but the React tree is still mid-render.
+    window.location.href = '/panel'
   }
 
   return (
