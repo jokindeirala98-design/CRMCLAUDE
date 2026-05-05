@@ -78,8 +78,9 @@ export default function SettingsPage() {
   const [telegramLoading, setTelegramLoading] = useState(false)
 
   // ── Google Calendar state ──
-  const [gcalConnected, setGcalConnected] = useState(false)
-  const [gcalLoading, setGcalLoading] = useState(false)
+  const [gcalConnected,       setGcalConnected]       = useState(false)
+  const [gcalLoading,         setGcalLoading]         = useState(false)
+  const [sharedCalConnected,  setSharedCalConnected]  = useState(false)
   const [linkCode, setLinkCode] = useState<string | null>(null)
   const [codeCopied, setCodeCopied] = useState(false)
 
@@ -178,12 +179,24 @@ export default function SettingsPage() {
         .single()
         .then(({ data }) => setGcalConnected(!!data?.google_refresh_token))
 
+      // Check shared calendar connection (admin only)
+      if (isAdmin()) {
+        fetch('/api/google/shared-status')
+          .then(r => r.json())
+          .then(d => setSharedCalConnected(!!d.connected))
+          .catch(() => {})
+      }
+
       // Show success/error toast if redirected back from Google OAuth
       if (typeof window !== 'undefined') {
         const params = new URLSearchParams(window.location.search)
         if (params.get('gcal') === 'connected') {
           setGcalConnected(true)
-          toast('success', '¡Google Calendar conectado correctamente!')
+          toast('success', '¡Google Calendar personal conectado!')
+          window.history.replaceState({}, '', window.location.pathname)
+        } else if (params.get('gcal') === 'shared_connected') {
+          setSharedCalConnected(true)
+          toast('success', '✅ Calendario compartido "Voltis CRM" conectado. Las citas se sincronizarán automáticamente.')
           window.history.replaceState({}, '', window.location.pathname)
         } else if (params.get('gcal') === 'error') {
           toast('error', 'Error conectando Google Calendar. Inténtalo de nuevo.')
@@ -633,15 +646,73 @@ export default function SettingsPage() {
           )}
         </Card>
 
-        {/* Google Calendar */}
+        {/* Calendario Compartido — solo admin */}
+        {isAdmin() && (
+          <Card>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-9 h-9 rounded-xl bg-brand/10 flex items-center justify-center">
+                <CalendarDays className="w-5 h-5 text-brand" />
+              </div>
+              <div>
+                <h3 className="font-sans font-semibold text-base text-ink">Calendario Compartido del Equipo</h3>
+                <p className="text-xs text-ink-3">Las citas del CRM aparecen en el calendario "Voltis CRM" compartido con todo el equipo</p>
+              </div>
+            </div>
+
+            {sharedCalConnected ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 p-3 bg-ok-container/40 rounded-xl">
+                  <CheckCircle className="w-5 h-5 text-ok" />
+                  <div>
+                    <p className="text-sm font-medium text-ok">Calendario compartido conectado</p>
+                    <p className="text-xs text-ok/80">Las citas se publican automáticamente en "Voltis CRM"</p>
+                  </div>
+                </div>
+                <div className="p-3 bg-bg-2 rounded-xl space-y-1.5 text-xs text-ink-3">
+                  <p>📅 <b>Presentaciones, firmas, seguimientos</b> → aparecen para todo el equipo</p>
+                  <p>🌐 <b>Citas grupo</b> → destacadas en rojo, visibles para todos</p>
+                  <p>👤 <b>Creador visible</b> → el título incluye quién creó la cita</p>
+                </div>
+                <a
+                  href="/api/google/auth-shared"
+                  className="inline-flex items-center gap-2 px-3 py-2 text-sm text-ink-3 hover:bg-line/60 rounded-lg transition-colors"
+                >
+                  <CalendarDays className="w-4 h-4" />
+                  Reconectar
+                </a>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-sm text-ink-3">
+                  Autoriza el CRM para publicar las citas en el calendario compartido del equipo. Solo necesitas hacerlo una vez.
+                </p>
+                <div className="p-3 bg-bg-2 rounded-xl space-y-1.5 text-xs text-ink-3">
+                  <p>📅 <b>Todas las citas</b> → visibles para todo el equipo en Google Calendar</p>
+                  <p>🌐 <b>Citas grupo</b> → destacadas en rojo con los asistentes</p>
+                  <p>🔄 <b>Automático</b> → se actualiza al crear, editar o cancelar una cita</p>
+                </div>
+                <a
+                  href="/api/google/auth-shared"
+                  className="inline-flex items-center gap-2 px-4 py-2.5 bg-brand text-white rounded-xl text-sm font-semibold hover:bg-brand/90 transition-all"
+                >
+                  <CalendarDays className="w-4 h-4" />
+                  Conectar Calendario Compartido
+                  <ExternalLink className="w-3 h-3 opacity-70" />
+                </a>
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* Google Calendar Personal */}
         <Card>
           <div className="flex items-center gap-3 mb-4">
             <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
               <CalendarDays className="w-5 h-5 text-brand" />
             </div>
             <div>
-              <h3 className="font-sans font-semibold text-base text-ink">Google Calendar</h3>
-              <p className="text-xs text-ink-3">Sincroniza citas y tareas automáticamente con tu calendario</p>
+              <h3 className="font-sans font-semibold text-base text-ink">Mi Google Calendar</h3>
+              <p className="text-xs text-ink-3">Recibe tus tareas pendientes del día en tu calendario personal</p>
             </div>
           </div>
 
@@ -651,12 +722,12 @@ export default function SettingsPage() {
                 <CheckCircle className="w-5 h-5 text-ok" />
                 <div>
                   <p className="text-sm font-medium text-ok">Conectado</p>
-                  <p className="text-xs text-ok/80">Las citas y tareas se sincronizan automáticamente</p>
+                  <p className="text-xs text-ok/80">Tus tareas del día aparecen a las 8:00am en tu calendario</p>
                 </div>
               </div>
               <div className="p-3 bg-bg-2 rounded-xl space-y-1.5 text-xs text-ink-3">
-                <p>✅ <b>Citas</b> → eventos individuales en Google Calendar con hora y ubicación</p>
                 <p>📋 <b>Tareas pendientes</b> → evento diario a las 8:00am con tu lista del día</p>
+                <p>📌 <b>Tareas con fecha</b> → aparecen el día que toca</p>
               </div>
               <button
                 onClick={disconnectGcal}
@@ -664,16 +735,15 @@ export default function SettingsPage() {
                 className="flex items-center gap-2 px-4 py-2 text-sm text-err hover:bg-err-container/40 rounded-lg transition-colors"
               >
                 <Unlink className="w-4 h-4" />
-                Desvincular Google Calendar
+                Desvincular mi Google Calendar
               </button>
             </div>
           ) : (
             <div className="space-y-3">
               <p className="text-sm text-ink-3">
-                Conecta tu cuenta de Google para que las citas y tareas del CRM aparezcan automáticamente en tu Google Calendar del móvil.
+                Conecta tu cuenta de Google para recibir tus tareas del CRM directamente en tu Google Calendar personal.
               </p>
               <div className="p-3 bg-bg-2 rounded-xl space-y-1.5 text-xs text-ink-3">
-                <p>📅 <b>Citas</b> → cada presentación, firma o seguimiento aparece como evento</p>
                 <p>📋 <b>Tareas</b> → evento diario a las 8:00am con todas tus tareas pendientes</p>
                 <p>🔄 <b>Automático</b> → se actualiza solo, incluso desde el bot de Telegram</p>
               </div>
@@ -682,7 +752,7 @@ export default function SettingsPage() {
                 className="inline-flex items-center gap-2 px-4 py-2.5 bg-brand text-white rounded-xl text-sm font-semibold hover:bg-brand/90 transition-all"
               >
                 <CalendarDays className="w-4 h-4" />
-                Conectar Google Calendar
+                Conectar mi Google Calendar
                 <ExternalLink className="w-3 h-3 opacity-70" />
               </a>
             </div>
@@ -895,12 +965,24 @@ export default function SettingsPage() {
                           <label className="text-sm font-medium text-ink block mb-2">Rol</label>
                           <Select
                             value={editingRole}
-                            onChange={(e) => setEditingRole(e.target.value)}
+                            onChange={(e) => {
+                              const newRole = e.target.value
+                              setEditingRole(newRole)
+                              // Admin always has billing access; commercial starts without it
+                              if (newRole === 'admin') {
+                                setEditingPermissions(prev => ({ ...prev, billing: true }))
+                              } else {
+                                setEditingPermissions(prev => ({ ...prev, billing: false }))
+                              }
+                            }}
                             options={[
-                              { value: 'admin', label: 'Administrador' },
-                              { value: 'commercial', label: 'Comercial' },
+                              { value: 'admin', label: 'Administrador — ve todos los clientes' },
+                              { value: 'commercial', label: 'Comercial — ve solo sus clientes' },
                             ]}
                           />
+                          {editingRole === 'admin' && (
+                            <p className="text-xs text-ink-3 mt-1">Los administradores ven todos los clientes, suministros y datos de todos los comerciales.</p>
+                          )}
                         </div>
 
                         {editingRole === 'commercial' && (

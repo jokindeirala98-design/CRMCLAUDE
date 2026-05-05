@@ -181,11 +181,28 @@ export default function ClientsPage() {
   useEffect(() => {
     const fetchData = async () => {
       const supabase = createClient()
+
+      // Determine visibility: admins or users with billing permission see all clients;
+      // commercial users without billing only see their own.
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+      const { data: profile } = authUser
+        ? await supabase.from('users_profile').select('id, role, permissions').eq('id', authUser.id).single()
+        : { data: null }
+
+      const isFullAccess = profile?.role === 'admin' || profile?.permissions?.billing === true
+
+      let clientQuery = supabase
+        .from('clients')
+        .select(`*, commercial:users_profile!commercial_id(id, full_name, nickname, email), supplies(*)`)
+        .order('created_at', { ascending: false })
+
+      if (!isFullAccess && authUser) {
+        // Commercial without billing → only own clients
+        clientQuery = clientQuery.eq('commercial_id', authUser.id)
+      }
+
       const [{ data: clientData }, { data: commercialData }] = await Promise.all([
-        supabase
-          .from('clients')
-          .select(`*, commercial:users_profile!commercial_id(id, full_name, nickname, email), supplies(*)`)
-          .order('created_at', { ascending: false }),
+        clientQuery,
         supabase
           .from('users_profile')
           .select('id, full_name, nickname, email, role')
