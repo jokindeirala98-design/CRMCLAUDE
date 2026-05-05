@@ -619,8 +619,19 @@ LUZ-4. **DESGLOSE DE ENERGÍA Y DESCUENTOS:**
    - costeNetoConsumo = costeBrutoConsumo − descuentoEnergia.
    - costeTotalConsumo = costeNetoConsumo (alias para compatibilidad).
    - MANDATORIO: los descuentos de energía NO deben aparecer en otrosConceptos.
-   - AUTOCONSUMO: Si aparece "Energía Excedentaria" / "Compensación de excedentes",
-     extráelo como rawLineItem con category="compensacion_excedentes" y valor NEGATIVO.
+   - AUTOCONSUMO EXCEDENTARIO (cliente vende a la red): Si aparece "Energía Excedentaria" /
+     "Compensación de excedentes", extráelo como rawLineItem con category="compensacion_excedentes"
+     y valor NEGATIVO.
+   - AUTOCONSUMO VARIABLE / COLECTIVO (cliente recibe descuento de producción solar ajena):
+     Si hay una sección "AUTOCONSUMO VARIABLE" o "AUTOCONSUMO" con líneas negativas por periodo
+     (ej: "P1 35 kWh × 0,079254 €/kWh → -2,77 €", "P2 52 kWh × 0,063860 €/kWh → -3,32 €"):
+     • Emite CADA línea como rawLineItem con category="autoconsumo_variable", total NEGATIVO,
+       y opcionalmente periodo si está indicado.
+     • ⚠️ CRÍTICO: Los kWh en estas líneas son producción solar asignada, NO consumo real del
+       cliente. JAMÁS los sumes a los kWh de energía consumida ni los incluyas en consumo[].
+     • El valor total de "Autoconsumo" del Resumen de Factura (ej: "-16,11 €") es la SUMA de
+       estas líneas — NO lo emitas como rawLineItem adicional (evita doble conteo).
+     • Estos importes negativos SÍ reducen el total de la factura.
 
 LUZ-5. **AUDITORÍA DE POTENCIA INDUSTRIAL:**
    - Busca "Resumen de Factura" o "Detalle de Potencia".
@@ -1561,6 +1572,7 @@ function rebuildFromRawLineItems(rawLineItems: LineItem[], eco: any): any {
     alquiler_equipos: 'ALQUILER DE EQUIPOS',
     bono_social: 'BONO SOCIAL',
     compensacion_excedentes: 'COMPENSACIÓN EXCEDENTES',
+    autoconsumo_variable: 'AHORRO AUTOCONSUMO SOLAR',
     impuesto_electrico: 'IMPUESTO ELÉCTRICO',
     exceso_potencia: 'EXCESO DE POTENCIA',
     iva: 'IVA / IGIC',

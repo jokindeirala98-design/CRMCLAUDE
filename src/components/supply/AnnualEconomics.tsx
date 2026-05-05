@@ -1106,6 +1106,10 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
       render: (eco) => { const m = normalizeOtros(eco?.otrosConceptos); const v = getOtro(m, 'compensac'); return <span className="text-[#5A6B5F] text-sm">{v !== null ? `${fmt(v)} €` : '—'}</span> },
     },
     {
+      key: 'autoconsumo', label: 'AHORRO AUTOCONSUMO SOLAR',
+      render: (eco) => { const m = normalizeOtros(eco?.otrosConceptos); const v = getOtro(m, 'autoconsumo'); return v !== null ? <span className="text-amber-600 font-semibold text-sm bg-amber-50 px-1 rounded">{fmt(v)} €</span> : <span className="text-[#5A6B5F] text-sm">—</span> },
+    },
+    {
       key: 'exceso', label: 'EXCESO DE POTENCIA',
       render: (eco) => { const m = normalizeOtros(eco?.otrosConceptos); const v = getOtro(m, 'exceso'); return <span className="text-[#5A6B5F] text-sm">{v !== null ? `${fmt(v)} €` : '—'}</span> },
     },
