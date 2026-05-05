@@ -702,13 +702,31 @@ export async function POST(
       }
     }
 
-    // ── Create/update prescoring now that we have real gas consumption data ──────
+    // ── Create/update prescoring for ALL gas supplies that now have consumption data ──
     try {
       const { ensurePendingPrescoring } = await import('@/lib/ensurePrescoring')
+      // Target supply (the one the file was uploaded to)
       await ensurePendingPrescoring(supabase, params.id, {
         userId: user.id,
-        updateNulls: true,  // patch existing row if present; create if not
+        updateNulls: true,
       })
+      // Bulk-updated sibling supplies from the same Excel file
+      if (otherResults.length > 0 && supply.client_id) {
+        const { data: updatedSiblings } = await supabase
+          .from('supplies')
+          .select('id')
+          .eq('client_id', supply.client_id)
+          .eq('type', 'gas')
+          .neq('id', params.id)
+        for (const sib of updatedSiblings || []) {
+          try {
+            await ensurePendingPrescoring(supabase, sib.id, {
+              userId: user.id,
+              updateNulls: true,
+            })
+          } catch { /* non-fatal per supply */ }
+        }
+      }
     } catch (prescoringErr) {
       console.warn('[import-gas-excel] prescoring update failed (non-fatal)', prescoringErr)
     }

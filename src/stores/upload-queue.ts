@@ -793,25 +793,14 @@ async function fetchSipsForSupply(
   // Detect gas: explicit type, RL tariff, or CUPS suffix heuristic (2 trailing letters)
   const isGas = supplyType === 'gas' || (cups.length >= 22 && /^[A-Z]{2}$/.test(cups.slice(20, 22)))
 
-  // Route to the correct SIPS API
+  // Gas supplies must NOT auto-fetch SIPS — consumption data is entered manually
+  // via the GasExcelImport component. Returning here keeps consumption_data empty
+  // until the user uploads the distributor Excel.
+  if (isGas) return
+
+  // Route to the correct SIPS API (electricity only)
   let d: any = null
   let sipsSource = 'greening_sips'
-
-  if (isGas) {
-    // Try TotalEnergies for gas
-    const gasRes = await fetch('/api/sips-gas', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cups }),
-    })
-    if (gasRes.ok) {
-      const gasResult = await gasRes.json()
-      if (gasResult.success && gasResult.data) {
-        d = gasResult.data
-        sipsSource = 'totalenergies_sips'
-      }
-    }
-  }
 
   if (!d) {
     // Electricity → Greening, or fallback for gas that failed TotalEnergies
