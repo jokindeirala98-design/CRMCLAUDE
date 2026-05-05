@@ -628,7 +628,7 @@ export default function SettingsPage() {
                     {/* QR code */}
                     <div className="flex-shrink-0 p-2 bg-white rounded-xl shadow-sm">
                       <img
-                        src={`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(`https://t.me/VoltisBot?start=${linkCode}`)}&size=160x160&margin=4`}
+                        src={`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(`https://t.me/VOLTISCRM_bot?start=${linkCode}`)}&size=160x160&margin=4`}
                         alt="QR Telegram"
                         width={160}
                         height={160}
@@ -637,10 +637,10 @@ export default function SettingsPage() {
                     </div>
                     <div className="flex-1 space-y-3 text-center sm:text-left">
                       <p className="text-sm text-info">
-                        Apunta la cámara al código QR → se abrirá <b>@VoltisBot</b> en Telegram → pulsa <b>Iniciar</b>.
+                        Apunta la cámara al código QR → se abrirá <b>@VOLTISCRM_bot</b> en Telegram → pulsa <b>Iniciar</b>.
                       </p>
                       <a
-                        href={`https://t.me/VoltisBot?start=${linkCode}`}
+                        href={`https://t.me/VOLTISCRM_bot?start=${linkCode}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#229ED9] text-white rounded-xl text-sm font-semibold hover:bg-[#1a8bbf] transition-all"
@@ -651,7 +651,7 @@ export default function SettingsPage() {
                         Abrir en Telegram
                       </a>
                       <p className="text-xs text-info/70">
-                        O escribe en @VoltisBot: <code className="bg-white/60 px-1 py-0.5 rounded font-mono">/start {linkCode}</code>
+                        O escribe en @VOLTISCRM_bot: <code className="bg-white/60 px-1 py-0.5 rounded font-mono">/start {linkCode}</code>
                         <button
                           onClick={copyCode}
                           className="ml-2 p-1 bg-white/60 rounded hover:bg-white transition-colors inline-flex"
