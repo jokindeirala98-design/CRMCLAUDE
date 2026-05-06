@@ -603,6 +603,13 @@ LUZ-2. **POTENCIA — kW contratados por periodo y precioKwDia:**
      en potencia[] (precioKwDia = suma de ambos precioUnitario_diario, total = suma de totales).
      En rawLineItems emite las dos líneas por separado.
 
+   ⛔ ERROR FRECUENTE — NO confundas el total de la línea con el precioKwDia:
+     "P2  3,45 kW × 31 días × 0,042668 €/kW·día = 4,56 €"
+     → precioKwDia = 0.042668  (el número ANTES del signo €/kW·día)
+     → total = 4.56           (el importe al FINAL de la línea)
+     Poner 4.56 en precioKwDia es INCORRECTO — es el total, no el precio unitario.
+     SIEMPRE verifica: precioKwDia × kw × dias ≈ total. Si no cuadra, has confundido los campos.
+
 LUZ-3. **AGRUPACIÓN ESTRICTA Y NOMBRES CANÓNICOS (OBLIGATORIO):**
    Usa EXACTAMENTE estos nombres para agrupar conceptos similares en otrosConceptos:
    - 'BONO SOCIAL' — cualquier variante de bono social.
@@ -742,10 +749,20 @@ A1. IBERDROLA / i-DE:
 
    POTENCIA (2.0TD):
      Sólo 2 periodos: P1 (Punta) y P2 (Valle). Cada uno desglosado en peaje+cargo.
-     Ejemplo: "Potencia facturada peajes P1  3,45 kW × 31 días × 0,115106 €/kW·día = 12,31 €"
-              "Potencia facturada peajes P2  3,45 kW × 31 días × 0,042668 €/kW·día =  4,56 €"
-     → potencia[] debe tener DOS entradas (P1 y P2), con su precioKwDia y total respectivos.
-     → 4,56 € para P2 ES CORRECTO — es el coste real de la potencia Valle.
+     Ejemplo factura real:
+       "Potencia facturada peajes P1  3,45 kW × 31 días × 0,115106 €/kW·día = 12,31 €"
+       "Potencia facturada cargos P1  3,45 kW × 31 días × 0,014327 €/kW·día =  1,53 €"
+       "Potencia facturada peajes P2  3,45 kW × 31 días × 0,042668 €/kW·día =  4,56 €"
+       "Potencia facturada cargos P2  3,45 kW × 31 días × 0,009876 €/kW·día =  1,06 €"
+     → potencia[] consolidada (sumando peaje+cargo por periodo):
+         P1: kw=3.45, dias=31, precioKwDia=0.129433 (=0.115106+0.014327), total=13.84
+         P2: kw=3.45, dias=31, precioKwDia=0.052544 (=0.042668+0.009876), total=5.62
+     ⚠️ CRÍTICO: precioKwDia es SIEMPRE el precio unitario en €/kW·DÍA (número pequeño < 1).
+        NUNCA pongas el total del período (12,31 € ó 4,56 €) en precioKwDia.
+        - correcto: precioKwDia=0.042668 (precio unitario de peaje P2)
+        - INCORRECTO: precioKwDia=4.56 (eso es el total del período, no el precio)
+     ⚠️ VERIFICACIÓN: total ≈ kw × precioKwDia × dias.
+        Si precioKwDia > 2, algo está mal — vuelve a leer la línea de potencia.
 
    POTENCIA (3.0TD): desglosada en peaje+cargo por cada uno de los 6 periodos.
 
@@ -867,8 +884,40 @@ A10. ALUMBRA ENERGÍA / ALUMBRAENERGÍA (dos formatos del mismo comercializador)
    - NO confundas el "Número del contador" (número de 8 dígitos, ej: "49504194") con el CUPS.
    - El CUPS real tiene dígitos no nulos en su parte central — si ves muchos ceros seguidos, vuelve a leer.
 
-A11. COMERCIALIZADORA DESCONOCIDA — MODO EXPERTO (aplica si no hay patrón en A1-A10):
-   Si la comercializadora no aparece en los patrones anteriores, actúa como un asesor
+A11. NOVALUZ ENERGÍA / ESCANDINAVA DE ELECTRICIDAD (EDE SLU):
+   Comercializadora: NOVALUZ ENERGÍA S.L. Distribuidora: Escandinava de Electricidad SLU (CIF B85551273).
+   Formato de factura con cabecera morada/amarilla "NOVALUZ." y sección "DETALLE DE LA FACTURA" a la derecha.
+
+   ⚠️ POTENCIA 2.0TD — NOVALUZ USA P1 y P3, NO P1 y P2:
+     La sección "TÉRMINO POTENCIA TARIFA" tiene EXACTAMENTE DOS líneas:
+       "P1  5,500 kW x 32 Días x 0,07543871 €/kW día   13,28 €"
+       "P3  5,500 kW x 32 Días x 0,00197078 €/kW día    0,35 €"
+     → potencia[] emite DOS entradas con periodo="P1" y periodo="P3" exactamente como aparece.
+     → NO crees una entrada P2 de potencia. Novaluz llama "P3" a su segundo tramo regulatorio.
+     → La cabecera del contrato muestra "Potencia contratada: P1: X,XXX  P3: X,XXX" — confirma que no hay P2.
+     → Los kW contratados son los mismos en P1 y P3 (ej. 5,500 kW ambos).
+
+   ENERGÍA 2.0TD — sí tiene tres periodos (P1, P2, P3):
+     Sección "TÉRMINO ENERGÍA DTO CLIENTE ESPECIAL":
+       "P1  265 kWh x 0,303811 €/kWh   80,51 €"
+       "P2  293 kWh x 0,246246 €/kWh   72,15 €"
+       "P3  103 kWh x 0,200777 €/kWh   20,68 €"
+     → consumo[] tiene tres entradas (P1, P2, P3) con sus kWh y precioKwh.
+     → Los precios ya incluyen descuento comercial. La nota "Importe Energía Después de 30% Descuento:
+       173,34 €" al pie es INFORMATIVA (= suma de las tres líneas). NO la emitas como rawLineItem.
+
+   SERVICIOS Y OTROS CONCEPTOS → rawLineItems category="otro":
+     - "Gastos de Gestión Energía Limpia" + "Dto Gastos de Gestión Energía Limpia -75%" → suma neta positiva
+     - "Go Clean with Novaluz" + "Dto Go Clean..." → se anulan (neto 0 €) → omite ambas líneas
+     - "Contribución bono social RD..." → category=bono_social (puede haber 1–2 líneas, suma su total)
+
+   IVA: puede ser 21% estándar, o mixto (ej. IVA 21% sobre 4,40 € + IVA 10% sobre 153,11 €).
+        Extrae cada tramo como rawLineItem iva separado con su tipo y base.
+
+   COMERCIALIZADORA: registrar siempre como "NOVALUZ" (no "Escandinava").
+
+A12. COMERCIALIZADORA DESCONOCIDA — MODO EXPERTO (aplica si no hay patrón en A1-A11):
+   Si la comercializadora no aparece en los patrones A1–A11, actúa como un asesor
    energético senior y extrae los datos usando tu conocimiento del mercado eléctrico español:
 
    RAZONAMIENTO POR ESTRUCTURA:
