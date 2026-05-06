@@ -603,6 +603,14 @@ LUZ-2. **POTENCIA — kW contratados por periodo y precioKwDia:**
      en potencia[] (precioKwDia = suma de ambos precioUnitario_diario, total = suma de totales).
      En rawLineItems emite las dos líneas por separado.
 
+   ⚠️ REGLA GENERAL — PERIODOS DE POTENCIA: extrae EXACTAMENTE lo que aparece impreso.
+     Lo habitual en 2.0TD es P1 + P2. Pero algunas comercializadoras usan P1 + P3:
+     → Si la factura muestra potencia en P1 y P2 → emite P1 y P2.
+     → Si la factura muestra potencia en P1 y P3 (sin P2) → emite P1 y P3. NO crees P2.
+     → Si P2 no aparece en potencia pero sí aparece P3 → P3 es el segundo periodo; úsalo.
+     → NUNCA inventes un periodo de potencia que no esté impreso en la factura.
+     Aplica esta regla con independencia de la tarifa o la comercializadora.
+
    ⛔ ERROR FRECUENTE — NO confundas el total de la línea con el precioKwDia:
      "P2  3,45 kW × 31 días × 0,042668 €/kW·día = 4,56 €"
      → precioKwDia = 0.042668  (el número ANTES del signo €/kW·día)
