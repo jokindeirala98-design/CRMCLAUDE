@@ -693,16 +693,67 @@ A. IDENTIFICACIÓN DE COMERCIALIZADORA Y SUS PATRONES PROPIOS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 A1. IBERDROLA / i-DE:
-   - Energía: UN flat "Energía Precio horario X.XXX kWh × 0,XXXXXX €/kWh"
-     → energia_comercializacion, periodo=null. NO confundas ese total flat con P1.
-   - Debajo de la energía flat aparecen por separado peajes/cargos POR PERIODO:
+
+   ENERGÍA (tres formatos posibles — detecta cuál aplica):
+
+   FORMATO I-A (el más común, 3.0TD y 2.0TD): Un único flat de energía
+     "Energía Precio horario X.XXX kWh × 0,XXXXXX €/kWh → ZZ,ZZ €"
+     → rawLineItem: categoria=energia_comercializacion, periodo=null, kwh=total, precioUnitario=X, total=ZZ
+     → consumo[]: una sola entrada con periodo=null, kwh=total, precioKwh=X, total=ZZ
+     → NO confundas ese total flat con P1.
+
+   FORMATO I-B (2.0TD con sub-períodos de facturación): el mismo precio aparece DOS VECES
+     en dos líneas correspondientes a dos tramos del período (ej. cuando hubo cambio de
+     tarifa a mitad de mes). AMBAS líneas tienen el MISMO precioUnitario (€/kWh).
+     Ejemplo:
+       "Energía Precio horario 120 kWh × 0,17916 €/kWh → 21,50 €"
+       "Energía Precio horario  54 kWh × 0,17916 €/kWh →  9,67 €"
+     → SÚMALOS: kWh total = 174, total = 31,17 €, precioKwh = 0,17916
+     → rawLineItem: ONE entry, categoria=energia_comercializacion, periodo=null, kwh=174, total=31.17
+     → consumo[]: ONE entry, periodo=null, kwh=174, precioKwh=0.17916, total=31.17
+     ⚠️ CLAVE: si ves dos líneas de energía con el MISMO precio unitario → súmalas, no las emitas por separado.
+
+   FORMATO I-C (2.0TD con descuentos porcentuales sobre la energía):
+     La energía flat aparece seguida de 1–2 líneas de descuento (por ejemplo −15% y −5%).
+     Los descuentos son rawLineItems con category=descuento_energia y total NEGATIVO.
+     Para precioKwh neto en consumo[]:
+       precioKwh_neto = (totalBruto − |desc1| − |desc2|) / kWhTotal
+     Ejemplo:
+       "Energía Precio horario 174 kWh × 0,XXXXXX €/kWh → 21,82 €"
+       "Descuento comercial −15%  → −3,27 €"
+       "Descuento fidelidad −5%   → −1,09 €"
+       → costeNetoConsumo = 21,82 − 3,27 − 1,09 = 17,46 €
+       → precioKwh_neto = 17,46 / 174 = 0,10034 €/kWh
+       → consumo[]: kwh=174, precioKwh=0.10034, total=17.46
+
+   DESGLOSE POR PERIODOS (kWh por P1/P2 — 2.0TD Iberdrola):
+     En facturas 2.0TD Iberdrola, la energía puede aparecer como UN flat SIN desglose
+     por periodo en la tabla principal. El desglose de kWh por periodo (Punta/Valle/Llano)
+     suele venir en el PIE DE PÁGINA o sección "Lecturas desagregadas" con texto como:
+       "punta: 123 kWh; llano: 40 kWh; valle: 43 kWh"
+     o    "P1 (punta): 123 kWh   P2 (valle): 51 kWh"
+     → LEE ESA SECCIÓN y úsala para rellenar consumo[] con kWh por periodo.
+     → En 2.0TD: P1=punta, P2=llano+valle (si se usan 2 periodos) o P1=punta, P2=valle (discriminación).
+     → Si no hay desglose en ningún sitio, emite consumo[] con una sola entrada periodo=null con el total.
+
+   PEAJES Y CARGOS POR PERIODO (debajo de la energía flat):
      "Energía facturada peajes P1 1.080 kWh × 0,028528 €/kWh" → energia_peaje
      "Energía facturada cargos P1 1.080 kWh × 0,032503 €/kWh" → energia_cargo
-   - Potencia: siempre desglosada en peaje+cargo por cada uno de los 6 periodos (3.0TD) o 2 periodos (2.0TD).
+
+   POTENCIA (2.0TD):
+     Sólo 2 periodos: P1 (Punta) y P2 (Valle). Cada uno desglosado en peaje+cargo.
+     Ejemplo: "Potencia facturada peajes P1  3,45 kW × 31 días × 0,115106 €/kW·día = 12,31 €"
+              "Potencia facturada peajes P2  3,45 kW × 31 días × 0,042668 €/kW·día =  4,56 €"
+     → potencia[] debe tener DOS entradas (P1 y P2), con su precioKwDia y total respectivos.
+     → 4,56 € para P2 ES CORRECTO — es el coste real de la potencia Valle.
+
+   POTENCIA (3.0TD): desglosada en peaje+cargo por cada uno de los 6 periodos.
+
    - No hay "subtotal energía" intermedio — ve directo al flat + peajes/cargos.
    - IVA siempre 21% para Península, IGIC 7% para Canarias.
    - Bono social: línea "Financiación Bono Social Fijo" → bono_social (cargo positivo, no crédito).
    - SRAD (Servicio de Recarga Auto Día): si aparece, → otro.
+   - Pack Iberdrola / "Pack luz" / cargo de mantenimiento → otro.
 
 A2. ENDESA / e-distribución:
    - 3.0TD empresarial: puede mostrar la energía como SUMA por periodo consolidada

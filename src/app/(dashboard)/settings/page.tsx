@@ -25,6 +25,9 @@ export default function SettingsPage() {
   const [editingRole, setEditingRole] = useState<string>('')
   const [geminiStatus, setGeminiStatus] = useState<{ ok: boolean; model?: string; error?: string; keyPrefix?: string } | null>(null)
   const [geminiLoading, setGeminiLoading] = useState(false)
+  const [reextractName, setReextractName] = useState('')
+  const [reextractLoading, setReextractLoading] = useState(false)
+  const [reextractResult, setReextractResult] = useState<{ ok: number; errors: number; total: number; results?: any[] } | null>(null)
   const [profile, setProfile] = useState({
     full_name: '',
     nickname: '',
@@ -423,6 +426,33 @@ export default function SettingsPage() {
       setGeminiStatus({ ok: false, error: 'No se pudo conectar con el servidor' })
     } finally {
       setGeminiLoading(false)
+    }
+  }
+
+  const handleReextract = async () => {
+    if (!reextractName.trim()) return
+    setReextractLoading(true)
+    setReextractResult(null)
+    try {
+      const res = await fetch('/api/admin/reextract-client', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientName: reextractName.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        toast('error', data.error || 'Error desconocido')
+      } else {
+        setReextractResult(data)
+        toast(
+          data.errors === 0 ? 'success' : 'warning',
+          `${data.ok}/${data.total} facturas re-extraídas.${data.errors > 0 ? ` ${data.errors} errores.` : ''}`,
+        )
+      }
+    } catch {
+      toast('error', 'No se pudo conectar con el servidor')
+    } finally {
+      setReextractLoading(false)
     }
   }
 
@@ -1037,6 +1067,49 @@ export default function SettingsPage() {
                   <p><code className="bg-bg-2 px-1.5 py-0.5 rounded">SUPABASE_SERVICE_ROLE_KEY</code> — Service role key (para webhooks server-side)</p>
                 </div>
               </div>
+            </div>
+          </Card>
+        )}
+
+        {/* Admin tools — re-extract invoices */}
+        {isAdmin() && (
+          <Card>
+            <h3 className="font-sans font-semibold text-base text-ink mb-1 flex items-center gap-2">
+              <RotateCw className="w-5 h-5 text-brand" />
+              Herramientas de administración
+            </h3>
+            <p className="text-xs text-ink-3 mb-4">
+              Re-extrae todas las facturas de un cliente con el prompt de Gemini actualizado. Útil para corregir datos mal extraídos con versiones anteriores del extractor.
+            </p>
+            <div className="p-4 bg-bg-2 rounded-xl space-y-3">
+              <span className="font-semibold text-sm text-ink block">Re-extraer facturas de un cliente</span>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={reextractName}
+                  onChange={(e) => setReextractName(e.target.value)}
+                  placeholder="Nombre del cliente (ej: SALEH AL SHAKRAN)"
+                  className="flex-1"
+                  onKeyDown={(e) => e.key === 'Enter' && !reextractLoading && handleReextract()}
+                />
+                <Button
+                  onClick={handleReextract}
+                  disabled={reextractLoading || !reextractName.trim()}
+                  size="sm"
+                >
+                  {reextractLoading ? <RotateCw className="w-4 h-4 animate-spin" /> : 'Re-extraer'}
+                </Button>
+              </div>
+              {reextractResult && (
+                <div className="text-xs space-y-1">
+                  <p className={reextractResult.errors === 0 ? 'text-green-700' : 'text-warn'}>
+                    {reextractResult.ok}/{reextractResult.total} facturas re-extraídas correctamente
+                    {reextractResult.errors > 0 && ` · ${reextractResult.errors} errores`}
+                  </p>
+                  {reextractResult.results?.filter(r => r.status === 'error').map((r, i) => (
+                    <p key={i} className="text-red-600">✗ {r.id}: {r.error}</p>
+                  ))}
+                </div>
+              )}
             </div>
           </Card>
         )}
