@@ -871,7 +871,7 @@ async function processSupply(
     const base20 = parsed.cups ? cupsBase20(parsed.cups) : null
 
     let { data: existingSupply } = base20
-      ? await supabase.from('supplies').select('id, cups, consumption_data')
+      ? await supabase.from('supplies').select('id, cups, name, consumption_data')
           .ilike('cups', `${base20}%`).limit(1).maybeSingle()
       : { data: null }
 
@@ -903,7 +903,8 @@ async function processSupply(
         updated_at: new Date().toISOString(),
       }
       if (isNoCupsUpgrade) patch.cups = parsed.cups
-      if (parsed.locationName && !existingSupply.name) patch.name = parsed.locationName
+      // Always update name from Excel description when provided (overrides blank or prior value)
+      if (parsed.locationName) patch.name = parsed.locationName
       // Upgrade stored CUPS from 20→22 chars if we now have the longer form
       if (parsed.cups && parsed.cups.length === 22 && existingSupply.cups?.length === 20) {
         patch.cups = parsed.cups
