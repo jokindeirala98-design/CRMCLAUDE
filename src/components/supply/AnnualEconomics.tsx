@@ -3105,22 +3105,26 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
       ?? potP1
     if (!consumoP1 && !consumoP2 && !consumoP3) return null
 
-    // ── Compute per-period weighted average energy prices ──────────────────
-    // Aggregate kWh × price per period across all invoices to get accurate
-    // per-period prices (handles Caso 2 = por_periodo, Caso 3 = promocionadas,
-    // and Caso 4 = indexed tariff detection).
+    // ── Compute energy prices for comparativa ─────────────────────────────
+    // 2.0TD: use LATEST prices (most recent invoice only) — we compare future
+    //        spend, so historical averages are misleading after tariff changes.
+    // 3.0TD / 6.xTD: weighted average across last 12 invoices — higher-consumption
+    //        clients have seasonal variation that must be smoothed.
+    const is2TDComp = is2TD  // outer variable from component scope
+
     const periodWsum: Record<string, number> = { P1: 0, P2: 0, P3: 0 }
     const periodKwh:  Record<string, number> = { P1: 0, P2: 0, P3: 0 }
     const periodPrices: number[][] = { P1: [], P2: [], P3: [] } as any
 
-    // Always use last 12 invoices (most recent) for comparativa price calculation
-    const last12ForStudy = [...validInvoices].sort((a, b) => {
+    const sortedForStudy = [...validInvoices].sort((a, b) => {
       const { start: sa, end: ea } = getInvoiceDates(a)
       const { start: sb, end: eb } = getInvoiceDates(b)
       const { month: ma, year: ya } = getAssignedMonth(sa, ea)
       const { month: mb, year: yb } = getAssignedMonth(sb, eb)
       return (ya * 12 + ma) - (yb * 12 + mb)
-    }).slice(-12)
+    })
+    // 2.0TD → only the most recent invoice; 3.0TD → last 12
+    const last12ForStudy = is2TD ? sortedForStudy.slice(-1) : sortedForStudy.slice(-12)
 
     for (const inv of last12ForStudy) {
       // Check all known data paths — use the first one that has consumo[] with data.

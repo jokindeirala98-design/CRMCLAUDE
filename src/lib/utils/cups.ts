@@ -1,20 +1,16 @@
 /**
  * CUPS (Codigo Universal de Punto de Suministro) utilities
  *
- * Canonical format: always 22 chars
- *   ES (2) + distributor code (4) + 12-digit supply point + 2 control letters + 2 suffix (e.g. "0F")
+ * Canonical format: ALWAYS 20 chars
+ *   ES (2) + distributor code (4) + 12-digit supply point + 2 control letters
  *
  * Other lengths handled:
- *   20 chars → valid (older invoices omit the 2-char ICP/meter suffix)
- *   24 chars → Gemini/OCR picked up 2 extra chars — strip last 2 → 22 chars
+ *   22 chars → strip last 2 (ICP/meter suffix, e.g. "0F") → 20 chars
+ *   24 chars → strip last 4 → 20 chars
  *   19, 21, 23 chars → always truncation errors, rejected
  *
- * IMPORTANT: a 20-char and 22-char CUPS that share the same first 20 chars are
- * THE SAME supply point. Always use cupsBase20() when querying the DB so both
- * variants match the same supply (ILIKE 'ES...base20...%').
- *
- * DB storage: store the longest version seen (prefer 22 over 20).
- * SIPS queries: use cupsBase20() — the SIPS API only accepts the base 20-char form.
+ * DB storage: always 20 chars — the 2-char suffix is not part of the CUPS.
+ * SIPS queries: use cupsBase20() — the SIPS API only accepts the 20-char form.
  */
 
 /**
@@ -34,27 +30,28 @@ export function normalizeCups(cups: string | null | undefined): string | null {
   if (!clean.startsWith('ES')) return null
   if (clean.length < 18 || clean.length > 24) return null
 
-  // 24 chars: OCR/Gemini sometimes captures 2 extra characters after the 22-char CUPS.
-  // Business rule: strip the last 2 to recover the canonical 22-char form.
+  // Business rule: canonical CUPS is always 20 chars.
+  // Strip any ICP/meter suffix (the last 2 chars beyond position 20).
+  if (clean.length === 22) {
+    clean = clean.substring(0, 20)
+    console.log(`[normalizeCups] Stripped 2-char suffix from 22-char CUPS → 20: ${clean}`)
+  }
   if (clean.length === 24) {
-    clean = clean.substring(0, 22)
-    console.log(`[normalizeCups] Truncated 24-char CUPS to 22: ${clean}`)
+    clean = clean.substring(0, 20)
+    console.log(`[normalizeCups] Stripped 4-char suffix from 24-char CUPS → 20: ${clean}`)
   }
 
-  // Odd-length CUPS are always truncation errors (19, 21, 23 chars):
-  //   21-char → 22-char with last char missing
-  //   19-char → 20-char with last char missing
-  // Reject — better to store null than a wrong CUPS that creates duplicate supplies.
+  // Odd-length CUPS are always truncation errors — reject.
   if (clean.length % 2 !== 0) {
     console.warn(`[normalizeCups] Rejected odd-length CUPS (${clean.length} chars, likely truncated): ${clean}`)
     return null
   }
 
-  // Accept exactly 20 or 22 chars
-  if (clean.length !== 20 && clean.length !== 22) return null
+  // Accept exactly 20 chars
+  if (clean.length !== 20) return null
 
-  // Strict validation: ES + 16 digits + 2 control letters [+ optional 2 suffix]
-  if (!/^ES[A-Z0-9]{18}([A-Z0-9]{2})?$/.test(clean)) return null
+  // Strict validation: ES + 16 alphanumeric + 2 control letters
+  if (!/^ES[A-Z0-9]{16}[A-Z]{2}$/.test(clean)) return null
 
   // ── Supply point sanity check ──────────────────────────────────────────────
   // The 12-character supply point identifier occupies positions 6–17.
@@ -83,20 +80,13 @@ export function normalizeCups(cups: string | null | undefined): string | null {
 }
 
 /**
- * Return the 20-char base CUPS (strips the optional 2-char ICP/meter suffix).
+ * Return the 20-char canonical CUPS. Since normalizeCups() now always returns
+ * 20 chars, this is simply an alias — kept for backward compatibility.
  *
- * USE THIS for:
- *   - All DB supply lookups: .ilike('cups', cupsBase20(cups) + '%')
- *   - SIPS API queries (the SIPS API only accepts the 20-char base form)
- *   - Comparing two CUPS that might differ only in their suffix
- *
- * Example: cupsBase20('ES0021000006751517CW0F') === cupsBase20('ES0021000006751517CW')
- *          → both return 'ES0021000006751517CW'
+ * USE THIS for all DB supply lookups and SIPS queries.
  */
 export function cupsBase20(cups: string | null | undefined): string | null {
-  const normalized = normalizeCups(cups)
-  if (!normalized) return null
-  return normalized.substring(0, 20)
+  return normalizeCups(cups)
 }
 
 /**
@@ -123,21 +113,21 @@ export function isValidCups(cups: string | null | undefined): boolean {
 export function extractCups(text: string): string | null {
   if (!text) return null
 
-  // Try 22-char match first (longer = more complete)
-  const match22 = text.match(/ES\d{16}[A-Z]{2}[A-Z0-9]{2}/i)
-  if (match22) {
-    const result = normalizeCups(match22[0])
-    if (result) return result
-  }
-
-  // Fall back to 20-char match
-  const match20 = text.match(/ES\d{16}[A-Z]{2}/i)
+  // Try 20-char match first (canonical form: ES + 16 alphanum + 2 control letters)
+  const match20 = text.match(/ES[A-Z0-9]{16}[A-Z]{2}/i)
   if (match20) {
     const result = normalizeCups(match20[0])
     if (result) return result
   }
 
-  // Lenient: any ES + 18-22 alphanumeric sequence
+  // Try 22-char match (with ICP suffix) — normalizeCups will strip to 20
+  const match22 = text.match(/ES[A-Z0-9]{16}[A-Z]{2}[A-Z0-9]{2}/i)
+  if (match22) {
+    const result = normalizeCups(match22[0])
+    if (result) return result
+  }
+
+  // Lenient: any ES + 18-20 alphanumeric sequence
   const matchLenient = text.match(/ES[A-Z0-9]{18,20}/i)
   if (matchLenient) return normalizeCups(matchLenient[0])
 

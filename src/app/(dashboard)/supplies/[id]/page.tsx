@@ -127,6 +127,7 @@ export default function SupplyDetailPage() {
   )
   const [sipsLoading, setSipsLoading] = useState(false)
   const [sipsError, setSipsError] = useState('')
+  const [sipsConnectFailed, setSipsConnectFailed] = useState(false)
   const [sipsTab, setSipsTab] = useState<'consumos' | 'maximetros' | 'reactivas'>('consumos')
   const [deletingInvoiceId, setDeletingInvoiceId] = useState<string | null>(null)
   const [uploadingInvoices, setUploadingInvoices] = useState(false)
@@ -336,6 +337,7 @@ export default function SupplyDetailPage() {
         }
       } catch (err) {
         console.error('[fetchSupply] Auto SIPS refresh error:', err)
+        setSipsConnectFailed(true)
       } finally {
         setSipsLoading(false)
       }
@@ -932,6 +934,7 @@ export default function SupplyDetailPage() {
     if (supply.type === 'gas' || /^RL/i.test(supply.tariff || '')) return
     setSipsLoading(true)
     setSipsError('')
+    setSipsConnectFailed(false)
     try {
       const res = await fetch('/api/sips', {
         method: 'POST',
@@ -1021,12 +1024,15 @@ export default function SupplyDetailPage() {
             .eq('id', supply.id)
         }
 
+        setSipsConnectFailed(false)
         await fetchSupply()
       } else {
         setSipsError(result.error || 'No se encontraron datos SIPS')
+        setSipsConnectFailed(true)
       }
     } catch (err: any) {
       setSipsError(err.message || 'Error consultando SIPS')
+      setSipsConnectFailed(true)
     } finally {
       setSipsLoading(false)
     }
@@ -1742,6 +1748,16 @@ export default function SupplyDetailPage() {
                   )
                 })()}
 
+                {/* SIPS connection failed — show Consumo Anual in red to distinguish from genuinely 0 consumption */}
+                {sipsConnectFailed && !supply.consumption_data && (
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div className="bg-err-container/20 border border-err/30 rounded-xl p-3">
+                      <p className="text-xs text-err font-medium">Consumo Anual</p>
+                      <p className="text-lg font-bold text-err mt-0.5">Sin conexión SIPS</p>
+                    </div>
+                  </div>
+                )}
+
                 {supply.consumption_data && (supply.consumption_data.history || supply.consumption_data.consumoPeriodos) && (
                   <>
                     {/* Summary cards */}
@@ -2145,6 +2161,7 @@ export default function SupplyDetailPage() {
             potenciaContratada={supply.consumption_data?.potenciaContratada}
             consumoPeriodos={supply.consumption_data?.consumoPeriodos}
             gasHistory={supply.consumption_data?.gasHistory}
+            supplyName={supply.name || undefined}
             clientName={supply.client?.name || supply.cups || ''}
             initialView={searchParams.get('view') === 'informe' ? 'informe' : undefined}
             maximetroHistory={supply.consumption_data?.maximetroHistory}

@@ -407,8 +407,13 @@ REGLAS CRÍTICAS DE EXTRACCIÓN (V3.0) — APLICAN A FACTURAS DE LUZ Y GAS
    - FORMATO EXACTO — hay dos variantes válidas:
      * CORTO (20 chars): ES + 16 dígitos + 2 letras mayúsculas de control. Ejemplo: "ES0021000012345678AB"
      * LARGO (22 chars): ES + 16 dígitos + 2 letras mayúsculas + 2 chars de sufijo alfanumérico. Ejemplo: "ES0021000006597248MV0F"
-   - ⚠️ CRÍTICO: Si ves un CUPS que termina en letras seguidas de más caracteres (p.ej. "MV0F", "AA1B"), DEBES incluir TODOS los caracteres hasta el final. NUNCA cortes el CUPS a mitad del sufijo.
-   - ⚠️ VERIFICACIÓN DE LONGITUD: Cuenta los caracteres del CUPS que has extraído. Si el resultado tiene 19 o 21 caracteres, es INCORRECTO (faltan caracteres). Vuelve a leer el documento y extrae el CUPS completo.
+   - ⚠️ LONGITUD OBLIGATORIA: el CUPS extraído SIEMPRE debe tener exactamente 20 caracteres.
+     * Si ves un CUPS de 22 chars (p.ej. "ES0031104020785001WS0F"), elimina los ÚLTIMOS 2 y
+       quédate con los primeros 20 ("ES0031104020785001WS"). Los 2 últimos son un sufijo de
+       contador/ICP que no forma parte del CUPS canónico.
+     * Si ves 21 o 19 chars: error de OCR, vuelve a leer la factura.
+     * Si ves 20 chars exactos: correcto, úsalo tal cual.
+     * NUNCA devuelvas un CUPS de 22 chars — el sistema solo acepta 20.
    - UBICACIÓN VISUAL — Escanea TODO el documento, no solo la cabecera. El CUPS puede aparecer en CUALQUIERA de estas zonas:
      * Cabecera/datos del suministro (zona superior)
      * Sección "DATOS DEL CONTRATO" o "INFORMACIÓN DEL CONTRATO" (frecuente en la parte inferior)
@@ -828,6 +833,59 @@ A2. ENDESA / e-distribución:
    - Siempre verifica si hay "Ajuste por desvíos" o "Desvíos de energía" → otro.
    - Facturas domésticas 2.0TD: pueden incluir "Precio Fijo de Energía" (mercado libre)
      o tarifas horarias P1/P2 (PVPC o discriminación horaria). Consulta sección D.
+
+   FORMATO ENDESA "Tempo 24 horas" (2.0TD tarifa fija con 3 periodos de energía):
+   Este formato aparece en facturas Endesa con producto "Tempo 24 horas" u otros productos
+   de precio fijo. IDENTIFICACIÓN: contiene "Consumo Punta", "Consumo Llano" y "Consumo Valle"
+   en la sección de energía, y "Pot. Punta-Llano" y "Pot. Valle" en potencia.
+
+   POTENCIA — 2 líneas, mapeadas a P1 y P2:
+     "Pot. Punta-Llano  13,150 kW × 0,104681 Eur/kW × 28 días ... 38,54 €"  → P1
+     "Pot. Valle        13,150 kW × 0,014961 Eur/kW × 28 días ...  5,51 €"  → P2
+     → potencia[]:
+         P1: {kw:13.150, dias:28, precioKwDia:0.104681, total:38.54}
+         P2: {kw:13.150, dias:28, precioKwDia:0.014961, total:5.51}
+     ⚠️ MANDATORIO: incluye siempre el campo kw en P1 Y P2. En este formato ambos
+        periodos suelen tener los MISMOS kW contratados.
+
+   ENERGÍA — 3 periodos mapeados a P1/P2/P3:
+     "Consumo Punta  548,340 kWh × 0,366074 Eur/kWh ... 200,73 €"  → P1
+     "Consumo Llano  415,620 kWh × 0,283628 Eur/kWh ... 117,88 €"  → P2
+     "Consumo Valle  662,590 kWh × 0,249889 Eur/kWh ... 165,57 €"  → P3
+     → consumo[]:
+         P1: {kwh:548.340, precioKwh:0.366074, total:200.73}
+         P2: {kwh:415.620, precioKwh:0.283628, total:117.88}
+         P3: {kwh:662.590, precioKwh:0.249889, total:165.57}
+
+   FORMATO ENDESA "Tempo 24 horas" con SUBIDA DE TARIFAS a mitad de factura:
+   Cuando la factura cubre más de un mes y hubo un cambio regulatorio/comercial,
+   cada periodo de energía aparece DOS VECES con precios distintos. IDENTIFICACIÓN:
+   ves "Consumo Punta X kWh × P1 €" y "Consumo Punta Y kWh × P2 €" con P1 ≠ P2.
+
+   Ejemplo real (factura 07/03/2026 → 10/04/2026):
+     "Consumo Punta  450,880 kWh × 0,366074 Eur/kWh  → 165,06 €"  ← precio antiguo
+     "Consumo Punta  217,520 kWh × 0,367321 Eur/kWh  →  79,90 €"  ← precio nuevo
+     "Consumo Llano  353,580 kWh × 0,283628 Eur/kWh  → 100,29 €"
+     "Consumo Llano  184,070 kWh × 0,284875 Eur/kWh  →  52,44 €"
+     "Consumo Valle  557,140 kWh × 0,249889 Eur/kWh  → 139,22 €"
+     "Consumo Valle  196,650 kWh × 0,251136 Eur/kWh  →  49,39 €"
+
+   REGLAS para ENERGÍA con periodo duplicado:
+     → SUMA los kWh de ambas líneas del mismo periodo (punta1+punta2, etc.)
+     → SUMA el coste total de ambas líneas
+     → precio_efectivo = coste_total_sumado / kWh_sumado  (MEDIA PONDERADA)
+     → Emite UNA sola entrada en consumo[] por periodo:
+         P1: {kwh:668.40, precioKwh:0.36651, total:244.96}   ← 450.88+217.52, (165.06+79.90)/(668.40)
+         P2: {kwh:537.65, precioKwh:0.28405, total:152.73}
+         P3: {kwh:753.79, precioKwh:0.25023, total:188.61}
+     ⚠️ En rawLineItems puedes emitir las dos líneas separadas de cada periodo para
+        tener el detalle, pero consumo[] SIEMPRE consolida en UNA entrada por periodo.
+
+   DESCUENTO en Endesa "Tempo 24 horas":
+     "Descuento -5% × 639,79 Eur ... -31,99 €"
+     → rawLineItem: categoria=descuento_energia, total=-31.99
+     → El precio en consumo[] ya es el BRUTO (antes del descuento). El descuento
+        se refleja en descuentoEnergia (no modifiques precioKwh con él).
 
 A3. NATURGY / UnionFenosa:
    - Formato similar a Iberdrola pero con peajes/cargos a veces consolidados.
