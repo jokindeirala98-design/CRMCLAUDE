@@ -416,9 +416,14 @@ function parseLabelBased(ws: ExcelJS.Worksheet, fileName: string): ParsedSupplyF
           || cellNum(getRow(rowMap, `Potencia ${pid} (€/kW año)`), col)
         if (anual > 0) precioKwDia = Math.round((anual / 365) * 1000000) / 1000000
       }
-      // Back-calculate from total / (kW × días)
+      // Back-calculate precioKwDia from total / (kW × días)
       if (!precioKwDia && kw > 0 && totalPot > 0 && dias > 0) {
         precioKwDia = Math.round((totalPot / (kw * dias)) * 100000) / 100000
+      }
+      // Back-calculate totalPot from kW × precioKwDia × días
+      // (covers Orcoyen-style Excel: only kW + €/kW·día rows, no Potencia Px (€) row)
+      if (!totalPot && kw > 0 && precioKwDia > 0 && dias > 0) {
+        totalPot = Math.round(kw * precioKwDia * dias * 100) / 100
       }
 
       if (kw > 0 || totalPot > 0) potencia.push({ periodo: pid, kw, precioKwDia, dias, total: totalPot })

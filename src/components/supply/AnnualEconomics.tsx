@@ -1065,10 +1065,11 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
       render: (eco: BillEconomics | null, inv: InvoiceRow) => {
         const item = eco?.potencia?.find(c => c.periodo === p)
         if (!item || !item.total) return <span className="text-[#8A9A8E] text-sm">—</span>
-        // kW: prefer stored value, fall back to supply's SIPS contracted power
+        // kW: prefer stored value, then SIPS contracted power, then P1's kW (P1 and P2 always same kW in 2.0TD)
+        const p1Kw = Number(eco?.potencia?.find(c => c.periodo === 'P1')?.kw) || 0
         const kw = Number(item.kw) > 0
           ? Number(item.kw)
-          : (Number(potenciaContratada?.[p]) || 0)
+          : (Number(potenciaContratada?.[p]) || p1Kw || 0)
         // días: prefer stored value, fall back to invoice billing period length
         const rawDias = Number(item.dias) || 0
         const billingDays = (() => {

@@ -734,12 +734,51 @@ A1. IBERDROLA / i-DE:
      Para precioKwh neto en consumo[]:
        precioKwh_neto = (totalBruto − |desc1| − |desc2|) / kWhTotal
      Ejemplo:
-       "Energía Precio horario 174 kWh × 0,XXXXXX €/kWh → 21,82 €"
-       "Descuento comercial −15%  → −3,27 €"
-       "Descuento fidelidad −5%   → −1,09 €"
-       → costeNetoConsumo = 21,82 − 3,27 − 1,09 = 17,46 €
-       → precioKwh_neto = 17,46 / 174 = 0,10034 €/kWh
-       → consumo[]: kwh=174, precioKwh=0.10034, total=17.46
+       "Energía consumida 187 kWh × 0,125405 €/kWh → 23,45 €"
+       "Descuento sobre consumo −15%  → −3,52 €"
+       "Descuento sobre consumo −5%   → −1,17 €"
+       → costeNetoConsumo = 23,45 − 3,52 − 1,17 = 18,76 €
+       → precioKwh_neto = 18,76 / 187 = 0,10032 €/kWh
+       → consumo[]: kwh=187, precioKwh=0.10032, total=18.76
+       → descuentoEnergia = 3.52 + 1.17 = 4.69 €
+
+   FORMATO I-D (2.0TD con DOS TRAMOS TARIFARIOS DISTINTOS — cambio regulatorio a mitad de periodo):
+     Ocurre cuando el BOE publica nuevos peajes/cargos durante el periodo de facturación (ej. el 31/12).
+     La factura muestra DOS bloques de "Potencia facturada" y "Energía consumida", cada uno
+     con su rango de fechas y sus PROPIOS precios unitarios.
+
+     ⚠️ ESTE FORMATO SE IDENTIFICA POR: aparece más de una vez el texto
+        "Total importe potencia hasta DD/MM/AAAA" o hay dos líneas de
+        "Energía consumida (DD/MM/AAAA-DD/MM/AAAA)" con precios distintos.
+
+     REGLAS PARA POTENCIA — SIEMPRE usa el precio del tramo MÁS RECIENTE:
+       Ejemplo real:
+         Sub-periodo 1 (04/12/2025-31/12/2025): Punta 3,45 kW × 27 días × 0,108192 €/kW·día = 10,08 €
+                                                 Valle 3,45 kW × 27 días × 0,052027 €/kW·día =  4,85 €
+         Sub-periodo 2 (31/12/2025-04/01/2026): Punta 3,45 kW × 4 días × 0,113621 €/kW·día =  1,57 €
+                                                 Valle 3,45 kW × 4 días × 0,053667 €/kW·día =  0,74 €
+       → potencia[]:
+           P1: {kw:3.45, dias:31, precioKwDia:0.113621, total:11.65}   ← precio del tramo NUEVO, total SUMADO
+           P2: {kw:3.45, dias:31, precioKwDia:0.053667, total:5.59}    ← precio del tramo NUEVO, total SUMADO
+       → dias = SUMA de ambos sub-periodos (27+4=31)
+       → total = suma de P1 en ambos tramos (10.08+1.57=11.65), ídem P2
+       ⚠️ NO uses total/kW/dias para calcular el precio — usa SIEMPRE el precio impreso del tramo más reciente.
+       ⚠️ Si el precio del tramo nuevo > 2, has leído el total como precio — vuelve a leer la línea.
+
+     REGLAS PARA ENERGÍA — media ponderada de ambos tramos:
+       Ejemplo real:
+         "Energía consumida (04/12/2025-31/12/2025): 377 kWh × 0,17216 €/kWh → 64,90 €"
+         "Energía consumida (31/12/2025-04/01/2026): 56,89 kWh × 0,17916 €/kWh → 10,19 €"
+       → kWhTotal = 377 + 56.89 = 433.89 kWh
+       → costeTotalEnergia = 64.90 + 10.19 = 75.09 €
+       → precioKwh_efectivo = 75.09 / 433.89 = 0.17306 €/kWh  ← MEDIA PONDERADA
+       → consumo[]: {periodo:null, kwh:433.89, precioKwh:0.17306, total:75.09}
+       Si además hay descuentos: aplícalos sobre el coste total antes de calcular la media ponderada.
+
+     CÓMO EMITIR rawLineItems en formato I-D:
+       Emite DOS rawLineItems de energia_comercializacion (uno por tramo) con sus kWh, precio y total.
+       En consumo[] consolida en UNA sola entrada con kWh sumados y precio ponderado.
+       Los descuentos (si los hay) van como rawLineItems adicionales con category=descuento_energia y total NEGATIVO.
 
    DESGLOSE POR PERIODOS (kWh por P1/P2 — 2.0TD Iberdrola):
      En facturas 2.0TD Iberdrola, la energía puede aparecer como UN flat SIN desglose
@@ -765,6 +804,8 @@ A1. IBERDROLA / i-DE:
      → potencia[] consolidada (sumando peaje+cargo por periodo):
          P1: kw=3.45, dias=31, precioKwDia=0.129433 (=0.115106+0.014327), total=13.84
          P2: kw=3.45, dias=31, precioKwDia=0.052544 (=0.042668+0.009876), total=5.62
+     ⚠️ MANDATORIO: incluye SIEMPRE el campo kw en TODOS los periodos de potencia, tanto P1 como P2.
+        En 2.0TD P1 y P2 suelen tener los MISMOS kW contratados — cópialos también en P2.
      ⚠️ CRÍTICO: precioKwDia es SIEMPRE el precio unitario en €/kW·DÍA (número pequeño < 1).
         NUNCA pongas el total del período (12,31 € ó 4,56 €) en precioKwDia.
         - correcto: precioKwDia=0.042668 (precio unitario de peaje P2)

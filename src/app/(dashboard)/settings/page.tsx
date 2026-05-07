@@ -34,6 +34,8 @@ export default function SettingsPage() {
     email: '',
     phone: '',
   })
+  const [passwordForm, setPasswordForm] = useState({ current: '', new: '', confirm: '' })
+  const [passwordLoading, setPasswordLoading] = useState(false)
   // ── Permission groups — mirrors the sidebar sections ──
   const PERMISSION_GROUPS = [
     {
@@ -245,6 +247,41 @@ export default function SettingsPage() {
       })
       .eq('id', user.id)
     toast('success', 'Perfil actualizado')
+  }
+
+  const handleChangePassword = async () => {
+    if (!passwordForm.current || !passwordForm.new || !passwordForm.confirm) {
+      toast('error', 'Completa todos los campos')
+      return
+    }
+    if (passwordForm.new !== passwordForm.confirm) {
+      toast('error', 'Las contraseñas nuevas no coinciden')
+      return
+    }
+    if (passwordForm.new.length < 8) {
+      toast('error', 'La contraseña debe tener al menos 8 caracteres')
+      return
+    }
+    setPasswordLoading(true)
+    try {
+      const supabase = createClient()
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: user!.email!,
+        password: passwordForm.current,
+      })
+      if (signInError) {
+        toast('error', 'La contraseña actual es incorrecta')
+        return
+      }
+      const { error: updateError } = await supabase.auth.updateUser({ password: passwordForm.new })
+      if (updateError) throw updateError
+      toast('success', 'Contraseña actualizada correctamente')
+      setPasswordForm({ current: '', new: '', confirm: '' })
+    } catch (err: any) {
+      toast('error', err.message || 'Error al cambiar la contraseña')
+    } finally {
+      setPasswordLoading(false)
+    }
   }
 
   const handleSendInvitation = async () => {
@@ -644,10 +681,48 @@ export default function SettingsPage() {
               onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
             />
           </div>
-          <div className="mt-4 flex justify-end">
+
+          <div className="mt-5 border-t border-line pt-5">
+            <p className="text-sm font-semibold text-ink mb-3 flex items-center gap-2">
+              <Lock className="w-4 h-4 text-ink-3" />
+              Cambiar contraseña
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Input
+                label="Contraseña actual"
+                type="password"
+                value={passwordForm.current}
+                onChange={(e) => setPasswordForm({ ...passwordForm, current: e.target.value })}
+              />
+              <Input
+                label="Nueva contraseña"
+                type="password"
+                value={passwordForm.new}
+                onChange={(e) => setPasswordForm({ ...passwordForm, new: e.target.value })}
+                placeholder="Mínimo 8 caracteres"
+              />
+              <Input
+                label="Confirmar nueva contraseña"
+                type="password"
+                value={passwordForm.confirm}
+                onChange={(e) => setPasswordForm({ ...passwordForm, confirm: e.target.value })}
+              />
+            </div>
+          </div>
+
+          <div className="mt-4 flex justify-between items-center">
+            <Button
+              variant="secondary"
+              onClick={handleChangePassword}
+              loading={passwordLoading}
+              disabled={!passwordForm.current || !passwordForm.new || !passwordForm.confirm}
+            >
+              <Lock className="w-4 h-4" />
+              Cambiar contraseña
+            </Button>
             <Button onClick={handleSaveProfile}>
               <Save className="w-4 h-4" />
-              Guardar
+              Guardar perfil
             </Button>
           </div>
         </Card>
@@ -898,6 +973,43 @@ export default function SettingsPage() {
                 placeholder="Mínimo 8 caracteres"
                 hint="Si dejas este campo vacío, se enviará un email de invitación para que el usuario establezca su propia contraseña."
               />
+
+              {/* Role selector */}
+              <div>
+                <p className="text-sm font-medium text-ink mb-2">Rol</p>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setInviteForm({ ...inviteForm, role: 'admin' })}
+                    className={`flex-1 flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all text-left ${
+                      inviteForm.role === 'admin'
+                        ? 'border-brand bg-brand/5 text-brand'
+                        : 'border-line text-ink-3 hover:border-brand/40'
+                    }`}
+                  >
+                    <Shield className="w-5 h-5 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold">Administrador</p>
+                      <p className="text-xs opacity-70">Acceso a todos los clientes y secciones</p>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInviteForm({ ...inviteForm, role: 'commercial' })}
+                    className={`flex-1 flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all text-left ${
+                      inviteForm.role === 'commercial'
+                        ? 'border-brand bg-brand/5 text-brand'
+                        : 'border-line text-ink-3 hover:border-brand/40'
+                    }`}
+                  >
+                    <Users className="w-5 h-5 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold">Comercial</p>
+                      <p className="text-xs opacity-70">Solo ve sus propios clientes asignados</p>
+                    </div>
+                  </button>
+                </div>
+              </div>
 
               {inviteForm.role === 'commercial' && (
                 <div className="p-4 bg-bg-2 rounded-xl space-y-4">
