@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   FileText, ChevronDown, ChevronUp, AlertTriangle, Check,
   Loader2, Euro, Calendar, User, MapPin,
-  FileSignature, Printer, Info, ExternalLink,
+  FileSignature, Printer, Info, ExternalLink, Trash2,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatDate } from '@/lib/utils/format'
@@ -122,6 +122,8 @@ function buildPaymentSchedule(
 export default function ContractSection({ client, onUpdate }: Props) {
   const [expanded, setExpanded] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   // Existing service contract for this client (most recent)
   const [contract, setContract] = useState<ServiceContract | null>(null)
@@ -196,6 +198,31 @@ export default function ContractSection({ client, onUpdate }: Props) {
     : []
 
   const pendingRevision = client.ahorro_pendiente_revision
+
+  // Delete contract
+  const handleDelete = async () => {
+    if (!contract?.id) return
+    setDeleting(true)
+    const supabase = createClient()
+    await supabase.from('service_contracts').delete().eq('id', contract.id)
+    // Reset all form state
+    setContract(null)
+    setAhorroConfirmado('')
+    setContractType(client.ahorro_sugerido > 1000 ? 'porcentaje' : 'suscripcion')
+    setIsRenewal(false)
+    setPaymentModality('A')
+    setStartDate(new Date().toISOString().split('T')[0])
+    setRepresentativeName(isNaturalClient(client) ? client.name : '')
+    setRepresentativeNif(isNaturalClient(client) ? (client.nif ?? client.cif_nif ?? '') : '')
+    setSigningLocation(
+      client.fiscal_address
+        ? (client.fiscal_address.split(',').pop()?.trim() ?? '')
+        : ''
+    )
+    setConfirmDelete(false)
+    setDeleting(false)
+    onUpdate?.()
+  }
 
   // Save contract config
   const handleSave = async () => {
@@ -518,6 +545,37 @@ export default function ContractSection({ client, onUpdate }: Props) {
                   {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                   Guardar configuración
                 </button>
+
+                {/* Eliminar contrato */}
+                {contract && (
+                  confirmDelete ? (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-err-container/30 border border-err/30">
+                      <span className="text-xs text-err font-medium">¿Eliminar definitivamente?</span>
+                      <button
+                        onClick={handleDelete}
+                        disabled={deleting}
+                        className="text-xs font-semibold text-err hover:underline disabled:opacity-50"
+                      >
+                        {deleting ? 'Eliminando…' : 'Sí, eliminar'}
+                      </button>
+                      <button
+                        onClick={() => setConfirmDelete(false)}
+                        className="text-xs text-ink-3 hover:underline"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmDelete(true)}
+                      title="Eliminar contrato"
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-line-2 text-ink-3 text-xs hover:border-err/40 hover:text-err hover:bg-err-container/20 transition-all"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Eliminar
+                    </button>
+                  )
+                )}
 
                 {contract && hasRequiredData && (
                   <>

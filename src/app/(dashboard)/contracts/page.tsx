@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   FileText, Plus, Search,
   Clock, Building2, User, Landmark,
-  ChevronRight, Download, Check, RefreshCw,
+  ChevronRight, Download, Check, RefreshCw, Trash2,
 } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
 import { Button } from '@/components/ui/Button'
@@ -47,6 +47,8 @@ export default function ContractsPage() {
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [togglingId, setTogglingId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
   // Filters
   const [search, setSearch] = useState('')
@@ -89,6 +91,16 @@ export default function ContractsPage() {
   }, [user])
 
   useEffect(() => { fetchContracts() }, [fetchContracts])
+
+  // Delete contract
+  const handleDelete = async (id: string) => {
+    setDeletingId(id)
+    const supabase = createClient()
+    await supabase.from('service_contracts').delete().eq('id', id)
+    setContracts(prev => prev.filter(c => c.id !== id))
+    setDeletingId(null)
+    setConfirmDeleteId(null)
+  }
 
   // Toggle paid
   const togglePaid = async (sc: any) => {
@@ -427,7 +439,7 @@ export default function ContractsPage() {
                       </button>
                     </div>
 
-                    {/* Descargar + nav */}
+                    {/* Descargar + eliminar + nav */}
                     <div className="flex items-center gap-1 shrink-0">
                       <button
                         onClick={() => descargarAmbos(sc)}
@@ -437,6 +449,35 @@ export default function ContractsPage() {
                         <Download className="w-3.5 h-3.5" />
                         Descargar
                       </button>
+
+                      {/* Delete — inline confirm */}
+                      {confirmDeleteId === sc.id ? (
+                        <div className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-err-container/30 border border-err/30">
+                          <span className="text-[10px] text-err font-medium whitespace-nowrap">¿Eliminar?</span>
+                          <button
+                            onClick={() => handleDelete(sc.id)}
+                            disabled={deletingId === sc.id}
+                            className="text-[10px] font-bold text-err hover:underline disabled:opacity-50 whitespace-nowrap"
+                          >
+                            {deletingId === sc.id ? '…' : 'Sí'}
+                          </button>
+                          <button
+                            onClick={() => setConfirmDeleteId(null)}
+                            className="text-[10px] text-ink-3 hover:underline"
+                          >
+                            No
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmDeleteId(sc.id)}
+                          title="Eliminar contrato"
+                          className="p-2 rounded-lg text-ink-3 hover:text-err hover:bg-err-container/20 transition"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+
                       <button
                         onClick={() => cl?.id && router.push(`/clients/${cl.id}`)}
                         className="p-2 rounded-lg text-ink-3 hover:text-ink hover:bg-bg-2 transition"
@@ -493,7 +534,7 @@ export default function ContractsPage() {
                       )}
                     </div>
 
-                    {/* Bottom: paid toggle + descargar */}
+                    {/* Bottom: paid toggle + descargar + eliminar */}
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => togglePaid(sc)}
@@ -518,6 +559,25 @@ export default function ContractsPage() {
                         <Download className="w-3.5 h-3.5" />
                         Descargar
                       </button>
+                      {confirmDeleteId === sc.id ? (
+                        <div className="flex items-center gap-1 px-2 py-2 rounded-xl bg-err-container/30 border border-err/30">
+                          <button
+                            onClick={() => handleDelete(sc.id)}
+                            disabled={deletingId === sc.id}
+                            className="text-[10px] font-bold text-err disabled:opacity-50"
+                          >
+                            {deletingId === sc.id ? '…' : 'Eliminar'}
+                          </button>
+                          <button onClick={() => setConfirmDeleteId(null)} className="text-[10px] text-ink-3">✕</button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmDeleteId(sc.id)}
+                          className="p-2 rounded-xl border border-line/40 text-ink-3 hover:text-err hover:bg-err-container/20 transition"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
