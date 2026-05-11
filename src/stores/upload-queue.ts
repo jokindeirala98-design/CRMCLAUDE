@@ -507,13 +507,19 @@ export async function processJobInBackground(jobId: string): Promise<void> {
       if (Math.abs(existing.length - candidate.length) > 2) continue
       // Count character differences (simplified Hamming for same-length)
       if (existing.length === candidate.length) {
+        // Safety guard: the supply-point segment (chars 6–17, 12 chars) must
+        // match exactly. Only the distributor code (2–5) and/or control letters
+        // (18–19) may differ — those are the positions where OCR errors occur.
+        // This prevents false positives when a client has multiple supplies
+        // whose CUPS differ in just 1-2 characters of the supply-point segment.
+        if (candidate.length >= 18 && existing.slice(6, 18) !== candidate.slice(6, 18)) continue
         let diffs = 0
         for (let i = 0; i < existing.length; i++) {
           if (existing[i] !== candidate[i]) diffs++
           if (diffs > 2) break
         }
         if (diffs <= 2) {
-          console.log(`[UploadQueue] Fuzzy CUPS match: "${candidate}" → "${existing}" (${diffs} diffs)`)
+          console.log(`[UploadQueue] Fuzzy CUPS match: "${candidate}" → "${existing}" (${diffs} diffs, supply-point segment identical)`)
           return existing
         }
       }
@@ -721,6 +727,9 @@ export async function processJobInBackground(jobId: string): Promise<void> {
           if (candidates) {
             const fuzzyMatch = candidates.find((s: { id: string; cups: string }) => {
               if (!s.cups || s.cups.length !== cups.length) return false
+              // Safety guard: supply-point segment (chars 6–17) must match exactly.
+              // Only distributor code (2–5) and control letters (18–19) may differ.
+              if (cups.length >= 18 && s.cups.slice(6, 18) !== cups.slice(6, 18)) return false
               let diffs = 0
               for (let i = 0; i < cups.length; i++) {
                 if (s.cups[i] !== cups[i]) diffs++

@@ -703,14 +703,22 @@ export default function SupplyDetailPage() {
             }
           }
 
-          if (cupsDiffs <= 2) {
-            // ≤ 2 differences → likely OCR/AI extraction error in distributor code or
-            // control letters. Accept the invoice and proceed — do not create a new supply.
+          // Safety guard: supply-point segment (chars 6–17, 12 chars) must match
+          // exactly. Only distributor code (2–5) and control letters (18–19) may
+          // differ — those are the positions where OCR errors occur.
+          const supplyPointMatches =
+            invoiceCupsNorm.length >= 18 && supplyCupsNorm.length >= 18
+              ? invoiceCupsNorm.slice(6, 18) === supplyCupsNorm.slice(6, 18)
+              : true  // short strings — fall through to char-diff gate
+
+          if (cupsDiffs <= 2 && supplyPointMatches) {
+            // ≤ 2 differences AND supply-point segment identical →
+            // OCR/AI error in distributor code or control letters. Accept.
             console.log(
-              `[SupplyPage] Fuzzy CUPS match: invoice "${invoiceCupsNorm}" accepted for supply "${supplyCupsNorm}" (${cupsDiffs} char diff${cupsDiffs !== 1 ? 's' : ''} — OCR tolerance)`,
+              `[SupplyPage] Fuzzy CUPS match: invoice "${invoiceCupsNorm}" accepted for supply "${supplyCupsNorm}" (${cupsDiffs} char diff${cupsDiffs !== 1 ? 's' : ''}, supply-point segment identical — OCR tolerance)`,
             )
           } else {
-            // > 2 differences → genuinely different supply — reject.
+            // Supply-point differs or > 2 total diffs → genuinely different supply — reject.
             await supabase.storage.from('documents').remove([storageData.path]).catch(() => {})
             newProgress[fileId] = 'error'
             setUploadProgress({ ...newProgress })
