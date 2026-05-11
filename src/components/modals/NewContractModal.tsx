@@ -778,7 +778,11 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
                 <button
                   onClick={async () => {
                     const repName = isNatural ? selectedClient.name : representativeName
-                    const repNif = isNatural ? (selectedClient.nif ?? selectedClient.cif_nif ?? '') : representativeNif
+                    // For natural persons: prefer what the user typed in the form (representativeNif),
+                    // fall back to the client's stored NIF/NIE if the form field is empty.
+                    const repNif = isNatural
+                      ? (representativeNif.trim() || selectedClient.nif || selectedClient.cif_nif || '')
+                      : representativeNif
                     const startDateObj = new Date(startDate + 'T00:00:00')
                     const endDateObj = addMonths(startDateObj, 12)
                     const firstPaymentDate = new Date(startDateObj)
