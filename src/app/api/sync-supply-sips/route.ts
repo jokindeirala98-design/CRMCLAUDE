@@ -62,13 +62,27 @@ export async function POST(req: NextRequest) {
       ? consumoPeriodosSum
       : (estimatedKwh || null)
 
+    // ── potenciaContratada resolution ─────────────────────────────────────────
+    // SIPS sometimes returns placeholder values (35 W → 0.035 kW) which sips.ts
+    // already discards (returns undefined). In that case we must NOT overwrite
+    // a valid manually-corrected value already in the DB with null.
+    // Strategy:
+    //   1. If SIPS returned a valid value → use it.
+    //   2. Otherwise → keep existing DB value IF it has any period ≥ 0.5 kW.
+    //   3. Otherwise → null (both SIPS and DB are artifacts).
+    const existingPot = supply.consumption_data?.potenciaContratada as Record<string, number> | undefined | null
+    const existingPotIsValid = existingPot != null &&
+      Object.values(existingPot).some(v => Number(v) >= 0.5)
+    const resolvedPotenciaContratada = sipsData.potenciaContratada
+      ?? (existingPotIsValid ? existingPot : null)
+
     const updatedConsumption = {
       ...(supply.consumption_data || {}),
       source: 'greening_sips',
       fetched_at: new Date().toISOString(),
       // undefined means artifact was discarded — store null explicitly so it clears stale values
       consumoPeriodos: sipsData.consumoPeriodos ?? null,
-      potenciaContratada: sipsData.potenciaContratada ?? null,
+      potenciaContratada: resolvedPotenciaContratada,
       totalKwh: bestTotalKwh,
       total: sipsData.totalConsumption,
       history: sipsData.consumptionHistory,
@@ -97,7 +111,8 @@ export async function POST(req: NextRequest) {
 
     // 4. Build updated snapshot fields from SIPS
     const cp = sipsData.consumoPeriodos as { P1?: number; P2?: number; P3?: number; P4?: number; P5?: number; P6?: number } | undefined
-    const pp = sipsData.potenciaContratada as { P1?: number; P2?: number; P3?: number; P4?: number; P5?: number; P6?: number } | undefined
+    // Use resolved potenciaContratada (SIPS value OR valid existing value, never artifact)
+    const pp = resolvedPotenciaContratada as { P1?: number; P2?: number; P3?: number; P4?: number; P5?: number; P6?: number } | null
 
     const snapshotUpdate: Record<string, any> = {
       source: 'sips',
@@ -105,7 +120,7 @@ export async function POST(req: NextRequest) {
       comercializadora: sipsData.distribuidora || undefined,
     }
 
-    if (pp) {
+    if (pp && Object.values(pp).some(v => (v ?? 0) >= 0.5)) {
       snapshotUpdate.potencia_p1 = pp.P1 ?? null
       snapshotUpdate.potencia_p2 = pp.P2 ?? null
       snapshotUpdate.potencia_p3 = pp.P3 ?? null
@@ -113,7 +128,7 @@ export async function POST(req: NextRequest) {
       snapshotUpdate.potencia_p5 = pp.P5 ?? null
       snapshotUpdate.potencia_p6 = pp.P6 ?? null
     } else {
-      // potenciaContratada was discarded as artifact — clear previously stored bad values
+      // No valid potencia available — clear any artifact values stored previously
       snapshotUpdate.potencia_p1 = null
       snapshotUpdate.potencia_p2 = null
       snapshotUpdate.potencia_p3 = null

@@ -85,7 +85,11 @@ export async function POST(req: NextRequest) {
       ? supplies
       : supplies.filter(s => {
           const cd = s.consumption_data as any
-          if (cd?.potenciaContratada?.P1 && Number(cd.potenciaContratada.P1) > 0) return false
+          // Only skip if potenciaContratada has at least one period >= 0.5 kW (not an artifact)
+          const potMax = cd?.potenciaContratada
+            ? Math.max(...Object.values(cd.potenciaContratada).map(Number))
+            : 0
+          if (potMax >= 0.5) return false
           if (cd?.source === 'sips' && cd?.totalConsumptionKwh) return false
           return true
         })
@@ -109,13 +113,22 @@ export async function POST(req: NextRequest) {
         }
 
         const existing = (supply.consumption_data as any) || {}
+
+        // Resolve potenciaContratada: prefer SIPS value; if SIPS discarded it (artifact),
+        // keep existing value if it has any valid period (>= 0.5 kW); otherwise null.
+        const existingPot = existing.potenciaContratada as Record<string, number> | undefined | null
+        const existingPotIsValid = existingPot != null &&
+          Object.values(existingPot).some(v => Number(v) >= 0.5)
+        const resolvedPot = sipsData.potenciaContratada
+          ?? (existingPotIsValid ? existingPot : null)
+
         const merged = {
           ...existing,
           source: 'sips',
           totalConsumption: sipsData.totalConsumption,
           totalConsumptionKwh: sipsData.totalConsumptionKwh,
           consumoPeriodos: sipsData.consumoPeriodos,
-          potenciaContratada: sipsData.potenciaContratada,
+          potenciaContratada: resolvedPot,
           consumptionHistory: sipsData.consumptionHistory,
           maximetroHistory: sipsData.maximetroHistory,
           reactivaHistory: sipsData.reactivaHistory,
