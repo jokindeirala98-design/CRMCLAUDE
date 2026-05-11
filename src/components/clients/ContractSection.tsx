@@ -262,7 +262,12 @@ export default function ContractSection({ client, onUpdate }: Props) {
 
   // Personas físicas (particular + empresa con NIF/autónomo) → datos de la ficha, sin pedir representante
   const isNatural = isNaturalClient(client)
-  const hasRequiredData = startDate && (isNatural || representativeName)
+  // Para isNatural: exige nombre + DNI. Para empresa/ayuntamiento: exige nombre del representante
+  const hasRequiredData = !!(startDate && (
+    isNatural
+      ? (representativeName.trim() && representativeNif.trim())
+      : representativeName.trim()
+  ))
 
   return (
     <div className="bg-card border border-line rounded-xl overflow-hidden">
@@ -444,7 +449,45 @@ export default function ContractSection({ client, onUpdate }: Props) {
                 </div>
               </div>
 
-              {/* ── BLOQUE 5: Firmante — solo empresas/ayuntamientos ── */}
+              {/* ── BLOQUE 5a: Datos personales — autónomo/particular con datos incompletos ── */}
+              {isNatural && (!representativeName.trim() || !representativeNif.trim()) && (
+                <div className="space-y-3">
+                  <div className="flex items-start gap-2.5 p-3 rounded-xl bg-warn-container/50 border border-warn/30">
+                    <AlertTriangle className="w-4 h-4 text-warn flex-shrink-0 mt-0.5" />
+                    <div className="text-xs text-warn">
+                      <p className="font-semibold">Datos incompletos en la ficha</p>
+                      <p className="mt-0.5 opacity-80">Necesitamos el nombre completo y DNI del {client.type === 'empresa' ? 'autónomo titular' : 'cliente'} para generar los documentos.</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] text-ink-3 uppercase font-semibold block mb-1">Nombre completo</label>
+                      <div className="relative">
+                        <User className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3" />
+                        <input
+                          type="text"
+                          value={representativeName}
+                          onChange={e => setRepresentativeName(e.target.value)}
+                          placeholder="Nombre y apellidos"
+                          className="w-full pl-8 pr-3 py-2 text-sm border border-warn/40 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-ink-3 uppercase font-semibold block mb-1">DNI / NIE</label>
+                      <input
+                        type="text"
+                        value={representativeNif}
+                        onChange={e => setRepresentativeNif(e.target.value)}
+                        placeholder="12345678A"
+                        className="w-full px-3 py-2 text-sm border border-warn/40 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors font-mono"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── BLOQUE 5b: Firmante — solo empresas/ayuntamientos ── */}
               {!isNatural && (
                 <div className="space-y-3">
                   <p className="text-[10px] font-bold text-ink-3 uppercase tracking-wider">Representante firmante</p>
@@ -575,6 +618,12 @@ export default function ContractSection({ client, onUpdate }: Props) {
                       Eliminar
                     </button>
                   )
+                )}
+
+                {contract && !hasRequiredData && isNatural && (
+                  <p className="text-xs text-warn self-center">
+                    ⚠ Completa el nombre y DNI para generar documentos
+                  </p>
                 )}
 
                 {contract && hasRequiredData && (

@@ -666,6 +666,20 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
                 </div>
               </div>
 
+              {/* Datos personales — autónomo/particular con ficha incompleta */}
+              {isNatural && (!representativeName.trim() || !representativeNif.trim()) && (
+                <div className="space-y-2 p-3 rounded-xl border border-warn/30 bg-warn-container/30">
+                  <p className="text-[10px] font-bold text-warn uppercase tracking-wider">⚠ Datos necesarios para los documentos</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="relative">
+                      <User className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3" />
+                      <input type="text" value={representativeName} onChange={e => setRepresentativeName(e.target.value)} placeholder="Nombre y apellidos" className="w-full pl-8 pr-3 py-2 text-sm border border-warn/40 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors" />
+                    </div>
+                    <input type="text" value={representativeNif} onChange={e => setRepresentativeNif(e.target.value)} placeholder="DNI / NIE" className="w-full px-3 py-2 text-sm border border-warn/40 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors font-mono" />
+                  </div>
+                </div>
+              )}
+
               {/* Firmante — solo empresas/ayuntamientos */}
               {!isNatural && (
                 <div className="space-y-2">
@@ -716,7 +730,14 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
               Guardar configuración
             </button>
 
-            {contractForPDF && (isNatural || representativeName) && (
+            {/* Aviso si autónomo sin DNI */}
+            {contractForPDF && isNatural && (!representativeName.trim() || !representativeNif.trim()) && (
+              <p className="text-xs text-warn self-center">
+                ⚠ Completa nombre y DNI para generar documentos
+              </p>
+            )}
+
+            {contractForPDF && (isNatural ? (representativeName.trim() && representativeNif.trim()) : representativeName.trim()) && (
               <>
                 <button
                   onClick={async () => {
