@@ -103,26 +103,31 @@ interface CrmSupplyData {
 
 interface FormState {
   cups: string
+  // Potencia contratada (kW)
   p1: string
   p2: string
   igualarPotencias: boolean
+  // Consumo anual (kWh)
   punta: string
   llano: string
   valle: string
+  // Precios actuales de la comercializadora
+  precioP1: string    // €/kW·día
+  precioP2: string    // €/kW·día
+  precioPunta: string // €/kWh
+  precioLlano: string // €/kWh
+  precioValle: string // €/kWh
+  // Configuración
   dias: string
   ivaPct: string
-  totalFacturaActual: string
   alquiler: string
-  // Datos del titular — se incluyen en el PDF de comparativa (opcionales)
+  // Datos del titular (opcionales, para PDF)
   titularNombre: string
   titularDni: string
   titularEmail: string
   titularTelefono: string
 }
 
-// La comparativa es siempre ANUAL por defecto: el comercial introduce los
-// consumos anuales y los días son 365. Lo dejamos en el estado por si más
-// adelante queremos exponer un modo "factura mensual", pero la UI no lo pide.
 const INITIAL_FORM: FormState = {
   cups: '',
   p1: '',
@@ -131,15 +136,23 @@ const INITIAL_FORM: FormState = {
   punta: '',
   llano: '',
   valle: '',
+  precioP1: '',
+  precioP2: '',
+  precioPunta: '',
+  precioLlano: '',
+  precioValle: '',
   dias: '365',
   ivaPct: '10',
-  totalFacturaActual: '',
   alquiler: '',
   titularNombre: '',
   titularDni: '',
   titularEmail: '',
   titularTelefono: '',
 }
+
+// ── Constantes reguladas (mismo valor que calcular.ts) ───────────────────────
+const BONO_SOCIAL_ANUAL = 0.5737 * 12   // ≈ 6.88 €/año
+const IMPUESTO_ELECTRICO = 0.038
 
 // ── Página ───────────────────────────────────────────────────────────────────
 
@@ -183,18 +196,48 @@ export default function ComparativasPage() {
   const setField = (key: keyof FormState, value: string | boolean) =>
     setForm((f) => ({ ...f, [key]: value as never }))
 
+  // ── Total auto-calculado de la comercializadora actual ─────────────────────
+  const totalCalculado = useMemo(() => {
+    const p1 = parseNum(form.p1)
+    const p2 = form.igualarPotencias ? p1 : parseNum(form.p2)
+    const dias = parseNum(form.dias) || 365
+    const ivaPct = parseNum(form.ivaPct)
+    const meses = dias / 30
+
+    const pp1 = parseNum(form.precioP1)
+    const pp2 = form.igualarPotencias ? pp1 : parseNum(form.precioP2)
+    const ePunta = parseNum(form.precioPunta)
+    const eLlano = parseNum(form.precioLlano)
+    const eValle = parseNum(form.precioValle)
+
+    const costeP1 = p1 * dias * pp1
+    const costeP2 = p2 * dias * pp2
+    const costePunta = parseNum(form.punta) * ePunta
+    const costeLlano = parseNum(form.llano) * eLlano
+    const costeValle = parseNum(form.valle) * eValle
+
+    const totalPE = costeP1 + costeP2 + costePunta + costeLlano + costeValle
+    if (totalPE <= 0) return 0
+
+    const impuesto = totalPE * IMPUESTO_ELECTRICO
+    const bonoSocial = BONO_SOCIAL_ANUAL * (meses / 12)
+    const sinIva = totalPE + impuesto + bonoSocial
+    const iva = sinIva * (ivaPct / 100)
+    const alquiler = parseNum(form.alquiler)
+    return Math.round((sinIva + iva + alquiler) * 100) / 100
+  }, [form])
+
   const formularioValido = useMemo(() => {
-    // Comparativa siempre anual: requerimos potencia P1, al menos un periodo
-    // de energía con valor y el total anual pagado. Los días se fijan a 365.
     const tieneAlgunConsumo =
       parseNum(form.punta) > 0 || parseNum(form.llano) > 0 || parseNum(form.valle) > 0
+    const tieneTotal = totalCalculado > 0
     return (
       String(form.p1).trim() !== '' &&
       tieneAlgunConsumo &&
-      String(form.totalFacturaActual).trim() !== '' &&
+      tieneTotal &&
       (form.igualarPotencias || form.p2.trim() !== '')
     )
-  }, [form])
+  }, [form, totalCalculado])
 
   // ── Subir factura ──────────────────────────────────────────────────────────
   const onPickFile = () => fileRef.current?.click()
@@ -253,8 +296,13 @@ export default function ComparativasPage() {
         punta: numToStr(redondearN(data.energias.punta * factorAnual)),
         llano: numToStr(redondearN(data.energias.llano * factorAnual)),
         valle: numToStr(redondearN(data.energias.valle * factorAnual)),
+        // Precios unitarios extraídos de la factura
+        precioP1: numToStr(data.preciosUnitarios.kwDia.p1),
+        precioP2: numToStr(data.preciosUnitarios.kwDia.p2),
+        precioPunta: numToStr(data.preciosUnitarios.kwh.punta),
+        precioLlano: numToStr(data.preciosUnitarios.kwh.llano),
+        precioValle: numToStr(data.preciosUnitarios.kwh.valle),
         dias: '365',
-        totalFacturaActual: numToStr(redondearN(data.totalFactura * factorAnual)),
         alquiler: '',
       }))
       // Por defecto marcamos todos los extras detectados (el comercial puede
@@ -315,10 +363,7 @@ export default function ComparativasPage() {
       })
       // Si tenemos la factura, escalamos el total pagado a anual; si no,
       // dejamos el total como está (el comercial lo introducirá manualmente).
-      if (extraccion && extraccion.totalFactura > 0 && extraccion.dias > 0) {
-        const totalAnual = (extraccion.totalFactura * 365) / extraccion.dias
-        setForm((f) => ({ ...f, totalFacturaActual: numToStr(redondearN(totalAnual)) }))
-      }
+      // totalCalculado is derived automatically from price fields — nothing extra to set here
       setHorizonte('anual')
     } catch (e: any) {
       setSipsError(e?.message ?? 'Error consultando SIPS')
@@ -345,7 +390,7 @@ export default function ComparativasPage() {
       },
       dias: parseNum(form.dias),
       ivaPct: parseNum(form.ivaPct),
-      totalFacturaActual: parseNum(form.totalFacturaActual),
+      totalFacturaActual: totalCalculado,
       alquiler: parseNum(form.alquiler),
     }
 
@@ -424,19 +469,28 @@ export default function ComparativasPage() {
       const cons = data.consumption
       const igualar = p1 > 0 && p2 > 0 && Math.abs(p1 - p2) < 0.01
 
+      const pp1 = data.powerPrices.P1
+      const pp2 = data.powerPrices.P2
+      const ep  = data.energyPrices.P1
+      const el  = data.energyPrices.P2
+      const ev  = data.energyPrices.P3
+      const igualarPreciosPot = pp1 > 0 && pp2 > 0 && Math.abs(pp1 - pp2) < 0.0001
+
       setForm((f) => ({
         ...f,
         cups: data.supply.cups ?? f.cups,
         p1: p1 > 0 ? String(p1) : f.p1,
         p2: p2 > 0 ? String(p2) : f.p2,
-        igualarPotencias: igualar,
+        igualarPotencias: igualar || igualarPreciosPot,
         punta: cons && cons.punta > 0 ? String(Math.round(cons.punta)) : f.punta,
         llano: cons && cons.llano > 0 ? String(Math.round(cons.llano)) : f.llano,
         valle: cons && cons.valle > 0 ? String(Math.round(cons.valle)) : f.valle,
+        precioP1: pp1 > 0 ? String(pp1) : f.precioP1,
+        precioP2: pp2 > 0 ? String(pp2) : f.precioP2,
+        precioPunta: ep > 0 ? String(ep) : f.precioPunta,
+        precioLlano: el > 0 ? String(el) : f.precioLlano,
+        precioValle: ev > 0 ? String(ev) : f.precioValle,
         dias: '365',
-        totalFacturaActual: data.totalAnual && data.totalAnual > 0
-          ? String(Math.round(data.totalAnual * 100) / 100)
-          : f.totalFacturaActual,
         titularNombre: data.supply.clientName ?? f.titularNombre,
       }))
 
@@ -480,7 +534,7 @@ export default function ComparativasPage() {
           },
           dias: parseNum(form.dias) || 365,
           ivaPct: parseNum(form.ivaPct),
-          totalFacturaActual: parseNum(form.totalFacturaActual),
+          totalFacturaActual: totalCalculado,
           alquiler: parseNum(form.alquiler),
         },
         cliente: {
@@ -488,31 +542,17 @@ export default function ComparativasPage() {
           cups: form.cups.trim(),
           clientName: crmSelected?.supply?.clientName ?? form.titularNombre.trim(),
         },
-        preciosActuales: crmSelected
-          ? {
-              kwDia: {
-                p1: crmSelected.powerPrices.P1,
-                p2: crmSelected.powerPrices.P2,
-              },
-              kwh: {
-                punta: crmSelected.energyPrices.P1,
-                llano: crmSelected.energyPrices.P2,
-                valle: crmSelected.energyPrices.P3,
-              },
-            }
-          : extraccion
-          ? {
-              kwDia: {
-                p1: extraccion.preciosUnitarios.kwDia.p1,
-                p2: extraccion.preciosUnitarios.kwDia.p2,
-              },
-              kwh: {
-                punta: extraccion.preciosUnitarios.kwh.punta,
-                llano: extraccion.preciosUnitarios.kwh.llano,
-                valle: extraccion.preciosUnitarios.kwh.valle,
-              },
-            }
-          : null,
+        preciosActuales: parseNum(form.precioP1) > 0 ? {
+          kwDia: {
+            p1: parseNum(form.precioP1),
+            p2: parseNum(form.igualarPotencias ? form.precioP1 : form.precioP2),
+          },
+          kwh: {
+            punta: parseNum(form.precioPunta),
+            llano: parseNum(form.precioLlano),
+            valle: parseNum(form.precioValle),
+          },
+        } : null,
         extras: extrasArr,
       }
 
@@ -579,7 +619,7 @@ export default function ComparativasPage() {
           },
           dias: parseNum(form.dias) || 365,
           ivaPct: parseNum(form.ivaPct),
-          totalFacturaActual: parseNum(form.totalFacturaActual),
+          totalFacturaActual: totalCalculado,
           alquiler: parseNum(form.alquiler),
         },
         cliente: {
@@ -854,215 +894,316 @@ export default function ComparativasPage() {
           )}
         </Card>
 
-        {/* ── Formulario editable ─────────────────────────────────────────── */}
-        <Card>
-          <div className="flex items-center justify-between mb-4">
+        {/* ── Situación actual ─────────────────────────────────────────── */}
+        <Card className="overflow-hidden p-0">
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 py-3 bg-bg-2 border-b border-line">
             <div className="flex items-center gap-2">
               <Calculator className="w-4 h-4 text-brand" />
-              <p className="text-sm font-semibold text-ink">Datos anuales del suministro</p>
+              <p className="text-sm font-semibold text-brand">Situación actual del cliente</p>
+              <span className="text-[11px] label-mono text-ink-4 ml-1">
+                {extraccion ? '· pre-rellenado' : sipsData ? '· datos SIPS' : ''}
+              </span>
             </div>
-            <div className="flex items-center gap-1.5 text-[11px] label-mono text-ink-4">
-              {extraccion ? 'Pre-rellenado · editable' : sipsData ? 'Datos SIPS · editable' : 'Manual'}
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-ink-4">IVA</span>
+              <Select
+                label=""
+                value={form.ivaPct}
+                onChange={(e) => setField('ivaPct', e.target.value)}
+                options={[
+                  { value: '10', label: '10 %' },
+                  { value: '21', label: '21 %' },
+                ]}
+              />
             </div>
           </div>
 
-          {/* CUPS + Consultar SIPS — atajo para autocompletar potencia y consumo
-              sin necesidad de subir factura. Funciona también si el CUPS ha
-              llegado de la factura. */}
-          <div className="space-y-3 mb-6 pb-6 border-b border-line">
-            <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-end">
+          <div className="p-5 space-y-4">
+            {/* Two-column: Potencia | Energía */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+              {/* ─ POTENCIA ─ */}
+              <div className="rounded-xl border border-line overflow-hidden">
+                <div className="px-4 py-2.5 bg-bg-2 border-b border-line">
+                  <p className="label-mono text-ink-4">Potencia contratada</p>
+                </div>
+                <div className="p-4 space-y-3">
+                  <div className="grid grid-cols-[72px_1fr_1fr] gap-2 text-[11px] label-mono text-ink-4 px-1">
+                    <span>Período</span><span>kW</span><span>€/kW·día</span>
+                  </div>
+                  {/* P1 */}
+                  <div className="grid grid-cols-[72px_1fr_1fr] gap-2 items-center">
+                    <span className="text-xs font-semibold text-ink px-1">P1 Punta</span>
+                    <input
+                      type="number" step="0.001" inputMode="decimal" placeholder="kW"
+                      value={form.p1}
+                      onChange={(e) => setField('p1', e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-line bg-white focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition font-mono"
+                    />
+                    <input
+                      type="number" step="0.000001" inputMode="decimal" placeholder="€/kW·día"
+                      value={form.precioP1}
+                      onChange={(e) => setField('precioP1', e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-line bg-white focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition font-mono"
+                    />
+                  </div>
+                  {/* P2 */}
+                  <div className="grid grid-cols-[72px_1fr_1fr] gap-2 items-center">
+                    <span className="text-xs font-semibold text-ink px-1">P2 Valle</span>
+                    <input
+                      type="number" step="0.001" inputMode="decimal"
+                      placeholder={form.igualarPotencias ? '= P1' : 'kW'}
+                      value={form.igualarPotencias ? form.p1 : form.p2}
+                      onChange={(e) => setField('p2', e.target.value)}
+                      disabled={form.igualarPotencias}
+                      className={cn(
+                        'w-full px-2.5 py-1.5 text-sm rounded-lg border border-line focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition font-mono',
+                        form.igualarPotencias ? 'bg-bg-2 text-ink-3' : 'bg-white'
+                      )}
+                    />
+                    <input
+                      type="number" step="0.000001" inputMode="decimal"
+                      placeholder={form.igualarPotencias ? '= P1' : '€/kW·día'}
+                      value={form.igualarPotencias ? form.precioP1 : form.precioP2}
+                      onChange={(e) => setField('precioP2', e.target.value)}
+                      disabled={form.igualarPotencias}
+                      className={cn(
+                        'w-full px-2.5 py-1.5 text-sm rounded-lg border border-line focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition font-mono',
+                        form.igualarPotencias ? 'bg-bg-2 text-ink-3' : 'bg-white'
+                      )}
+                    />
+                  </div>
+                  <label className="flex items-center gap-2 text-xs text-ink-2 cursor-pointer select-none px-1">
+                    <input
+                      type="checkbox"
+                      checked={form.igualarPotencias}
+                      onChange={(e) => setField('igualarPotencias', e.target.checked)}
+                      className="rounded border-line text-ink focus:ring-0"
+                    />
+                    Igualar P1 = P2
+                  </label>
+                  {/* Subtotal potencia */}
+                  {(() => {
+                    const _p1 = parseNum(form.p1)
+                    const _p2 = form.igualarPotencias ? _p1 : parseNum(form.p2)
+                    const _dias = parseNum(form.dias) || 365
+                    const _pp1 = parseNum(form.precioP1)
+                    const _pp2 = form.igualarPotencias ? _pp1 : parseNum(form.precioP2)
+                    const sub = _p1 * _dias * _pp1 + _p2 * _dias * _pp2
+                    return sub > 0 ? (
+                      <div className="flex items-center justify-between pt-2 border-t border-line text-xs">
+                        <span className="text-ink-3">Coste potencia/año</span>
+                        <span className="font-semibold text-ink tabular-nums">{fmtEur(sub)}</span>
+                      </div>
+                    ) : null
+                  })()}
+                </div>
+              </div>
+
+              {/* ─ ENERGÍA ─ */}
+              <div className="rounded-xl border border-line overflow-hidden">
+                <div className="px-4 py-2.5 bg-bg-2 border-b border-line">
+                  <p className="label-mono text-ink-4">Consumo anual · precios energía</p>
+                </div>
+                <div className="p-4 space-y-3">
+                  <div className="grid grid-cols-[72px_1fr_1fr] gap-2 text-[11px] label-mono text-ink-4 px-1">
+                    <span>Período</span><span>kWh/año</span><span>€/kWh</span>
+                  </div>
+                  {/* Punta */}
+                  <div className="grid grid-cols-[72px_1fr_1fr] gap-2 items-center">
+                    <span className="text-xs font-semibold text-ink px-1">Punta</span>
+                    <input
+                      type="number" step="1" inputMode="numeric" placeholder="kWh"
+                      value={form.punta}
+                      onChange={(e) => setField('punta', e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-line bg-white focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition font-mono"
+                    />
+                    <input
+                      type="number" step="0.0001" inputMode="decimal" placeholder="€/kWh"
+                      value={form.precioPunta}
+                      onChange={(e) => setField('precioPunta', e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-line bg-white focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition font-mono"
+                    />
+                  </div>
+                  {/* Llano */}
+                  <div className="grid grid-cols-[72px_1fr_1fr] gap-2 items-center">
+                    <span className="text-xs font-semibold text-ink px-1">Llano</span>
+                    <input
+                      type="number" step="1" inputMode="numeric" placeholder="kWh"
+                      value={form.llano}
+                      onChange={(e) => setField('llano', e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-line bg-white focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition font-mono"
+                    />
+                    <input
+                      type="number" step="0.0001" inputMode="decimal" placeholder="€/kWh"
+                      value={form.precioLlano}
+                      onChange={(e) => setField('precioLlano', e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-line bg-white focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition font-mono"
+                    />
+                  </div>
+                  {/* Valle */}
+                  <div className="grid grid-cols-[72px_1fr_1fr] gap-2 items-center">
+                    <span className="text-xs font-semibold text-ink px-1">Valle</span>
+                    <input
+                      type="number" step="1" inputMode="numeric" placeholder="kWh"
+                      value={form.valle}
+                      onChange={(e) => setField('valle', e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-line bg-white focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition font-mono"
+                    />
+                    <input
+                      type="number" step="0.0001" inputMode="decimal" placeholder="€/kWh"
+                      value={form.precioValle}
+                      onChange={(e) => setField('precioValle', e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-line bg-white focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition font-mono"
+                    />
+                  </div>
+                  {/* Subtotal energía */}
+                  {(() => {
+                    const sub =
+                      parseNum(form.punta) * parseNum(form.precioPunta) +
+                      parseNum(form.llano) * parseNum(form.precioLlano) +
+                      parseNum(form.valle) * parseNum(form.precioValle)
+                    return sub > 0 ? (
+                      <div className="flex items-center justify-between pt-2 border-t border-line text-xs">
+                        <span className="text-ink-3">Coste energía/año</span>
+                        <span className="font-semibold text-ink tabular-nums">{fmtEur(sub)}</span>
+                      </div>
+                    ) : null
+                  })()}
+                </div>
+              </div>
+            </div>
+
+            {/* ─ CUPS + SIPS ─ */}
+            <div className="rounded-xl border border-line overflow-hidden">
+              <div className="px-4 py-2.5 bg-bg-2 border-b border-line">
+                <p className="label-mono text-ink-4">CUPS y consulta SIPS</p>
+              </div>
+              <div className="p-4 space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-end">
+                  <Input
+                    label="CUPS (opcional)"
+                    placeholder="ES0021000012345678AB"
+                    value={form.cups}
+                    onChange={(e) => setField('cups', e.target.value.toUpperCase())}
+                    hint={
+                      sipsData
+                        ? `${sipsData.consumoAnual.total.toLocaleString('es-ES')} kWh/año · ${sipsData.distribuidora ?? ''} · ${sipsData.fuente}`
+                        : undefined
+                    }
+                    className="font-mono"
+                  />
+                  <Button
+                    variant="secondary"
+                    onClick={onConsultarSips}
+                    loading={sipsLoading}
+                    disabled={!form.cups.trim() || !sipsConsentimiento || sipsLoading}
+                  >
+                    <Database className="w-4 h-4" />
+                    Consultar SIPS
+                  </Button>
+                </div>
+                <label className="flex items-center gap-2 text-xs text-ink-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={sipsConsentimiento}
+                    onChange={(e) => setSipsConsentimiento(e.target.checked)}
+                    className="rounded border-line focus:ring-0"
+                  />
+                  Confirmo que el titular me ha autorizado a consultar SIPS
+                </label>
+                {sipsError && (
+                  <div className="px-3 py-2 rounded-md bg-err-container/40 border border-err/20 text-xs text-err">
+                    {sipsError}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* ─ Datos titular (collapsible) ─ */}
+            <details className="rounded-xl border border-line overflow-hidden group">
+              <summary className="px-4 py-2.5 bg-bg-2 cursor-pointer flex items-center gap-2 select-none list-none">
+                <User className="w-3.5 h-3.5 text-ink-3" />
+                <span className="label-mono text-ink-4">Datos del titular</span>
+                <span className="text-[10px] text-ink-4 ml-1">(opcional · aparecen en el PDF)</span>
+                <ChevronDown className="w-3.5 h-3.5 text-ink-4 ml-auto transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3">
+                <Input
+                  label="Nombre completo"
+                  placeholder="Ej. Juan Pérez García"
+                  value={form.titularNombre}
+                  onChange={(e) => setField('titularNombre', e.target.value)}
+                />
+                <Input
+                  label="DNI / CIF"
+                  placeholder="00000000T"
+                  value={form.titularDni}
+                  onChange={(e) => setField('titularDni', e.target.value.toUpperCase())}
+                  className="font-mono"
+                />
+                <Input
+                  label="Email"
+                  type="email"
+                  placeholder="cliente@email.com"
+                  value={form.titularEmail}
+                  onChange={(e) => setField('titularEmail', e.target.value)}
+                />
+                <Input
+                  label="Teléfono"
+                  type="tel"
+                  placeholder="600 000 000"
+                  value={form.titularTelefono}
+                  onChange={(e) => setField('titularTelefono', e.target.value)}
+                />
+              </div>
+            </details>
+
+            {/* ─ Alquiler + Total + Botón ─ */}
+            <div className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-4 items-end">
               <Input
-                label="CUPS (opcional)"
-                placeholder="ES0021000012345678AB"
-                value={form.cups}
-                onChange={(e) => setField('cups', e.target.value.toUpperCase())}
-                hint={
-                  sipsData
-                    ? `${sipsData.consumoAnual.total.toLocaleString('es-ES')} kWh/año · ${sipsData.distribuidora ?? 'distribuidora desconocida'} · fuente ${sipsData.fuente}`
-                    : 'Si lo introduces, podemos consultar SIPS y autorrellenar potencia y consumo anual real.'
-                }
-                className="font-mono"
+                label="Alquiler de equipo (€/año)"
+                type="number"
+                step="0.01"
+                inputMode="decimal"
+                placeholder="0"
+                value={form.alquiler}
+                onChange={(e) => setField('alquiler', e.target.value)}
               />
+              {/* Total calculado */}
+              <div className={cn(
+                'rounded-xl border-2 px-4 py-3 flex items-center justify-between transition-colors',
+                totalCalculado > 0 ? 'border-ok/50 bg-ok-container/20' : 'border-line bg-bg-2'
+              )}>
+                <div>
+                  <p className={cn('text-[11px] font-semibold', totalCalculado > 0 ? 'text-ok' : 'text-ink-4')}>
+                    TOTAL PAGADO ANUAL
+                  </p>
+                  <p className="text-[10px] text-ink-4 mt-0.5">
+                    Potencia + Energía + Imp. eléctrico 3,8% + Bono Social + IVA {form.ivaPct}%
+                  </p>
+                </div>
+                <p className={cn(
+                  'font-sans font-bold text-2xl tabular-nums ml-4',
+                  totalCalculado > 0 ? 'text-ok' : 'text-ink-3'
+                )}>
+                  {totalCalculado > 0 ? fmtEur(totalCalculado) : '—'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end">
               <Button
-                variant="secondary"
-                onClick={onConsultarSips}
-                loading={sipsLoading}
-                disabled={!form.cups.trim() || !sipsConsentimiento || sipsLoading}
+                variant="ink"
+                onClick={onCalcular}
+                loading={calcLoading}
+                disabled={!formularioValido || calcLoading}
               >
-                <Database className="w-4 h-4" />
-                Consultar SIPS
+                <Calculator className="w-4 h-4" />
+                Calcular comparativa
               </Button>
             </div>
-            <label className="flex items-center gap-2 text-xs text-ink-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={sipsConsentimiento}
-                onChange={(e) => setSipsConsentimiento(e.target.checked)}
-                className="rounded border-line focus:ring-0"
-              />
-              Confirmo que el titular del suministro me ha autorizado a consultar SIPS
-            </label>
-            {sipsError && (
-              <div className="px-3 py-2 rounded-md bg-err-container/40 border border-err/20 text-xs text-err">
-                {sipsError}
-              </div>
-            )}
-          </div>
-
-          {/* Datos del titular — opcionales, se imprimen en el PDF de comparativa */}
-          <div className="space-y-3 mb-6 pb-6 border-b border-line">
-            <div className="flex items-center gap-2">
-              <User className="w-4 h-4 text-ink-3" />
-              <p className="text-sm font-semibold text-ink">Datos del titular</p>
-              <span className="text-[11px] text-ink-4">(opcional, aparecen en el PDF)</span>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
-              <Input
-                label="Nombre completo"
-                placeholder="Ej. Juan Pérez García"
-                value={form.titularNombre}
-                onChange={(e) => setField('titularNombre', e.target.value)}
-              />
-              <Input
-                label="DNI / CIF"
-                placeholder="00000000T"
-                value={form.titularDni}
-                onChange={(e) => setField('titularDni', e.target.value.toUpperCase())}
-                className="font-mono"
-              />
-              <Input
-                label="Email"
-                type="email"
-                placeholder="cliente@email.com"
-                value={form.titularEmail}
-                onChange={(e) => setField('titularEmail', e.target.value)}
-              />
-              <Input
-                label="Teléfono"
-                type="tel"
-                placeholder="600 000 000"
-                value={form.titularTelefono}
-                onChange={(e) => setField('titularTelefono', e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-            {/* Potencia */}
-            <div className="space-y-3">
-              <p className="label-mono text-ink-4">Potencia contratada</p>
-              <Input
-                label="P1 — Punta (kW)"
-                type="number"
-                step="0.001"
-                inputMode="decimal"
-                placeholder="Ej. 4.6"
-                value={form.p1}
-                onChange={(e) => setField('p1', e.target.value)}
-              />
-              <Input
-                label="P2 — Valle (kW)"
-                type="number"
-                step="0.001"
-                inputMode="decimal"
-                placeholder={form.igualarPotencias ? 'Igualada a P1' : 'Ej. 4.6'}
-                value={form.igualarPotencias ? form.p1 : form.p2}
-                onChange={(e) => setField('p2', e.target.value)}
-                disabled={form.igualarPotencias}
-              />
-              <label className="flex items-center gap-2 text-sm text-ink-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={form.igualarPotencias}
-                  onChange={(e) => setField('igualarPotencias', e.target.checked)}
-                  className="rounded border-line text-ink focus:ring-0"
-                />
-                Igualar potencias (P1 = P2)
-              </label>
-            </div>
-
-            {/* Energía */}
-            <div className="space-y-3">
-              <p className="label-mono text-ink-4">Consumo anual por periodo</p>
-              <Input
-                label="Punta (kWh/año)"
-                type="number"
-                step="1"
-                inputMode="numeric"
-                placeholder="Ej. 1.200"
-                value={form.punta}
-                onChange={(e) => setField('punta', e.target.value)}
-              />
-              <Input
-                label="Llano (kWh/año)"
-                type="number"
-                step="1"
-                inputMode="numeric"
-                placeholder="Ej. 1.800"
-                value={form.llano}
-                onChange={(e) => setField('llano', e.target.value)}
-              />
-              <Input
-                label="Valle (kWh/año)"
-                type="number"
-                step="1"
-                inputMode="numeric"
-                placeholder="Ej. 2.400"
-                value={form.valle}
-                onChange={(e) => setField('valle', e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 pt-6 border-t border-line">
-            <Select
-              label="IVA"
-              value={form.ivaPct}
-              onChange={(e) => setField('ivaPct', e.target.value)}
-              options={[
-                { value: '10', label: '10 %' },
-                { value: '21', label: '21 %' },
-              ]}
-            />
-            <Input
-              label="Total pagado anual (€)"
-              type="number"
-              step="0.01"
-              inputMode="decimal"
-              placeholder="Ej. 1.200,00"
-              value={form.totalFacturaActual}
-              onChange={(e) => setField('totalFacturaActual', e.target.value)}
-              hint="Lo que paga al año con su comercializadora actual"
-            />
-          </div>
-
-          {/* Precios unitarios extraídos (solo informativos / editables) */}
-          {extraccion && (
-            <PreciosUnitariosExtraidos extraccion={extraccion} />
-          )}
-
-          <div className="mt-6">
-            <Input
-              label="Alquiler de equipo (€) — opcional"
-              type="number"
-              step="0.01"
-              inputMode="decimal"
-              placeholder="0"
-              value={form.alquiler}
-              onChange={(e) => setField('alquiler', e.target.value)}
-            />
-          </div>
-
-          <div className="flex justify-end mt-6">
-            <Button
-              variant="ink"
-              onClick={onCalcular}
-              loading={calcLoading}
-              disabled={!formularioValido || calcLoading}
-            >
-              <Calculator className="w-4 h-4" />
-              Calcular comparativa
-            </Button>
           </div>
         </Card>
 
