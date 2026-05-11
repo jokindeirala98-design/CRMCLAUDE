@@ -52,6 +52,29 @@ function getSubscriptionQuarterly(ahorro: number): number {
   return 90  // 751-999 € (≥1000 usa modelo porcentaje)
 }
 
+/**
+ * Devuelve true si el cliente tiene CIF (sociedad mercantil, ayuntamiento, etc.)
+ * CIF: letra [ABCDEFGHJKLMNPQRSUVW] + 7 dígitos + dígito/letra de control
+ * NIF (autónomo): empieza por dígito o X/Y/Z → false
+ */
+function hasCIF(client: any): boolean {
+  const id = (client.cif ?? client.cif_nif ?? '').trim().toUpperCase()
+  return /^[ABCDEFGHJKLMNPQRSUVW]\d{7}[A-J0-9]$/i.test(id)
+}
+
+/**
+ * Persona física (firma por sí misma, sin representante):
+ * - Cualquier "particular"
+ * - "empresa" cuyo identificador es un NIF (autónomo), no un CIF
+ * Empresa con CIF real y ayuntamiento → necesitan representante firmante
+ */
+function isNaturalClient(client: any): boolean {
+  if (!client) return false
+  if (client.type === 'particular') return true
+  if (client.type === 'empresa') return !hasCIF(client)
+  return false  // ayuntamiento siempre necesita representante
+}
+
 function buildPaymentSchedule(modality: PaymentModality, feeAmount: number, startDate: Date): PaymentScheduleItem[] {
   const today = new Date()
   switch (modality) {
@@ -223,7 +246,8 @@ function ComercializadoraForm({ preselectedClientId, preselectedSupplyId, userId
     fecha_activacion: new Date().toISOString().split('T')[0],
   })
 
-  const isCompanyOrAyto = selectedClient?.type === 'empresa' || selectedClient?.type === 'ayuntamiento'
+  // Muestra firmante solo para empresa con CIF real (no autónomos con NIF) y ayuntamientos
+  const isCompanyOrAyto = selectedClient && !isNaturalClient(selectedClient) && selectedClient.type !== 'particular'
 
   useEffect(() => {
     const fetchData = async () => {
@@ -446,8 +470,8 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
       .limit(1)
       .maybeSingle()
 
-    // Personas físicas: particular + autónomo → datos vienen de la ficha del cliente, no del contrato
-    const isNatural = ['particular', 'autonomo'].includes(client.type)
+    // Personas físicas (particular + empresa con NIF/autónomo) → datos de la ficha, sin representante
+    const isNatural = isNaturalClient(client)
 
     if (sc) {
       setExistingContract(sc as ServiceContract)
@@ -478,8 +502,8 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
     setLoadingClient(false)
   }
 
-  // Personas físicas (particular + autónomo) → sin representante manual
-  const isNatural = selectedClient ? ['particular', 'autonomo'].includes(selectedClient.type) : false
+  // Personas físicas (particular + empresa con NIF/autónomo) → sin representante manual
+  const isNatural = isNaturalClient(selectedClient)
 
   // Derived
   const ahorroNum = parseFloat(ahorroConfirmado) || 0

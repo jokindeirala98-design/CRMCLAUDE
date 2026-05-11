@@ -49,6 +49,28 @@ function getSubscriptionQuarterly(ahorro: number): number {
   return 90  // 751-999 € (≥1000 usa modelo porcentaje)
 }
 
+/**
+ * Devuelve true si el cliente tiene CIF (sociedad mercantil, ayuntamiento, etc.)
+ * CIF: letra [ABCDEFGHJKLMNPQRSUVW] + 7 dígitos + dígito/letra de control
+ */
+function hasCIF(client: any): boolean {
+  const id = (client.cif ?? client.cif_nif ?? '').trim().toUpperCase()
+  return /^[ABCDEFGHJKLMNPQRSUVW]\d{7}[A-J0-9]$/i.test(id)
+}
+
+/**
+ * Persona física (firma por sí misma):
+ * - "particular" → siempre
+ * - "empresa" con NIF (autónomo) → sin CIF
+ * Empresa con CIF real y ayuntamiento → necesitan representante firmante
+ */
+function isNaturalClient(client: any): boolean {
+  if (!client) return false
+  if (client.type === 'particular') return true
+  if (client.type === 'empresa') return !hasCIF(client)
+  return false
+}
+
 function addMonths(date: Date, months: number): Date {
   const d = new Date(date)
   d.setMonth(d.getMonth() + months)
@@ -128,14 +150,16 @@ export default function ContractSection({ client, onUpdate }: Props) {
       .limit(1)
       .maybeSingle()
     if (data) {
+      const isNatural = isNaturalClient(client)
       setContract(data as ServiceContract)
       setAhorroConfirmado(data.ahorro_confirmado?.toString() ?? '')
       setContractType(data.contract_type as ServiceContractType)
       setIsRenewal(data.is_renewal)
       setPaymentModality(data.payment_modality as PaymentModality)
       setStartDate(data.start_date)
-      setRepresentativeName(data.representative_name ?? '')
-      setRepresentativeNif(data.representative_nif ?? '')
+      // Personas físicas → siempre usar datos de la ficha del cliente
+      setRepresentativeName(isNatural ? client.name : (data.representative_name ?? ''))
+      setRepresentativeNif(isNatural ? (client.nif ?? client.cif_nif ?? '') : (data.representative_nif ?? ''))
       setSigningLocation(data.signing_location ?? '')
     } else {
       // Auto-detect type from ahorro
@@ -146,8 +170,8 @@ export default function ContractSection({ client, onUpdate }: Props) {
         const parts = client.fiscal_address.split(',')
         setSigningLocation(parts[parts.length - 1]?.trim() ?? '')
       }
-      // Pre-fill representative for personas físicas (particular + autónomo)
-      if (['particular', 'autonomo'].includes(client.type)) {
+      // Pre-fill representative for personas físicas (particular + empresa con NIF/autónomo)
+      if (isNaturalClient(client)) {
         setRepresentativeName(client.name)
         setRepresentativeNif(client.nif ?? client.cif_nif ?? '')
       }
@@ -209,8 +233,8 @@ export default function ContractSection({ client, onUpdate }: Props) {
     onUpdate?.()
   }
 
-  // Personas físicas (particular + autónomo) → datos de la ficha, sin pedir representante
-  const isNatural = ['particular', 'autonomo'].includes(client.type)
+  // Personas físicas (particular + empresa con NIF/autónomo) → datos de la ficha, sin pedir representante
+  const isNatural = isNaturalClient(client)
   const hasRequiredData = startDate && (isNatural || representativeName)
 
   return (
