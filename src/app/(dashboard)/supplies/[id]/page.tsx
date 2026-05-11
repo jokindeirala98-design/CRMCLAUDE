@@ -694,15 +694,32 @@ export default function SupplyDetailPage() {
         }
 
         if (invoiceCupsNorm !== supplyCupsNorm) {
-          // Clean up the orphan file to avoid storage bloat
-          await supabase.storage.from('documents').remove([storageData.path]).catch(() => {})
-          newProgress[fileId] = 'error'
-          setUploadProgress({ ...newProgress })
-          showNotification(
-            `Factura rechazada: el CUPS de "${file.name}" (${invoiceCupsNorm}) no coincide con el CUPS de este suministro (${supplyCupsNorm}). Un suministro solo puede contener facturas de un único CUPS.`,
-            'error'
-          )
-          continue
+          // Count character-level differences (Hamming distance)
+          let cupsDiffs = Infinity
+          if (invoiceCupsNorm && supplyCupsNorm && invoiceCupsNorm.length === supplyCupsNorm.length) {
+            cupsDiffs = 0
+            for (let i = 0; i < invoiceCupsNorm.length; i++) {
+              if (invoiceCupsNorm[i] !== supplyCupsNorm[i]) cupsDiffs++
+            }
+          }
+
+          if (cupsDiffs <= 2) {
+            // ≤ 2 differences → likely OCR/AI extraction error in distributor code or
+            // control letters. Accept the invoice and proceed — do not create a new supply.
+            console.log(
+              `[SupplyPage] Fuzzy CUPS match: invoice "${invoiceCupsNorm}" accepted for supply "${supplyCupsNorm}" (${cupsDiffs} char diff${cupsDiffs !== 1 ? 's' : ''} — OCR tolerance)`,
+            )
+          } else {
+            // > 2 differences → genuinely different supply — reject.
+            await supabase.storage.from('documents').remove([storageData.path]).catch(() => {})
+            newProgress[fileId] = 'error'
+            setUploadProgress({ ...newProgress })
+            showNotification(
+              `Factura rechazada: el CUPS de "${file.name}" (${invoiceCupsNorm}) no coincide con este suministro (${supplyCupsNorm}). Comprueba que es la factura correcta.`,
+              'error'
+            )
+            continue
+          }
         }
 
         // 3. Compute period dates and total from extracted data

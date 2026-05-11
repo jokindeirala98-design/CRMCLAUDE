@@ -691,25 +691,60 @@ export async function processJobInBackground(jobId: string): Promise<void> {
       // Check if supply already exists
       let supplyId: string | null = null
       let isExistingSupply = false
+      let resolvedCups = cups // CUPS as stored in DB (may differ slightly from extracted)
       if (cups) {
+        // ── Step 1: exact CUPS match ──────────────────────────────────────────
         const { data: existing } = await supabase
           .from('supplies')
-          .select('id')
+          .select('id, cups')
           .eq('cups', cups)
           .limit(1)
-          .single()
+          .maybeSingle()
         if (existing) {
           supplyId = existing.id
           isExistingSupply = true
-          // Queue existing supply for SIPS refresh so consumption_data.totalKwh stays accurate
-          if (cups) {
-            allSuppliesForSips.push({
-              supplyId,
-              cups,
-              holderName: holderName || currentJob.clientName || '',
-              supplyType: type,
+          resolvedCups = existing.cups ?? cups
+        } else {
+          // ── Step 2: fuzzy CUPS match (Hamming ≤ 2) ───────────────────────
+          // Catches OCR/AI errors in the distributor code or control letters.
+          // e.g. "ES0022..." extracted vs "ES0226..." in DB — 2-char difference.
+          // Filter by client_id to avoid cross-client false positives.
+          const { data: candidates } = await supabase
+            .from('supplies')
+            .select('id, cups')
+            .like('cups', 'ES%')
+            .eq('client_id', groupClientId)
+            .limit(200)
+
+          if (candidates) {
+            const fuzzyMatch = candidates.find((s: { id: string; cups: string }) => {
+              if (!s.cups || s.cups.length !== cups.length) return false
+              let diffs = 0
+              for (let i = 0; i < cups.length; i++) {
+                if (s.cups[i] !== cups[i]) diffs++
+                if (diffs > 2) return false
+              }
+              return diffs > 0 && diffs <= 2
             })
+            if (fuzzyMatch) {
+              console.log(
+                `[UploadQueue] Fuzzy supply match: extracted CUPS "${cups}" → DB CUPS "${fuzzyMatch.cups}" (reusing existing supply)`,
+              )
+              supplyId = fuzzyMatch.id
+              isExistingSupply = true
+              resolvedCups = fuzzyMatch.cups ?? cups
+            }
           }
+        }
+
+        // Queue existing supply for SIPS refresh
+        if (supplyId && isExistingSupply && resolvedCups) {
+          allSuppliesForSips.push({
+            supplyId,
+            cups: resolvedCups,
+            holderName: holderName || currentJob.clientName || '',
+            supplyType: type,
+          })
         }
       }
 
