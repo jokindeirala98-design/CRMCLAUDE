@@ -17,6 +17,7 @@ import {
   CalendarDays,
   DollarSign,
   BarChart3,
+  Calculator,
   LucideIcon
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth'
@@ -36,11 +37,12 @@ const drawerGroups: { label: string; items: NavItem[] }[] = [
   {
     label: 'Operación',
     items: [
-      { href: '/supplies',    label: 'Suministros',  icon: Zap },
-      { href: '/prescorings', label: 'Prescorings',  icon: ClipboardCheck, permission: 'prescorings' },
-      { href: '/informes',    label: 'Informes',     icon: FileSpreadsheet, adminOnly: true },
-      { href: '/contracts',   label: 'Contratos',    icon: FileText },
-      { href: '/agenda',      label: 'Agenda',       icon: CalendarDays },
+      { href: '/supplies',     label: 'Suministros',      icon: Zap },
+      { href: '/prescorings',  label: 'Prescorings',      icon: ClipboardCheck,  permission: 'prescorings' },
+      { href: '/comparativas', label: 'Comparativas 2.0', icon: Calculator,      permission: 'comparativas' },
+      { href: '/informes',     label: 'Informes',         icon: FileSpreadsheet, adminOnly: true },
+      { href: '/contracts',    label: 'Contratos',        icon: FileText },
+      { href: '/agenda',       label: 'Agenda',           icon: CalendarDays },
     ],
   },
   {
@@ -64,7 +66,8 @@ export function MobileDrawer({ isOpen, onClose }: MobileDrawerProps) {
   const { user, hasPermission, isAdmin } = useAuthStore()
 
   const filterItem = (item: NavItem) => {
-    if (item.adminOnly && !isAdmin()) return false
+    if (isAdmin()) return true // admins ven todo
+    if (item.adminOnly) return false
     if (item.permission && !hasPermission(item.permission)) return false
     return true
   }

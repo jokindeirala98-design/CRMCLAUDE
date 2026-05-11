@@ -19,6 +19,7 @@ import {
   Inbox,
   DollarSign,
   FileSpreadsheet,
+  Calculator,
 } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 import { getUserInitials } from '@/lib/utils/format'
@@ -50,11 +51,12 @@ const navGroups: { label: string; items: NavItem[] }[] = [
   {
     label: 'Operación',
     items: [
-      { href: '/clients',     label: 'Clientes',    icon: Users,          permission: 'clients' },
-      { href: '/supplies',    label: 'Suministros', icon: Zap,            permission: 'supplies' },
-      { href: '/prescorings', label: 'Prescorings', icon: ClipboardCheck, permission: 'prescorings' },
-      { href: '/informes',    label: 'Informes',    icon: FileSpreadsheet, adminOnly: true },
-      { href: '/contracts',   label: 'Contratos',   icon: FileText,       permission: 'contracts' },
+      { href: '/clients',      label: 'Clientes',         icon: Users,           permission: 'clients' },
+      { href: '/supplies',     label: 'Suministros',      icon: Zap,             permission: 'supplies' },
+      { href: '/prescorings',  label: 'Prescorings',      icon: ClipboardCheck,  permission: 'prescorings' },
+      { href: '/comparativas', label: 'Comparativas 2.0', icon: Calculator,      permission: 'comparativas' },
+      { href: '/informes',     label: 'Informes',         icon: FileSpreadsheet, adminOnly: true },
+      { href: '/contracts',    label: 'Contratos',        icon: FileText,        permission: 'contracts' },
     ],
   },
   {
@@ -77,7 +79,8 @@ export function Sidebar() {
   const { user, hasPermission, isAdmin } = useAuthStore()
 
   const filterItem = (item: NavItem) => {
-    if (item.adminOnly && !isAdmin()) return false
+    if (isAdmin()) return true // admins ven todo
+    if (item.adminOnly) return false
     if (item.permission && !hasPermission(item.permission)) return false
     return true
   }
