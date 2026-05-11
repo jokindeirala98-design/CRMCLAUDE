@@ -857,47 +857,49 @@ export default function SupplyDetailPage() {
       })
       if (studyError) throw studyError
 
-      // 3. Update supply status via centralized pipeline
-      await advanceSupplyPipeline({
-        supabase,
-        supplyId: supply.id,
-        event: 'report_uploaded',
-        userId: user?.id,
-      })
-
-      // 4. Create notification for the commercial
-      if (supply.client?.id) {
-        const { data: clientData } = await supabase
-          .from('clients')
-          .select('commercial_id, name')
-          .eq('id', supply.client.id)
-          .single()
-
-        if (clientData?.commercial_id) {
-          // Use notify API so it also sends a Telegram push to the commercial
-          await fetch('/api/notify', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              userId: clientData.commercial_id,
-              type: 'estudio_completado',
-              title: 'Informe listo',
-              message: `El informe económico de ${clientData.name} (${supply.cups || 'sin CUPS'}) ya está disponible.`,
-              link: `/supplies/${supply.id}`,
-              metadata: {
-                report_url: reportUrl,
-                client_name: clientData.name,
-                cups: supply.cups,
-                supply_id: supply.id,
-              },
-            }),
-          })
-        }
-      }
-
-      // 5. Re-fetch supply
+      // 3. Re-fetch supply immediately so the new study appears in the UI
       await fetchSupply()
       showNotification('Comparativa subida correctamente', 'success')
+
+      // 4. Try to advance pipeline + notify commercial (non-fatal — don't block UI)
+      try {
+        await advanceSupplyPipeline({
+          supabase,
+          supplyId: supply.id,
+          event: 'report_uploaded',
+          userId: user?.id,
+        })
+
+        if (supply.client?.id) {
+          const { data: clientData } = await supabase
+            .from('clients')
+            .select('commercial_id, name')
+            .eq('id', supply.client.id)
+            .single()
+
+          if (clientData?.commercial_id) {
+            await fetch('/api/notify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                userId: clientData.commercial_id,
+                type: 'estudio_completado',
+                title: 'Informe listo',
+                message: `El informe económico de ${clientData.name} (${supply.cups || 'sin CUPS'}) ya está disponible.`,
+                link: `/supplies/${supply.id}`,
+                metadata: {
+                  report_url: reportUrl,
+                  client_name: clientData.name,
+                  cups: supply.cups,
+                  supply_id: supply.id,
+                },
+              }),
+            })
+          }
+        }
+      } catch (pipelineErr) {
+        console.error('Pipeline advance failed (non-fatal):', pipelineErr)
+      }
     } catch (err: any) {
       console.error('Error subiendo estudio económico:', err)
       showNotification(
@@ -2934,7 +2936,7 @@ export default function SupplyDetailPage() {
 
       {/* ═══════ NOTIFICATION TOAST ═══════ */}
       {notification && (
-        <div className="fixed bottom-4 right-4 z-40">
+        <div className="fixed bottom-4 right-4 z-[70]">
           <div
             className={`px-4 py-3 rounded-lg shadow-lg border flex items-center gap-3 max-w-sm animate-in slide-in-from-bottom-4 ${
               notification.type === 'success'
