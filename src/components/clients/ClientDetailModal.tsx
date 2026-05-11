@@ -348,9 +348,13 @@ export function ClientDetailModal({ clientId, isOpen, onClose, contextSupplyId, 
           <div className="p-6 space-y-6">
             {/* Field grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {FIELD_DEFS.map(({ key, label, icon: Icon, required }) => {
+              {FIELD_DEFS.map(({ key, label: staticLabel, icon: Icon, required }) => {
                 const value = (editing ? draft[key] : client?.[key]) as string | null | undefined
                 const missing = !value && required
+                // For the nif field, show NIE when the value starts with X/Y/Z
+                const label = key === 'nif' && value && /^[XYZ]/i.test(value.trim())
+                  ? 'NIF / NIE'
+                  : staticLabel
                 return (
                   <div
                     key={key}

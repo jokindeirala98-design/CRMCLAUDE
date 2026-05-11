@@ -666,19 +666,23 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
                 </div>
               </div>
 
-              {/* Datos personales — autónomo/particular con ficha incompleta */}
-              {isNatural && (!representativeName.trim() || !representativeNif.trim()) && (
-                <div className="space-y-2 p-3 rounded-xl border border-warn/30 bg-warn-container/30">
-                  <p className="text-[10px] font-bold text-warn uppercase tracking-wider">⚠ Datos necesarios para los documentos</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="relative">
-                      <User className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3" />
-                      <input type="text" value={representativeName} onChange={e => setRepresentativeName(e.target.value)} placeholder="Nombre y apellidos" className="w-full pl-8 pr-3 py-2 text-sm border border-warn/40 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors" />
+              {/* Datos personales — autónomo/particular */}
+              {isNatural && (() => {
+                const incomplete = !representativeName.trim() || !representativeNif.trim()
+                const nifLabel = representativeNif && /^[XYZ]/i.test(representativeNif.trim()) ? 'NIE' : 'DNI'
+                return (
+                  <div className={`space-y-2 p-3 rounded-xl border ${incomplete ? 'border-warn/30 bg-warn-container/30' : 'border-line-2 bg-bg-2'}`}>
+                    {incomplete && <p className="text-[10px] font-bold text-warn uppercase tracking-wider">⚠ Datos necesarios para los documentos</p>}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="relative">
+                        <User className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3" />
+                        <input type="text" value={representativeName} onChange={e => setRepresentativeName(e.target.value)} placeholder="Nombre y apellidos" className={`w-full pl-8 pr-3 py-2 text-sm border rounded-lg bg-card focus:outline-none focus:border-brand transition-colors ${incomplete ? 'border-warn/40' : 'border-line-2'}`} />
+                      </div>
+                      <input type="text" value={representativeNif} onChange={e => setRepresentativeNif(e.target.value)} placeholder={`${nifLabel}: ${nifLabel === 'NIE' ? 'X1234567L' : '12345678A'}`} className={`w-full px-3 py-2 text-sm border rounded-lg bg-card focus:outline-none focus:border-brand transition-colors font-mono ${incomplete ? 'border-warn/40' : 'border-line-2'}`} />
                     </div>
-                    <input type="text" value={representativeNif} onChange={e => setRepresentativeNif(e.target.value)} placeholder="DNI / NIE" className="w-full px-3 py-2 text-sm border border-warn/40 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors font-mono" />
                   </div>
-                </div>
-              )}
+                )
+              })()}
 
               {/* Firmante — solo empresas/ayuntamientos */}
               {!isNatural && (
@@ -688,7 +692,7 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
                     <User className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3" />
                     <input type="text" value={representativeName} onChange={e => setRepresentativeName(e.target.value)} placeholder="Nombre del representante" className="w-full pl-8 pr-3 py-2 text-sm border border-line-2 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors" />
                   </div>
-                  <input type="text" value={representativeNif} onChange={e => setRepresentativeNif(e.target.value)} placeholder="DNI: 12345678A" className="w-full px-3 py-2 text-sm border border-line-2 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors font-mono" />
+                  <input type="text" value={representativeNif} onChange={e => setRepresentativeNif(e.target.value)} placeholder={representativeNif && /^[XYZ]/i.test(representativeNif.trim()) ? 'NIE: X1234567L' : 'DNI / NIE: 12345678A'} className="w-full px-3 py-2 text-sm border border-line-2 rounded-lg bg-card focus:outline-none focus:border-brand transition-colors font-mono" />
                 </div>
               )}
 
@@ -730,10 +734,10 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
               Guardar configuración
             </button>
 
-            {/* Aviso si autónomo sin DNI */}
+            {/* Aviso si autónomo sin nombre o NIF/NIE */}
             {contractForPDF && isNatural && (!representativeName.trim() || !representativeNif.trim()) && (
               <p className="text-xs text-warn self-center">
-                ⚠ Completa nombre y DNI para generar documentos
+                ⚠ Completa nombre y {representativeNif && /^[XYZ]/i.test(representativeNif.trim()) ? 'NIE' : 'DNI/NIE'} para generar documentos
               </p>
             )}
 

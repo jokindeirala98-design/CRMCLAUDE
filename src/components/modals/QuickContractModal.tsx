@@ -447,10 +447,10 @@ export function QuickContractModal({ open, onClose, onCreated, client }: Props) 
                       placeholder="Juan García López"
                     />
                     <Input
-                      label="DNI del representante *"
+                      label={`${repDni && /^[XYZ]/i.test(repDni.trim()) ? 'NIE' : 'DNI'} del representante *`}
                       value={repDni}
                       onChange={(e) => setRepDni(e.target.value)}
-                      placeholder="12345678A"
+                      placeholder="12345678A / X1234567L"
                     />
                   </div>
                 </div>
