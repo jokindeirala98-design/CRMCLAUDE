@@ -829,11 +829,17 @@ export default function SupplyDetailPage() {
     try {
       const supabase = createClient()
 
-      // 1. Upload file to Storage
+      // 1. Upload file to Storage (pass contentType so PDFs aren't rejected)
       const filePath = `reports/${supply.id}/${Date.now()}_${file.name}`
+      const contentType = file.type || (
+        file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' :
+        file.name.toLowerCase().endsWith('.xlsx') ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' :
+        file.name.toLowerCase().endsWith('.xls') ? 'application/vnd.ms-excel' :
+        'application/octet-stream'
+      )
       const { error: uploadError } = await supabase.storage
         .from('documents')
-        .upload(filePath, file)
+        .upload(filePath, file, { contentType })
       if (uploadError) throw uploadError
 
       const { data: urlData } = supabase.storage.from('documents').getPublicUrl(filePath)
@@ -891,8 +897,13 @@ export default function SupplyDetailPage() {
 
       // 5. Re-fetch supply
       await fetchSupply()
-    } catch (err) {
+      showNotification('Comparativa subida correctamente', 'success')
+    } catch (err: any) {
       console.error('Error subiendo estudio económico:', err)
+      showNotification(
+        `Error al subir el archivo: ${err?.message ?? 'Error desconocido'}`,
+        'error'
+      )
     } finally {
       setUploadingStudy(false)
       if (studyInputRef.current) studyInputRef.current.value = ''
@@ -1537,7 +1548,7 @@ export default function SupplyDetailPage() {
           </Card>
 
           {/* Hidden file inputs (need to be outside overlay for stability) */}
-          <input ref={studyInputRef} type="file" accept=".pdf,.xlsx,.xls,.doc,.docx" className="hidden" onChange={handleUploadStudy} />
+          <input ref={studyInputRef} type="file" accept=".pdf,.xlsx,.xls" className="hidden" onChange={handleUploadStudy} />
           <input ref={invoiceInputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" multiple className="hidden" onChange={handleUploadInvoices} />
         </div>
 
@@ -2698,15 +2709,15 @@ export default function SupplyDetailPage() {
                       <p className="text-xs text-ink-3">Sin informes económicos</p>
                     )}
 
-                    {/* Upload fallback */}
+                    {/* Upload comparativa */}
                     <button
                       type="button"
                       onClick={() => studyInputRef.current?.click()}
                       disabled={uploadingStudy}
-                      className="mt-1 text-[10px] text-ink-4 hover:text-ink-3 transition flex items-center gap-1"
+                      className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-ok/40 bg-ok-container/20 text-ok text-xs font-semibold hover:bg-ok-container/40 transition disabled:opacity-50 w-fit"
                     >
-                      {uploadingStudy ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Upload className="w-2.5 h-2.5" />}
-                      Subir archivo existente
+                      {uploadingStudy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                      {uploadingStudy ? 'Subiendo...' : 'Adjuntar comparativa (PDF / Excel)'}
                     </button>
 
                     {/* Study notes — admin only */}
