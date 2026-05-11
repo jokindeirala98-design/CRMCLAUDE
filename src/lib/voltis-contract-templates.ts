@@ -32,7 +32,7 @@ const BASE_CSS = `
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{background:#e7e5df;color:var(--ink);font-family:var(--sans);font-size:12pt;line-height:1.55;-webkit-font-smoothing:antialiased}
 .viewer{display:flex;flex-direction:column;align-items:center;gap:18px;padding:36px 16px 80px;min-height:100vh}
-.page{width:210mm;height:297mm;min-height:297mm;background:var(--paper);box-shadow:0 1px 0 rgba(0,0,0,.04),0 24px 60px -28px rgba(20,25,20,.25),0 8px 16px -8px rgba(20,25,20,.10);position:relative;padding:18mm 20mm 16mm;display:flex;flex-direction:column;color:var(--ink);overflow:hidden}
+.page{width:210mm;min-height:297mm;background:var(--paper);box-shadow:0 1px 0 rgba(0,0,0,.04),0 24px 60px -28px rgba(20,25,20,.25),0 8px 16px -8px rgba(20,25,20,.10);position:relative;padding:18mm 20mm 16mm;display:flex;flex-direction:column;color:var(--ink);overflow:visible}
 .page-body{flex:1;display:flex;flex-direction:column}
 .runhead{display:flex;align-items:center;justify-content:space-between;font-size:9pt;color:var(--ink-3);letter-spacing:.04em;padding-bottom:4mm;border-bottom:.5pt solid var(--rule-soft);margin-bottom:7mm}
 .runhead .left{display:flex;align-items:center;gap:10px}
@@ -119,7 +119,34 @@ html,body{background:#e7e5df;color:var(--ink);font-family:var(--sans);font-size:
 .sig .name{font-family:var(--serif);font-size:13pt;color:var(--ink);font-weight:500}
 .sig .id{font-size:9.5pt;color:var(--ink-3);margin-top:1mm}
 .anchor{font-family:var(--mono);font-size:8.5pt;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-4)}
-@media print{html,body{background:#fff}.viewer{padding:0;gap:0;background:#fff}.page{box-shadow:none;width:210mm;height:auto!important;min-height:0!important;overflow:visible!important;break-before:always;page-break-before:always;break-after:auto;page-break-after:auto;margin:0}.page:first-child{break-before:auto;page-break-before:auto}.page-body{overflow:visible!important}@page{size:A4;margin:0}}
+@media print{
+  html,body{background:#fff!important;margin:0!important;padding:0!important}
+  .viewer{
+    display:block!important;
+    padding:0!important;
+    gap:0!important;
+    background:#fff!important;
+    min-height:0!important;
+  }
+  .page{
+    box-shadow:none!important;
+    width:210mm!important;
+    height:auto!important;
+    min-height:0!important;
+    max-height:none!important;
+    overflow:visible!important;
+    break-before:page;
+    page-break-before:always;
+    margin:0!important;
+    padding:18mm 20mm 16mm!important;
+  }
+  .page:first-child{
+    break-before:auto!important;
+    page-break-before:auto!important;
+  }
+  .page-body{overflow:visible!important;height:auto!important}
+  @page{size:A4;margin:0}
+}
 `
 
 const GOOGLE_FONTS = `<link rel="preconnect" href="https://fonts.googleapis.com" /><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin /><link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />`
