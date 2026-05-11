@@ -830,7 +830,11 @@ export default function SupplyDetailPage() {
       const supabase = createClient()
 
       // 1. Upload file to Storage (pass contentType so PDFs aren't rejected)
-      const filePath = `reports/${supply.id}/${Date.now()}_${file.name}`
+      // Sanitize filename: remove accents, replace spaces/special chars with underscores
+      const safeFileName = file.name
+        .normalize('NFD').replace(/[̀-ͯ]/g, '')  // strip accents
+        .replace(/[^a-zA-Z0-9.\-_]/g, '_')                 // replace anything else
+      const filePath = `reports/${supply.id}/${Date.now()}_${safeFileName}`
       const contentType = file.type || (
         file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' :
         file.name.toLowerCase().endsWith('.xlsx') ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' :
