@@ -15,7 +15,7 @@
 
 import { callGemini, safeParseGeminiJSON } from '@/lib/gemini'
 
-export type IdentityDocType = 'dni' | 'cif' | 'cert_bancario' | 'desconocido'
+export type IdentityDocType = 'dni' | 'nie' | 'cif' | 'cert_bancario' | 'desconocido'
 
 export interface ExtractedIdentityData {
   mode: 'gemini' | 'manual'
@@ -55,6 +55,11 @@ TIPOS DE DOCUMENTO QUE RECONOCES (SOLO ESTOS 3)
    - Dorso: dirección, ciudad, provincia, indicación de validez, MRZ (zona de lectura mecánica con < < <)
    - documentType: "dni"
 
+1b. **NIE** (Número de Identidad de Extranjero):
+   - Tarjeta de residencia / certificado de la DGP o Policía Nacional para extranjeros residentes en España
+   - Formato del NIE: 1 letra (X, Y o Z) + 7 dígitos + 1 letra de control (ej. "X1234567L", "Y0123456M")
+   - documentType: "nie" (usa campo "dni" para el número NIE)
+
 2. **CIF / Tarjeta de identificación fiscal de empresa**:
    - Documento de la AEAT con "Número de Identificación Fiscal" o "Tarjeta acreditativa del NIF"
    - Contiene: razón social (empresa), CIF/NIF empresa (formato: 1 letra + 7 dígitos + 1 dígito o letra, ej. B12345678), domicilio fiscal
@@ -75,6 +80,7 @@ REGLAS DE EXTRACCIÓN
 - Si un campo no aparece, omítelo del JSON (no pongas "" ni null).
 - Para nombres en mayúsculas en el documento, mantén la capitalización del documento.
 - DNI español: el número siempre tiene 8 dígitos + 1 letra (ej. "12345678Z"). Devuélvelo sin espacios.
+- NIE extranjero: el número empieza por X, Y o Z seguido de 7 dígitos y 1 letra (ej. "X1234567L"). Devuélvelo sin espacios en el campo "dni".
 - CIF empresa: formato letra + 7 dígitos + control (ej. "B12345678", "A28017895"). Devuélvelo sin espacios.
 - IBAN: formato ES + 22 dígitos (24 caracteres totales). Devuélvelo SIN espacios.
 - Direcciones fiscales: incluye calle, número, código postal, ciudad y provincia si aparecen.

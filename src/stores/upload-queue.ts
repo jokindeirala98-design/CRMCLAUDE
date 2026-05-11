@@ -409,7 +409,8 @@ export async function processJobInBackground(jobId: string): Promise<void> {
         || 'Cliente sin nombre'
       const bestCif = candidates.find(c => c.cifNif)?.cifNif || null
       const isAyuntamiento = /ayuntamiento|ajuntament|concello|diputaci[oó]n|mancomunidad/i.test(bestName)
-      const isParticular = bestCif ? /^\d/.test(bestCif) : false
+      // Particular: DNI (starts with digit) or NIE (starts with X, Y, Z)
+      const isParticular = bestCif ? (/^\d/.test(bestCif) || /^[XYZ]/i.test(bestCif)) : false
       const clientType = isAyuntamiento ? 'ayuntamiento' : isParticular ? 'particular' : 'empresa'
 
       const { data: { user: authUser } } = await supabase.auth.getUser()
@@ -647,7 +648,8 @@ export async function processJobInBackground(jobId: string): Promise<void> {
           } else if (holderName) {
             // 2. Create new client with invoice data
             const isAyunt = /ayuntamiento|ajuntament|concello|diputaci/i.test(holderName)
-            const isParticular = /^\d/.test(holderCifNif)
+            // Particular: DNI (starts with digit) or NIE (starts with X, Y, Z)
+            const isParticular = /^\d/.test(holderCifNif) || /^[XYZ]/i.test(holderCifNif)
             const clientType = isAyunt ? 'ayuntamiento' : isParticular ? 'particular' : 'empresa'
             const { data: newC } = await supabase
               .from('clients')

@@ -252,7 +252,8 @@ export async function processTelegramInboxItem(
         }
         if (!identityClientId) {
           const clientName = rawClientName || 'Cliente Telegram'
-          const isParticular = identity.documentType === 'dni'
+          // NIE (documentType 'nie') is also a particular person
+          const isParticular = identity.documentType === 'dni' || identity.documentType === 'nie'
           const clientPayload = {
             name: clientName,
             type: isParticular ? 'particular' : 'empresa',
@@ -304,7 +305,7 @@ export async function processTelegramInboxItem(
         return {
           ok: true,
           client_id: identityClientId || undefined,
-          client_type: identity.documentType === 'dni' ? 'particular' : 'empresa',
+          client_type: (identity.documentType === 'dni' || identity.documentType === 'nie') ? 'particular' : 'empresa',
         }
       }
     } catch (identityErr: any) {
@@ -442,7 +443,8 @@ export async function processTelegramInboxItem(
 
     // Auto-detect client type: ayuntamiento, empresa, or particular
     const isAyuntamiento = /ayuntamiento|ajuntament|concello|diputaci[oó]n|consejo\s+comarcal|mancomunidad/i.test(clientName)
-    const isParticular = holderCif ? /^\d/.test(holderCif.trim()) : false
+    // Particular: DNI (starts with digit) or NIE (starts with X, Y, Z)
+    const isParticular = holderCif ? (/^\d/.test(holderCif.trim()) || /^[XYZ]/i.test(holderCif.trim())) : false
     clientType = isAyuntamiento ? 'ayuntamiento' : isParticular ? 'particular' : 'empresa'
 
     // Try with 'telegram' origin first; if the enum value doesn't exist yet, fallback to 'captacion'
@@ -496,11 +498,11 @@ export async function processTelegramInboxItem(
 
     const existingPatch: Record<string, any> = {}
 
-    // Auto-correct type: if we now know the CIF starts with a digit (DNI) and client was stored as empresa
-    if (holderCif && /^\d/.test(holderCif.trim()) && existingClient?.type === 'empresa') {
+    // Auto-correct type: if we now know the identifier is a DNI or NIE and client was stored as empresa
+    if (holderCif && (/^\d/.test(holderCif.trim()) || /^[XYZ]/i.test(holderCif.trim())) && existingClient?.type === 'empresa') {
       existingPatch.type = 'particular'
       clientType = 'particular'
-      console.log(`[TelegramProcess] Auto-corrected client ${clientId} type empresa → particular (DNI detected)`)
+      console.log(`[TelegramProcess] Auto-corrected client ${clientId} type empresa → particular (DNI/NIE detected)`)
     }
 
     // Back-fill fiscal_address on existing client if currently empty

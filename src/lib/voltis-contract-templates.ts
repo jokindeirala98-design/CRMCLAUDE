@@ -11,6 +11,16 @@
  *   // El usuario pulsa Ctrl+P en la nueva ventana
  */
 
+/**
+ * Returns "NIE" if the identifier is a Spanish foreigner's ID (X/Y/Z + 7 digits + letter),
+ * "DNI" otherwise. Used to produce the correct legal wording in contracts.
+ */
+function idDocLabel(nif: string | null | undefined): 'NIE' | 'DNI' {
+  if (!nif) return 'DNI'
+  const clean = nif.trim().toUpperCase().replace(/[-\s]/g, '')
+  return /^[XYZ]\d{7}[A-Z]$/.test(clean) ? 'NIE' : 'DNI'
+}
+
 const BASE_CSS = `
 :root{
   --paper:#fbfaf7;--ink:#1a1d1a;--ink-2:#3a3d3a;--ink-3:#6b6f6b;--ink-4:#a8aaa6;
@@ -464,8 +474,8 @@ export function generateContratoHTML(d: ContratoData): string {
           <div class="party">
             <div class="party-tag">De una parte<span class="role">El cliente</span></div>
             <div class="party-body">${d.isNatural
-  ? `Don/Doña <strong>${d.representativeName}</strong>, mayor de edad, con DNI <strong>${d.representativeNif || '___________'}</strong>, en representación propia y domicilio en <strong>${d.clientFiscalAddress || '________________________________'}</strong> <span class="alias">(en adelante «el Cliente»).</span>`
-  : `Don/Doña <strong>${d.representativeName}</strong>, mayor de edad, con DNI <strong>${d.representativeNif || '___________'}</strong>, en nombre y representación de <strong>${d.clientName}</strong>, con CIF <strong>${d.clientCif || '___________'}</strong> y domicilio en <strong>${d.clientFiscalAddress || '________________________________'}</strong> <span class="alias">(en adelante «el Cliente»).</span>`
+  ? `Don/Doña <strong>${d.representativeName}</strong>, mayor de edad, con ${idDocLabel(d.representativeNif)} <strong>${d.representativeNif || '___________'}</strong>, en representación propia y domicilio en <strong>${d.clientFiscalAddress || '________________________________'}</strong> <span class="alias">(en adelante «el Cliente»).</span>`
+  : `Don/Doña <strong>${d.representativeName}</strong>, mayor de edad, con ${idDocLabel(d.representativeNif)} <strong>${d.representativeNif || '___________'}</strong>, en nombre y representación de <strong>${d.clientName}</strong>, con CIF <strong>${d.clientCif || '___________'}</strong> y domicilio en <strong>${d.clientFiscalAddress || '________________________________'}</strong> <span class="alias">(en adelante «el Cliente»).</span>`
 }</div>
           </div>
           <div class="party">

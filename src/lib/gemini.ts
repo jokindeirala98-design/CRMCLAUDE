@@ -427,7 +427,7 @@ REGLAS CRÍTICAS DE EXTRACCIÓN (V3.0) — APLICAN A FACTURAS DE LUZ Y GAS
 
 1. **DATOS DE TITULAR Y SUMINISTRO (MANDATORIO):**
    - holder_name: nombre EXACTO del titular tal como aparece (ej: "AYUNTAMIENTO DE AOIZ", no "Ayuntamiento").
-   - holder_cif_nif: CIF o NIF del titular tal como aparece.
+   - holder_cif_nif: CIF, NIF o NIE del titular tal como aparece en la factura (DNI: 8 dígitos + 1 letra, ej. "12345678Z"; NIE: X/Y/Z + 7 dígitos + 1 letra, ej. "X1234567L"; CIF empresa: 1 letra + 7 dígitos + control, ej. "B12345678"). Extrae SIEMPRE el identificador fiscal aunque sea un NIE de extranjero.
    - supply_address: DIRECCIÓN COMPLETA del punto de suministro (calle, número, CP, municipio).
    - comercializadora: nombre EXACTO de la empresa emisora de la factura (Naturgy, Endesa, Galp, TotalEnergies, Axpo, Iberdrola, Repsol, EDP, Holaluz, Audax, etc.). OBLIGATORIO — siempre está impreso en la factura (logo, cabecera o pie de página).
    - tariff: tarifa de acceso exacta (2.0TD, 3.0TD, 6.1TD, RL.1, RL.2, etc.).
