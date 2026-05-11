@@ -152,6 +152,7 @@ export interface PropuestaData {
   representativeName: string
   ahorroConfirmado: number | null
   feeAmount: number
+  subscriptionQuarterly?: number  // cuota trimestral sin IVA (para tipo suscripcion)
   startDate: Date
   endDate: Date
   contractType: 'porcentaje' | 'suscripcion'
@@ -181,9 +182,10 @@ export function generatePropuestaHTML(d: PropuestaData): string {
   const endDateStr = fmtDateLong(d.endDate)
   const lbl = entityLabels(d.clientType, d.clientName)
   const ahorroStr = d.ahorroConfirmado ? fmtCurrency(d.ahorroConfirmado) : '—'
+  const subQ = d.subscriptionQuarterly ?? 0
   const minutaStr = d.contractType === 'porcentaje'
     ? `${fmtCurrency(d.feeAmount)} € + IVA`
-    : `${fmtCurrency(19.99)}/mes + IVA`
+    : `${fmtCurrency(subQ)}/trimestre + IVA`
 
   const page1 = `
   <article class="page">
@@ -383,6 +385,7 @@ export interface ContratoData {
   firstPaymentDate: Date
   ahorroConfirmado: number | null
   feeAmount: number
+  subscriptionQuarterly?: number  // cuota trimestral sin IVA (para tipo suscripcion)
   contractType: 'porcentaje' | 'suscripcion'
   paymentModality: 'A' | 'B' | 'C' | 'D'
   paymentSchedule: PaymentScheduleItem[]
@@ -511,9 +514,10 @@ export function generateContratoHTML(d: ContratoData): string {
     </div>
   </article>`
 
+  const subQC = d.subscriptionQuarterly ?? 0
   const honorariosDesc = d.contractType === 'porcentaje'
     ? `<p>Tomando como referencia el ahorro estimado recogido en la <em>«Propuesta de colaboración Voltis Energía — ${d.clientName}»</em> (Anexo&nbsp;I), los honorarios correspondientes al primer año de servicio ascienden a <strong>${fmtCurrency(d.feeAmount)} más IVA</strong>, importe equivalente al <strong>25%</strong> del ahorro estimado.</p><p>Este importe será facturado al <strong>Cliente</strong> conforme a lo establecido en la cláusula <strong>Quinta</strong> del presente contrato, quedando sujeto a regularización al finalizar el periodo anual en función del ahorro real obtenido.</p>`
-    : `<p>Los honorarios por el servicio de suscripción ascienden a <strong>19,99 € más IVA mensuales</strong>, lo que representa <strong>${fmtCurrency(19.99 * 12)} más IVA</strong> anuales, facturados conforme a la cláusula <strong>Quinta</strong>.</p>`
+    : `<p>Los honorarios por el servicio de suscripción ascienden a <strong>${fmtCurrency(subQC)} € más IVA trimestrales</strong>, lo que representa <strong>${fmtCurrency(subQC * 4)} más IVA</strong> anuales, facturados conforme a la cláusula <strong>Quinta</strong>.</p>`
 
   const page3 = `
   <article class="page">
@@ -526,10 +530,10 @@ export function generateContratoHTML(d: ContratoData): string {
             <h2>Honorarios</h2>
             <div class="fees">
               <div>
-                <div class="label">${d.contractType === 'porcentaje' ? 'Porcentaje sobre ahorro' : 'Cuota mensual fija'}</div>
+                <div class="label">${d.contractType === 'porcentaje' ? 'Porcentaje sobre ahorro' : 'Cuota trimestral fija'}</div>
                 <div class="desc">Del ahorro económico anual obtenido por el <strong>Cliente</strong> como consecuencia de los servicios de asesoría energética prestados.</div>
               </div>
-              <div class="figure">${d.contractType === 'porcentaje' ? '<strong>25</strong><span class="pct">%</span>' : '<strong>19,99</strong><span class="pct">€/mes</span>'}</div>
+              <div class="figure">${d.contractType === 'porcentaje' ? '<strong>25</strong><span class="pct">%</span>' : `<strong>${fmtCurrency(subQC)}</strong><span class="pct">€/trim</span>`}</div>
             </div>
             ${honorariosDesc}
             <p>En caso de prórroga del contrato, las partes podrán acordar la revisión de los honorarios con una antelación mínima de un&nbsp;(1)&nbsp;mes respecto a la finalización del periodo contractual.</p>

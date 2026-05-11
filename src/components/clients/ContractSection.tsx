@@ -41,6 +41,14 @@ const MODALITY_DESCRIPTIONS: Record<PaymentModality, string> = {
   D: '100% al vencimiento del contrato (12 meses).',
 }
 
+/** Cuota trimestral Voltis (sin IVA) en función del ahorro anual estimado */
+function getSubscriptionQuarterly(ahorro: number): number {
+  if (ahorro <= 200) return 0
+  if (ahorro <= 350) return 20
+  if (ahorro <= 750) return 45
+  return 90  // 751-999 € (≥1000 usa modelo porcentaje)
+}
+
 function addMonths(date: Date, months: number): Date {
   const d = new Date(date)
   d.setMonth(d.getMonth() + months)
@@ -153,10 +161,10 @@ export default function ContractSection({ client, onUpdate }: Props) {
 
   // Derived values
   const ahorroNum = parseFloat(ahorroConfirmado) || 0
+  const subscriptionQuarterly = contractType === 'suscripcion' ? getSubscriptionQuarterly(ahorroNum) : 0
   const feeAmount = contractType === 'porcentaje'
     ? ahorroNum * 0.25
-    : (parseFloat(ahorroConfirmado) || 19.99) * 12  // suscripcion: monthly × 12
-  const subscriptionMonthly = contractType === 'suscripcion' ? 19.99 : null
+    : subscriptionQuarterly * 4  // suscripcion: cuota trimestral × 4 = anual
   const startDateObj = new Date(startDate + 'T00:00:00')
   const endDateObj = addMonths(startDateObj, 12)
   const paymentSchedule = ahorroNum > 0 || contractType === 'suscripcion'
@@ -176,7 +184,7 @@ export default function ContractSection({ client, onUpdate }: Props) {
       ahorro_confirmado: ahorroNum || null,
       fee_percentage: 25,
       fee_amount: contractType === 'porcentaje' ? feeAmount : null,
-      subscription_monthly: contractType === 'suscripcion' ? subscriptionMonthly : null,
+      subscription_monthly: contractType === 'suscripcion' ? subscriptionQuarterly : null,
       payment_modality: paymentModality,
       start_date: startDate,
       end_date: endDateObj.toISOString().split('T')[0],
@@ -298,7 +306,9 @@ export default function ContractSection({ client, onUpdate }: Props) {
                     <Info className="w-3.5 h-3.5 flex-shrink-0" />
                     {ahorroNum > 1000
                       ? `Ahorro > 1.000€ → contrato por 25% (${formatCurrency(feeAmount)} + IVA/año)`
-                      : `Ahorro ≤ 1.000€ → suscripción a 19,99€/mes + IVA`}
+                      : subscriptionQuarterly === 0
+                        ? `Suscripción → 0€/trimestre (ahorro ≤ 200€)`
+                        : `Suscripción → ${subscriptionQuarterly}€/trimestre + IVA`}
                   </div>
                 )}
               </div>
@@ -319,7 +329,7 @@ export default function ContractSection({ client, onUpdate }: Props) {
                     >
                       {type === 'porcentaje' ? '25% sobre ahorro' : 'Suscripción fija'}
                       <p className={`text-[10px] font-normal mt-0.5 ${contractType === type ? 'text-white/70' : 'text-ink-4'}`}>
-                        {type === 'porcentaje' ? 'Ahorro > 1.000€/año' : '19,99€/mes · Renovaciones'}
+                        {type === 'porcentaje' ? 'Ahorro > 1.000€/año' : `${subscriptionQuarterly}€/trim · Renovaciones`}
                       </p>
                     </button>
                   ))}
@@ -495,6 +505,7 @@ export default function ContractSection({ client, onUpdate }: Props) {
                           representativeName: repName,
                           ahorroConfirmado: ahorroNum || null,
                           feeAmount,
+                          subscriptionQuarterly,
                           startDate: startDateObj,
                           endDate: endDateObj,
                           contractType,
@@ -534,6 +545,7 @@ export default function ContractSection({ client, onUpdate }: Props) {
                           firstPaymentDate,
                           ahorroConfirmado: ahorroNum || null,
                           feeAmount,
+                          subscriptionQuarterly,
                           contractType,
                           paymentModality,
                           paymentSchedule,

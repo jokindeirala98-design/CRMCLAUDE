@@ -870,14 +870,37 @@ A2. ENDESA / e-distribución:
      "Consumo Valle  557,140 kWh × 0,249889 Eur/kWh  → 139,22 €"
      "Consumo Valle  196,650 kWh × 0,251136 Eur/kWh  →  49,39 €"
 
-   REGLAS para ENERGÍA con periodo duplicado:
-     → SUMA los kWh de ambas líneas del mismo periodo (punta1+punta2, etc.)
-     → SUMA el coste total de ambas líneas
-     → precio_efectivo = coste_total_sumado / kWh_sumado  (MEDIA PONDERADA)
-     → Emite UNA sola entrada en consumo[] por periodo:
-         P1: {kwh:668.40, precioKwh:0.36651, total:244.96}   ← 450.88+217.52, (165.06+79.90)/(668.40)
+   REGLAS para ENERGÍA con periodo duplicado — sigue EXACTAMENTE estos pasos:
+
+     PASO 1: Para cada periodo (Punta, Llano, Valle), identifica TODAS sus filas.
+       Ejemplo Punta: fila1={450.880 kWh, 0.366074 €/kWh, 165.06€}  fila2={217.520 kWh, 0.367321 €/kWh, 79.90€}
+
+     PASO 2: Suma los kWh de TODAS las filas del mismo periodo.
+       kwh_total_P1 = 450.880 + 217.520 = 668.400   ← USA ESTA SUMA, NO solo la primera fila
+       kwh_total_P2 = 353.580 + 184.070 = 537.650
+       kwh_total_P3 = 557.140 + 196.650 = 753.790
+
+     PASO 3: Suma los costes (€) de TODAS las filas del mismo periodo.
+       coste_total_P1 = 165.06 + 79.90 = 244.96
+       coste_total_P2 = 100.29 + 52.44 = 152.73
+       coste_total_P3 = 139.22 + 49.39 = 188.61
+
+     PASO 4: precio_efectivo = coste_total / kwh_total  (MEDIA PONDERADA)
+       precioKwh_P1 = 244.96 / 668.40 = 0.36651   ← ~0.366, NUNCA 0.54
+       precioKwh_P2 = 152.73 / 537.65 = 0.28405
+       precioKwh_P3 = 188.61 / 753.79 = 0.25023
+
+     PASO 5: Emite UNA sola entrada en consumo[] por periodo:
+         P1: {kwh:668.40, precioKwh:0.36651, total:244.96}
          P2: {kwh:537.65, precioKwh:0.28405, total:152.73}
          P3: {kwh:753.79, precioKwh:0.25023, total:188.61}
+
+     ⚠️ VERIFICACIÓN OBLIGATORIA antes de emitir el JSON:
+        El campo "kwh" de P1 en consumo[] DEBE ser la SUMA de todas las filas Punta
+        (en este ejemplo: 668.40, NO 450.88 ni 217.52).
+        Si ves un precioKwh mayor que 0.45 €/kWh en una factura 2.0TD de 2025–2026,
+        has cometido un error en el cálculo — revisa el paso 2 y 4.
+
      ⚠️ En rawLineItems puedes emitir las dos líneas separadas de cada periodo para
         tener el detalle, pero consumo[] SIEMPRE consolida en UNA entrada por periodo.
 
@@ -1341,10 +1364,10 @@ FORMATO JSON DE RESPUESTA PARA FACTURAS
     "tariff": "3.0TD",
     "comercializadora": "Endesa",
     "supply_address": "C/ Mayor 1, 31430 Aoiz, Navarra",
-    "billing_period": "01/01/2024 - 31/01/2024",
+    "billing_period": "2024-01-01 - 2024-01-31",
     "economics": {
-      "fechaInicio": "01/01/2024",
-      "fechaFin": "31/01/2024",
+      "fechaInicio": "2024-01-01",
+      "fechaFin": "2024-01-31",
       "titular": "AYUNTAMIENTO DE AOIZ",
       "comercializadora": "Endesa",
       "cups": "ES0000000000000000XX",
@@ -2147,8 +2170,17 @@ Aunque la imagen sea borrosa, DEBES extraer todos los valores numéricos de las 
    - costeTotalPotencia: suma de los importes de potencia
 
 ════ 4. FECHAS ════
-- fechaInicio / fechaFin del período de facturación (formato YYYY-MM-DD)
-- Busca "Período de facturación", "Del ... al ..."
+- fechaInicio / fechaFin del período de facturación — salida SIEMPRE en formato ISO: YYYY-MM-DD
+- Busca "Período de facturación", "Del ... al ...", "del DD/MM/AAAA a DD/MM/AAAA"
+
+⚠️ LAS FACTURAS ESPAÑOLAS USAN DD/MM/AAAA — el primer número es el DÍA, no el mes:
+  "del 07/02/2026 a 07/03/2026"
+    → fechaInicio: "2026-02-07"  (07 = día 7, 02 = FEBRERO)
+    → fechaFin:    "2026-03-07"  (07 = día 7, 03 = MARZO)
+  "del 07/03/2026 a 10/04/2026"
+    → fechaInicio: "2026-03-07"
+    → fechaFin:    "2026-04-10"  (10 = día 10, 04 = ABRIL)
+  ❌ NUNCA conviertas "07/02/2026" en "2026-07-02" — el 07 es el DÍA, el mes es 02.
 
 ════ 5. REGLA GENERAL ════
 Extrae TODO lo que puedas leer, aunque sea con baja confianza. Es mejor un valor aproximado

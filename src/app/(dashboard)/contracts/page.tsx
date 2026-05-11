@@ -128,7 +128,7 @@ export default function ContractsPage() {
   const stats = useMemo(() => {
     const active = contracts.filter(c => c.status !== 'draft')
     const totalAhorro = contracts.reduce((s, c) => s + (c.ahorro_confirmado ?? 0), 0)
-    const totalFee = contracts.reduce((s, c) => s + (c.fee_amount ?? (c.subscription_monthly ?? 0) * 12), 0)
+    const totalFee = contracts.reduce((s, c) => s + (c.fee_amount ?? (c.subscription_monthly ?? 0) * 4), 0)
     const cobrado = contracts.filter(c => c.paid).reduce((s, c) => s + (c.fee_amount ?? 0), 0)
     const porCobrar = contracts.filter(c => !c.paid).reduce((s, c) => s + (c.fee_amount ?? 0), 0)
     return { total: contracts.length, active: active.length, totalAhorro, totalFee, cobrado, porCobrar }
@@ -354,7 +354,7 @@ export default function ContractsPage() {
             {filtered.map(sc => {
               const cl = sc.client
               const TypeIcon = TYPE_ICON[cl?.type] ?? User
-              const fee = sc.fee_amount ?? (sc.subscription_monthly ? sc.subscription_monthly * 12 : 0)
+              const fee = sc.fee_amount ?? (sc.subscription_monthly ? sc.subscription_monthly * 4 : 0)
 
               return (
                 <div

@@ -44,6 +44,14 @@ function formatDateES(date: Date): string {
   return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
+/** Cuota trimestral Voltis (sin IVA) en función del ahorro anual estimado */
+function getSubscriptionQuarterly(ahorro: number): number {
+  if (ahorro <= 200) return 0
+  if (ahorro <= 350) return 20
+  if (ahorro <= 750) return 45
+  return 90  // 751-999 € (≥1000 usa modelo porcentaje)
+}
+
 function buildPaymentSchedule(modality: PaymentModality, feeAmount: number, startDate: Date): PaymentScheduleItem[] {
   const today = new Date()
   switch (modality) {
@@ -475,7 +483,8 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
 
   // Derived
   const ahorroNum = parseFloat(ahorroConfirmado) || 0
-  const feeAmount = contractType === 'porcentaje' ? ahorroNum * 0.25 : 19.99 * 12
+  const subscriptionQuarterly = contractType === 'suscripcion' ? getSubscriptionQuarterly(ahorroNum) : 0
+  const feeAmount = contractType === 'porcentaje' ? ahorroNum * 0.25 : subscriptionQuarterly * 4
   const startDateObj = new Date(startDate + 'T00:00:00')
   const endDateObj = addMonths(startDateObj, 12)
   const paymentSchedule = ahorroNum > 0 || contractType === 'suscripcion'
@@ -493,7 +502,7 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
       ahorro_confirmado: ahorroNum || null,
       fee_percentage: 25,
       fee_amount: contractType === 'porcentaje' ? feeAmount : null,
-      subscription_monthly: contractType === 'suscripcion' ? 19.99 : null,
+      subscription_monthly: contractType === 'suscripcion' ? subscriptionQuarterly : null,
       payment_modality: paymentModality,
       start_date: startDate,
       end_date: endDateObj.toISOString().split('T')[0],
@@ -572,7 +581,11 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
                 {ahorroNum > 0 && (
                   <div className={`flex items-center gap-2 text-[10px] px-2.5 py-1.5 rounded-lg ${ahorroNum > 1000 ? 'bg-info-container/60 text-info' : 'bg-warn-container/60 text-warn'}`}>
                     <Info className="w-3 h-3 flex-shrink-0" />
-                    {ahorroNum > 1000 ? `25% → ${formatCurrency(feeAmount)} + IVA/año` : `Suscripción → 19,99€/mes + IVA`}
+                    {ahorroNum > 1000
+                      ? `25% → ${formatCurrency(feeAmount)} + IVA/año`
+                      : subscriptionQuarterly === 0
+                        ? `Suscripción → 0€/trimestre (ahorro ≤ 200€)`
+                        : `Suscripción → ${subscriptionQuarterly}€/trimestre + IVA`}
                   </div>
                 )}
               </div>
@@ -585,7 +598,7 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
                     <button key={type} onClick={() => setContractType(type)} className={`px-3 py-2.5 rounded-lg border text-xs font-semibold transition-all text-left ${contractType === type ? 'bg-brand text-white border-brand' : 'bg-card border-line-2 text-ink-3 hover:border-brand/40'}`}>
                       {type === 'porcentaje' ? '25% ahorro' : 'Suscripción'}
                       <p className={`text-[10px] font-normal mt-0.5 ${contractType === type ? 'text-white/70' : 'text-ink-4'}`}>
-                        {type === 'porcentaje' ? '> 1.000€/año' : '19,99€/mes'}
+                        {type === 'porcentaje' ? '> 1.000€/año' : `${subscriptionQuarterly}€/trim`}
                       </p>
                     </button>
                   ))}
@@ -691,6 +704,7 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
                       representativeName: repName,
                       ahorroConfirmado: ahorroNum || null,
                       feeAmount,
+                      subscriptionQuarterly,
                       startDate: startDateObj,
                       endDate: endDateObj,
                       contractType,
@@ -735,6 +749,7 @@ function VoltisContractForm({ preselectedClientId, userId, onClose, onCreated }:
                       firstPaymentDate,
                       ahorroConfirmado: ahorroNum || null,
                       feeAmount,
+                      subscriptionQuarterly,
                       contractType,
                       paymentModality,
                       paymentSchedule: schedule,
