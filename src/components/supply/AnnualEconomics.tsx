@@ -310,6 +310,58 @@ function hasUsableData(inv: InvoiceRow): boolean {
   return getEco(inv) !== null
 }
 
+/**
+ * Detects whether an invoice extraction is unreliable — i.e. the AI extracted
+ * some data but key pricing fields (€/kWh or €/kW·día) are all zero/missing,
+ * meaning the extractor didn't understand the format of that invoice.
+ *
+ * Returns null when reliable, or a short reason string when unreliable.
+ * Excel imports are always considered reliable (manual/controlled input).
+ */
+function getExtractionUnreliableReason(inv: InvoiceRow): string | null {
+  const ed = inv.extracted_data
+  // Excel imports are trustworthy — skip check
+  if ((ed as any)?.source === 'excel_import') return null
+  // No data at all → the "Sin datos" badge already covers this
+  const eco = getEco(inv)
+  if (!eco) return null
+
+  // Gas supply — only check for precioKwh
+  const isGas = eco.supply_type === 'gas' || eco.tarifa?.startsWith('RL')
+  if (isGas) {
+    const gp = eco.gasPricing
+    if (gp) {
+      if ((gp.precioKwh ?? 0) === 0) return 'Precio €/kWh no extraído'
+    }
+    return null
+  }
+
+  // Luz supply — check energy prices and power prices
+  const consumo = eco.consumo ?? []
+  const potencia = eco.potencia ?? []
+
+  // If we have consumo entries but ALL precioKwh are 0 → unreliable energy prices
+  const hasEnergyPrices = consumo.some(c => (c.precioKwh ?? 0) > 0)
+  const hasEnergyData = consumo.some(c => (c.kwh ?? 0) > 0)
+
+  // If we have potencia entries but ALL precioKwDia are 0 → unreliable power prices
+  const hasPowerPrices = potencia.some(p => (p.precioKwDia ?? 0) > 0)
+  const hasPowerData = potencia.some(p => (p.kw ?? 0) > 0)
+
+  // Only flag if there ARE entries but prices are missing (not just empty data)
+  if (hasEnergyData && !hasEnergyPrices && hasPowerData && !hasPowerPrices) {
+    return 'Precios €/kWh y €/kW·día no extraídos'
+  }
+  if (hasEnergyData && !hasEnergyPrices) {
+    return 'Precios €/kWh no extraídos'
+  }
+  if (hasPowerData && !hasPowerPrices) {
+    return 'Precios €/kW·día no extraídos'
+  }
+
+  return null
+}
+
 /** Returns which periods have maxímetro deviations > threshold from contracted power */
 function getMaximetroDeviations(
   maximetroHistory: any[] | undefined,
@@ -878,6 +930,9 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
 
   const isGas = isGasSupply(invoices, authoritativeType)
 
+  // Per-invoice extraction reliability (null = OK, string = reason unreliable)
+  const unreliableReasons = invoices.map(inv => getExtractionUnreliableReason(inv))
+
   // Detect active periods — differentiate power (potencia) vs energy (consumo) periods.
   // 2.0TD: power=P1+P2, consumo=P1+P2+P3 | 3.0TD: both=P1-P3 | 6.xTD: both=P1-P6
   const tarifa = invoices.find(inv => getEco(inv)?.tarifa || inv.extracted_data?.tariff)
@@ -1160,8 +1215,21 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
                 ? (importFilename || storedFileName || `FACT ${i + 1}`)
                 : (storedFileName || `FACT ${i + 1}`)
 
+              const unreliableReason = unreliableReasons[i]
+              const isUnreliable = !!unreliableReason
+
               return (
-                <th key={inv.id} className="py-3 px-4 min-w-[260px]" style={{ minWidth: 260 }}>
+                <th
+                  key={inv.id}
+                  className="py-3 px-4 min-w-[260px]"
+                  style={{
+                    minWidth: 260,
+                    ...(isUnreliable ? {
+                      borderLeft: '3px solid #ef4444',
+                      backgroundColor: 'rgba(239,68,68,0.04)',
+                    } : {}),
+                  }}
+                >
                   <div className="text-xs text-[#5A6B5F] font-normal mb-1">FACT {i + 1}</div>
                   {/* Filename — clickable to open/download the source file */}
                   {hasFile ? (
@@ -1190,6 +1258,17 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
                     ) : (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warn-container/400/20 text-warn text-[10px]">
                         <span className="w-1.5 h-1.5 rounded-full bg-warn inline-block" /> Sin datos
+                      </span>
+                    )}
+                    {/* Badge de datos poco fiables — precios no extraídos */}
+                    {isUnreliable && (
+                      <span
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium"
+                        style={{ backgroundColor: 'rgba(239,68,68,0.12)', color: '#dc2626' }}
+                        title={unreliableReason ?? ''}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block flex-shrink-0" />
+                        Precios no fiables
                       </span>
                     )}
                     {/* Re-escanear: solo para PDFs con IA (no para Excel) */}
@@ -1242,8 +1321,17 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
                     <span className="text-[#8A9A8E] text-xs tracking-wider">{row.label}</span>
                   )}
                 </td>
-                {invoices.map((inv) => (
-                  <td key={inv.id} className="py-3 px-4">{row.render(getEco(inv), inv)}</td>
+                {invoices.map((inv, i) => (
+                  <td
+                    key={inv.id}
+                    className="py-3 px-4"
+                    style={unreliableReasons[i] ? {
+                      borderLeft: '3px solid #ef4444',
+                      backgroundColor: 'rgba(239,68,68,0.04)',
+                    } : undefined}
+                  >
+                    {row.render(getEco(inv), inv)}
+                  </td>
                 ))}
               </tr>
             )
