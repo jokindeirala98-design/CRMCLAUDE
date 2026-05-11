@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { analyzeInvoice } from '@/lib/gemini'
+import { smartAnalyzeInvoice } from '@/lib/smart-invoice-extractor'
 import { analyzeIdentityDocument } from '@/lib/identityExtractor'
 import { normalizeCups, cupsBase20, sameCupsBase } from '@/lib/utils/cups'
 import { fetchSipsForCups } from '@/lib/sips'
@@ -177,7 +177,8 @@ export async function processTelegramInboxItem(
     })
   } else {
     try {
-      extractedData = await analyzeInvoice(base64, fileMime, extraPages)
+      const { extracted: smartResult } = await smartAnalyzeInvoice(base64, fileMime, extraPages)
+      extractedData = smartResult
       console.log(`[TelegramProcess] Analysis done:`, {
         cups: extractedData?.cups,
         holder: extractedData?.holder_name,

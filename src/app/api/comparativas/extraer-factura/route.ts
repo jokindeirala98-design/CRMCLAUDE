@@ -3,6 +3,7 @@ import { analyzeInvoice, getMimeType } from '@/lib/gemini'
 import { normalizeTariff } from '@/lib/consumption-utils'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { createClient } from '@supabase/supabase-js'
+import { lookupFormato, registrarExtraccion } from '@/lib/smart-invoice-extractor'
 
 // La extracción puede tardar (modelo + retries). Dejamos margen como en
 // /api/analyze-invoice. Vercel Pro permite hasta 300 s.
@@ -36,68 +37,7 @@ function getServiceClient() {
   return createClient(url, key)
 }
 
-// ── Lookup de formato en BD ───────────────────────────────────────────────────
-async function lookupFormato(comercializadora: string | null | undefined): Promise<{
-  id: string
-  notas_extraccion: string | null
-  confianza: number
-} | null> {
-  if (!comercializadora) return null
-  try {
-    const supabase = getServiceClient()
-    const nombre = comercializadora.trim().toUpperCase()
-    // Buscar por nombre exacto (case-insensitive) o en aliases
-    const { data } = await supabase
-      .from('comercializadora_formats')
-      .select('id, notas_extraccion, confianza')
-      .or(`nombre.ilike.${nombre},aliases.cs.{${nombre}}`)
-      .eq('activa', true)
-      .limit(1)
-      .single()
-    if (data) return data
-    // Búsqueda parcial si no se encontró exacto
-    const { data: partial } = await supabase
-      .from('comercializadora_formats')
-      .select('id, notas_extraccion, confianza')
-      .ilike('nombre', `%${nombre.split(' ')[0]}%`)
-      .eq('activa', true)
-      .limit(1)
-      .single()
-    return partial ?? null
-  } catch {
-    return null
-  }
-}
-
-// ── Actualizar métricas en BD ─────────────────────────────────────────────────
-async function registrarExtraccion(formatoId: string | null, ok: boolean) {
-  if (!formatoId) return
-  try {
-    const supabase = getServiceClient()
-    const now = new Date().toISOString()
-    // Fetch current counters and increment
-    const { data: current } = await supabase
-      .from('comercializadora_formats')
-      .select('facturas_procesadas, extracciones_ok, extracciones_error')
-      .eq('id', formatoId)
-      .single()
-    if (!current) return
-    const update: Record<string, any> = {
-      facturas_procesadas: (current.facturas_procesadas ?? 0) + 1,
-      actualizado_en: now,
-    }
-    if (ok) {
-      update.extracciones_ok = (current.extracciones_ok ?? 0) + 1
-      update.ultima_extraccion_ok = now
-    } else {
-      update.extracciones_error = (current.extracciones_error ?? 0) + 1
-      update.ultima_extraccion_error = now
-    }
-    await supabase.from('comercializadora_formats').update(update).eq('id', formatoId)
-  } catch {
-    // Non-critical — silently swallow
-  }
-}
+// lookupFormato and registrarExtraccion are imported from @/lib/smart-invoice-extractor
 
 // ── Validación matemática de totales ─────────────────────────────────────────
 // Para 2.0TD: subtotal = Σpotencia + Σenergia. Extrapolado con IVA 21% debe

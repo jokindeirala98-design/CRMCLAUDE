@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import {
-  analyzeInvoice, getMimeType,
-  type ExtractedInvoiceData,
-} from '@/lib/gemini'
+import { getMimeType, type ExtractedInvoiceData } from '@/lib/gemini'
+import { smartAnalyzeInvoice } from '@/lib/smart-invoice-extractor'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 
 // Re-export types for backward compatibility
@@ -55,8 +53,12 @@ export async function POST(request: NextRequest): Promise<NextResponse<Extracted
       mimeType: getMimeType(p.file_name || '', p.file_type),
     }))
 
-    const result = await analyzeInvoice(file_base64, mimeType, extraPages?.length ? extraPages : undefined)
-    return NextResponse.json(result)
+    const { extracted } = await smartAnalyzeInvoice(
+      file_base64,
+      mimeType,
+      extraPages?.length ? extraPages : undefined,
+    )
+    return NextResponse.json(extracted)
   } catch (error) {
     console.error('API route error:', error)
     return NextResponse.json(
