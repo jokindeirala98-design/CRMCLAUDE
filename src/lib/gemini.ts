@@ -2134,7 +2134,8 @@ export async function analyzeDocument(
   base64Data: string,
   mimeType: string,
   docType?: DocumentType,
-  extraPages?: Array<{ base64Data: string; mimeType: string }>
+  extraPages?: Array<{ base64Data: string; mimeType: string }>,
+  additionalContext?: string,
 ): Promise<ExtractedDocumentData> {
   const apiKey = getApiKey()
   if (!apiKey) return { mode: 'manual', documentType: 'otro', error: 'GEMINI_API_KEY no configurada en el servidor' }
@@ -2228,6 +2229,11 @@ que un null. La única excepción es el CUPS — ahí null es mejor que inventar
       prompt = imageHints + prompt
     }
 
+    // Inject per-comercializadora format hints when provided (from comercializadora_formats table)
+    if (additionalContext?.trim()) {
+      prompt = prompt + '\n\n' + additionalContext.trim()
+    }
+
     let content: string
     let extractorUsed: 'gemini' | 'claude' = 'gemini'
     try {
@@ -2309,9 +2315,10 @@ export type ExtractedInvoiceData = ExtractedDocumentData
 export async function analyzeInvoice(
   base64Data: string,
   mimeType: string,
-  extraPages?: Array<{ base64Data: string; mimeType: string }>
+  extraPages?: Array<{ base64Data: string; mimeType: string }>,
+  additionalContext?: string,
 ): Promise<ExtractedInvoiceData> {
-  return analyzeDocument(base64Data, mimeType, 'factura', extraPages)
+  return analyzeDocument(base64Data, mimeType, 'factura', extraPages, additionalContext)
 }
 
 export function getMimeType(fileName: string, fileType?: string): string {

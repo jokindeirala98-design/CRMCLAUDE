@@ -49,10 +49,11 @@ export default function SettingsPage() {
     {
       label: 'Operación',
       items: [
-        { key: 'clients',     label: 'Clientes' },
-        { key: 'supplies',    label: 'Suministros' },
-        { key: 'prescorings', label: 'Prescorings' },
-        { key: 'contracts',   label: 'Contratos' },
+        { key: 'clients',      label: 'Clientes' },
+        { key: 'supplies',     label: 'Suministros' },
+        { key: 'prescorings',  label: 'Prescorings' },
+        { key: 'comparativas', label: 'Comparativas 2.0' },
+        { key: 'contracts',    label: 'Contratos' },
       ],
     },
     {
@@ -67,7 +68,7 @@ export default function SettingsPage() {
 
   const DEFAULT_PERMISSIONS = {
     panel: false, inbox: false, agenda: false,
-    clients: false, supplies: false, prescorings: false, contracts: false,
+    clients: false, supplies: false, prescorings: false, comparativas: false, contracts: false,
     billing: false, commissions: false, reports: false,
   }
 
@@ -1222,6 +1223,23 @@ export default function SettingsPage() {
                   ))}
                 </div>
               )}
+            </div>
+
+            {/* Base de conocimiento del extractor */}
+            <div className="p-4 bg-bg-2 rounded-xl space-y-3 mt-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="font-semibold text-sm text-ink block">Base de conocimiento del extractor</span>
+                  <span className="text-xs text-ink-3">Formatos de factura por comercializadora · Sistema de aprendizaje automático</span>
+                </div>
+                <a
+                  href="/settings/formatos-factura"
+                  className="flex items-center gap-1.5 text-xs bg-white border border-border px-3 py-1.5 rounded-lg hover:bg-bg-2 transition-colors text-ink"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  Gestionar formatos
+                </a>
+              </div>
             </div>
           </Card>
         )}
