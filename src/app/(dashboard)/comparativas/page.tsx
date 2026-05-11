@@ -920,158 +920,190 @@ export default function ComparativasPage() {
           </div>
 
           <div className="p-5 space-y-4">
-            {/* Two-column: Potencia | Energía */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* ─ Calculadora ── tabla 4 columnas estilo Excel ─ */}
+            <div className="rounded-xl border border-line overflow-hidden">
 
-              {/* ─ POTENCIA ─ */}
-              <div className="rounded-xl border border-line overflow-hidden">
-                <div className="px-4 py-2.5 bg-bg-2 border-b border-line">
-                  <p className="label-mono text-ink-4">Potencia contratada</p>
-                </div>
-                <div className="p-4 space-y-3">
-                  <div className="grid grid-cols-[72px_1fr_1fr] gap-2 text-[11px] label-mono text-ink-4 px-1">
-                    <span>Período</span><span>kW</span><span>€/kW·día</span>
-                  </div>
-                  {/* P1 */}
-                  <div className="grid grid-cols-[72px_1fr_1fr] gap-2 items-center">
-                    <span className="text-xs font-semibold text-ink px-1">P1 Punta</span>
-                    <input
-                      type="number" step="0.001" inputMode="decimal" placeholder="kW"
-                      value={form.p1}
-                      onChange={(e) => setField('p1', e.target.value)}
-                      className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-line bg-white focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition font-mono"
-                    />
-                    <input
-                      type="number" step="0.000001" inputMode="decimal" placeholder="€/kW·día"
-                      value={form.precioP1}
-                      onChange={(e) => setField('precioP1', e.target.value)}
-                      className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-line bg-white focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition font-mono"
-                    />
-                  </div>
-                  {/* P2 */}
-                  <div className="grid grid-cols-[72px_1fr_1fr] gap-2 items-center">
-                    <span className="text-xs font-semibold text-ink px-1">P2 Valle</span>
-                    <input
-                      type="number" step="0.001" inputMode="decimal"
-                      placeholder={form.igualarPotencias ? '= P1' : 'kW'}
-                      value={form.igualarPotencias ? form.p1 : form.p2}
-                      onChange={(e) => setField('p2', e.target.value)}
-                      disabled={form.igualarPotencias}
-                      className={cn(
-                        'w-full px-2.5 py-1.5 text-sm rounded-lg border border-line focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition font-mono',
-                        form.igualarPotencias ? 'bg-bg-2 text-ink-3' : 'bg-white'
-                      )}
-                    />
-                    <input
-                      type="number" step="0.000001" inputMode="decimal"
-                      placeholder={form.igualarPotencias ? '= P1' : '€/kW·día'}
-                      value={form.igualarPotencias ? form.precioP1 : form.precioP2}
-                      onChange={(e) => setField('precioP2', e.target.value)}
-                      disabled={form.igualarPotencias}
-                      className={cn(
-                        'w-full px-2.5 py-1.5 text-sm rounded-lg border border-line focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition font-mono',
-                        form.igualarPotencias ? 'bg-bg-2 text-ink-3' : 'bg-white'
-                      )}
-                    />
-                  </div>
-                  <label className="flex items-center gap-2 text-xs text-ink-2 cursor-pointer select-none px-1">
+              {/* === POTENCIA === */}
+              <div className="border-b border-line">
+                <div className="px-4 py-2 bg-bg-2 flex items-center justify-between">
+                  <p className="label-mono text-ink-4 text-[11px]">POTENCIA CONTRATADA</p>
+                  <label className="flex items-center gap-1.5 text-[11px] text-ink-3 cursor-pointer select-none">
                     <input
                       type="checkbox"
                       checked={form.igualarPotencias}
                       onChange={(e) => setField('igualarPotencias', e.target.checked)}
-                      className="rounded border-line text-ink focus:ring-0"
+                      className="rounded border-line text-ink focus:ring-0 w-3 h-3"
                     />
-                    Igualar P1 = P2
+                    P1 = P2
                   </label>
-                  {/* Subtotal potencia */}
-                  {(() => {
-                    const _p1 = parseNum(form.p1)
-                    const _p2 = form.igualarPotencias ? _p1 : parseNum(form.p2)
-                    const _dias = parseNum(form.dias) || 365
-                    const _pp1 = parseNum(form.precioP1)
-                    const _pp2 = form.igualarPotencias ? _pp1 : parseNum(form.precioP2)
-                    const sub = _p1 * _dias * _pp1 + _p2 * _dias * _pp2
-                    return sub > 0 ? (
-                      <div className="flex items-center justify-between pt-2 border-t border-line text-xs">
-                        <span className="text-ink-3">Coste potencia/año</span>
-                        <span className="font-semibold text-ink tabular-nums">{fmtEur(sub)}</span>
-                      </div>
-                    ) : null
-                  })()}
                 </div>
+                {/* Table header */}
+                <div className="grid grid-cols-[80px_1fr_1fr_88px] border-b border-line bg-bg-2/50">
+                  <div className="px-3 py-1.5 text-[10px] label-mono text-ink-4">Período</div>
+                  <div className="px-3 py-1.5 text-[10px] label-mono text-ink-4 border-l border-line">kW contratado</div>
+                  <div className="px-3 py-1.5 text-[10px] label-mono text-ink-4 border-l border-line">€ / kW · día</div>
+                  <div className="px-3 py-1.5 text-[10px] label-mono text-ink-4 border-l border-line text-right">€ / año</div>
+                </div>
+                {/* P1 row */}
+                {(() => {
+                  const _p1 = parseNum(form.p1)
+                  const _pp1 = parseNum(form.precioP1)
+                  const _dias = parseNum(form.dias) || 365
+                  const coste1 = _p1 * _dias * _pp1
+                  return (
+                    <div className="grid grid-cols-[80px_1fr_1fr_88px] border-b border-line/60">
+                      <div className="px-3 py-2 flex items-center">
+                        <span className="text-xs font-bold text-ink">P1</span>
+                        <span className="text-[10px] text-ink-3 ml-1">Punta</span>
+                      </div>
+                      <div className="border-l border-line/60 p-1">
+                        <input type="number" step="0.001" inputMode="decimal" placeholder="kW"
+                          value={form.p1} onChange={(e) => setField('p1', e.target.value)}
+                          className="w-full px-2 py-1 text-sm rounded border border-transparent hover:border-line focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand/30 bg-transparent font-mono transition"
+                        />
+                      </div>
+                      <div className="border-l border-line/60 p-1">
+                        <input type="number" step="0.000001" inputMode="decimal" placeholder="0.000000"
+                          value={form.precioP1} onChange={(e) => setField('precioP1', e.target.value)}
+                          className="w-full px-2 py-1 text-sm rounded border border-transparent hover:border-line focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand/30 bg-transparent font-mono transition"
+                        />
+                      </div>
+                      <div className="border-l border-line/60 px-3 py-2 flex items-center justify-end">
+                        <span className={cn('text-sm font-semibold tabular-nums', coste1 > 0 ? 'text-ink' : 'text-ink-4')}>
+                          {coste1 > 0 ? fmtEur(coste1) : '—'}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })()}
+                {/* P2 row */}
+                {(() => {
+                  const _p1 = parseNum(form.p1)
+                  const _p2 = form.igualarPotencias ? _p1 : parseNum(form.p2)
+                  const _pp1 = parseNum(form.precioP1)
+                  const _pp2 = form.igualarPotencias ? _pp1 : parseNum(form.precioP2)
+                  const _dias = parseNum(form.dias) || 365
+                  const coste2 = _p2 * _dias * _pp2
+                  const costeTotal = _p1 * _dias * _pp1 + coste2
+                  return (
+                    <>
+                      <div className="grid grid-cols-[80px_1fr_1fr_88px] border-b border-line/60">
+                        <div className="px-3 py-2 flex items-center">
+                          <span className="text-xs font-bold text-ink">P2</span>
+                          <span className="text-[10px] text-ink-3 ml-1">Valle</span>
+                        </div>
+                        <div className={cn('border-l border-line/60 p-1', form.igualarPotencias && 'bg-bg-2/60')}>
+                          <input type="number" step="0.001" inputMode="decimal"
+                            placeholder={form.igualarPotencias ? '= P1' : 'kW'}
+                            value={form.igualarPotencias ? form.p1 : form.p2}
+                            onChange={(e) => setField('p2', e.target.value)}
+                            disabled={form.igualarPotencias}
+                            className={cn('w-full px-2 py-1 text-sm rounded border border-transparent font-mono transition',
+                              form.igualarPotencias
+                                ? 'text-ink-3 cursor-not-allowed'
+                                : 'hover:border-line focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand/30 bg-transparent'
+                            )}
+                          />
+                        </div>
+                        <div className={cn('border-l border-line/60 p-1', form.igualarPotencias && 'bg-bg-2/60')}>
+                          <input type="number" step="0.000001" inputMode="decimal"
+                            placeholder={form.igualarPotencias ? '= P1' : '0.000000'}
+                            value={form.igualarPotencias ? form.precioP1 : form.precioP2}
+                            onChange={(e) => setField('precioP2', e.target.value)}
+                            disabled={form.igualarPotencias}
+                            className={cn('w-full px-2 py-1 text-sm rounded border border-transparent font-mono transition',
+                              form.igualarPotencias
+                                ? 'text-ink-3 cursor-not-allowed'
+                                : 'hover:border-line focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand/30 bg-transparent'
+                            )}
+                          />
+                        </div>
+                        <div className="border-l border-line/60 px-3 py-2 flex items-center justify-end">
+                          <span className={cn('text-sm font-semibold tabular-nums', coste2 > 0 ? 'text-ink' : 'text-ink-4')}>
+                            {coste2 > 0 ? fmtEur(coste2) : '—'}
+                          </span>
+                        </div>
+                      </div>
+                      {/* Subtotal potencia */}
+                      {costeTotal > 0 && (
+                        <div className="grid grid-cols-[80px_1fr_1fr_88px] bg-bg-2/60">
+                          <div className="px-3 py-1.5 col-span-3 flex items-center">
+                            <span className="text-[10px] label-mono text-ink-4">Subtotal potencia</span>
+                          </div>
+                          <div className="border-l border-line/60 px-3 py-1.5 flex items-center justify-end">
+                            <span className="text-xs font-bold text-brand tabular-nums">{fmtEur(costeTotal)}</span>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )
+                })()}
               </div>
 
-              {/* ─ ENERGÍA ─ */}
-              <div className="rounded-xl border border-line overflow-hidden">
-                <div className="px-4 py-2.5 bg-bg-2 border-b border-line">
-                  <p className="label-mono text-ink-4">Consumo anual · precios energía</p>
+              {/* === ENERGÍA === */}
+              <div>
+                <div className="px-4 py-2 bg-bg-2 border-b border-line">
+                  <p className="label-mono text-ink-4 text-[11px]">CONSUMO ANUAL · ENERGÍA</p>
                 </div>
-                <div className="p-4 space-y-3">
-                  <div className="grid grid-cols-[72px_1fr_1fr] gap-2 text-[11px] label-mono text-ink-4 px-1">
-                    <span>Período</span><span>kWh/año</span><span>€/kWh</span>
-                  </div>
-                  {/* Punta */}
-                  <div className="grid grid-cols-[72px_1fr_1fr] gap-2 items-center">
-                    <span className="text-xs font-semibold text-ink px-1">Punta</span>
-                    <input
-                      type="number" step="1" inputMode="numeric" placeholder="kWh"
-                      value={form.punta}
-                      onChange={(e) => setField('punta', e.target.value)}
-                      className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-line bg-white focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition font-mono"
-                    />
-                    <input
-                      type="number" step="0.0001" inputMode="decimal" placeholder="€/kWh"
-                      value={form.precioPunta}
-                      onChange={(e) => setField('precioPunta', e.target.value)}
-                      className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-line bg-white focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition font-mono"
-                    />
-                  </div>
-                  {/* Llano */}
-                  <div className="grid grid-cols-[72px_1fr_1fr] gap-2 items-center">
-                    <span className="text-xs font-semibold text-ink px-1">Llano</span>
-                    <input
-                      type="number" step="1" inputMode="numeric" placeholder="kWh"
-                      value={form.llano}
-                      onChange={(e) => setField('llano', e.target.value)}
-                      className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-line bg-white focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition font-mono"
-                    />
-                    <input
-                      type="number" step="0.0001" inputMode="decimal" placeholder="€/kWh"
-                      value={form.precioLlano}
-                      onChange={(e) => setField('precioLlano', e.target.value)}
-                      className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-line bg-white focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition font-mono"
-                    />
-                  </div>
-                  {/* Valle */}
-                  <div className="grid grid-cols-[72px_1fr_1fr] gap-2 items-center">
-                    <span className="text-xs font-semibold text-ink px-1">Valle</span>
-                    <input
-                      type="number" step="1" inputMode="numeric" placeholder="kWh"
-                      value={form.valle}
-                      onChange={(e) => setField('valle', e.target.value)}
-                      className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-line bg-white focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition font-mono"
-                    />
-                    <input
-                      type="number" step="0.0001" inputMode="decimal" placeholder="€/kWh"
-                      value={form.precioValle}
-                      onChange={(e) => setField('precioValle', e.target.value)}
-                      className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-line bg-white focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition font-mono"
-                    />
-                  </div>
-                  {/* Subtotal energía */}
-                  {(() => {
-                    const sub =
-                      parseNum(form.punta) * parseNum(form.precioPunta) +
-                      parseNum(form.llano) * parseNum(form.precioLlano) +
-                      parseNum(form.valle) * parseNum(form.precioValle)
-                    return sub > 0 ? (
-                      <div className="flex items-center justify-between pt-2 border-t border-line text-xs">
-                        <span className="text-ink-3">Coste energía/año</span>
-                        <span className="font-semibold text-ink tabular-nums">{fmtEur(sub)}</span>
+                {/* Table header */}
+                <div className="grid grid-cols-[80px_1fr_1fr_88px] border-b border-line bg-bg-2/50">
+                  <div className="px-3 py-1.5 text-[10px] label-mono text-ink-4">Período</div>
+                  <div className="px-3 py-1.5 text-[10px] label-mono text-ink-4 border-l border-line">kWh / año</div>
+                  <div className="px-3 py-1.5 text-[10px] label-mono text-ink-4 border-l border-line">€ / kWh</div>
+                  <div className="px-3 py-1.5 text-[10px] label-mono text-ink-4 border-l border-line text-right">€ / año</div>
+                </div>
+                {/* Energy rows */}
+                {([
+                  { key: 'punta',  precioKey: 'precioPunta',  label: 'P1', sub: 'Punta' },
+                  { key: 'llano',  precioKey: 'precioLlano',  label: 'P2', sub: 'Llano' },
+                  { key: 'valle',  precioKey: 'precioValle',  label: 'P3', sub: 'Valle' },
+                ] as { key: keyof FormState; precioKey: keyof FormState; label: string; sub: string }[]).map(({ key, precioKey, label, sub }) => {
+                  const kwh = parseNum(form[key] as string)
+                  const precio = parseNum(form[precioKey] as string)
+                  const coste = kwh * precio
+                  return (
+                    <div key={key} className="grid grid-cols-[80px_1fr_1fr_88px] border-b border-line/60">
+                      <div className="px-3 py-2 flex items-center">
+                        <span className="text-xs font-bold text-ink">{label}</span>
+                        <span className="text-[10px] text-ink-3 ml-1">{sub}</span>
                       </div>
-                    ) : null
-                  })()}
-                </div>
+                      <div className="border-l border-line/60 p-1">
+                        <input type="number" step="1" inputMode="numeric" placeholder="kWh"
+                          value={form[key] as string} onChange={(e) => setField(key, e.target.value)}
+                          className="w-full px-2 py-1 text-sm rounded border border-transparent hover:border-line focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand/30 bg-transparent font-mono transition"
+                        />
+                      </div>
+                      <div className="border-l border-line/60 p-1">
+                        <input type="number" step="0.0001" inputMode="decimal" placeholder="0.0000"
+                          value={form[precioKey] as string} onChange={(e) => setField(precioKey, e.target.value)}
+                          className="w-full px-2 py-1 text-sm rounded border border-transparent hover:border-line focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand/30 bg-transparent font-mono transition"
+                        />
+                      </div>
+                      <div className="border-l border-line/60 px-3 py-2 flex items-center justify-end">
+                        <span className={cn('text-sm font-semibold tabular-nums', coste > 0 ? 'text-ink' : 'text-ink-4')}>
+                          {coste > 0 ? fmtEur(coste) : '—'}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })}
+                {/* Subtotal energía */}
+                {(() => {
+                  const sub =
+                    parseNum(form.punta) * parseNum(form.precioPunta) +
+                    parseNum(form.llano) * parseNum(form.precioLlano) +
+                    parseNum(form.valle) * parseNum(form.precioValle)
+                  return sub > 0 ? (
+                    <div className="grid grid-cols-[80px_1fr_1fr_88px] bg-bg-2/60">
+                      <div className="px-3 py-1.5 col-span-3 flex items-center">
+                        <span className="text-[10px] label-mono text-ink-4">Subtotal energía</span>
+                      </div>
+                      <div className="border-l border-line/60 px-3 py-1.5 flex items-center justify-end">
+                        <span className="text-xs font-bold text-brand tabular-nums">{fmtEur(sub)}</span>
+                      </div>
+                    </div>
+                  ) : null
+                })()}
               </div>
             </div>
 

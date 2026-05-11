@@ -522,19 +522,18 @@ LUZ-0. **rawLineItems — CAMPO OBLIGATORIO (LUZ Y GAS):**
    incluido en la línea padre. NO las emitas como rawLineItems separados; eso
    causaría doble conteo. Solo emite la línea principal del periodo.
 
-⚠️ LUZ-0-CONSOLIDADA. **Facturas con energía/potencia CONSOLIDADA por periodo (ACCIONA, 6.1TD):**
-   Algunas comercializadoras (típicamente en 6.1TD: ACCIONA, Endesa empresas) no
-   muestran el desglose peajes+cargos línea por línea, sino UNA cifra total por
-   periodo. Ejemplo ACCIONA:
+⚠️ LUZ-0-CONSOLIDADA. **Facturas con energía/potencia CONSOLIDADA por periodo (6.1TD antiguo, Endesa empresas):**
+   Algunas comercializadoras (típicamente en 6.1TD antiguo) no muestran el desglose
+   peajes+cargos línea por línea, sino UNA cifra total por periodo:
      "Total Coste de Energía Producto P2: 31.231 kWh → 4.115,34 €"
      "Total Coste de Energía Producto P3: 20.806 kWh → 2.298,03 €"
      "Total Coste de Energía Producto P6: 43.507 kWh → 4.062,26 €"
    En ese caso emite UNA línea energia_comercializacion POR PERIODO con kwh y total
-   del periodo (periodo="P2", kwh=31231, total=4115.34). Los kWh pueden venir en una
-   fila aparte ("Energía Activa consumida P2 31.231 kWh") — cruza ambas filas y
-   consolida en un único rawLineItem por periodo.
-   Lo mismo para potencia: si ves "Total término de Potencia P1 ... €" consolidado,
-   emite potencia_comercializacion con periodo, kw, dias, total.
+   del periodo. Los kWh pueden venir en una fila aparte — cruza ambas filas.
+   Lo mismo para potencia consolidada.
+
+   ⚠️ ACCIONA 3.0TD (formato tabla) es DIFERENTE: tiene DOS bloques de energía separados
+   (producción libre + peajes ATR) que DEBEN SUMARSE. Ver reglas detalladas en A7.
 
 LUZ-0b. **VERIFICACIÓN MATEMÁTICA OBLIGATORIA sobre rawLineItems:**
    Antes de emitir el JSON, calcula:
@@ -586,19 +585,21 @@ LUZ-2. **POTENCIA — kW contratados por periodo y precioKwDia:**
      → verificación: 260 × 0.078882 × 30 = 615.28 ✓
      Nota: en la notación (30/365) el precio sigue siendo diario; días = el numerador (30).
 
-   FORMATO B — Precio anual explícito (valor grande > 5, unidad €/kW·año o €/kW/año):
+   FORMATO B — Precio anual explícito (valor grande > 5, unidad €/kW·año, €/kW/año o €/kW/a):
      "P1  260 kW × 28,79 €/kW·año × (30/365) = 614,96 €"
      "P1  260 kW × 28,79 €/kW/año × 30 días"
+     "Precio término Potencia €/kW/a ... 20,376927"  ← columna de Acciona 3.0TD
      → precioKwDia = 28.79 / 365 = 0.078877  (DIVIDE por 365 para convertir a diario)
      → dias = 30
      → verificación: 260 × (28.79/365) × 30 = 614.96 ✓
+     ⚠️ "€/kW/a" o "€/kWa" es SIEMPRE abreviatura de €/kW·año → DIVIDE por 365.
 
    FORMATO C — Sin precio unitario, solo total:
      → precioKwDia = total / (kw × dias)
 
    REGLA DE ORO para distinguir A de B:
-     - Si el precio tiene unidad €/kW·día o €/kW·dia → formato A (diario, no dividas)
-     - Si el precio tiene unidad €/kW·año, €/kW/año, €/kW·year → formato B (anual, divide /365)
+     - Si el precio tiene unidad €/kW·día, €/kW·dia, €/kW·day → formato A (diario, no dividas)
+     - Si el precio tiene unidad €/kW·año, €/kW/año, €/kW·year, €/kW/a, €/kWa → formato B (anual, divide /365)
      - Si no hay unidad pero el valor es < 2 → probablemente diario (formato A)
      - Si no hay unidad pero el valor es > 5 → probablemente anual (formato B, divide /365)
      - SIEMPRE verifica: total ≈ kw × precioKwDia × dias (donde precioKwDia ya es diario)
@@ -969,11 +970,48 @@ A6. TOTALENERGIES / GDF Suez:
    - Puede incluir "Prima de reserva de capacidad" → otro.
    - "Ajuste por reactiva" o "Energía reactiva" → exceso_potencia (penalización).
 
-A7. ACCIONA / CIDE / Som Energia / Facturas 6.1TD consolidadas:
-   - No muestran peajes/cargos por separado sino un "Total coste energía P2 = X€".
-   - Ves las lecturas (kWh por periodo) y el coste total del periodo como un bloque.
-   - Debes emitir energía como energia_comercializacion con periodo, kwh y total del periodo.
-   - Para potencia: "Total potencia P1 = kW × días × €/kW·día" → potencia_comercializacion.
+A7. ACCIONA Green Energy Developments / CIDE / Som Energia — 3.0TD y 6.1TD:
+
+   ACCIONA tiene DOS sub-formatos. Identifica cuál es antes de extraer:
+
+   SUB-FORMATO A7-TABLA (3.0TD más habitual — "DETALLE DE FACTURA"):
+     La factura muestra una tabla con filas para cada concepto (Ai, Bi, CG, Fi, PMD, Perd,
+     TM…) y 6 columnas de periodo. Hay DOS bloques de energía SEPARADOS que DEBES sumar:
+       (1) "Total Coste de Energía producto €" → energía del mercado libre (producción)
+       (2) "Precio término de Energía ATR €/kWh" + "Total Término de Energía ATR €" → peajes de red
+     AMBOS bloques se cobran al cliente, por tanto:
+       precioKwh_PX = (CosteProducción_PX + TotalATR_PX) / kWh_PX
+     ⚠️ NO uses solo el bloque ATR ni solo el de producción — son COMPLEMENTARIOS.
+
+     ENERGÍA — MAPEADO DE PERIODOS (muy importante en 3.0TD):
+     La tabla tiene 6 columnas (P1-P6) pero típicamente SOLO 3 periodos tienen kWh ≠ 0.
+     Para identificar a qué periodo ATR corresponde cada bloque de kWh, cruza con "Total Término de Energía ATR €":
+       kWh_grupo × ATR_precioP1 ≈ Total_ATR_columna1 → ese grupo es PUNTA (P1)
+       kWh_grupo × ATR_precioP2 ≈ Total_ATR_columna2 → ese grupo es LLANO (P2)
+       kWh_grupo × ATR_precioP6 ≈ Total_ATR_columna3 → ese grupo es VALLE (P6/P3)
+     En invierno (nov-mar) los periodos activos suelen ser P1, P2, P6 (P6 = valle nocturno).
+     En verano pueden cambiar. SIEMPRE verifica multiplicando kWh × precio ATR ≈ total ATR.
+     En consumo[] emite 3 entradas con periodo="P1", "P2", "P3" (usando P3 para el valle).
+     Ejemplo con kWh P1=3103, P2=2155, P3(valle)=5029, precios ATR P1=0.063352, P2=0.038914, P6=0.002898:
+       producción P1=477.49, ATR P1=196.58 → precioKwh=(477.49+196.58)/3103=0.2172 €/kWh
+       producción P2=311.53, ATR P2=83.86  → precioKwh=(311.53+83.86)/2155=0.1835 €/kWh
+       producción valle=666.45, ATR P6=14.58 → precioKwh=(666.45+14.58)/5029=0.1354 €/kWh
+
+     POTENCIA — PRECIO EN €/kW/año (columna denominada "€/kW/a"):
+     ⚠️ La columna "€/kW/a" es €/kW/AÑO (= FORMATO B, valor grande > 5).
+     DIVIDE SIEMPRE por 365 para obtener €/kW·día.
+     Ejemplo: P1=20.376927 €/kW/a → precioKwDia = 20.376927/365 = 0.055827 €/kW·día
+     Verifica: 70 kW × 31 días × 0.055827 = 121.14 € ≈ "Total término de Potencia" P1.
+     Para 3.0TD con 6 periodos, emite SIEMPRE las 6 entradas (P1–P6) en potencia[].
+
+     IVA: Acciona empresas habitualmente aplica IVA 21%.
+
+   SUB-FORMATO A7-CONSOLIDADO (6.1TD, facturas más antiguas o de gran consumo):
+     La factura muestra directamente "Total Coste de Energía Producto P2: 31.231 kWh → 4.115,34 €"
+     sin desglosar la producción de los peajes. En ese caso emite UNA línea energia_comercializacion
+     POR PERIODO con kwh y total del periodo (el precio ya está consolidado en el total).
+     Para potencia: si ves "Total término de Potencia P1 = kW × días × €/kW·día" consolidado,
+     emite potencia_comercializacion con periodo, kw, dias, total.
 
 A8. AUDAX / HOLALUZ / FACTOR ENERGÍA / ESCANDINAVA:
    - Formatos muy variables, frecuentemente solo UN precio de energía (libre).
