@@ -598,6 +598,18 @@ export default function SupplyDetailPage() {
     const imageFiles = fileArray.filter(f => !isPdf(f))
     const pdfFiles = fileArray.filter(isPdf)
 
+    // Pre-load existing invoice periods for this supply (for duplicate detection)
+    const { data: existingInvoices } = await supabase
+      .from('invoices')
+      .select('period_start, period_end')
+      .eq('supply_id', supply.id)
+    // Set of "start|end" strings seen in DB + within this batch
+    const seenPeriods = new Set<string>(
+      (existingInvoices || [])
+        .filter((i: any) => i.period_start && i.period_end)
+        .map((i: any) => `${i.period_start}|${i.period_end}`)
+    )
+
     // Group: all images together as one multi-page invoice, each PDF separate
     type InvoiceGroup = { files: File[]; isMultiPage: boolean }
     const groups: InvoiceGroup[] = []
@@ -747,7 +759,25 @@ export default function SupplyDetailPage() {
           ? eco.totalFactura
           : extractedData?.total_amount ? parseFloat(extractedData.total_amount) : null
 
-        // 4. Insert invoice row
+        // 4. Duplicate check — same billing period already in this supply?
+        if (periodStart && periodEnd) {
+          const periodKey = `${periodStart}|${periodEnd}`
+          if (seenPeriods.has(periodKey)) {
+            // Clean up the file we just uploaded — we don't need it
+            await supabase.storage.from('documents').remove([storageData.path]).catch(() => {})
+            newProgress[fileId] = 'error'
+            setUploadProgress({ ...newProgress })
+            showNotification(
+              `Factura duplicada: ya existe una factura para el periodo ${periodStart} – ${periodEnd} en este suministro.`,
+              'error'
+            )
+            continue
+          }
+          // Mark this period as seen so later files in this same batch are also rejected
+          seenPeriods.add(periodKey)
+        }
+
+        // 5. Insert invoice row
         await supabase.from('invoices').insert({
           supply_id: supply.id,
           file_url: publicUrl,
@@ -759,7 +789,7 @@ export default function SupplyDetailPage() {
           total_amount: totalAmount,
         })
 
-        // 5. Auto-fill missing client fields from invoice extraction
+        // 6. Auto-fill missing client fields from invoice extraction
         if (supply.client?.id && extractedData) {
           const holderName = (extractedData.holder_name || '').trim()
           const holderCifNif = (extractedData.holder_cif_nif || '').trim().toUpperCase()

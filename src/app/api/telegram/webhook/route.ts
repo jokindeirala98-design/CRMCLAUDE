@@ -1216,6 +1216,14 @@ async function processAndNotify(
       } catch {
         sendMessage(chatId, `✅ Factura procesada → ${result.cups || 'sin CUPS'}`).catch(() => {})
       }
+    } else if (result.duplicate) {
+      // Duplicate invoice — same billing period already exists for this supply
+      const periodInfo = result.duplicate_period ? ` (${result.duplicate_period})` : ''
+      sendMessage(chatId,
+        `🔁 <b>Factura duplicada</b>${periodInfo}\n\n` +
+        `Ya existe una factura para este periodo en el suministro.\n` +
+        `<a href="${appUrl}/supplies/${result.supply_id}">Ver suministro →</a>`
+      ).catch(() => {})
     } else if (!result.ok) {
       sendMessage(chatId, `⚠️ Error procesando: ${result.error || 'desconocido'}`).catch(() => {})
     }

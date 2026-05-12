@@ -82,6 +82,8 @@ export interface ProcessResult {
   cups?: string | null
   error?: string
   skipped?: boolean
+  duplicate?: boolean
+  duplicate_period?: string  // human-readable period for the notification message
 }
 
 /**
@@ -638,6 +640,35 @@ export async function processTelegramInboxItem(
     : toIsoDate(extractedData?.billing_period?.split(/\s*[-–]\s*/)?.[1])
   const totalAmount = eco?.totalFactura
     ?? (extractedData?.total_amount ? parseFloat(extractedData.total_amount) : null)
+
+  // 10a. Duplicate invoice check — same supply + same billing period
+  if (periodStart && periodEnd && supplyId) {
+    const { data: dupCheck } = await supabase
+      .from('invoices')
+      .select('id')
+      .eq('supply_id', supplyId)
+      .eq('period_start', periodStart)
+      .eq('period_end', periodEnd)
+      .limit(1)
+
+    if (dupCheck?.length) {
+      console.log(`[TelegramProcess] Duplicate invoice for supply ${supplyId} period ${periodStart}–${periodEnd} — skipping`)
+      await supabase.from('telegram_inbox').update({
+        status: 'processed',
+        processed_at: new Date().toISOString(),
+      }).eq('id', inboxId)
+      return {
+        ok: true,
+        supply_id: supplyId!,
+        client_id: clientId!,
+        client_type: clientType,
+        is_existing_supply: true,
+        cups,
+        duplicate: true,
+        duplicate_period: `${periodStart} – ${periodEnd}`,
+      }
+    }
+  }
 
   const { error: invoiceErr } = await supabase.from('invoices').insert({
     supply_id: supplyId,
