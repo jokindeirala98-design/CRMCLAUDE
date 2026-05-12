@@ -19,6 +19,7 @@ import {
   RefreshCw,
   Trash2,
   X,
+  Undo2,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import type { Prescoring, PrescoringStatus } from '@/types/database'
@@ -33,6 +34,7 @@ interface Column {
 }
 
 const COLUMNS: Column[] = [
+  { key: 'select', label: '', width: 'w-8', editable: false, align: 'center' },
   { key: 'status_action', label: '', width: 'w-12', editable: false, align: 'center' },
   { key: 'requested_at', label: 'FECHA', width: 'w-28', editable: false },
   { key: 'cups', label: 'CUPS', width: 'w-52', editable: true },
@@ -152,6 +154,8 @@ function PrescoringCard({
   onReject,
   saving,
   isRejected,
+  isSelected,
+  onToggleSelect,
 }: {
   p: Prescoring
   onToggleSent: () => void
@@ -159,6 +163,8 @@ function PrescoringCard({
   onReject?: () => void
   saving: boolean
   isRejected: boolean
+  isSelected?: boolean
+  onToggleSelect?: () => void
 }) {
   const isSent = p.status === 'sent'
   const days = isSent ? daysRemaining(p.sent_at) : 0
@@ -170,7 +176,7 @@ function PrescoringCard({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
       className={`bg-white rounded-2xl border shadow-ambient-sm overflow-hidden ${
-        isRejected ? 'border-error/30' : isSent ? 'border-brand/20' : 'border-line-2-variant/20'
+        isSelected ? 'border-primary/40 ring-1 ring-primary/20' : isRejected ? 'border-error/30' : isSent ? 'border-brand/20' : 'border-line-2-variant/20'
       }`}
     >
       {/* Rejected alert banner */}
@@ -194,9 +200,19 @@ function PrescoringCard({
       <div className="p-4">
         {/* Top row: name + action */}
         <div className="flex items-start justify-between gap-3 mb-3">
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-ink truncate">{p.client_name || 'Sin nombre'}</p>
-            <p className="text-[11px] text-ink-3 font-mono mt-0.5 truncate">{p.cups || 'Sin CUPS'}</p>
+          <div className="flex items-start gap-2 flex-1 min-w-0">
+            {onToggleSelect && p.status === 'pending' && (
+              <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={onToggleSelect}
+                className="mt-0.5 w-3.5 h-3.5 rounded border-ink-3/30 text-brand accent-brand cursor-pointer flex-shrink-0"
+              />
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-ink truncate">{p.client_name || 'Sin nombre'}</p>
+              <p className="text-[11px] text-ink-3 font-mono mt-0.5 truncate">{p.cups || 'Sin CUPS'}</p>
+            </div>
           </div>
           {/* Action button */}
           {isRejected ? (
@@ -214,10 +230,10 @@ function PrescoringCard({
                 <button
                   onClick={onReject}
                   disabled={saving}
-                  className="flex-shrink-0 w-10 h-10 rounded-xl bg-error/5 hover:bg-error/15 flex items-center justify-center transition-all"
-                  title="Marcar como rechazado"
+                  className="flex-shrink-0 w-10 h-10 rounded-xl bg-bg-2 hover:bg-primary/10 flex items-center justify-center transition-all"
+                  title="Volver a pendiente"
                 >
-                  <XCircle className="w-4.5 h-4.5 text-error/60 hover:text-err" />
+                  <Undo2 className="w-4 h-4 text-ink-3 hover:text-brand" />
                 </button>
               )}
               <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-secondary/10 flex items-center justify-center">
@@ -285,6 +301,7 @@ export default function PrescoringsPage() {
   const [deleting, setDeleting] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
   const [regenResult, setRegenResult] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const exportMenuRef = useRef<HTMLDivElement>(null)
 
   const supabase = createClient()
@@ -474,6 +491,27 @@ export default function PrescoringsPage() {
     setSendingAll(false)
   }
 
+  // ---- MARK MULTIPLE AS SENT (after export) ----
+  const markMultipleAsSent = async (ids: string[]) => {
+    if (!ids.length) return
+    const now = new Date().toISOString()
+    await supabase.from('prescorings').update({ status: 'sent', sent_at: now, resolved_at: null }).in('id', ids)
+    setPrescorings(prev => prev.map(p =>
+      ids.includes(p.id) ? { ...p, status: 'sent' as PrescoringStatus, sent_at: now, resolved_at: null } : p
+    ))
+    setSelectedIds(new Set())
+  }
+
+  // ---- REVOKE SENT (back to pending) ----
+  const revokePrescoring = async (p: Prescoring) => {
+    setSaving(p.id)
+    await supabase.from('prescorings').update({ status: 'pending', sent_at: null, resolved_at: null }).eq('id', p.id)
+    setPrescorings(prev => prev.map(item =>
+      item.id === p.id ? { ...item, status: 'pending' as PrescoringStatus, sent_at: null, resolved_at: null } : item
+    ))
+    setSaving(null)
+  }
+
   // ---- UPDATE CELL ----
   const updateCell = async (id: string, field: string, value: string) => {
     setSaving(id)
@@ -491,32 +529,34 @@ export default function PrescoringsPage() {
     setDeleting(false)
   }
 
-  // ---- EXPORT ----
-  const exportCSV = (data: Prescoring[], label: string) => {
-    const headers = ['ESTADO', 'FECHA', 'CUPS', 'NOMBRE', 'CIF', 'CLIENTE', 'TARIFA', 'CONSUMO', 'ENTIDAD', 'TELÉFONO', 'POBLACIÓN', 'DIR. FISCAL']
-    const rows = data.map(p => [
-      p.status === 'sent' ? 'ENVIADO' : p.status === 'rejected' ? 'RECHAZADO' : 'PENDIENTE',
-      fmtDate(p.requested_at),
-      p.cups || '',
-      p.client_name || '',
-      p.cif || '',
-      getClientType(p.client_name, p.cif),
-      p.tariff || '',
-      p.consumo_anual || '',
-      p.entidad || '',
-      p.telefono || '',
-      p.poblacion || '',
-      p.direccion_fiscal || '',
-    ].map(v => `"${(v || '').replace(/"/g, '""')}"`).join(';'))
+  // ---- EXPORT XLSX ----
+  const [exporting, setExporting] = useState(false)
 
-    const csv = '\uFEFF' + [headers.join(';'), ...rows].join('\n')
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `prescorings_${label}_${new Date().toISOString().split('T')[0]}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+  const exportXLSX = async (data: Prescoring[], markSentAfter = false) => {
+    if (!data.length) return
+    setExporting(true)
+    try {
+      const res = await fetch('/api/prescorings/export-xlsx', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows: data }),
+      })
+      if (!res.ok) throw new Error('Error generando el Excel')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `prescorings_${new Date().toISOString().split('T')[0]}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+
+      if (markSentAfter) {
+        await markMultipleAsSent(data.map(p => p.id))
+      }
+    } catch (err: any) {
+      console.error('[exportXLSX]', err)
+    }
+    setExporting(false)
   }
 
   const currentItems = section === 'pending' ? filteredPending : filteredSent
@@ -535,7 +575,7 @@ export default function PrescoringsPage() {
           {/* Section tabs */}
           <div className="flex bg-bg-2 rounded-xl p-1 w-full sm:w-auto">
             <button
-              onClick={() => setSection('pending')}
+              onClick={() => { setSection('pending'); setSelectedIds(new Set()) }}
               className={`flex-1 sm:flex-none px-5 py-2.5 rounded-lg text-sm font-semibold transition-all ${
                 section === 'pending'
                   ? 'bg-white text-brand shadow-sm'
@@ -552,7 +592,7 @@ export default function PrescoringsPage() {
               )}
             </button>
             <button
-              onClick={() => setSection('sent')}
+              onClick={() => { setSection('sent'); setSelectedIds(new Set()) }}
               className={`flex-1 sm:flex-none px-5 py-2.5 rounded-lg text-sm font-semibold transition-all ${
                 section === 'sent'
                   ? 'bg-white text-brand shadow-sm'
@@ -592,6 +632,12 @@ export default function PrescoringsPage() {
                 title="Más antiguos primero"
               >↑</button>
             </div>
+
+            {section === 'pending' && selectedIds.size > 0 && (
+              <span className="text-xs font-semibold text-brand bg-primary/10 px-3 py-2 rounded-lg whitespace-nowrap">
+                {selectedIds.size} seleccionado{selectedIds.size !== 1 ? 's' : ''}
+              </span>
+            )}
 
             {section === 'pending' && pendingItems.length > 0 && (
               <button
@@ -643,18 +689,33 @@ export default function PrescoringsPage() {
                     className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-ambient-lg border border-line-2-variant/20 overflow-hidden z-20 min-w-[180px]"
                   >
                     <button
-                      onClick={() => { exportCSV(currentItems, section); setShowExportMenu(false) }}
-                      className="w-full text-left px-4 py-2.5 text-xs hover:bg-bg-2 transition-colors flex items-center gap-2"
+                      onClick={() => {
+                        // If items are selected → export those; else → export all pending in current view
+                        const toExport = section === 'pending'
+                          ? (selectedIds.size > 0
+                              ? filteredPending.filter(p => selectedIds.has(p.id))
+                              : filteredPending.filter(p => p.status === 'pending'))
+                          : currentItems
+                        exportXLSX(toExport, section === 'pending')
+                        setShowExportMenu(false)
+                      }}
+                      disabled={exporting}
+                      className="w-full text-left px-4 py-2.5 text-xs hover:bg-bg-2 transition-colors flex items-center gap-2 disabled:opacity-50"
                     >
-                      <Download className="w-3.5 h-3.5 text-ink-3" />
-                      Exportar vista actual
+                      {exporting ? <Loader2 className="w-3.5 h-3.5 text-ink-3 animate-spin" /> : <Download className="w-3.5 h-3.5 text-ink-3" />}
+                      {section === 'pending'
+                        ? selectedIds.size > 0
+                          ? `Exportar seleccionados (${selectedIds.size}) y marcar enviados`
+                          : 'Exportar pendientes y marcar enviados'
+                        : 'Exportar vista actual'}
                     </button>
                     <button
-                      onClick={() => { exportCSV(prescorings, 'todos'); setShowExportMenu(false) }}
-                      className="w-full text-left px-4 py-2.5 text-xs hover:bg-bg-2 transition-colors flex items-center gap-2"
+                      onClick={() => { exportXLSX(prescorings.filter(p => p.status !== 'rejected')); setShowExportMenu(false) }}
+                      disabled={exporting}
+                      className="w-full text-left px-4 py-2.5 text-xs hover:bg-bg-2 transition-colors flex items-center gap-2 disabled:opacity-50"
                     >
                       <Download className="w-3.5 h-3.5 text-ink-3" />
-                      Exportar todo
+                      Exportar todo (sin cambiar estado)
                     </button>
                   </motion.div>
                 )}
@@ -680,9 +741,15 @@ export default function PrescoringsPage() {
                     p={p}
                     onToggleSent={() => markAsSent(p)}
                     onResend={() => resendRejected(p)}
-                    onReject={p.status === 'sent' ? () => rejectPrescoring(p) : undefined}
+                    onReject={p.status === 'sent' ? () => revokePrescoring(p) : undefined}
                     saving={saving === p.id}
                     isRejected={p.status === 'rejected'}
+                    isSelected={selectedIds.has(p.id)}
+                    onToggleSelect={() => setSelectedIds(prev => {
+                      const next = new Set(prev)
+                      next.has(p.id) ? next.delete(p.id) : next.add(p.id)
+                      return next
+                    })}
                   />
                   {/* Delete button for mobile */}
                   <div className="flex justify-end mt-1 px-1">
@@ -712,14 +779,36 @@ export default function PrescoringsPage() {
             <table className="w-full border-collapse min-w-[1100px]">
               <thead>
                 <tr className="bg-bg-2/60">
-                  {COLUMNS.map((col) => (
-                    <th
-                      key={col.key}
-                      className={`${col.width} px-2 py-2.5 text-[10px] font-bold uppercase tracking-wider text-ink-3 border-b border-line-2-variant/20 ${col.align === 'center' ? 'text-center' : 'text-left'}`}
-                    >
-                      {col.label}
-                    </th>
-                  ))}
+                  {COLUMNS.map((col) => {
+                    if (col.key === 'select') {
+                      const selectableItems = section === 'pending' ? filteredPending.filter(p => p.status === 'pending') : filteredSent
+                      const allSelected = selectableItems.length > 0 && selectableItems.every(p => selectedIds.has(p.id))
+                      return (
+                        <th key="select" className="w-8 px-2 py-2.5 text-center border-b border-line-2-variant/20">
+                          <input
+                            type="checkbox"
+                            checked={allSelected}
+                            onChange={() => {
+                              if (allSelected) {
+                                setSelectedIds(new Set())
+                              } else {
+                                setSelectedIds(new Set(selectableItems.map(p => p.id)))
+                              }
+                            }}
+                            className="w-3.5 h-3.5 rounded border-ink-3/30 text-brand accent-brand cursor-pointer"
+                          />
+                        </th>
+                      )
+                    }
+                    return (
+                      <th
+                        key={col.key}
+                        className={`${col.width} px-2 py-2.5 text-[10px] font-bold uppercase tracking-wider text-ink-3 border-b border-line-2-variant/20 ${col.align === 'center' ? 'text-center' : 'text-left'}`}
+                      >
+                        {col.label}
+                      </th>
+                    )
+                  })}
                 </tr>
               </thead>
 
@@ -743,11 +832,16 @@ export default function PrescoringsPage() {
                     const isSent = p.status === 'sent'
                     const days = isSent ? daysRemaining(p.sent_at) : 0
 
+                    const isSelectable = p.status === 'pending'
+                    const isSelected = selectedIds.has(p.id)
+
                     return (
                       <tr
                         key={p.id}
                         className={`border-b transition-colors ${
-                          isRejected
+                          isSelected
+                            ? 'bg-primary/8 border-primary/20'
+                            : isRejected
                             ? 'bg-error/3 border-error/10 hover:bg-error/5'
                             : saving === p.id
                             ? 'bg-primary/3 border-line-2-variant/10'
@@ -756,6 +850,24 @@ export default function PrescoringsPage() {
                             : 'bg-surface/40 border-line-2-variant/10 hover:bg-primary/3'
                         }`}
                       >
+                        {/* Checkbox */}
+                        <td className="w-8 px-2 py-1.5 text-center">
+                          {isSelectable ? (
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {
+                                setSelectedIds(prev => {
+                                  const next = new Set(prev)
+                                  next.has(p.id) ? next.delete(p.id) : next.add(p.id)
+                                  return next
+                                })
+                              }}
+                              className="w-3.5 h-3.5 rounded border-ink-3/30 text-brand accent-brand cursor-pointer"
+                            />
+                          ) : null}
+                        </td>
+
                         {/* Status / Action button */}
                         <td className="w-12 px-2 py-1.5 text-center">
                           {isRejected ? (
@@ -773,12 +885,12 @@ export default function PrescoringsPage() {
                           ) : isSent ? (
                             <div className="inline-flex items-center gap-0.5">
                               <button
-                                onClick={() => rejectPrescoring(p)}
+                                onClick={() => revokePrescoring(p)}
                                 disabled={saving === p.id}
-                                className="p-0.5 rounded text-error/30 hover:text-err transition-all"
-                                title="Marcar como rechazado"
+                                className="p-0.5 rounded text-ink-3/40 hover:text-brand transition-all"
+                                title="Volver a pendiente"
                               >
-                                <XCircle className="w-3.5 h-3.5" />
+                                <Undo2 className="w-3.5 h-3.5" />
                               </button>
                               <div className="relative" title={`Enviado · ${days}d restantes`}>
                                 <CheckCircle2 className="w-5 h-5 text-brand" />
@@ -850,8 +962,11 @@ export default function PrescoringsPage() {
                         <td className="w-28 px-0 py-0">
                           <EditableCell value={p.entidad || ''} onChange={(v) => updateCell(p.id, 'entidad', v)} editable={true} />
                         </td>
-                        <td className="w-28 px-0 py-0">
+                        <td className={`w-28 px-0 py-0 ${getClientType(p.client_name, p.cif) === 'Particular' && !p.telefono ? 'bg-error/8' : ''}`}>
                           <EditableCell value={p.telefono || ''} onChange={(v) => updateCell(p.id, 'telefono', v)} editable={true} />
+                          {getClientType(p.client_name, p.cif) === 'Particular' && !p.telefono && (
+                            <span className="block text-[8px] font-bold text-err px-2 -mt-0.5 pb-0.5">REQUERIDO</span>
+                          )}
                         </td>
                         <td className="w-28 px-0 py-0">
                           <EditableCell value={p.poblacion || ''} onChange={(v) => updateCell(p.id, 'poblacion', v)} editable={true} />

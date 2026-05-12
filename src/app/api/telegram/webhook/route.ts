@@ -1058,6 +1058,51 @@ async function processAndNotify(
           `<a href="${appUrl}/supplies/${result.supply_id}">Ver suministro →</a>`
         ).catch(() => {})
 
+        // ── Phone request for Particulares ───────────────────────────────────
+        // If the client is a "Particular" (neither Empresa nor Ayuntamiento) and
+        // has no phone number, ask for it so the prescoring row can be completed.
+        if (result.client_id) {
+          ;(async () => {
+            try {
+              const supabasePhone = createBotSupabase()
+              const { data: clientData } = await supabasePhone
+                .from('clients')
+                .select('id, name, cif, nif, cif_nif, phone')
+                .eq('id', result.client_id!)
+                .single()
+              if (!clientData) return
+              const idField = (clientData.cif || clientData.nif || clientData.cif_nif || '').trim()
+              const nameField = (clientData.name || '').trim().toLowerCase()
+              const isAyto = nameField.startsWith('ayuntamiento de')
+              const isEmpresa = idField && /^[A-Za-z]/.test(idField)
+              const isParticular = !isAyto && !isEmpresa
+              if (isParticular && !clientData.phone) {
+                // Look up prescoring for this supply to store the ref
+                const { data: ps } = await supabasePhone
+                  .from('prescorings')
+                  .select('id')
+                  .eq('supply_id', result.supply_id!)
+                  .limit(1)
+                  .maybeSingle()
+
+                await setConvo(chatId, 'await_particular_phone', {
+                  client_id: result.client_id,
+                  client_name: clientData.name,
+                  supply_id: result.supply_id,
+                  prescoring_id: ps?.id || null,
+                })
+                await sendMessage(chatId,
+                  `📞 <b>Teléfono requerido</b>\n\n` +
+                  `El cliente <b>${clientData.name}</b> es un particular y necesita un número de teléfono para generar el prescoring correctamente.\n\n` +
+                  `Escribe el teléfono ahora o envía /saltartelefono para omitirlo.`
+                )
+              }
+            } catch (err) {
+              console.error('[Telegram] phone check error:', err)
+            }
+          })()
+        }
+
         // ── Auto-send comparativa Excel files for 2.0TD electricity invoices ──
         // Detect tariff from analyzed doc (already extracted by Gemini)
         const invoiceTariff = (
@@ -2280,6 +2325,55 @@ async function handleConvoStep(msg: TelegramMessage, convo: ConversationState) {
 
     await clearConvo(chatId)
     return sendMessage(chatId, `✅ Nota añadida a <b>${client?.name || 'cliente'}</b>:\n📝 "${text}"`)
+  }
+
+  // ── Phone collection for Particulares ──────────────────────────────────────
+  if (convo.step === 'await_particular_phone') {
+    const { client_id, client_name, supply_id, prescoring_id } = convo.data as {
+      client_id: string; client_name: string; supply_id: string; prescoring_id: string | null
+    }
+
+    if (text === '/saltartelefono') {
+      await clearConvo(chatId)
+      return sendMessage(chatId,
+        `⚠️ Teléfono omitido para <b>${client_name}</b>.\n` +
+        `La casilla de teléfono en el prescoring aparecerá marcada como pendiente.`
+      )
+    }
+
+    // Basic phone validation (allow spaces, dashes, +, digits)
+    const cleanPhone = text.replace(/[\s\-().]/g, '').trim()
+    if (!/^\+?[\d]{7,15}$/.test(cleanPhone)) {
+      return sendMessage(chatId,
+        `❌ Número no válido. Escribe solo el número de teléfono (ej: 612345678 o +34612345678).\n` +
+        `O envía /saltartelefono para omitirlo.`
+      )
+    }
+
+    const supabase = createBotSupabase()
+
+    // Update client phone
+    await supabase.from('clients')
+      .update({ phone: cleanPhone, updated_at: new Date().toISOString() })
+      .eq('id', client_id)
+
+    // Update prescoring phone if exists
+    if (prescoring_id) {
+      await supabase.from('prescorings')
+        .update({ telefono: cleanPhone })
+        .eq('id', prescoring_id)
+    } else {
+      // Try to find prescoring by supply_id
+      await supabase.from('prescorings')
+        .update({ telefono: cleanPhone })
+        .eq('supply_id', supply_id)
+    }
+
+    await clearConvo(chatId)
+    return sendMessage(chatId,
+      `✅ Teléfono <b>${cleanPhone}</b> guardado para <b>${client_name}</b>.\n` +
+      `El prescoring queda completo.`
+    )
   }
 
   await clearConvo(chatId)
