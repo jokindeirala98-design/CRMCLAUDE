@@ -295,13 +295,16 @@ function parseLabelBased(ws: ExcelJS.Worksheet, fileName: string): ParsedSupplyF
   // buildRowMap only keeps the FIRST row per label. When "Potencia P1" appears
   // twice (once kW, once €), the € row is lost. We recover it here by scanning
   // for rows whose col A = "Potencia Px" AND col B normalises to "eur" (= €).
-  const potenciaEurMap = new Map<string, ExcelJS.Row>()
+  // We store the ROW NUMBER (not the Row object) to avoid stale reference issues
+  // that can occur when ExcelJS Row objects are re-used across eachRow iterations
+  // in serverless environments. ws.getRow(n) always returns a fresh reference.
+  const potenciaEurMap = new Map<string, number>()  // key → row number
   ws.eachRow((row) => {
     const colA = normLabel(s(row.getCell(1).value))
     const colB = normLabel(s(row.getCell(2).value))
     // colB "€" normalises to "eur" via normLabel's € → eur replacement
-    if (/^potencia p\d/.test(colA) && colB === 'eur') {  // regex ampliado para capturar "potencia p1 punta", etc.
-      potenciaEurMap.set(colA, row) // e.g. "potencia p1" → € row
+    if (/^potencia p\d/.test(colA) && colB === 'eur') {
+      potenciaEurMap.set(colA, row.number) // e.g. "potencia p1" → row 24
     }
   })
 
@@ -372,11 +375,11 @@ function parseLabelBased(ws: ExcelJS.Worksheet, fileName: string): ParsedSupplyF
 
       // Total €: try potenciaEurMap (normalized full key), standard labels, unit-qualified
       let totalPot = 0
-      // potenciaEurMap now uses full norm key including Spanish names
+      // potenciaEurMap stores row numbers — retrieve fresh row via ws.getRow()
       for (const pn of ['', ...pnames]) {
         const key = pn ? normLabel(`Potencia ${pid} (${pn})`) : normLabel(`Potencia ${pid}`)
-        const row = potenciaEurMap.get(key)
-        if (row) { totalPot = cellNum(row, col); break }
+        const rowNum = potenciaEurMap.get(key)
+        if (rowNum !== undefined) { totalPot = cellNum(ws.getRow(rowNum), col); break }
       }
       totalPot = totalPot
         || cellNum(getRow(rowMap, `Potencia ${pid} eur`), col)
