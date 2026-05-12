@@ -57,6 +57,7 @@ export type SigningMethod = 'presencial' | 'telematico'
 export type ServiceType = 'luz' | 'gas' | 'telefonia'
 export type ClientOrigin = 'auditoria' | 'referido' | 'captacion' | 'otro'
 export type ExtractionStatus = 'pending' | 'processing' | 'completed' | 'failed'
+export type InvoiceSource = 'historica' | 'voltis'
 
 export interface UserProfile {
   id: string
@@ -144,6 +145,12 @@ export interface Invoice {
   total_amount: number | null
   extraction_status: ExtractionStatus
   extraction_confidence: number | null
+  /** 'historica' = factura de la comercializadora antigua del cliente.
+   *  'voltis'    = factura de la nueva comercializadora contratada vía Voltis
+   *                (Galp, Axpo, Gana, etc.). Dispara comparativa de coste real. */
+  source: InvoiceSource
+  /** Marca temporal del momento en que se subió como factura Voltis. */
+  voltis_uploaded_at: string | null
   created_at: string
 }
 

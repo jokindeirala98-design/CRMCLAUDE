@@ -8,10 +8,11 @@ import {
   Upload, ClipboardCheck, BarChart3, Presentation, PenTool,
   UserCheck, TrendingUp, AlertTriangle, Edit2, Trash2,
   RefreshCw, ChevronDown, ChevronUp, Loader2, Activity, ExternalLink, Download,
-  Plus, X, Pencil, Check, Flame, Phone as PhoneIcon, Copy, Mail
+  Plus, X, Pencil, Check, Flame, Phone as PhoneIcon, Copy, Mail, Scale
 } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
 import { PowerStudy } from '@/components/supply/PowerStudy'
+import ComparativaVoltis from '@/components/supply/ComparativaVoltis'
 import AnnualEconomics from '@/components/supply/AnnualEconomics'
 import { ClientDetailModal } from '@/components/clients/ClientDetailModal'
 import { Card } from '@/components/ui/Card'
@@ -121,9 +122,9 @@ export default function SupplyDetailPage() {
   const [deleting, setDeleting] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   // Auto-open tab from ?tab= URL param (e.g. from Telegram bot deep links)
-  const urlTab = searchParams.get('tab') as 'sips' | 'economics' | 'potencias' | null
-  const [activeTab, setActiveTab] = useState<'sips' | 'economics' | 'potencias' | null>(
-    ['sips', 'economics', 'potencias'].includes(urlTab || '') ? urlTab : null
+  const urlTab = searchParams.get('tab') as 'sips' | 'economics' | 'potencias' | 'comparativa-voltis' | null
+  const [activeTab, setActiveTab] = useState<'sips' | 'economics' | 'potencias' | 'comparativa-voltis' | null>(
+    ['sips', 'economics', 'potencias', 'comparativa-voltis'].includes(urlTab || '') ? urlTab : null
   )
   const [sipsLoading, setSipsLoading] = useState(false)
   const [sipsError, setSipsError] = useState('')
@@ -132,6 +133,9 @@ export default function SupplyDetailPage() {
   const [deletingInvoiceId, setDeletingInvoiceId] = useState<string | null>(null)
   const [uploadingInvoices, setUploadingInvoices] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<Record<string, 'uploading' | 'analyzing' | 'done' | 'error'>>({})
+  // Voltis invoices (nueva comercializadora contratada vía Voltis: Galp, Axpo, Gana…)
+  const [uploadingVoltisInvoices, setUploadingVoltisInvoices] = useState(false)
+  const [voltisUploadProgress, setVoltisUploadProgress] = useState<Record<string, 'uploading' | 'analyzing' | 'done' | 'error' | 'wrong-client'>>({})
   const [uploadingStudy, setUploadingStudy] = useState(false)
   const [deletingStudyId, setDeletingStudyId] = useState<string | null>(null)
   const [siblingSupplies, setSiblingSupplies] = useState<any[]>([])
@@ -148,6 +152,7 @@ export default function SupplyDetailPage() {
   const [zipProgress, setZipProgress] = useState<DownloadProgress | null>(null)
   const [serviceContracts, setServiceContracts] = useState<any[]>([])
   const invoiceInputRef = useRef<HTMLInputElement>(null)
+  const voltisInvoiceInputRef = useRef<HTMLInputElement>(null)
   const studyInputRef = useRef<HTMLInputElement>(null)
   const notificationTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const { user, isAdmin } = useAuthStore()
@@ -848,6 +853,196 @@ export default function SupplyDetailPage() {
     await fetchSupply()
     setUploadingInvoices(false)
     setUploadProgress({})
+  }
+
+  // ── Upload Voltis invoices (nueva comercializadora) ──────────────────────
+  // Acepta facturas de cualquier CUPS del cliente. Para cada factura:
+  //   1. Sube a Storage
+  //   2. Extrae datos con Gemini
+  //   3. Busca el supply correcto del cliente por CUPS (puede ser este o un sibling)
+  //   4. Inserta la invoice con source='voltis' en el supply correspondiente
+  //   5. Si el CUPS no pertenece a ningún supply del cliente → error
+  const handleUploadVoltisInvoices = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0 || !supply?.client?.id) return
+    setUploadingVoltisInvoices(true)
+
+    const supabase = createClient()
+    const newProgress: Record<string, 'uploading' | 'analyzing' | 'done' | 'error' | 'wrong-client'> = {}
+
+    // Precargar todos los suministros del cliente con su CUPS
+    const { data: clientSupplies } = await supabase
+      .from('supplies')
+      .select('id, cups, tariff, type')
+      .eq('client_id', supply.client.id)
+
+    const cupsToSupplyId = new Map<string, string>()
+    for (const s of (clientSupplies || []) as any[]) {
+      const c = normalizeCups(s.cups)
+      if (c) cupsToSupplyId.set(c, s.id)
+    }
+
+    // Cada PDF = 1 factura. Las imágenes se procesan individualmente aquí
+    // (asumimos que la factura Voltis viene en PDF, que es lo normal en B2B).
+    const fileArray = Array.from(files)
+
+    let movedCount = 0
+    let errorCount = 0
+
+    for (const file of fileArray) {
+      const fileId = `${Date.now()}_${Math.random().toString(36).slice(2)}`
+      const ext = file.name.split('.').pop()
+      const isPdf = file.name.toLowerCase().endsWith('.pdf')
+      newProgress[fileId] = 'uploading'
+      setVoltisUploadProgress({ ...newProgress })
+
+      try {
+        // 1. Subir a Storage
+        const filePath = `invoices-voltis/${Date.now()}/${fileId}.${ext}`
+        const { data: storageData, error: uploadError } = await supabase.storage
+          .from('documents')
+          .upload(filePath, file)
+        if (uploadError) throw uploadError
+        const { data: urlData } = supabase.storage.from('documents').getPublicUrl(storageData.path)
+        const publicUrl = urlData.publicUrl
+
+        // 2. Analizar con Gemini
+        newProgress[fileId] = 'analyzing'
+        setVoltisUploadProgress({ ...newProgress })
+
+        const readBase64 = (f: File): Promise<string> =>
+          new Promise<string>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve((reader.result as string).split(',')[1])
+            reader.onerror = () => reject(new Error('Error leyendo archivo'))
+            reader.readAsDataURL(f)
+          })
+        const base64 = await readBase64(file)
+        const fileType = isPdf ? 'pdf' : 'image'
+
+        const analyzeRes = await fetch('/api/analyze-invoice', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ file_base64: base64, file_type: fileType, file_name: file.name }),
+        })
+        const extractedData = await analyzeRes.json()
+
+        // 3. Identificar CUPS y mapear al supply correcto del cliente
+        const invoiceCupsRaw: string | null =
+          extractedData?.cups ?? extractedData?.economics?.cups ?? null
+        const invoiceCupsNorm = normalizeCups(invoiceCupsRaw)
+
+        if (!invoiceCupsNorm) {
+          await supabase.storage.from('documents').remove([storageData.path]).catch(() => {})
+          newProgress[fileId] = 'error'
+          setVoltisUploadProgress({ ...newProgress })
+          showNotification(`No se pudo extraer un CUPS válido de "${file.name}".`, 'error')
+          errorCount++
+          continue
+        }
+
+        let targetSupplyId = cupsToSupplyId.get(invoiceCupsNorm) || null
+        // Tolerancia: matcheo por bloque central (caracteres 6-17) como en upload normal
+        if (!targetSupplyId) {
+          for (const [c, sid] of cupsToSupplyId.entries()) {
+            if (c.length >= 18 && invoiceCupsNorm.length >= 18 && c.slice(6, 18) === invoiceCupsNorm.slice(6, 18)) {
+              targetSupplyId = sid
+              break
+            }
+          }
+        }
+
+        if (!targetSupplyId) {
+          await supabase.storage.from('documents').remove([storageData.path]).catch(() => {})
+          newProgress[fileId] = 'wrong-client'
+          setVoltisUploadProgress({ ...newProgress })
+          showNotification(
+            `El CUPS ${invoiceCupsNorm} de "${file.name}" no pertenece a ningún suministro de este cliente.`,
+            'error'
+          )
+          errorCount++
+          continue
+        }
+
+        // 4. Datos de periodo y total
+        const eco = extractedData?.economics
+        const toIso = (s?: string) => {
+          if (!s) return null
+          const d = new Date(s)
+          return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10)
+        }
+        const periodStart = eco?.fechaInicio
+          ? toIso(eco.fechaInicio)
+          : toIso(extractedData?.billing_period?.split(/\s*[-–]\s*/)?.[0])
+        const periodEnd = eco?.fechaFin
+          ? toIso(eco.fechaFin)
+          : toIso(extractedData?.billing_period?.split(/\s*[-–]\s*/)?.[1])
+        const totalAmount = eco?.totalFactura
+          ? eco.totalFactura
+          : extractedData?.total_amount ? parseFloat(extractedData.total_amount) : null
+
+        // 5. Deduplicación: si ya existe esa pareja (start,end,source='voltis') en el supply, saltar
+        if (periodStart && periodEnd) {
+          const { data: existing } = await supabase
+            .from('invoices')
+            .select('id')
+            .eq('supply_id', targetSupplyId)
+            .eq('source', 'voltis')
+            .eq('period_start', periodStart)
+            .eq('period_end', periodEnd)
+            .limit(1)
+          if (existing && existing.length > 0) {
+            await supabase.storage.from('documents').remove([storageData.path]).catch(() => {})
+            newProgress[fileId] = 'error'
+            setVoltisUploadProgress({ ...newProgress })
+            showNotification(
+              `Factura Voltis duplicada: ya existe ${periodStart} – ${periodEnd}.`,
+              'error'
+            )
+            errorCount++
+            continue
+          }
+        }
+
+        // 6. Insertar invoice marcada como Voltis
+        await supabase.from('invoices').insert({
+          supply_id: targetSupplyId,
+          file_url: publicUrl,
+          file_type: fileType,
+          extracted_data: extractedData,
+          extraction_status: extractedData?.mode === 'gemini' ? 'completed' : 'pending',
+          period_start: periodStart,
+          period_end: periodEnd,
+          total_amount: totalAmount,
+          source: 'voltis',
+          voltis_uploaded_at: new Date().toISOString(),
+        })
+
+        if (targetSupplyId !== supply.id) movedCount++
+
+        newProgress[fileId] = 'done'
+        setVoltisUploadProgress({ ...newProgress })
+      } catch (err: any) {
+        console.error('Error uploading Voltis invoice:', err)
+        newProgress[fileId] = 'error'
+        setVoltisUploadProgress({ ...newProgress })
+        errorCount++
+      }
+    }
+
+    if (voltisInvoiceInputRef.current) voltisInvoiceInputRef.current.value = ''
+
+    if (movedCount > 0) {
+      showNotification(
+        `${movedCount} factura${movedCount > 1 ? 's' : ''} asignada${movedCount > 1 ? 's' : ''} automáticamente a otros suministros del cliente.`,
+        'success'
+      )
+    }
+
+    await fetchSupply()
+    setUploadingVoltisInvoices(false)
+    // Mantener mensajes 4s y limpiar
+    setTimeout(() => setVoltisUploadProgress({}), 4000)
   }
 
   // ── Upload economic study (PDF/Excel) ────────────────────────────────────
@@ -1586,10 +1781,11 @@ export default function SupplyDetailPage() {
           {/* Hidden file inputs (need to be outside overlay for stability) */}
           <input ref={studyInputRef} type="file" accept=".pdf,.xlsx,.xls" className="hidden" onChange={handleUploadStudy} />
           <input ref={invoiceInputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" multiple className="hidden" onChange={handleUploadInvoices} />
+          <input ref={voltisInvoiceInputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" multiple className="hidden" onChange={handleUploadVoltisInvoices} />
         </div>
 
         {/* ═══════ SECTION TAB BUTTONS ═══════ */}
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
           {([
             {
               key: 'sips' as const,
@@ -1616,9 +1812,20 @@ export default function SupplyDetailPage() {
               inactiveClass: 'border-line-2-variant/30 bg-white text-ink hover:border-warn/30 hover:bg-warn-container/40',
               dot: supply.power_study_result ? 'bg-warn-container/400' : 'bg-gray-300',
             },
+            {
+              key: 'comparativa-voltis' as const,
+              label: 'COMPARATIVA VOLTIS',
+              icon: Scale,
+              activeClass: 'border-brand/40 bg-volt/30 text-brand shadow-md',
+              inactiveClass: 'border-line-2-variant/30 bg-white text-ink hover:border-brand/40 hover:bg-volt/20',
+              dot: supply.invoices?.some((inv: any) => inv.source === 'voltis')
+                ? 'bg-volt' : 'bg-gray-300',
+            },
           ]).filter(tab => {
             // Hide POTENCIAS Y CONSUMOS for gas supplies
             if (tab.key === 'potencias' && (supply.type === 'gas' || /^RL/i.test(supply.tariff || ''))) return false
+            // Hide COMPARATIVA VOLTIS unless there's at least one Voltis invoice
+            if (tab.key === 'comparativa-voltis' && !supply.invoices?.some((inv: any) => inv.source === 'voltis')) return false
             return true
           }).map(tab => {
             const Icon = tab.icon
@@ -2270,6 +2477,13 @@ export default function SupplyDetailPage() {
           />
         )}
 
+        {/* ═══════ COMPARATIVA VOLTIS ═══════ */}
+        {activeTab === 'comparativa-voltis' && supply.invoices?.some((inv: any) => inv.source === 'voltis') && (
+          <div className="rounded-3xl overflow-hidden bg-bg border border-line">
+            <ComparativaVoltis supplyId={supply.id} />
+          </div>
+        )}
+
         {/* ═══════ TIMESTAMPS ═══════ */}
         <div className="flex gap-4 text-xs text-ink-3">
           <span>Creado: {formatDate(supply.created_at)}</span>
@@ -2602,6 +2816,7 @@ export default function SupplyDetailPage() {
                 {supply.invoices && supply.invoices.length > 0 ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     {[...supply.invoices]
+                      .filter((inv: any) => inv.source !== 'voltis')
                       .sort((a: any, b: any) => new Date(b.period_end || b.period_start || b.created_at).getTime() - new Date(a.period_end || a.period_start || a.created_at).getTime())
                       .map((inv: any) => {
                         const period = inv.period_end
@@ -2655,6 +2870,112 @@ export default function SupplyDetailPage() {
                   </div>
                 )}
               </div>
+
+              {/* Divider */}
+              <div className="border-t border-line-2-variant/10" />
+
+              {/* ── 1.5. FACTURAS CON VOLTIS ── */}
+              {(() => {
+                const voltisInvoices = (supply.invoices || []).filter((inv: any) => inv.source === 'voltis')
+                return (
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <h3 className="text-sm font-bold text-ink uppercase tracking-wider flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-volt" />
+                        Facturas con Voltis
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={() => voltisInvoiceInputRef.current?.click()}
+                        disabled={uploadingVoltisInvoices}
+                        className="flex items-center gap-1.5 text-xs font-semibold text-brand hover:text-brand-2 transition disabled:opacity-50"
+                      >
+                        {uploadingVoltisInvoices ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                        Subir facturas Voltis
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-ink-3 mb-3">
+                      Facturas de la nueva comercializadora contratada vía Voltis. Puedes subir facturas
+                      de cualquier suministro del cliente: el CRM las asigna automáticamente por CUPS.
+                      Cuando exista la factura del mismo mes del año anterior, la comparativa de coste
+                      real aparece en el tab "Comparativa Voltis".
+                    </p>
+
+                    {/* Progreso */}
+                    {Object.keys(voltisUploadProgress).length > 0 && (
+                      <div className="space-y-1.5 mb-3">
+                        {Object.entries(voltisUploadProgress).map(([name, status]) => (
+                          <div key={name} className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg bg-bg-2">
+                            {(status === 'uploading' || status === 'analyzing') && <Loader2 className="w-3 h-3 animate-spin text-volt-ink" />}
+                            {status === 'done' && <CheckCircle2 className="w-3 h-3 text-ok" />}
+                            {(status === 'error' || status === 'wrong-client') && <XCircle className="w-3 h-3 text-err" />}
+                            <span className="truncate flex-1 text-ink-3">{name}</span>
+                            <span className="text-[10px] font-medium capitalize text-ink-3/70">
+                              {status === 'uploading' ? 'Subiendo' : status === 'analyzing' ? 'Analizando' : status === 'done' ? 'Listo' : status === 'wrong-client' ? 'CUPS no encontrado' : 'Error'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {voltisInvoices.length > 0 ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {[...voltisInvoices]
+                          .sort((a: any, b: any) => new Date(b.period_end || b.period_start || b.created_at).getTime() - new Date(a.period_end || a.period_start || a.created_at).getTime())
+                          .map((inv: any) => {
+                            const period = inv.period_end
+                              ? new Date(inv.period_end).toLocaleDateString('es-ES', { month: 'short', year: '2-digit' })
+                              : inv.period_start
+                                ? new Date(inv.period_start).toLocaleDateString('es-ES', { month: 'short', year: '2-digit' })
+                                : null
+                            return (
+                              <div key={inv.id} className="group flex items-center gap-3 px-3 py-2.5 rounded-xl bg-card border border-volt/30 hover:border-brand/40 transition">
+                                <div className="w-8 h-8 rounded-lg bg-volt/30 flex items-center justify-center flex-shrink-0">
+                                  <FileText className="w-4 h-4 text-volt-ink" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs font-semibold text-ink truncate">
+                                    {period || 'Sin periodo'}
+                                  </p>
+                                  {inv.total_amount && (
+                                    <p className="text-[10px] text-ink-3">{formatCurrency(inv.total_amount)}</p>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  {inv.file_url && (
+                                    <a href={getViewUrl(inv.file_url)} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded-lg hover:bg-volt/30 transition" title="Ver">
+                                      <ExternalLink className="w-3.5 h-3.5 text-volt-ink" />
+                                    </a>
+                                  )}
+                                  <button
+                                    onClick={() => handleDeleteInvoice(inv)}
+                                    disabled={deletingInvoiceId === inv.id}
+                                    className="p-1.5 rounded-lg hover:bg-err-container/40 transition"
+                                    title="Eliminar"
+                                  >
+                                    {deletingInvoiceId === inv.id ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin text-err" />
+                                    ) : (
+                                      <Trash2 className="w-3.5 h-3.5 text-err" />
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            )
+                          })}
+                      </div>
+                    ) : (
+                      <div className="text-center py-6 rounded-xl border-2 border-dashed border-volt/40 bg-volt/5">
+                        <Upload className="w-8 h-8 text-volt-ink/40 mx-auto mb-2" />
+                        <p className="text-xs text-ink-3">Sin facturas con Voltis aún</p>
+                        <button onClick={() => voltisInvoiceInputRef.current?.click()} className="text-xs text-brand font-semibold mt-1 hover:underline">
+                          Subir primera factura Voltis
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
 
               {/* Divider */}
               <div className="border-t border-line-2-variant/10" />
