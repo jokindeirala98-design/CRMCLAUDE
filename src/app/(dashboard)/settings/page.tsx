@@ -549,7 +549,7 @@ export default function SettingsPage() {
       render: (item: any) => (
         item.active
           ? <Badge variant="success">Activo</Badge>
-          : <Badge variant="warn">Invitado</Badge>
+          : <Badge variant="warning">Invitado</Badge>
       ),
     },
     {

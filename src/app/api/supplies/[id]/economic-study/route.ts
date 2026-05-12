@@ -708,7 +708,7 @@ function avgPriceFromInvoices(invoices: any[]): number {
  * Borra todos los estudios económicos previos del suministro
  * (registros DB + archivos de storage) para que solo quede el último.
  */
-async function purgeOldStudies(supabase: ReturnType<typeof createClient>, supplyId: string) {
+async function purgeOldStudies(supabase: any, supplyId: string) {
   const { data: old } = await supabase
     .from('studies')
     .select('id, report_url')
@@ -718,8 +718,8 @@ async function purgeOldStudies(supabase: ReturnType<typeof createClient>, supply
   if (!old?.length) return
 
   // Extraer rutas de storage de las URLs públicas
-  const storagePaths = old
-    .map(s => {
+  const storagePaths = (old as any[])
+    .map((s: any) => {
       const url = s.report_url as string | null
       if (!url) return null
       const marker = '/documents/'
@@ -734,7 +734,7 @@ async function purgeOldStudies(supabase: ReturnType<typeof createClient>, supply
 
   await supabase.from('studies')
     .delete()
-    .in('id', old.map(s => s.id))
+    .in('id', (old as any[]).map((s: any) => s.id))
 }
 
 /**
@@ -744,7 +744,7 @@ async function purgeOldStudies(supabase: ReturnType<typeof createClient>, supply
 async function saveStudyConfig({
   supabase, supplyId, userId, tariff, inputData, notes,
 }: {
-  supabase: ReturnType<typeof createClient>
+  supabase: any
   supplyId: string
   userId: string
   tariff: string

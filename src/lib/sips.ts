@@ -120,6 +120,8 @@ export interface SipsData {
   tension?: string
   fechaAlta?: string
   fechaUltimaLectura?: string
+  direccion?: string
+  titular?: string
 }
 
 // ─── Helpers ─────────────────────────────────────────────────

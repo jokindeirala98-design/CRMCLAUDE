@@ -57,6 +57,7 @@ function styleHeader(sheet: ExcelJS.Worksheet, numCols: number) {
 /** Auto-fit column widths (rough heuristic) */
 function autoFitColumns(sheet: ExcelJS.Worksheet) {
   sheet.columns.forEach(col => {
+    if (!col.eachCell) return
     let maxLen = 10
     col.eachCell({ includeEmpty: false }, cell => {
       const len = cell.value ? String(cell.value).length : 0

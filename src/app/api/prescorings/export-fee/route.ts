@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
       bottom: { style: 'thin' }, right: { style: 'thin' },
     }
 
-    function styleHeader(cell: ExcelJS.Cell, bgArgb?: string) {
+    const styleHeader = (cell: ExcelJS.Cell, bgArgb?: string) => {
       cell.font = hdrFont
       cell.alignment = hdrAlign
       cell.border = hdrBorder
@@ -130,14 +130,14 @@ export async function POST(req: NextRequest) {
     const numFmt2 = '#,##0.00'
     const numFmt0 = '#,##0'
 
-    function parseConsumo(s: string | null | undefined): number {
+    const parseConsumo = (s: string | null | undefined): number => {
       if (!s) return 0
       // "12.558 kWh" → 12558 (Spanish locale: period = thousands separator)
       const cleaned = String(s).replace(/[^\d.,]/g, '').replace(/\./g, '').replace(',', '.')
       return parseFloat(cleaned) || 0
     }
 
-    function getPotencias(cd: any, tariff: string): (number | string)[] {
+    const getPotencias = (cd: any, tariff: string): (number | string)[] => {
       const t = (tariff || '').replace(/\s+/g, '').toUpperCase()
       // Tariffs with P1-P6 structured powers
       const hasPeriods = t.startsWith('3.0') || t === '30TD' || t.startsWith('6.1') || t === '61TD'

@@ -229,7 +229,7 @@ export function WeeklyPlan({ users }: { users: any[] }) {
       task_id: taskId, changed_by: user?.id,
       change_type: 'zone_change',
       new_value: { zone: newZone },
-    }).catch(() => {})
+    })
 
     fetchTasks()
   }

@@ -56,14 +56,14 @@ export async function POST(req: NextRequest) {
     headerRow.height = 22
 
     // ---- Data rows ----
-    function fmtDate(d: string | null) {
+    const fmtDate = (d: string | null) => {
       if (!d) return ''
       const dt = new Date(d)
       return dt.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
         ' ' + dt.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
     }
 
-    function getClientType(name: string | null, cif: string | null) {
+    const getClientType = (name: string | null, cif: string | null) => {
       const n = (name || '').trim().toLowerCase()
       if (n.startsWith('ayuntamiento de')) return 'Ayuntamiento'
       const id = (cif || '').trim()

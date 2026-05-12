@@ -76,6 +76,9 @@ export interface InvoiceRow {
   period_end?: string
   total_amount?: number
   extraction_status?: string
+  created_at?: string
+  /** Legacy alias for extracted_data.economics (may appear in older invoice rows) */
+  economics_data?: BillEconomics | null
   extracted_data?: {
     economics?: BillEconomics
     billing_period?: string

@@ -13,7 +13,7 @@ import { normalizeTariff } from '@/lib/consumption-utils'
 export type DocumentType = 'factura' | 'cif' | 'nif' | 'iban' | 'contrato' | 'otro'
 
 export interface ExtractedDocumentData {
-  mode: 'gemini' | 'manual'
+  mode: 'gemini' | 'claude' | 'manual'
   documentType: DocumentType
   cif?: string
   nif?: string
@@ -2109,7 +2109,8 @@ async function enhanceImageForOcr(
   if (!mimeType.startsWith('image/')) return { base64Data, mimeType }
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const sharp = require('sharp') as typeof import('sharp').default
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sharp = require('sharp') as any
     const inputBuffer = Buffer.from(base64Data, 'base64')
 
     const outputBuffer = await sharp(inputBuffer)

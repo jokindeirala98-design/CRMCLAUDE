@@ -302,7 +302,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       .replace(/[^a-zA-Z0-9\s]/g, '').trim()
       .replace(/\s+/g, '_').slice(0, 40)
 
-    return new NextResponse(finalBuffer, {
+    return new NextResponse(finalBuffer as unknown as BodyInit, {
       status: 200,
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

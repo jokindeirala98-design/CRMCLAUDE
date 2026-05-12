@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback } from 'react'
 import { Upload, CheckCircle2, AlertCircle, Loader2, X, Flame, RefreshCw } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
 
 interface GasParsedRow {
   cups: string
