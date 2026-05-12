@@ -1090,7 +1090,7 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
         return (
           <div>
             <div className="text-[#4F5C53] text-sm">{fmt(item.kwh, 0)} kWh</div>
-            <div className="text-[#8A9A8E] text-xs">{fmt(item.precioKwh, 4)} €/KWH</div>
+            <div className="text-[#8A9A8E] text-xs">{fmt(item.precioKwh, 5)} €/KWH</div>
           </div>
         )
       },
@@ -1104,7 +1104,7 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
       key: 'costeMedio', label: 'COSTE MEDIO (€/KWH)',
       render: (eco) => {
         const precio = eco?.costeMedioKwh || (eco?.costeTotalConsumo && eco?.consumoTotalKwh ? eco.costeTotalConsumo / eco.consumoTotalKwh : null)
-        return <span className="text-[#5A6B5F] text-sm">{precio ? fmt(precio, 4) : '—'}</span>
+        return <span className="text-[#5A6B5F] text-sm">{precio ? fmt(precio, 5) : '—'}</span>
       },
     },
     { key: 'sep2', label: '', isSeparator: true, render: () => null },
@@ -1142,7 +1142,7 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
           <div>
             <div className="text-[#5A6B5F] text-sm">{fmt(item.total)} €</div>
             {kw > 0 && precioKwDia > 0 && (
-              <div className="text-[#8A9A8E] text-xs">{fmt(kw, 1)} kW · {fmt(precioKwDia, 4)} €/kW·día</div>
+              <div className="text-[#8A9A8E] text-xs">{fmt(kw, 1)} kW · {fmt(precioKwDia, 5)} €/kW·día</div>
             )}
           </div>
         )
@@ -2628,7 +2628,7 @@ function GasReportView({ invoices, supplyName, onBack, gasHistory }: {
                     <td className="px-3 py-3 text-right font-mono text-ok">{row.descuentoEnergia > 0 ? `-${row.descuentoEnergia.toFixed(2)}€` : '—'}</td>
                     <td className="px-3 py-3 text-right font-mono text-warn font-bold">{row.costeNeto.toFixed(2)}€</td>
                     <td className={`px-3 py-3 text-right font-mono ${row.precioEstimated ? 'text-yellow-600' : 'text-[#4A5E47]'}`}>
-                      {row.precioKwh > 0 ? row.precioKwh.toFixed(4) : '—'}
+                      {row.precioKwh > 0 ? row.precioKwh.toFixed(5) : '—'}
                       {row.precioEstimated && <span className="block text-[8px] leading-none" style={{ color: '#8A9A8E' }}>est.</span>}
                     </td>
                     <td className="px-3 py-3 text-right" style={{ color: '#8A9A8E' }}>{row.terminoFijo > 0 ? `${row.terminoFijo.toFixed(2)}€` : '—'}</td>
@@ -2651,7 +2651,7 @@ function GasReportView({ invoices, supplyName, onBack, gasHistory }: {
                       ? `-${tableData.reduce((s, r) => s + r.descuentoEnergia, 0).toFixed(2)}€` : '—'}
                   </td>
                   <td className="px-3 py-4 text-right tabular-nums text-warn font-black">{summaryStats.totalEnergyNet.toFixed(2)}€</td>
-                  <td className="px-3 py-4 text-right tabular-nums text-[#2D3A33]">{summaryStats.avgPrice.toFixed(4)}</td>
+                  <td className="px-3 py-4 text-right tabular-nums text-[#2D3A33]">{summaryStats.avgPrice.toFixed(5)}</td>
                   <td className="px-3 py-4 text-right tabular-nums" style={{ color: '#8A9A8E' }}>{summaryStats.totalTerminoFijo.toFixed(2)}€</td>
                   <td className="px-3 py-4 text-right tabular-nums" style={{ color: '#8A9A8E' }}>{summaryStats.totalImpuesto.toFixed(2)}€</td>
                   <td className="px-3 py-4 text-right tabular-nums" style={{ color: '#8A9A8E' }}>{summaryStats.totalAlquiler.toFixed(2)}€</td>
@@ -3931,7 +3931,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
                         <span className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold" style={{ background: PERIOD_COLORS[c.periodo] + '30', color: PERIOD_COLORS[c.periodo] }}>{c.periodo}</span>
                         <span className="text-[#5A6B5F] text-sm">{fmt(c.kwh, 0)} kWh</span>
                       </div>
-                      <span className="text-[#2D3A33] font-bold text-sm">{fmt(c.precioKwh, 4)} €/kWh</span>
+                      <span className="text-[#2D3A33] font-bold text-sm">{fmt(c.precioKwh, 5)} €/kWh</span>
                     </div>
                   ))}
                 </div>
@@ -3939,7 +3939,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
                 <div className="rounded-xl p-4 bg-[#E0E8DC] border border-[#6B8068]/30">
                   <p className="text-[#6B8068] text-xs tracking-wider mb-2">PRECIO MEDIO PONDERADO</p>
                   <p className="text-[#5A6B5F] text-xs mb-1">Σ(kWh × Precio) / ΣkWh</p>
-                  <p className="text-[#6B8068] text-2xl font-black">{fmt(bill.avgPrice, 4)} €/kWh</p>
+                  <p className="text-[#6B8068] text-2xl font-black">{fmt(bill.avgPrice, 5)} €/kWh</p>
                 </div>
               </motion.div>
             </motion.div>
@@ -4153,13 +4153,13 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
                             <div>
                               <p className="text-[10px]" style={{ color: '#8A9A8E' }}>Energía P1/P2/P3</p>
                               <p className="text-xs font-mono font-bold" style={{ color: '#2D3A33' }}>
-                                {item.tariff.energy.P1.toFixed(3)} / {item.tariff.energy.P2.toFixed(3)} / {item.tariff.energy.P3.toFixed(3)} €/kWh
+                                {item.tariff.energy.P1.toFixed(5)} / {item.tariff.energy.P2.toFixed(5)} / {item.tariff.energy.P3.toFixed(5)} €/kWh
                               </p>
                             </div>
                             <div>
                               <p className="text-[10px]" style={{ color: '#8A9A8E' }}>Potencia P1/P2</p>
                               <p className="text-xs font-mono font-bold" style={{ color: '#2D3A33' }}>
-                                {item.tariff.power.P1.toFixed(4)} / {item.tariff.power.P2.toFixed(4)} €/kW·día
+                                {item.tariff.power.P1.toFixed(5)} / {item.tariff.power.P2.toFixed(5)} €/kW·día
                               </p>
                             </div>
                           </div>

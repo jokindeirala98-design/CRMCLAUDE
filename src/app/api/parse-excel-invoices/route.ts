@@ -350,6 +350,7 @@ function extractPotenciaPeriod(
   // ── kW contracted ──────────────────────────────────────────────────────────
   let kw = cellNum(getRow(rowMap, `Potencia ${pid} kw`), col)
          || cellNum(getRow(rowMap, `Potencia ${pid} (kW)`), col)
+         || cellNum(getRowU(umap, `Potencia ${pid}`, 'kW'), col)  // simple format: col A="Potencia P1", col B="kW"
   if (!kw) {
     for (const pn of pnames) {
       kw = cellNum(getRowU(umap, `Potencia ${pid} (${pn})`, 'kW'), col)
@@ -364,6 +365,7 @@ function extractPotenciaPeriod(
   // then sum of peajes + cargos totals.
   let total = cellNum(getRow(rowMap, `Potencia ${pid} eur`), col)
             || cellNum(getRow(rowMap, `Potencia ${pid} (€)`), col)
+            || cellNum(getRowU(umap, `Potencia ${pid}`, '€'), col)  // simple format: col A="Potencia P1", col B="€"
   if (!total) {
     for (const pn of pnames) {
       total = cellNum(getRowU(umap, `Potencia ${pid} (${pn})`, '€'), col)
@@ -506,6 +508,7 @@ function extractConsumoPeriod(
   // (some invoice-derived Excels store consumption only alongside access tariffs)
   let kwh = cellNum(getRow(rowMap, `Consumo ${pid} kwh`), col)
            || cellNum(getRow(rowMap, `Consumo ${pid} (kWh)`), col)
+           || cellNum(getRowU(umap, `Consumo ${pid}`, 'kWh'), col)  // simple format: col A="Consumo P1", col B="kWh"
   if (!kwh) {
     for (const pn of pnames) {
       kwh = cellNum(getRowU(umap, `Consumo ${pid} (${pn})`, 'kWh'), col)
@@ -530,6 +533,7 @@ function extractConsumoPeriod(
                     || cellNum(getRow(rowMap, `Precio ${pid} (€/kWh)`), col)
                     || cellNum(getRow(rowMap, `Precio energia ${pid} eur kwh`), col)
                     || cellNum(getRow(rowMap, `Energia ${pid} eur kwh`), col)
+                    || cellNum(getRowU(umap, `Precio ${pid}`, '€/kWh'), col)  // simple format: col A="Precio P1", col B="€/kWh"
   if (!precioDirecto) {
     for (const pn of pnames) {
       precioDirecto = cellNum(getRowU(umap, `Precio ${pid} (${pn})`, '€/kWh'), col)
@@ -702,15 +706,19 @@ export async function POST(req: NextRequest) {
             // Totals
             const consumoTotalKwh    = cellNum(getRow(rowMap, 'TOTAL CONSUMO (kWh)'), col)
                                     || cellNum(getRow(rowMap, 'total consumo kwh'), col)
+                                    || cellNum(getRow(rowMap, 'TOTAL CONSUMO'), col)
                                     || consumo.reduce((s, c) => s + c.kwh, 0)
             const costeTotalConsumo  = cellNum(getRow(rowMap, 'TOTAL COSTE CONSUMO (€)'), col)
                                     || cellNum(getRow(rowMap, 'total coste consumo eur'), col)
+                                    || cellNum(getRow(rowMap, 'TOTAL COSTE CONSUMO'), col)
                                     || consumo.reduce((s, c) => s + c.total, 0)
             const costeTotalPotencia = cellNum(getRow(rowMap, 'TOTAL COSTE POTENCIA (€)'), col)
                                     || cellNum(getRow(rowMap, 'total coste potencia eur'), col)
+                                    || cellNum(getRow(rowMap, 'TOTAL COSTE POTENCIA'), col)
                                     || potencia.reduce((s, p) => s + p.total, 0)
             const totalFactura       = cellNum(getRow(rowMap, 'TOTAL FACTURA (€)'), col)
                                     || cellNum(getRow(rowMap, 'total factura eur'), col)
+                                    || cellNum(getRow(rowMap, 'TOTAL FACTURA'), col)
 
             // Skip month if all zeros
             if (consumoTotalKwh === 0 && costeTotalConsumo === 0 && costeTotalPotencia === 0 && totalFactura === 0) continue
