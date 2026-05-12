@@ -241,11 +241,12 @@ export default function ClientDetailPage() {
     n >= 1000 ? `${(n / 1000).toLocaleString('es-ES', { maximumFractionDigits: 1 })} MWh/año`
               : `${n.toLocaleString('es-ES', { maximumFractionDigits: 0 })} kWh/año`
 
-  // Tariff priority: luz (6.x > 3.0 > 2.0) always before gas (RL4 > RL1)
+  // Tariff priority: luz (6.x > 3.0 > 2.0) always before gas (RL5 > RL4 > RL1)
   function tariffPriority(t: string, type?: string): number {
     if (!t) return 0
     const tu = t.trim().toUpperCase()
     if (type === 'gas') {
+      if (tu.includes('5')) return 15
       if (tu.includes('4')) return 14
       if (tu.includes('3')) return 13
       if (tu.includes('2')) return 12
@@ -586,7 +587,35 @@ export default function ClientDetailPage() {
                   No hay suministros que coincidan con "{supplySearch}"
                 </div>
               )}
-              {filteredSupplies.map((supply: any) => {
+              {filteredSupplies.reduce((acc: React.ReactNode[], supply: any, idx: number) => {
+                // Section header: inject when tariff group changes
+                const getGroup = (s: any) => {
+                  if (s.type !== 'gas') return `luz:${normalizeTariff(s.tariff) || s.tariff || ''}`
+                  const tu = (s.tariff || '').toUpperCase()
+                  if (tu.includes('5')) return 'gas:RL.5'
+                  if (tu.includes('4')) return 'gas:RL.4'
+                  if (tu.includes('3')) return 'gas:RL.3'
+                  if (tu.includes('2')) return 'gas:RL.2'
+                  if (tu.includes('1')) return 'gas:RL.1'
+                  return 'gas:gas'
+                }
+                const getGroupLabel = (g: string) => {
+                  if (g.startsWith('luz:')) return g.replace('luz:', '') || 'Electricidad'
+                  return g.replace('gas:', '')
+                }
+                const currentGroup = getGroup(supply)
+                const prevGroup = idx > 0 ? getGroup(filteredSupplies[idx - 1]) : null
+                if (currentGroup !== prevGroup) {
+                  const groupSupplies = filteredSupplies.filter((s: any) => getGroup(s) === currentGroup)
+                  const icon = supply.type === 'gas' ? '🔥' : '⚡'
+                  acc.push(
+                    <div key={`header-${currentGroup}`} className="col-span-full flex items-center gap-2 mt-2 mb-0">
+                      <span className="text-xs font-bold uppercase tracking-widest text-ink-3">{icon} {getGroupLabel(currentGroup)}</span>
+                      <span className="text-[10px] text-ink-4 bg-bg-2 rounded-full px-2 py-0.5 font-semibold">{groupSupplies.length}</span>
+                      <div className="flex-1 h-px bg-line-2-variant/30" />
+                    </div>
+                  )
+                }
                 const invoiceCount = supply.invoices?.length || 0
                 const annualKwh = getSupplyAnnualConsumption(supply)
                 const isEditingName = editingSupplyName === supply.id
@@ -596,7 +625,7 @@ export default function ClientDetailPage() {
                   supply.status === 'rechazado' ? 'from-error/40 to-error/0' :
                   ['presentado', 'estudio_completado'].includes(supply.status) ? 'from-secondary/40 to-secondary/0' :
                   'from-primary/40 to-primary/0'
-                return (
+                acc.push(
                   <div
                     key={supply.id}
                     role="button"
@@ -727,7 +756,8 @@ export default function ClientDetailPage() {
                     </div>
                   </div>
                 )
-              })}
+                return acc
+              }, [])}
             </div>
           )}
         </div>
