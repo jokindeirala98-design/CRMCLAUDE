@@ -300,6 +300,10 @@ function mapearExtraido(extracted: any): MappedResult {
   const potencia: any[] = Array.isArray(eco.potencia) ? eco.potencia : []
   const warnings: string[] = []
 
+  // Detect pricing format (extracted by Gemini)
+  const energyPricingFormat: string = eco.energyPricingFormat ?? extracted.energyPricingFormat ?? ''
+  const fmtPromo = energyPricingFormat === 'promocionadas'
+
   // Potencias por periodo (P1=Punta, P2=Valle en 2.0TD)
   const potP1 = findPeriodo(potencia, 'P1')
   const potP2 = findPeriodo(potencia, 'P2') ?? findPeriodo(potencia, 'P3')
@@ -325,6 +329,34 @@ function mapearExtraido(extracted: any): MappedResult {
   let precioKwhPunta = num(enPunta?.precioKwh)
   let precioKwhLlano = num(enLlano?.precioKwh)
   let precioKwhValle = num(enValle?.precioKwh)
+
+  // ── "Horas promocionadas / no promocionadas" format ─────────────────────────
+  // Gemini emits: P1 = no-promo (punta, expensive), P2 = promo (valle, cheap).
+  // For 2.0TD comparativa the mapping must be:
+  //   Punta (P1) = no-promo price   → kwhPunta from invoice, precioKwhPunta = no-promo
+  //   Llano (P2) = no-promo price   → same rate (punta+llano are both "no-promo" hours)
+  //   Valle (P3) = promo price      → kwhValle from invoice, precioKwhValle = promo
+  // The Gemini P2 slot holds the promo data — remap it to Valle.
+  if (fmtPromo) {
+    // enLlano (consumo P2) is actually promo = valle
+    const promoItem = enLlano   // Gemini P2 = promo (valle in 2.0TD)
+    const noPromoItem = enPunta // Gemini P1 = no-promo (punta)
+
+    kwhPunta = num(noPromoItem?.kwh)          // no-promo kWh → punta
+    precioKwhPunta = num(noPromoItem?.precioKwh)  // no-promo price
+
+    // Llano uses the same "no-promo" rate (both punta+llano are billed together)
+    kwhLlano = null  // kWh split between punta and llano is unknown from this invoice
+    precioKwhLlano = precioKwhPunta  // same unit price as punta
+
+    // Valle = promo
+    kwhValle = num(promoItem?.kwh)
+    precioKwhValle = num(promoItem?.precioKwh)
+
+    warnings.push(
+      'Factura con formato "Horas promocionadas / no promocionadas": punta y llano comparten el precio no-promocionado; valle usa el precio promocionado. Ajusta los kWh de punta y llano según los datos SIPS si es necesario.',
+    )
+  }
 
   if (kwhPunta == null && kwhLlano == null && kwhValle == null && flatEnergia) {
     kwhPunta = num(flatEnergia.kwh)

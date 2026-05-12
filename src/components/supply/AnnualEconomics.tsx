@@ -3211,8 +3211,9 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
       const { month: mb, year: yb } = getAssignedMonth(sb, eb)
       return (ya * 12 + ma) - (yb * 12 + mb)
     })
-    // 2.0TD → only the most recent invoice; 3.0TD → last 12
-    const last12ForStudy = is2TD ? sortedForStudy.slice(-1) : sortedForStudy.slice(-12)
+    // Use up to 12 invoices for all tariffs (including 2.0TD) to get a realistic price average.
+    // Previously 2.0TD only used the last 1 invoice, which gave wrong results for variable tariffs.
+    const last12ForStudy = sortedForStudy.slice(-12)
 
     for (const inv of last12ForStudy) {
       // Check all known data paths — use the first one that has consumo[] with data.
@@ -3229,13 +3230,44 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
       const eco = ecoSources[0]
       if (!eco?.consumo?.length) continue
 
+      // ── "Horas promocionadas / no promocionadas" format ─────────────────────
+      // Gemini emits: P1 = no-promo (punta, expensive), P2 = promo (valle, cheap).
+      // For 2.0TD comparativa we need P1/P2/P3 where:
+      //   P1 (punta) = no-promo rate       → consumo P1 ✓
+      //   P2 (llano) = no-promo rate too   → same "no-promo" hours cover punta+llano
+      //   P3 (valle) = promo rate          → consumo P2 (remapped here to P3)
+      // So we add the no-promo price to BOTH P1 and P2 buckets, and remap P2→P3.
+      const fmtPromo = (eco.energyPricingFormat ?? ed?.energyPricingFormat) === 'promocionadas'
+
       for (const c of eco.consumo) {
-        const p = c.periodo as 'P1' | 'P2' | 'P3'
-        if (!['P1', 'P2', 'P3'].includes(p)) continue
+        let p = c.periodo as 'P1' | 'P2' | 'P3'
         const kwh = Number(c.kwh) || 0
         if (kwh <= 0) continue
         const precio = Number(c.precioKwh) || 0
         const total  = Number(c.total) || 0
+        const effectivePrice = precio > 0 ? precio : (kwh > 0 && total > 0 ? total / kwh : 0)
+        if (effectivePrice <= 0) continue
+
+        if (fmtPromo) {
+          if (p === 'P1') {
+            // No-promo rate → punta (P1) AND llano (P2) both use no-promo pricing
+            ;['P1', 'P2'].forEach(dest => {
+              periodWsum[dest] += kwh * effectivePrice
+              periodKwh[dest]  += kwh
+              ;(periodPrices as any)[dest].push(effectivePrice)
+            })
+          } else if (p === 'P2') {
+            // Promo rate → remap to P3 (valle) for 2.0TD
+            periodWsum['P3'] += kwh * effectivePrice
+            periodKwh['P3']  += kwh
+            ;(periodPrices as any)['P3'].push(effectivePrice)
+          }
+          // Skip any other periods in this format
+          continue
+        }
+
+        // Standard P1/P2/P3 or precio_unico format
+        if (!['P1', 'P2', 'P3'].includes(p)) continue
         if (precio > 0) {
           // PDF/OCR invoices: explicit unit price
           periodWsum[p] += kwh * precio
