@@ -1147,6 +1147,13 @@ async function processSupply(
           costeTotalPotencia: inv.costeTotalPotencia,
           costeMedioKwh: inv.consumoTotalKwh > 0 ? inv.costeTotalConsumo / inv.consumoTotalKwh : 0,
           costeMedioKwhNeto: inv.consumoTotalKwh > 0 ? inv.costeNetoConsumo / inv.consumoTotalKwh : 0,
+          otrosConceptos: [
+            inv.peajes > 0            && { concepto: 'Peajes y Transportes',  total: inv.peajes },
+            inv.impuestoElectrico > 0 && { concepto: 'Impuesto Eléctrico',    total: inv.impuestoElectrico },
+            inv.alquiler > 0          && { concepto: 'Alquiler de Equipos',   total: inv.alquiler },
+            inv.otros > 0             && { concepto: 'Otros',                 total: inv.otros },
+            inv.ivaTotal > 0          && { concepto: `IVA ${inv.iva}%`,       total: inv.ivaTotal },
+          ].filter(Boolean),
           totalFactura: inv.totalFactura,
           ...(isGas && {
             gasPricing: {

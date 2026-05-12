@@ -320,8 +320,8 @@ function hasUsableData(inv: InvoiceRow): boolean {
  */
 function getExtractionUnreliableReason(inv: InvoiceRow): string | null {
   const ed = inv.extracted_data
-  // Excel imports are trustworthy — skip check
-  if ((ed as any)?.source === 'excel_import') return null
+  // Excel imports are trustworthy — skip check (both initial import and forceUpdate re-import)
+  if (String((ed as any)?.source ?? '').startsWith('excel_import')) return null
   // No data at all → the "Sin datos" badge already covers this
   const eco = getEco(inv)
   if (!eco) return null
