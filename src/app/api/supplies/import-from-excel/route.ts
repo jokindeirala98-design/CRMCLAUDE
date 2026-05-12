@@ -318,12 +318,33 @@ function parseLabelBased(ws: ExcelJS.Worksheet, fileName: string): ParsedSupplyF
     || cellStr(getRow(rowMap, 'Tariff'), 2) || cellStr(getRow(rowMap, 'Tariff'), staticCol)
   const tarifa = normalizeTariff(rawTariff)
 
-  // Detect supply type: explicit "Tipo" row (gas/luz) or gas tariff prefix (RL.x)
+  // Detect supply type: explicit "Tipo" row, RL tariff, CUPS prefix, or gas keyword
   const tipoRow = getRow(rowMap, 'Tipo')
   const tipoVal = tipoRow ? cellStr(tipoRow, staticCol).toLowerCase().trim() : ''
+
+  // Spanish electricity CUPS always start with ES00xx; gas CUPS start with ES02xx, ES04xx, etc.
+  // This is the most reliable signal when the Excel lacks a "Tipo" or "Tarifa" row.
+  const cupsUpper = cups.trim().toUpperCase()
+  const isGasCupsByPrefix = cupsUpper.startsWith('ES') && cupsUpper.length >= 4 && cupsUpper.slice(2, 4) !== '00'
+
+  // Keyword scan of the first 5 rows — catches tracking Excels from Naturgy/Nedgia
+  // that have "(GAS NATURAL COMERCIALIZADORA" or "NATURGY" in header cells
+  const GAS_KW_RE = /\b(gas\s*natural|naturgy|nedgia|enagas|maxigas)\b|\bgas\b/i
+  let hasGasKeyword = false
+  for (let rn = 1; rn <= 5 && !hasGasKeyword; rn++) {
+    ws.getRow(rn).eachCell({ includeEmpty: false }, (cell) => {
+      if (!hasGasKeyword && typeof cell.value === 'string' && GAS_KW_RE.test(cell.value)) {
+        hasGasKeyword = true
+      }
+    })
+  }
+
   const supplyType: 'gas' | 'luz' =
-    (tipoVal === 'gas' || rawTariff.trim().toUpperCase().replace(/\s+/g, '').startsWith('RL'))
-      ? 'gas' : 'luz'
+    (tipoVal === 'gas'
+      || rawTariff.trim().toUpperCase().replace(/\s+/g, '').startsWith('RL')
+      || isGasCupsByPrefix
+      || hasGasKeyword
+    ) ? 'gas' : 'luz'
 
   const comRow = getRow(rowMap, 'Compañia') ?? getRow(rowMap, 'Compania') ?? getRow(rowMap, 'Empresa')
     ?? getRow(rowMap, 'Comercializadora') ?? getRow(rowMap, 'Suministrador')
