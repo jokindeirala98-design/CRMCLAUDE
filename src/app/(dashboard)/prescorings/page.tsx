@@ -529,26 +529,48 @@ export default function PrescoringsPage() {
     setDeleting(false)
   }
 
-  // ---- EXPORT XLSX ----
+  // ---- EXPORT XLSX (prescorings list + autorización fee) ----
   const [exporting, setExporting] = useState(false)
+
+  const triggerDownload = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
 
   const exportXLSX = async (data: Prescoring[], markSentAfter = false) => {
     if (!data.length) return
     setExporting(true)
+    const today = new Date().toISOString().split('T')[0]
     try {
-      const res = await fetch('/api/prescorings/export-xlsx', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: data }),
-      })
-      if (!res.ok) throw new Error('Error generando el Excel')
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `prescorings_${new Date().toISOString().split('T')[0]}.xlsx`
-      a.click()
-      URL.revokeObjectURL(url)
+      // Fire both API calls in parallel
+      const [resPrescorings, resFee] = await Promise.all([
+        fetch('/api/prescorings/export-xlsx', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rows: data }),
+        }),
+        fetch('/api/prescorings/export-fee', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rows: data }),
+        }),
+      ])
+
+      if (!resPrescorings.ok) throw new Error('Error generando listado Excel')
+      if (!resFee.ok) throw new Error('Error generando autorización fee')
+
+      const [blobPrescorings, blobFee] = await Promise.all([
+        resPrescorings.blob(),
+        resFee.blob(),
+      ])
+
+      // Trigger downloads with slight delay between them so browser doesn't block
+      triggerDownload(blobPrescorings, `prescorings_${today}.xlsx`)
+      setTimeout(() => triggerDownload(blobFee, `autorizacion_fee_${today}.xlsx`), 300)
 
       if (markSentAfter) {
         await markMultipleAsSent(data.map(p => p.id))
