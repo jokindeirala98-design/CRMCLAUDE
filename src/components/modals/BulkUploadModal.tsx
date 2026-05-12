@@ -224,6 +224,14 @@ export function BulkUploadModal({ open, onClose, onCreated, preselectedClientId 
       const anyOk = results.some((r: any) => r.ok)
       setXlsxResults(results)
       onCreated()
+      // Auto-refresh consumption snapshots so status badges update immediately
+      if (anyOk && clientId) {
+        fetch('/api/sync-consumption', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ client_id: clientId }),
+        }).catch(() => {})
+      }
       if (anyOk) setTimeout(() => onClose(), 1500)
     } catch (err: any) { setXlsxErr(err.message || 'Error desconocido') }
     finally { setXlsxImporting(false) }
