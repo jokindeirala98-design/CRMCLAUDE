@@ -2964,7 +2964,9 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
       const { month, year } = getAssignedMonth(start, end)
       const mesLabel = getMonthYear(end || start)
       const totalKwh = eco.consumoTotalKwh || 0
-      const energia = eco.costeTotalConsumo || eco.costeNetoConsumo || 0  // net
+      // Fallback: if costeTotalConsumo is missing (e.g. Excel imports), sum consumo[].total
+      const energiaFromConsumo = eco.consumo?.reduce((s, c) => s + (Number(c.total) || 0), 0) || 0
+      const energia = eco.costeTotalConsumo || eco.costeNetoConsumo || energiaFromConsumo  // net
       // Precio medio = costeMedioKwh directo, o costeTotalConsumo/consumoTotalKwh
       const avgPrice = eco.costeMedioKwhNeto || eco.costeMedioKwh || (totalKwh > 0 ? energia / totalKwh : 0)
       const totalFactura = eco.totalFactura || inv.total_amount || 0
