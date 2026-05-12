@@ -241,14 +241,8 @@ function PrescoringCard({
               </div>
             </div>
           ) : (
-            <button
-              onClick={onToggleSent}
-              disabled={saving}
-              className="flex-shrink-0 w-10 h-10 rounded-xl bg-bg-2 hover:bg-secondary/10 flex items-center justify-center transition-all"
-              title="Marcar como enviado"
-            >
-              {saving ? <Loader2 className="w-5 h-5 animate-spin text-brand" /> : <Circle className="w-5 h-5 text-ink-3" />}
-            </button>
+            // No individual send button — export marks as sent automatically
+            null
           )}
         </div>
 
@@ -541,10 +535,28 @@ export default function PrescoringsPage() {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
+  // Build filename suffix: client name if all rows share one client, else "varios"
+  const getClientLabel = (data: Prescoring[]) => {
+    const names = [...new Set(data.map(p => (p.client_name || '').trim()).filter(Boolean))]
+    const label = names.length === 1 ? names[0] : 'varios'
+    // Sanitize for filename: remove chars not safe in filenames
+    return label.replace(/[/\\:*?"<>|]/g, '').replace(/\s+/g, '_').slice(0, 50)
+  }
+
+  // Format date as DD-MM-AA
+  const fmtFileDate = () => {
+    const d = new Date()
+    const dd = String(d.getDate()).padStart(2, '0')
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const aa = String(d.getFullYear()).slice(2)
+    return `${dd}-${mm}-${aa}`
+  }
+
   const exportXLSX = async (data: Prescoring[], markSentAfter = false) => {
     if (!data.length) return
     setExporting(true)
-    const today = new Date().toISOString().split('T')[0]
+    const datePrefix = fmtFileDate()
+    const clientLabel = getClientLabel(data)
     try {
       // Fire both API calls in parallel
       const [resPrescorings, resFee] = await Promise.all([
@@ -568,9 +580,9 @@ export default function PrescoringsPage() {
         resFee.blob(),
       ])
 
-      // Trigger downloads with slight delay between them so browser doesn't block
-      triggerDownload(blobPrescorings, `prescorings_${today}.xlsx`)
-      setTimeout(() => triggerDownload(blobFee, `autorizacion_fee_${today}.xlsx`), 300)
+      // Trigger downloads with slight delay so browser doesn't block
+      triggerDownload(blobPrescorings, `${datePrefix}_prescoring_${clientLabel}.xlsx`)
+      setTimeout(() => triggerDownload(blobFee, `${datePrefix}_autorizacion_${clientLabel}.xlsx`), 300)
 
       if (markSentAfter) {
         await markMultipleAsSent(data.map(p => p.id))
@@ -924,17 +936,8 @@ export default function PrescoringsPage() {
                               </div>
                             </div>
                           ) : (
-                            <button
-                              onClick={() => markAsSent(p)}
-                              disabled={saving === p.id}
-                              className="inline-flex items-center justify-center transition-all group"
-                              title="Marcar como enviado"
-                            >
-                              {saving === p.id
-                                ? <Loader2 className="w-5 h-5 animate-spin text-brand" />
-                                : <Circle className="w-5 h-5 text-ink-3/40 group-hover:text-brand" />
-                              }
-                            </button>
+                            // No individual send button — export marks as sent automatically
+                            null
                           )}
                         </td>
 
