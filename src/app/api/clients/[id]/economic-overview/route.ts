@@ -48,7 +48,7 @@ export async function GET(
     const { data: supplies } = await supabase
       .from('supplies')
       .select(`
-        id, cups, type, tariff, name, address,
+        id, cups, type, tariff, name, address, consumption_data,
         comercializadora:comercializadoras(id, name),
         invoices:invoices(id, supply_id, source, period_start, period_end, total_amount, extracted_data)
       `)
@@ -58,9 +58,17 @@ export async function GET(
       return NextResponse.json({ error: 'No supplies' }, { status: 404 })
     }
 
-    // 3. Flatten supplies + invoices y filtrar historicas
+    // 3. Flatten supplies + invoices y filtrar historicas.
+    //    El consumo anual autoritativo viene de supply.consumption_data:
+    //      - LUZ: SIPS (totalKwh / consumoPeriodos del Greening API)
+    //      - GAS: ConsumoAnual del Excel Maestro (mismo campo totalKwh)
+    //    NO se calcula sumando facturas (las facturas pueden tener consumos
+    //    mal extraídos, periodos solapados o estar incompletas — la fuente
+    //    fiable del consumo anual es siempre el sistema de origen).
     const flatSupplies = supplies.map((s: any) => {
       const com = Array.isArray(s.comercializadora) ? s.comercializadora[0] : s.comercializadora
+      const cd = (s.consumption_data || {}) as any
+      const consumoAnual = Number(cd.totalKwh) || Number(cd.total) || 0
       return {
         id: s.id,
         cups: s.cups,
@@ -69,6 +77,7 @@ export async function GET(
         name: s.name,
         address: s.address,
         comercializadora: com?.name || null,
+        consumoAnualKwh: consumoAnual,
       }
     })
     const allInvoices: any[] = []

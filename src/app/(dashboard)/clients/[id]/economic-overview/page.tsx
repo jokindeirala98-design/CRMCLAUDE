@@ -31,13 +31,15 @@ interface RankingItem {
     name: string | null
     address: string | null
     comercializadora: string | null
+    consumoAnualKwh: number
   }
   invoicesCount: number
   windowFrom: string | null
   windowTo: string | null
-  consumoKwh: number
+  consumoAnualKwh: number
   totalGasto: number
   eurPorKwh: number
+  sinFacturas: boolean
 }
 
 interface Monthly {
@@ -61,13 +63,16 @@ interface Overview {
     consumoTotalKwh: number
     eurPorKwhMedio: number
     suministrosCount: number
+    suministrosConFacturas: number
     invoicesCount: number
-    desglose: { energia: number; potencia: number; excesos: number; bonoSocial: number; alquiler: number; iee: number; iva: number }
-    porTipo: { luz: { gasto: number; kwh: number; suministros: number }; gas: { gasto: number; kwh: number; suministros: number } }
+    porTipo: {
+      luz: { gasto: number; consumoAnualKwh: number; suministros: number }
+      gas: { gasto: number; consumoAnualKwh: number; suministros: number }
+    }
   }
   ranking: RankingItem[]
   monthly: Monthly[]
-  porTarifa: Array<{ tarifa: string; suministros: number; gasto: number; kwh: number }>
+  porTarifa: Array<{ tarifa: string; suministros: number; gasto: number; consumoAnualKwh: number }>
 }
 
 const MESES_SHORT = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
@@ -188,7 +193,11 @@ export default function EconomicOverviewPage() {
           {data.client.name}
         </h1>
         <p className="text-xs text-ink-3">
-          {data.windowDescription} · {data.totals.suministrosCount} suministros · {data.totals.invoicesCount} facturas
+          {data.windowDescription} · {data.totals.suministrosCount} suministros
+          {data.totals.suministrosConFacturas < data.totals.suministrosCount && (
+            <span> ({data.totals.suministrosConFacturas} con facturas en el periodo)</span>
+          )}
+          {' · '}{data.totals.invoicesCount} facturas
         </p>
       </header>
 
@@ -217,18 +226,18 @@ export default function EconomicOverviewPage() {
       {/* ── KPIs ───────────────────────────────────────────────────────── */}
       <section className="px-6 md:px-10 mt-8 grid grid-cols-1 md:grid-cols-4 gap-4">
         <KpiCard big label="Gasto total" value={fmt(data.totals.gastoTotal, 2)} unit="€" theme="brand" />
-        <KpiCard label="Consumo" value={fmt(data.totals.consumoTotalKwh, 0)} unit="kWh" />
+        <KpiCard label="Consumo anual" value={fmt(data.totals.consumoTotalKwh, 0)} unit="kWh" />
         <KpiCard label="€/kWh medio" value={fmt(data.totals.eurPorKwhMedio, 4)} unit="€/kWh" />
-        <KpiCard label="Suministros activos" value={String(data.totals.suministrosCount)} unit={`de ${data.ranking.length}`} />
+        <KpiCard label="Suministros" value={String(data.totals.suministrosCount)} unit="totales" />
       </section>
 
-      {/* ── Desglose por tipo ──────────────────────────────────────────── */}
+      {/* ── Desglose por tipo (consumo siempre SIPS/Excel, gasto del periodo) ── */}
       <section className="px-6 md:px-10 mt-8 grid grid-cols-1 md:grid-cols-2 gap-4">
         <TipoCard
           icon={<Zap className="w-4 h-4 text-info" />}
           label="Electricidad"
           gasto={data.totals.porTipo.luz.gasto}
-          kwh={data.totals.porTipo.luz.kwh}
+          kwh={data.totals.porTipo.luz.consumoAnualKwh}
           count={data.totals.porTipo.luz.suministros}
           total={data.totals.gastoTotal}
         />
@@ -236,7 +245,7 @@ export default function EconomicOverviewPage() {
           icon={<Flame className="w-4 h-4 text-warn" />}
           label="Gas natural"
           gasto={data.totals.porTipo.gas.gasto}
-          kwh={data.totals.porTipo.gas.kwh}
+          kwh={data.totals.porTipo.gas.consumoAnualKwh}
           count={data.totals.porTipo.gas.suministros}
           total={data.totals.gastoTotal}
         />
@@ -286,7 +295,7 @@ export default function EconomicOverviewPage() {
                   <tr
                     key={r.supply.id}
                     onClick={() => router.push(`/supplies/${r.supply.id}?tab=economics`)}
-                    className="border-b border-line/40 last:border-b-0 cursor-pointer hover:bg-bg-2/40 transition group"
+                    className={`border-b border-line/40 last:border-b-0 cursor-pointer hover:bg-bg-2/40 transition group ${r.sinFacturas ? 'opacity-60' : ''}`}
                   >
                     <td className="py-3 px-4">
                       <div className="text-sm font-semibold text-ink">{r.supply.name || r.supply.cups || '—'}</div>
@@ -299,11 +308,13 @@ export default function EconomicOverviewPage() {
                       </span>
                     </td>
                     <td className="py-3 px-4 text-xs font-semibold text-ink">{r.supply.tariff || '—'}</td>
-                    <td className="py-3 px-4 text-right font-mono text-sm">{r.invoicesCount}</td>
-                    <td className="py-3 px-4 text-right font-mono text-sm">{fmtKwh(r.consumoKwh)}</td>
-                    <td className="py-3 px-4 text-right font-mono text-sm text-ink-3">{fmt(r.eurPorKwh, 4)}</td>
-                    <td className="py-3 px-4 text-right font-mono text-sm font-semibold text-brand">{fmtEur(r.totalGasto)}</td>
-                    <td className="py-3 px-4 text-right font-mono text-xs text-ink-3">{fmtPct(pct)}</td>
+                    <td className="py-3 px-4 text-right font-mono text-sm">
+                      {r.sinFacturas ? <span className="text-ink-4 italic">sin facturas</span> : r.invoicesCount}
+                    </td>
+                    <td className="py-3 px-4 text-right font-mono text-sm">{fmtKwh(r.consumoAnualKwh)}</td>
+                    <td className="py-3 px-4 text-right font-mono text-sm text-ink-3">{r.totalGasto > 0 ? fmt(r.eurPorKwh, 4) : '—'}</td>
+                    <td className="py-3 px-4 text-right font-mono text-sm font-semibold text-brand">{r.totalGasto > 0 ? fmtEur(r.totalGasto) : '—'}</td>
+                    <td className="py-3 px-4 text-right font-mono text-xs text-ink-3">{r.totalGasto > 0 ? fmtPct(pct) : '—'}</td>
                     <td className="py-3 px-4 text-right">
                       <ChevronRight className="w-4 h-4 text-ink-3 group-hover:text-brand transition" />
                     </td>
@@ -350,7 +361,7 @@ export default function EconomicOverviewPage() {
                     <tr key={t.tarifa} className="border-b border-line/40 last:border-b-0">
                       <td className="py-2 px-4 text-sm font-semibold">{t.tarifa}</td>
                       <td className="py-2 px-4 text-right font-mono text-sm">{t.suministros}</td>
-                      <td className="py-2 px-4 text-right font-mono text-sm">{fmtKwh(t.kwh)}</td>
+                      <td className="py-2 px-4 text-right font-mono text-sm">{fmtKwh(t.consumoAnualKwh)}</td>
                       <td className="py-2 px-4 text-right font-mono text-sm font-semibold">{fmtEur(t.gasto)}</td>
                       <td className="py-2 px-4 text-right font-mono text-xs text-ink-3">{fmtPct(pct)}</td>
                     </tr>

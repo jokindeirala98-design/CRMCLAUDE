@@ -34,6 +34,11 @@ export interface OverviewSupply {
   name: string | null
   address: string | null
   comercializadora: string | null
+  /** Consumo anual autoritativo (SIPS para luz, Excel ConsumoAnual para gas).
+   *  Es independiente de las facturas: cuando se carga el supply, este campo
+   *  refleja el dato del distribuidor. Sumas globales y €/kWh se calculan
+   *  contra este valor, no contra el consumo extraído de facturas. */
+  consumoAnualKwh: number
 }
 
 export interface OverviewInvoiceLite {
@@ -60,16 +65,11 @@ export interface SupplyAggregate {
   invoicesCount: number
   windowFrom: string | null  // primera fecha facturada incluida (YYYY-MM-DD)
   windowTo: string | null    // última fecha facturada incluida
-  consumoKwh: number
-  totalGasto: number
-  energiaTotal: number
-  potenciaTotal: number
-  excesosTotal: number
-  bonoSocialTotal: number
-  alquilerTotal: number
-  ieeTotal: number
-  ivaTotal: number
-  eurPorKwh: number  // gasto total / kWh
+  consumoAnualKwh: number    // ← SIPS/Excel (fuente autoritativa)
+  totalGasto: number         // ← Σ total_amount de las facturas del periodo
+  eurPorKwh: number          // gasto / consumoAnualKwh
+  /** True si el supply no tiene facturas en el periodo seleccionado */
+  sinFacturas: boolean
 }
 
 export interface MonthlyAggregate {
@@ -88,28 +88,26 @@ export interface OverviewResult {
   windowDescription: string  // texto humano del rango cubierto
   typeFilter: 'luz' | 'gas' | 'all'
   totals: {
+    /** Σ total_amount de las facturas del periodo (gasto realmente pagado). */
     gastoTotal: number
+    /** Σ supply.consumoAnualKwh (SIPS luz + Excel gas). Independiente del modo. */
     consumoTotalKwh: number
+    /** gastoTotal / consumoTotalKwh. */
     eurPorKwhMedio: number
-    suministrosCount: number     // nº suministros con al menos 1 factura en el rango
-    invoicesCount: number        // nº total de facturas incluidas
-    desglose: {
-      energia: number
-      potencia: number
-      excesos: number
-      bonoSocial: number
-      alquiler: number
-      iee: number
-      iva: number
-    }
+    /** Nº TOTAL de suministros del cliente (filtrados por tipo si aplica). */
+    suministrosCount: number
+    /** Nº de suministros con al menos 1 factura en el periodo (subconjunto). */
+    suministrosConFacturas: number
+    /** Nº total de facturas incluidas. */
+    invoicesCount: number
     porTipo: {
-      luz: { gasto: number; kwh: number; suministros: number }
-      gas: { gasto: number; kwh: number; suministros: number }
+      luz: { gasto: number; consumoAnualKwh: number; suministros: number }
+      gas: { gasto: number; consumoAnualKwh: number; suministros: number }
     }
   }
-  ranking: SupplyAggregate[]  // ordenado por gasto descendente
+  ranking: SupplyAggregate[]  // ordenado por gasto descendente (luego por consumo)
   monthly: MonthlyAggregate[] // ordenado cronológicamente
-  porTarifa: Array<{ tarifa: string; suministros: number; gasto: number; kwh: number }>
+  porTarifa: Array<{ tarifa: string; suministros: number; gasto: number; consumoAnualKwh: number }>
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -230,6 +228,8 @@ function deduplicarPorMesNatural(invs: OverviewInvoiceLite[]): OverviewInvoiceLi
   return Array.from(porMes.values())
 }
 
+/** Estructura de la factura que el motor consume (subset de InvoiceRow). */
+
 /** Selecciona las facturas relevantes según modo, agrupando por supply_id. */
 function selectInvoicesByMode(
   invoices: OverviewInvoiceLite[],
@@ -335,87 +335,91 @@ export function computarOverview(inputs: OverviewInputs): OverviewResult {
   const { supplies, invoices, mode } = inputs
   const typeFilter = inputs.typeFilter || 'all'
 
-  // 1. Aplicar filtro de tipo a la lista de supplies
+  // 1. Aplicar filtro de tipo a la lista de supplies (INCLUYE TODOS)
   const suppliesFiltrados = typeFilter === 'all'
     ? supplies
     : supplies.filter(s => s.type === typeFilter)
-  const supplyIdsFiltrados = new Set(suppliesFiltrados.map(s => s.id))
 
-  // 2. Seleccionar facturas por modo (todas las históricas, agrupadas)
+  // 2. Seleccionar facturas por modo (deduplicadas y filtradas por fiabilidad)
   const invsBySupply = selectInvoicesByMode(invoices, mode, { from: inputs.from, to: inputs.to })
 
-  // 3. Construir ranking
+  // 3. Construir ranking — INCLUYE TODOS los supplies (también los sin facturas)
   const ranking: SupplyAggregate[] = []
   let suministrosConFacturas = 0
   let invoicesCount = 0
-  let gastoTotal = 0, consumoTotalKwh = 0
-  let totEnergia = 0, totPotencia = 0, totExcesos = 0, totBono = 0, totAlquiler = 0, totIee = 0, totIva = 0
+  let gastoTotal = 0
+  // Consumo total: viene SIEMPRE de supply.consumoAnualKwh (SIPS luz, Excel gas).
+  // Es independiente del modo elegido — es el consumo anual autoritativo.
+  let consumoTotalKwh = 0
   let gastoLuz = 0, gastoGas = 0, kwhLuz = 0, kwhGas = 0
-  const tarifaCounters = new Map<string, { suministros: Set<string>; gasto: number; kwh: number }>()
-  // Acumulador mensual: clave 'YYYY-M'
+  const tarifaCounters = new Map<string, { suministros: Set<string>; gasto: number; consumoAnualKwh: number }>()
   const monthlyMap = new Map<string, { year: number; month: number; totalLuz: number; totalGas: number; kwhLuz: number; kwhGas: number; invoicesCount: number }>()
 
   for (const sup of suppliesFiltrados) {
-    const invs = invsBySupply.get(sup.id) || []
-    if (invs.length === 0) {
-      // Suministro sin facturas en el rango — lo dejamos fuera del ranking
-      continue
-    }
-    suministrosConFacturas++
-    invoicesCount += invs.length
-    const agg = sumConceptos(invs)
-    gastoTotal += agg.gasto
-    consumoTotalKwh += agg.consumoKwh
-    totEnergia += agg.energia; totPotencia += agg.potencia; totExcesos += agg.excesos
-    totBono += agg.bono; totAlquiler += agg.alquiler; totIee += agg.iee; totIva += agg.iva
+    const consumoAnual = Number(sup.consumoAnualKwh) || 0
+    consumoTotalKwh += consumoAnual
+    if (sup.type === 'gas') kwhGas += consumoAnual
+    else kwhLuz += consumoAnual
 
-    if (sup.type === 'gas') { gastoGas += agg.gasto; kwhGas += agg.consumoKwh }
-    else { gastoLuz += agg.gasto; kwhLuz += agg.consumoKwh }
+    const invs = invsBySupply.get(sup.id) || []
+    let gastoSup = 0
+    let windowFrom: Date | null = null, windowTo: Date | null = null
+
+    if (invs.length > 0) {
+      suministrosConFacturas++
+      invoicesCount += invs.length
+      for (const inv of invs) {
+        gastoSup += getInvoiceTotal(inv)
+        const dStart = parseDate(inv.period_start)
+        const dEnd = parseDate(inv.period_end)
+        if (dStart && (!windowFrom || dStart < windowFrom)) windowFrom = dStart
+        if (dEnd && (!windowTo || dEnd > windowTo)) windowTo = dEnd
+
+        // Serie mensual
+        const am = getAssignedMonth(inv.period_start, inv.period_end)
+        if (am) {
+          const key = `${am.year}-${am.month}`
+          if (!monthlyMap.has(key)) {
+            monthlyMap.set(key, { year: am.year, month: am.month, totalLuz: 0, totalGas: 0, kwhLuz: 0, kwhGas: 0, invoicesCount: 0 })
+          }
+          const m = monthlyMap.get(key)!
+          const total = getInvoiceTotal(inv)
+          const kwh = getInvoiceKwh(inv)
+          if (sup.type === 'gas') { m.totalGas += total; m.kwhGas += kwh }
+          else { m.totalLuz += total; m.kwhLuz += kwh }
+          m.invoicesCount += 1
+        }
+      }
+      gastoTotal += gastoSup
+      if (sup.type === 'gas') gastoGas += gastoSup
+      else gastoLuz += gastoSup
+    }
 
     // Tarifa
     const tarifaKey = sup.tariff || 'Sin tarifa'
-    if (!tarifaCounters.has(tarifaKey)) tarifaCounters.set(tarifaKey, { suministros: new Set(), gasto: 0, kwh: 0 })
+    if (!tarifaCounters.has(tarifaKey)) tarifaCounters.set(tarifaKey, { suministros: new Set(), gasto: 0, consumoAnualKwh: 0 })
     const tc = tarifaCounters.get(tarifaKey)!
     tc.suministros.add(sup.id)
-    tc.gasto += agg.gasto
-    tc.kwh += agg.consumoKwh
-
-    // Serie mensual
-    for (const inv of invs) {
-      const am = getAssignedMonth(inv.period_start, inv.period_end)
-      if (!am) continue
-      const key = `${am.year}-${am.month}`
-      if (!monthlyMap.has(key)) {
-        monthlyMap.set(key, { year: am.year, month: am.month, totalLuz: 0, totalGas: 0, kwhLuz: 0, kwhGas: 0, invoicesCount: 0 })
-      }
-      const m = monthlyMap.get(key)!
-      const total = getInvoiceTotal(inv)
-      const kwh = getInvoiceKwh(inv)
-      if (sup.type === 'gas') { m.totalGas += total; m.kwhGas += kwh }
-      else { m.totalLuz += total; m.kwhLuz += kwh }
-      m.invoicesCount += 1
-    }
+    tc.gasto += gastoSup
+    tc.consumoAnualKwh += consumoAnual
 
     ranking.push({
       supply: sup,
       invoicesCount: invs.length,
-      windowFrom: fmtIso(agg.windowFrom),
-      windowTo: fmtIso(agg.windowTo),
-      consumoKwh: agg.consumoKwh,
-      totalGasto: agg.gasto,
-      energiaTotal: agg.energia,
-      potenciaTotal: agg.potencia,
-      excesosTotal: agg.excesos,
-      bonoSocialTotal: agg.bono,
-      alquilerTotal: agg.alquiler,
-      ieeTotal: agg.iee,
-      ivaTotal: agg.iva,
-      eurPorKwh: agg.consumoKwh > 0 ? agg.gasto / agg.consumoKwh : 0,
+      windowFrom: fmtIso(windowFrom),
+      windowTo: fmtIso(windowTo),
+      consumoAnualKwh: consumoAnual,
+      totalGasto: gastoSup,
+      eurPorKwh: consumoAnual > 0 ? gastoSup / consumoAnual : 0,
+      sinFacturas: invs.length === 0,
     })
   }
 
-  // Orden: ranking por gasto descendente, mensual cronológico
-  ranking.sort((a, b) => b.totalGasto - a.totalGasto)
+  // Orden: ranking por gasto descendente, luego por consumo
+  ranking.sort((a, b) => {
+    if (b.totalGasto !== a.totalGasto) return b.totalGasto - a.totalGasto
+    return b.consumoAnualKwh - a.consumoAnualKwh
+  })
   const monthly = Array.from(monthlyMap.values())
     .map(m => ({ ...m, total: m.totalLuz + m.totalGas }))
     .sort((a, b) => (a.year - b.year) || (a.month - b.month))
@@ -424,7 +428,7 @@ export function computarOverview(inputs: OverviewInputs): OverviewResult {
     tarifa,
     suministros: info.suministros.size,
     gasto: info.gasto,
-    kwh: info.kwh,
+    consumoAnualKwh: info.consumoAnualKwh,
   })).sort((a, b) => b.gasto - a.gasto)
 
   // Descripción humana del rango
@@ -441,20 +445,12 @@ export function computarOverview(inputs: OverviewInputs): OverviewResult {
       gastoTotal,
       consumoTotalKwh,
       eurPorKwhMedio: consumoTotalKwh > 0 ? gastoTotal / consumoTotalKwh : 0,
-      suministrosCount: suministrosConFacturas,
+      suministrosCount: suppliesFiltrados.length,
+      suministrosConFacturas,
       invoicesCount,
-      desglose: {
-        energia: totEnergia,
-        potencia: totPotencia,
-        excesos: totExcesos,
-        bonoSocial: totBono,
-        alquiler: totAlquiler,
-        iee: totIee,
-        iva: totIva,
-      },
       porTipo: {
-        luz: { gasto: gastoLuz, kwh: kwhLuz, suministros: ranking.filter(r => r.supply.type !== 'gas').length },
-        gas: { gasto: gastoGas, kwh: kwhGas, suministros: ranking.filter(r => r.supply.type === 'gas').length },
+        luz: { gasto: gastoLuz, consumoAnualKwh: kwhLuz, suministros: suppliesFiltrados.filter(s => s.type !== 'gas').length },
+        gas: { gasto: gastoGas, consumoAnualKwh: kwhGas, suministros: suppliesFiltrados.filter(s => s.type === 'gas').length },
       },
     },
     ranking,
