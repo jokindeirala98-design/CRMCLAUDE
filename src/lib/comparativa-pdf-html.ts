@@ -467,7 +467,7 @@ export function buildComparativaHtml({ supply, comparativa, mesesSeleccionados }
     <p class="section-lead">
       ${isGas
         ? 'Cada mes muestra el coste real de la factura Voltis y lo que habría cobrado la comercializadora antigua al mismo consumo. En gas solo varía el término variable de energía — el resto es regulado.'
-        : 'Cada mes muestra el coste real de la factura Voltis y lo que habría cobrado la comercializadora antigua al mismo consumo, periodo a periodo (P1–P6). Los conceptos regulados (potencia, excesos, bono social, alquiler) son idénticos. IEE e IVA se recalculan con el tipo vigente.'}
+        : 'Cada mes muestra el coste real de la factura Voltis y lo que habría cobrado la comercializadora antigua al mismo consumo, aplicando el precio €/kWh de cada periodo P1–P6 del mismo mes del año anterior. Los conceptos regulados (potencia, excesos, bono social, alquiler) son idénticos. IEE e IVA se recalculan con el tipo vigente.'}
     </p>
     ${pares.length === 0
       ? '<div class="method">No hay meses con pareja completa de facturas.</div>'
@@ -484,7 +484,7 @@ export function buildComparativaHtml({ supply, comparativa, mesesSeleccionados }
       <div class="grid">
         <div>
           <div class="col-title">Método</div>
-          <p>Simulación inversa: aplicamos los precios de ${esc(comparativa.comercializadoraAntigua || 'la comercializadora antigua')} del mismo mes natural del año anterior al consumo real facturado por ${esc(comparativa.comercializadoraVoltis || 'la nueva comercializadora')}. ${isGas ? 'Se compara solo el TV Precio Fijo.' : 'Se aplica precio €/kWh por periodo P1–P6 a los kWh facturados.'}</p>
+          <p>Simulación inversa: aplicamos los precios de ${esc(comparativa.comercializadoraAntigua || 'la comercializadora antigua')} del mismo mes natural del año anterior al consumo real facturado por ${esc(comparativa.comercializadoraVoltis || 'la nueva comercializadora')}. ${isGas ? 'Se compara solo el TV Precio Fijo.' : 'Se aplica precio €/kWh por periodo P1–P6 a los kWh facturados en cada periodo (punta, llano, valle).'}</p>
         </div>
         <div>
           <div class="col-title">Por qué es justo</div>

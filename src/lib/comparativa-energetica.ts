@@ -426,11 +426,20 @@ function indexarPotenciaPorPeriodo(items?: PotenciaItem[]): Record<string, { kw:
  * Simula la factura LUZ que habría cobrado la comercializadora antigua
  * si el cliente hubiera consumido lo de Voltis.
  *
- * - Energía:  Σ_p (kWh_p_voltis × €/kWh_p_antigua)
- * - Potencia: Σ_p (kW_p_voltis × días_voltis × €/kW·día_p_antigua)
- * - Excesos, bono social, alquiler = de la factura Voltis (regulados)
- * - IEE: tipo_voltis × (energía_sim + potencia_sim)
- * - IVA: tipo_voltis × base_imponible_sim
+ * Energía: PRECIO POR PERIODO P1–P6 de la antigua × kWh por periodo Voltis.
+ *   energía_sim = Σ_p (kWh_p_voltis × €/kWh_p_antigua)
+ *
+ *   Esto diferencia las distintas tarifas horarias (P1=punta, P2=llano,
+ *   P6=valle…) cuando los precios de la antigua difieren entre periodos.
+ *   Es técnicamente más correcto que aplicar un único promedio global.
+ *
+ * Fallback: si la antigua no facturó algún periodo donde Voltis sí (por
+ * ejemplo P3 en marzo cuando antes solo facturaba P2/P6), se usa el precio
+ * medio €/kWh del mes anterior para ese periodo.
+ *
+ * Potencia, excesos, bono social, alquiler: regulados, pasan idénticos.
+ * IEE: tipo_voltis × (energía_sim + potencia_sim + excesos).
+ * IVA: tipo_voltis × base_imponible_sim.
  */
 export function simularLuzAntiguaConConsumoVoltis(
   voltisEco: BillEconomics,
@@ -439,45 +448,39 @@ export function simularLuzAntiguaConConsumoVoltis(
   const voltisCons = indexarConsumoPorPeriodo(voltisEco.consumo)
   const antiguaCons = indexarConsumoPorPeriodo(antiguaEco.consumo)
   const voltisPot = indexarPotenciaPorPeriodo(voltisEco.potencia)
-  const antiguaPot = indexarPotenciaPorPeriodo(antiguaEco.potencia)
 
-  const detalle: DetallePeriodoSim[] = []
   const real = resumirFactura(voltisEco)
 
+  // Precio medio mensual de la antigua (fallback para periodos sin precio)
+  const totalEnergiaAntigua = (antiguaEco.consumo || []).reduce((s, c) => s + (Number(c.total) || 0), 0)
+  const totalKwhAntigua = (antiguaEco.consumo || []).reduce((s, c) => s + (Number(c.kwh) || 0), 0)
+  const precioMedioAntigua = totalKwhAntigua > 0 ? totalEnergiaAntigua / totalKwhAntigua : 0
+
+  // Simulación por periodo P1-P6: cada Pi de Voltis con el precio Pi de antigua
+  const detalle: DetallePeriodoSim[] = []
   let totalEnergiaSim = 0
 
   for (const periodo of PERIODOS_LUZ) {
     const vc = voltisCons[periodo] || { kwh: 0, precio: 0 }
     const ac = antiguaCons[periodo] || { kwh: 0, precio: 0 }
     const vp = voltisPot[periodo] || { kw: 0, precio: 0, dias: 0 }
-    const ap = antiguaPot[periodo] || { kw: 0, precio: 0, dias: 0 }
+    if (vc.kwh === 0 && vp.kw === 0) continue
 
-    // Si el cliente no consumió en este periodo en Voltis, saltamos.
-    const tieneConsumo = vc.kwh > 0
-    if (!tieneConsumo && vp.kw === 0) continue
-
-    // Si la antigua no tiene precio €/kWh en este periodo, usamos la media de
-    // los periodos con dato del mismo mes (fallback razonable).
-    let precioKwhAntigua = ac.precio
-    if (tieneConsumo && precioKwhAntigua === 0) {
-      const precios = Object.values(antiguaCons).map(c => c.precio).filter(p => p > 0)
-      precioKwhAntigua = precios.length > 0 ? precios.reduce((a, b) => a + b, 0) / precios.length : 0
-    }
-
-    const costeEnergiaSim = vc.kwh * precioKwhAntigua
+    // Si la antigua no facturó este periodo (kwh=0 y precio=0), usamos el
+    // precio medio mensual como fallback razonable.
+    const precioPeriodoAntigua = ac.precio > 0 ? ac.precio : precioMedioAntigua
+    const costeEnergiaSim = vc.kwh * precioPeriodoAntigua
     totalEnergiaSim += costeEnergiaSim
 
     detalle.push({
       periodo,
       kwh: vc.kwh,
-      precioKwhAntigua,
+      precioKwhAntigua: precioPeriodoAntigua,
       precioKwhVoltis: vc.precio,
       costeEnergiaSimulada: costeEnergiaSim,
       costeEnergiaVoltis: vc.kwh * vc.precio,
       kw: vp.kw,
       dias: vp.dias,
-      // La potencia es REGULADA (depende de la distribuidora y los peajes
-      // CNMC, no del comercializador). Se pasa idéntica → mismos €/kW·día.
       precioKwDiaAntigua: vp.precio,
       precioKwDiaVoltis: vp.precio,
       costePotenciaSimulada: vp.total || (vp.kw * vp.dias * vp.precio),

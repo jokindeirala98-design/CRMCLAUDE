@@ -250,7 +250,7 @@ export default function ComparativaVoltis({ supplyId, pdfMode = false, pdfMeses 
         <p className="text-sm text-ink-3 mb-6 max-w-2xl">
           {isGas
             ? 'Cada mes muestra el coste real de la factura Voltis y lo que habría cobrado la comercializadora antigua al mismo consumo. En gas solo varía el término variable de energía (€/kWh) — el resto es regulado.'
-            : 'Cada mes muestra el coste real de la factura Voltis y lo que habría cobrado la comercializadora antigua al mismo consumo, periodo a periodo (P1–P6). El impuesto eléctrico y el IVA se recalculan con el tipo vigente. Los conceptos regulados (potencia, excesos, bono social, alquiler) se pasan idénticos.'}
+            : 'Cada mes muestra el coste real de la factura Voltis y lo que habría cobrado la comercializadora antigua al mismo consumo, aplicando el precio €/kWh de cada periodo P1–P6 del mismo mes del año anterior. El impuesto eléctrico y el IVA se recalculan con el tipo vigente. Los conceptos regulados (potencia, excesos, bono social, alquiler) se pasan idénticos.'}
         </p>
 
         <div className="grid gap-4">
@@ -907,7 +907,7 @@ function MetodologiaPanel({ isGas, comercializadoraVoltis, comercializadoraAntig
             mismo mes natural del año anterior al consumo real facturado por {comercializadoraVoltis ?? 'la comercializadora actual'}.
             {isGas
               ? ' Se compara solo el TV Precio Fijo (término variable de energía).'
-              : ' Se aplica precio €/kWh por periodo P1–P6 a los kWh facturados en cada periodo.'}
+              : ' Se aplica precio €/kWh por periodo P1–P6 de la antigua a los kWh facturados por Voltis en cada periodo, diferenciando punta, llano y valle.'}
           </p>
         </div>
         <div>
@@ -931,7 +931,7 @@ function MetodologiaPanel({ isGas, comercializadoraVoltis, comercializadoraAntig
                 <Concepto label="IVA" detalle={'Se aplica el tipo vigente del periodo Voltis (21 % general, 10 % en periodos con reducción gubernamental).'} />
               </>)
             : (<>
-                <Concepto label="Término de energía (P1–P6)" detalle="kWh facturados Voltis × €/kWh antigua del mismo periodo del año anterior." />
+                <Concepto label="Término de energía (P1–P6)" detalle="kWh facturados Voltis × €/kWh antigua del mismo periodo del año anterior. Cada periodo (punta, llano, valle) se aplica con su propio precio." />
                 <Concepto label="Término de potencia" detalle="Regulado: depende de la potencia contratada y los peajes CNMC. Idéntico en ambos escenarios." />
                 <Concepto label="Excesos de potencia" detalle="Regulado: depende de los maxímetros del periodo. Idéntico." />
                 <Concepto label="Impuesto eléctrico (Ley 38/1992)" detalle="Tipo vigente del periodo Voltis × (energía + potencia + excesos)." />
