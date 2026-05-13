@@ -471,10 +471,14 @@ export function TechnologicalReportView({
   const sortedTariffs = Object.keys(tariffGroups).sort()
 
   // ─── Gas RL grouping ──────────────────────────────────────────────────────
+  // Usamos normalizeTariff (que devuelve "RL.1" .. "RL.6" sea cual sea el
+  // formato de origen: RL1, RL.1, RLTA6, RL06, 3.2 código SIPS, etc.) y
+  // extraemos el número canónico.
   const gasRLGroups: Record<string, ConsumptionSnapshot[]> = {}
   classified.gas.forEach(r => {
-    const match = (r.tariff || '').match(/RL[\s._-]*0?([1-4])/i)
-    const rl = match ? `RL${match[1]}` : 'Sin RL'
+    const canon = normalizeTariff(r.tariff || '') || (r.tariff || '')
+    const match = canon.match(/RL[._]?([1-6])/)
+    const rl = match ? `RL.${match[1]}` : 'Sin RL'
     if (!gasRLGroups[rl]) gasRLGroups[rl] = []
     gasRLGroups[rl].push(r)
   })

@@ -179,6 +179,37 @@ export async function POST(req: NextRequest) {
       if (!consumo_total && sips?.totalKwh) consumo_total = Number(sips.totalKwh) || null
       if (!consumo_total && sips?.total) consumo_total = Number(sips.total) || null
 
+      // ── GAS fallback ────────────────────────────────────────────────────
+      // El gas no tiene desglose por periodo (P1-P6). Si todavía no tenemos
+      // consumo_total, lo intentamos de las distintas fuentes en cascada:
+      //   1. consumption_data del supply (Excel import o SIPS gas)
+      //   2. economics.consumoTotalKwh del último BillEconomics
+      //   3. economics.gasPricing.precioKwhEstimated × otros datos
+      // Para snapshots de gas, el consumo va siempre en consumo_p1 (gas
+      // tiene 1 solo "periodo") para que las funciones de suma lo capten.
+      const isGas = supply.type === 'gas' || /^RL/i.test(supply.tariff || '')
+      if (isGas) {
+        if (!consumo_total) {
+          // Probar todos los campos posibles de consumption_data
+          const cd = (supply.consumption_data || {}) as any
+          const candidates = [
+            cd.totalKwh,
+            cd.total,
+            cd.consumoTotalKwh,
+            cd.totalConsumptionKwh,
+            economics?.consumoTotalKwh,
+          ].map(v => Number(v) || 0).filter(v => v > 0)
+          if (candidates.length > 0) {
+            consumo_total = candidates[0]
+            source = source === 'manual' ? 'sips' : source
+          }
+        }
+        // Mete todo el consumo en P1 (gas tiene un único "periodo")
+        if (consumo_total && !consumo_p1) {
+          consumo_p1 = consumo_total
+        }
+      }
+
       // ── Tariff ──
       const rawTariff = supply.tariff || sips?.sips_tariff || sips?.tariff || economics?.tarifa || null
       const tariff = rawTariff ? (normalizeTariff(rawTariff) || rawTariff) : null

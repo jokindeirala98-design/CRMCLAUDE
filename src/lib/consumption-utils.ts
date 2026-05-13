@@ -26,7 +26,8 @@ export function normalizeCUPS(raw: string | null | undefined): string | null {
  * and already-normalized values (2.0TD). Always returns the canonical form.
  *
  * Electricity: 2.0TD, 3.0TD, 6.1TD, 6.2TD, 6.3TD, 6.4TD
- * Gas: RL.1, RL.2, RL.3, RL.4
+ * Gas: RL.1, RL.2, RL.3, RL.4, RL.5, RL.6 (incluye códigos SIPS y formas
+ *      verbose como "RLTA6", "RL TARIFA 5", etc.)
  */
 export function normalizeTariff(tarifa: string | null | undefined): string | null {
   if (!tarifa) return null
@@ -63,9 +64,23 @@ export function normalizeTariff(tarifa: string | null | undefined): string | nul
   if (/^6[.,]?3/.test(t)) return '6.3TD'
   if (/^6[.,]?4/.test(t)) return '6.4TD'
 
-  // ── Gas tariffs (RL1–RL5, RL.1–RL.5, RL01–RL05, etc.) ──
-  const rl = t.match(/RL[_.\-]?0?([1-5])/)
+  // ── Gas tariffs ──
+  // Cubre todas las variantes que produce el extractor / distribuidoras:
+  //   RL1, RL.1, RL_1, RL-1, RL01     → RL.1
+  //   RL2 .. RL6                       → RL.2 .. RL.6
+  //   RLTA1 .. RLTA6 (formato "Red Local Tarifa Acceso") → RL.1 .. RL.6
+  //   3.1, 3.2, 3.3, 3.4               (códigos SIPS gas) → RL.1 .. RL.4
+  //
+  // El número canónico va de 1 a 6 (RL.5 grandes consumidores >500.000 kWh;
+  // RL.6 muy grandes consumidores >5 millones kWh).
+  const rl = t.match(/^RL[A-Z]*0?([1-6])$/)
   if (rl) return `RL.${rl[1]}`
+  // Códigos SIPS gas (3.1, 3.2, 3.3, 3.4)
+  const sipsGas = t.match(/^3[.,]?([1-4])$/)
+  if (sipsGas) return `RL.${sipsGas[1]}`
+  // "TARIFA RL X" o similar
+  const verbose = t.match(/RL[A-Z\s]*([1-6])\b/)
+  if (verbose) return `RL.${verbose[1]}`
 
   return tarifa
 }

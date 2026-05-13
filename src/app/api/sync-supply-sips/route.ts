@@ -158,6 +158,15 @@ export async function POST(req: NextRequest) {
       snapshotUpdate.consumo_total = sipsData.totalConsumptionKwh
     }
 
+    // ── GAS: meter todo el consumo en P1 ────────────────────────────────────
+    // Gas no tiene desglose por periodo, así que volcamos consumo_total a P1
+    // para que las funciones que suman periodos (rowTotal, periodTotals,
+    // totalConsumption) lo recojan correctamente.
+    const isGas = supply.type === 'gas' || /^RL/i.test(supply.tariff || '')
+    if (isGas && snapshotUpdate.consumo_total > 0 && !snapshotUpdate.consumo_p1) {
+      snapshotUpdate.consumo_p1 = snapshotUpdate.consumo_total
+    }
+
     if (sipsData.tariff) {
       const tariff = normalizeTariff(sipsData.tariff) || sipsData.tariff
       if (tariff) snapshotUpdate.tariff = tariff
