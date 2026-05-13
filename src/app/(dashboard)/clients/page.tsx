@@ -192,9 +192,18 @@ export default function ClientsPage() {
 
       const isFullAccess = profile?.role === 'admin' || profile?.permissions?.billing === true
 
+      // SLIM: el listado de clientes NO usa consumption_data, power_data,
+      // power_study_result ni demás JSON pesados de supplies. Sólo necesita
+      // los campos visibles en las cards/tabla y en el modal de detalle:
+      // id, name, cups, tariff, type, status, address (+ timestamps para
+      // edición). Quitar los JSONB ahorra MB de payload por carga.
       let clientQuery = supabase
         .from('clients')
-        .select(`*, commercial:users_profile!commercial_id(id, full_name, nickname, email), supplies(*)`)
+        .select(`
+          *,
+          commercial:users_profile!commercial_id(id, full_name, nickname, email),
+          supplies(id, name, cups, tariff, type, status, address, created_at, updated_at)
+        `)
         .order('created_at', { ascending: false })
 
       if (!isFullAccess && authUser) {

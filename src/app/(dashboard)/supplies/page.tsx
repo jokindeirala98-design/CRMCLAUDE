@@ -376,13 +376,25 @@ export default function SuppliesPage() {
 
     const [suppliesResult, invoicesResult] = await Promise.all([
       suppliesQ,
-      supabase.from('invoices').select('supply_id, extracted_data').not('extracted_data', 'is', null),
+      // SLIM: solo pedimos el path JSON específico (consumoTotalKwh) en lugar
+      // del extracted_data entero. Reduce el payload de varios MB a unos KB:
+      // antes traía 5-10 KB por factura × N facturas → 5-10 MB en cable;
+      // ahora pide un único número por fila → ~50 KB total.
+      // La lógica de agregación es idéntica: sumar kWh por supply_id.
+      supabase
+        .from('invoices')
+        .select('supply_id, kwh:extracted_data->economics->consumoTotalKwh')
+        .not('extracted_data', 'is', null),
     ])
 
     const invoiceKwhSum: Record<string, number> = {}
     invoicesResult.data?.forEach((inv: any) => {
-      const kwh = inv.extracted_data?.economics?.consumoTotalKwh
-      if (kwh && inv.supply_id) invoiceKwhSum[inv.supply_id] = (invoiceKwhSum[inv.supply_id] || 0) + kwh
+      // Postgres JSON path → llega como número o string numérico; normalizamos.
+      const raw = inv.kwh
+      const kwh = typeof raw === 'number' ? raw : (raw != null ? Number(raw) : 0)
+      if (kwh > 0 && inv.supply_id) {
+        invoiceKwhSum[inv.supply_id] = (invoiceKwhSum[inv.supply_id] || 0) + kwh
+      }
     })
 
     const consumptionData: Record<string, number> = {}
