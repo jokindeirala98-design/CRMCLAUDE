@@ -65,7 +65,29 @@ export async function GET() {
       }
     }
 
-    const enriched = (tasks || []).map((t: any) => ({
+    // Ocultar tareas de clientes con MUCHOS supplies (ayuntamientos como
+    // Estella con 91 supplies → 91 cards ruidosas). Umbral: 4 supplies por
+    // cliente. Esas tareas siguen en BD; se gestionan desde la ficha del
+    // cliente/supply, no desde el tracker. Solo clientes pequeños (≤4
+    // supplies) generan tarjetas individuales aquí.
+    const MAX_SUPPLIES_PER_CLIENT = 4
+    const clientIds = Array.from(new Set((tasks || []).map((t: any) => t.client_id).filter(Boolean)))
+    const supplyCountPerClient: Record<string, number> = {}
+    if (clientIds.length > 0) {
+      const { data: supRows } = await supabase
+        .from('supplies')
+        .select('client_id')
+        .in('client_id', clientIds)
+      for (const r of (supRows || []) as any[]) {
+        supplyCountPerClient[r.client_id] = (supplyCountPerClient[r.client_id] || 0) + 1
+      }
+    }
+
+    const filtered = (tasks || []).filter((t: any) =>
+      (supplyCountPerClient[t.client_id] || 0) <= MAX_SUPPLIES_PER_CLIENT
+    )
+
+    const enriched = filtered.map((t: any) => ({
       ...t,
       supply: Array.isArray(t.supply) ? t.supply[0] : t.supply,
       client: Array.isArray(t.client) ? t.client[0] : t.client,
