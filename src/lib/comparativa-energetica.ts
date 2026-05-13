@@ -239,12 +239,26 @@ export function resumirFactura(eco: BillEconomics): ResumenFactura {
   const ieeImporte = sumaConceptos(eco.otrosConceptos, esImpuestoElectrico)
   const ivaImporte = sumaConceptos(eco.otrosConceptos, esIva)
 
-  // Otros conceptos regulados que no caen en categorías conocidas
+  // Otros conceptos regulados que no caen en categorías conocidas.
+  // IMPORTANTE: el extractor (Gemini) a veces mete la BASE IMPONIBLE como
+  // concepto "OTROS" o "TOTAL BASE" duplicando la suma. Para evitarlo,
+  // ignoramos conceptos genéricos cuyo importe sea anormalmente alto
+  // (≥80% de la suma energía+potencia, indicador de duplicación).
+  const sumaBase = totalEnergia + totalPotencia
   const otrosRegulados = (eco.otrosConceptos || [])
     .filter(o => {
-      const c = o.concepto || ''
-      return !esExcesoPotencia(c) && !esBonoSocial(c) && !esAlquilerEquipos(c)
-        && !esImpuestoElectrico(c) && !esIva(c) && !esImpuestoHidrocarburos(c)
+      const c = (o.concepto || '').toLowerCase().trim()
+      // Excluye los conceptos conocidos
+      if (esExcesoPotencia(c) || esBonoSocial(c) || esAlquilerEquipos(c)
+        || esImpuestoElectrico(c) || esIva(c) || esImpuestoHidrocarburos(c)) return false
+      // Excluye genéricos "OTROS" / "TOTAL" / "BASE" — son ruido del extractor
+      if (c === 'otros' || c === 'otro' || c.startsWith('total ') || c.includes('base imponible')
+        || c === '' || c === 'concepto') return false
+      // Heurística anti-duplicación: si el importe es ≥80% de la suma energía+potencia,
+      // probablemente sea la base imponible repetida → ignorar.
+      const total = Number(o.total) || 0
+      if (sumaBase > 0 && total >= sumaBase * 0.8) return false
+      return true
     })
     .reduce((s, o) => s + (Number(o.total) || 0), 0)
 
@@ -292,15 +306,16 @@ function indexarConsumoPorPeriodo(items?: ConsumoItem[]): Record<string, { kwh: 
   return out
 }
 
-function indexarPotenciaPorPeriodo(items?: PotenciaItem[]): Record<string, { kw: number; precio: number; dias: number }> {
-  const out: Record<string, { kw: number; precio: number; dias: number }> = {}
+function indexarPotenciaPorPeriodo(items?: PotenciaItem[]): Record<string, { kw: number; precio: number; dias: number; total: number }> {
+  const out: Record<string, { kw: number; precio: number; dias: number; total: number }> = {}
   for (const it of items || []) {
     const p = (it.periodo || '').toUpperCase().trim()
     if (!p) continue
-    if (!out[p]) out[p] = { kw: 0, precio: 0, dias: 0 }
+    if (!out[p]) out[p] = { kw: 0, precio: 0, dias: 0, total: 0 }
     out[p].kw = Number(it.kw) || out[p].kw
     out[p].precio = Number(it.precioKwDia) || out[p].precio
     out[p].dias = Number(it.dias) || out[p].dias
+    out[p].total = Number(it.total) || out[p].total
   }
   return out
 }
@@ -325,9 +340,9 @@ export function simularLuzAntiguaConConsumoVoltis(
   const antiguaPot = indexarPotenciaPorPeriodo(antiguaEco.potencia)
 
   const detalle: DetallePeriodoSim[] = []
+  const real = resumirFactura(voltisEco)
 
   let totalEnergiaSim = 0
-  let totalPotenciaSim = 0
 
   for (const periodo of PERIODOS_LUZ) {
     const vc = voltisCons[periodo] || { kwh: 0, precio: 0 }
@@ -335,30 +350,20 @@ export function simularLuzAntiguaConConsumoVoltis(
     const vp = voltisPot[periodo] || { kw: 0, precio: 0, dias: 0 }
     const ap = antiguaPot[periodo] || { kw: 0, precio: 0, dias: 0 }
 
-    // Si el cliente no consumió en este periodo en Voltis, la simulación es 0 — saltar.
+    // Si el cliente no consumió en este periodo en Voltis, saltamos.
     const tieneConsumo = vc.kwh > 0
-    const tienePotencia = vp.kw > 0 || vp.precio > 0
+    if (!tieneConsumo && vp.kw === 0) continue
 
-    if (!tieneConsumo && !tienePotencia) continue
-
-    // Si la antigua no tiene precio en este periodo (porque tampoco consumió), heurística:
-    // usar el precio medio entre los periodos con dato del mismo mes.
+    // Si la antigua no tiene precio €/kWh en este periodo, usamos la media de
+    // los periodos con dato del mismo mes (fallback razonable).
     let precioKwhAntigua = ac.precio
     if (tieneConsumo && precioKwhAntigua === 0) {
       const precios = Object.values(antiguaCons).map(c => c.precio).filter(p => p > 0)
       precioKwhAntigua = precios.length > 0 ? precios.reduce((a, b) => a + b, 0) / precios.length : 0
     }
-    let precioKwDiaAntigua = ap.precio
-    if (tienePotencia && precioKwDiaAntigua === 0) {
-      const precios = Object.values(antiguaPot).map(p => p.precio).filter(p => p > 0)
-      precioKwDiaAntigua = precios.length > 0 ? precios.reduce((a, b) => a + b, 0) / precios.length : 0
-    }
 
     const costeEnergiaSim = vc.kwh * precioKwhAntigua
-    const costePotenciaSim = vp.kw * vp.dias * precioKwDiaAntigua
-
     totalEnergiaSim += costeEnergiaSim
-    totalPotenciaSim += costePotenciaSim
 
     detalle.push({
       periodo,
@@ -369,15 +374,20 @@ export function simularLuzAntiguaConConsumoVoltis(
       costeEnergiaVoltis: vc.kwh * vc.precio,
       kw: vp.kw,
       dias: vp.dias,
-      precioKwDiaAntigua,
+      // La potencia es REGULADA (depende de la distribuidora y los peajes
+      // CNMC, no del comercializador). Se pasa idéntica → mismos €/kW·día.
+      precioKwDiaAntigua: vp.precio,
       precioKwDiaVoltis: vp.precio,
-      costePotenciaSimulada: costePotenciaSim,
-      costePotenciaVoltis: vp.kw * vp.dias * vp.precio,
+      costePotenciaSimulada: vp.total || (vp.kw * vp.dias * vp.precio),
+      costePotenciaVoltis: vp.total || (vp.kw * vp.dias * vp.precio),
     })
   }
 
-  const real = resumirFactura(voltisEco)
-  // Regulados idénticos a Voltis
+  // ── Regulados → idénticos a la factura Voltis ────────────────────────────
+  // La potencia contratada (Σ kW × días × €/kW·día), excesos, bono social,
+  // alquiler de equipos y otrosRegulados son cargos regulados o cuotas fijas
+  // que no dependen del comercializador. Se pasan tal cual.
+  const totalPotenciaSim = real.totalPotencia
   const excesos = real.excesos
   const bonoSocial = real.bonoSocial
   const alquiler = real.alquiler
