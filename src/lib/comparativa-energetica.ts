@@ -76,17 +76,32 @@ export interface ComparativaMes {
   antiguaFactura: BillEconomics
   diasVoltis: number
   diasAntigua: number
-  /** Factura real de la antigua, los días que cobró (referencia documental) */
+  /** Factura real de la antigua, año anterior (lo que pagó el cliente entonces) */
   realAntigua: ResumenFactura
-  /** Factura real Voltis */
+  /** Factura real Voltis (lo que paga ahora) */
   realVoltis: ResumenFactura
-  /** Simulación: lo que la antigua habría cobrado al consumo Voltis */
+  /**
+   * Estimado contrafactual: lo que el cliente habría pagado con la tarifa
+   * Voltis si hubiera tenido el consumo histórico del año pasado.
+   * = energía_estimada (kWh_antigua_Pi × precio_voltis_Pi) + regulados Voltis + IEE + IVA
+   *
+   * Mantengo `simuladoAntigua` como alias para retro-compatibilidad con la UI.
+   */
+  estimadoVoltisConConsumoAntiguo: ResumenFactura
+  /** @deprecated alias de `estimadoVoltisConConsumoAntiguo` (gas) o nuevo nombre conceptual (luz) */
   simuladoAntigua: ResumenFactura
-  /** Solo luz: desglose por periodo P1-P6 del cálculo simulado */
+  /** Solo luz: desglose por periodo P1-P6 del cálculo estimado */
   detallePeriodos?: DetallePeriodoSim[]
-  /** Ahorro = simulado_antigua - real_voltis */
+  /** Ahorro por cambio de tarifa = real_antigua.total − estimado.total */
+  ahorroTarifa: number
+  /** Ahorro por menor consumo = estimado.total − real_voltis.total */
+  ahorroConsumo: number
+  /** Ahorro total del mes = real_antigua.total − real_voltis.total */
   ahorroMes: number
   ahorroPorcentaje: number
+  /** Validación: ε = |Σ(kWh_voltis × precio_voltis) − total_energia_voltis_real|.
+   *  Si supera tolerancia (5 € o 1 % del total energía), hay error de extracción. */
+  validacionEnergiaVoltis?: { delta: number; tolerancia: number; ok: boolean }
 }
 
 export interface ResultadoComparativa {
@@ -97,12 +112,28 @@ export interface ResultadoComparativa {
   comercializadoraVoltis: string | null
   comercializadoraAntigua: string | null
   totales: {
+    /** kWh consumidos por Voltis (los reales del año actual) */
     consumoTotalKwh: number
+    /** kWh consumidos por la antigua en el año anterior (consumo histórico) */
+    consumoTotalKwhAntigua: number
+    /** Σ totales reales Voltis */
     voltisTotal: number
+    /** Σ totales reales antigua */
+    realAntiguaTotal: number
+    /** Σ estimados Voltis con consumo histórico */
+    estimadoConsumoAntiguoTotal: number
+    /** @deprecated alias de estimadoConsumoAntiguoTotal */
     simuladoAntiguaTotal: number
+    /** Ahorro por cambio de tarifa */
+    ahorroTarifa: number
+    /** Ahorro por menor consumo */
+    ahorroConsumo: number
+    /** Ahorro total = real_antigua − real_voltis */
     ahorroTotal: number
     ahorroPorcentaje: number
     eurosPorKwhVoltis: number
+    eurosPorKwhAntigua: number
+    /** @deprecated alias de eurosPorKwhAntigua */
     eurosPorKwhSimuladoAntigua: number
   }
 }
@@ -269,14 +300,58 @@ export function resumirFactura(eco: BillEconomics): ResumenFactura {
     })
     .reduce((s, o) => s + (Number(o.total) || 0), 0)
 
-  // El Impuesto Eléctrico (Ley 38/1992) grava energía + potencia + excesos,
-  // NO bono social ni alquiler. Calculamos el tipo efectivo aplicado en esta factura.
-  const baseIee = totalEnergia + totalPotencia + excesos
-  const ieePorcentaje = baseIee > 0 ? ieeImporte / baseIee : 0
+  // El Impuesto Eléctrico (Ley 38/1992) grava energía + potencia + excesos + bono social,
+  // NO alquiler. Calculamos el tipo efectivo aplicado en esta factura.
+  const baseIee = totalEnergia + totalPotencia + excesos + bonoSocial
+  let ieePorcentaje = baseIee > 0 ? ieeImporte / baseIee : 0
 
-  const baseImponible = totalEnergia + totalPotencia + excesos + bonoSocial + alquiler + ieeImporte + otrosRegulados
-  const ivaPorcentaje = baseImponible > 0 ? ivaImporte / baseImponible : 0
-  const totalFactura = baseImponible + ivaImporte
+  let baseImponible = totalEnergia + totalPotencia + excesos + bonoSocial + alquiler + ieeImporte + otrosRegulados
+  let ivaPorcentaje = baseImponible > 0 ? ivaImporte / baseImponible : 0
+  let totalFactura = baseImponible + ivaImporte
+
+  // ── Ajuste por extracción incompleta ───────────────────────────────────
+  // Si el PDF original declara un totalFactura significativamente mayor que
+  // la suma de componentes extraídos, es porque el extractor no capturó
+  // todos los conceptos (típico en facturas antiguas: faltan IEE/IVA/excesos).
+  // Confiamos en eco.totalFactura (Gemini lo lee directamente del PDF) y
+  // reconstruimos coherentemente:
+  //   - Si tenemos energía + potencia + algo, deducimos el resto como
+  //     "ajuste regulado/impuestos" y derivamos IEE/IVA estándar (5,11% y 21%).
+  const totalDeclarado = Number(eco.totalFactura) || 0
+  if (totalDeclarado > 0 && totalDeclarado > totalFactura * 1.05) {
+    // Total real conocido. Reconstruimos asumiendo:
+    //   IEE = 5,1127% (o 0,5% si el calculado parece serlo)
+    //   IVA = 21% (o el calculado si parece otro tipo oficial)
+    const tipoIeeAsumido = ieePorcentaje > 0.01 ? ieePorcentaje : 0.0511269632
+    const tipoIvaAsumido = ivaPorcentaje > 0 ? ivaPorcentaje : 0.21
+    // Si no se extrajeron IEE, IVA, etc., despejamos:
+    //   total = (energía + potencia + extras + bono + alquiler) × (1 + IEE) × (1 + IVA)
+    //   pero IEE solo aplica a (energía + potencia + excesos + bono), no a alquiler:
+    //   total = ((energía + potencia + excesos + bono)(1+IEE) + alquiler + otros) × (1+IVA)
+    // → base_no_iva = total / (1 + IVA)
+    const baseNoIva = totalDeclarado / (1 + tipoIvaAsumido)
+    const ivaImputado = totalDeclarado - baseNoIva
+    // base_imponible = base_no_iva, repartimos: IEE = pct × (energía + potencia + excesos + bono)
+    // alquiler queda fijo, excesos/bono/otros fijos. El resto que falte se imputa a "otrosRegulados ajuste"
+    const ieeImputado = (totalEnergia + totalPotencia + excesos + bonoSocial) * tipoIeeAsumido
+    const ajusteRegulado = baseNoIva - (totalEnergia + totalPotencia + excesos + bonoSocial + alquiler + ieeImputado + otrosRegulados)
+    // Aplicamos el ajuste a otrosRegulados (cubre extracciones incompletas
+    // de potencias P4-P6 perdidas, peajes, financiación CNMC…)
+    return {
+      totalEnergia,
+      totalPotencia,
+      excesos,
+      bonoSocial,
+      alquiler,
+      otrosRegulados: otrosRegulados + Math.max(0, ajusteRegulado),
+      ieePorcentaje: tipoIeeAsumido,
+      ieeImporte: ieeImputado,
+      baseImponible: baseNoIva,
+      ivaPorcentaje: tipoIvaAsumido,
+      ivaImporte: ivaImputado,
+      totalFactura: totalDeclarado,
+    }
+  }
 
   return {
     totalEnergia,
@@ -423,61 +498,73 @@ function indexarPotenciaPorPeriodo(items?: PotenciaItem[]): Record<string, { kw:
 }
 
 /**
- * Simula la factura LUZ que habría cobrado la comercializadora antigua
- * si el cliente hubiera consumido lo de Voltis.
+ * Estimación contrafactual LUZ:
+ *   "¿Cuánto habría pagado el cliente CON LA TARIFA VOLTIS si hubiera
+ *    tenido el CONSUMO HISTÓRICO del año pasado?"
  *
- * Energía: PRECIO POR PERIODO P1–P6 de la antigua × kWh por periodo Voltis.
- *   energía_sim = Σ_p (kWh_p_voltis × €/kWh_p_antigua)
+ * Es la comparación más justa para aislar el efecto del cambio de
+ * comercializadora del efecto de variación de consumo. Permite descomponer
+ * el ahorro total en:
+ *   - Ahorro por cambio de tarifa  = real_antigua − estimado_contrafactual
+ *   - Ahorro por menor consumo     = estimado_contrafactual − real_voltis
  *
- *   Esto diferencia las distintas tarifas horarias (P1=punta, P2=llano,
- *   P6=valle…) cuando los precios de la antigua difieren entre periodos.
- *   Es técnicamente más correcto que aplicar un único promedio global.
+ * Metodología paso a paso:
+ *  a) Energía: Σ_p (kWh_p_antigua × precio_voltis_p)
+ *     Aplicamos los precios actuales de Voltis (peaje TE + energía P.Fijo)
+ *     al consumo HISTÓRICO por periodo P1–P6 de la factura antigua.
+ *  b) Conceptos no dependientes del consumo (potencia contratada, peajes
+ *     de potencia, excesos, bono social, alquiler equipos): se toman
+ *     DIRECTAMENTE de la factura Voltis real. Conservador para excesos.
+ *  c) IEE: tipo vigente del periodo Voltis aplicado sobre base
+ *     (energía_estimada + potencia + excesos + bono social).
+ *  d) Base imponible = anterior + alquiler + IEE.
+ *  e) IVA = tipo Voltis × base imponible.
  *
- * Fallback: si la antigua no facturó algún periodo donde Voltis sí (por
- * ejemplo P3 en marzo cuando antes solo facturaba P2/P6), se usa el precio
- * medio €/kWh del mes anterior para ese periodo.
- *
- * Potencia, excesos, bono social, alquiler: regulados, pasan idénticos.
- * IEE: tipo_voltis × (energía_sim + potencia_sim + excesos).
- * IVA: tipo_voltis × base_imponible_sim.
+ * Validación: aplicar la fórmula (a) con kWh_voltis × precio_voltis debe
+ * reproducir el coste de energía real Voltis con error <5€ o <1%. Si no,
+ * los precios extraídos son incorrectos y la estimación es poco fiable.
  */
-export function simularLuzAntiguaConConsumoVoltis(
+export function estimarLuzVoltisConConsumoAntiguo(
   voltisEco: BillEconomics,
   antiguaEco: BillEconomics,
-): { resumen: ResumenFactura; detalle: DetallePeriodoSim[] } {
+): { resumen: ResumenFactura; detalle: DetallePeriodoSim[]; validacion: { delta: number; tolerancia: number; ok: boolean } } {
   const voltisCons = indexarConsumoPorPeriodo(voltisEco.consumo)
   const antiguaCons = indexarConsumoPorPeriodo(antiguaEco.consumo)
   const voltisPot = indexarPotenciaPorPeriodo(voltisEco.potencia)
 
+  // Resumen factura Voltis real (de ahí saldrán los regulados, IEE, IVA)
   const real = resumirFactura(voltisEco)
 
-  // Precio medio mensual de la antigua (fallback para periodos sin precio)
-  const totalEnergiaAntigua = (antiguaEco.consumo || []).reduce((s, c) => s + (Number(c.total) || 0), 0)
-  const totalKwhAntigua = (antiguaEco.consumo || []).reduce((s, c) => s + (Number(c.kwh) || 0), 0)
-  const precioMedioAntigua = totalKwhAntigua > 0 ? totalEnergiaAntigua / totalKwhAntigua : 0
+  // Precio medio actual de Voltis (fallback para periodos sin precio extraído)
+  const totalEnergiaVoltis = (voltisEco.consumo || []).reduce((s, c) => s + (Number(c.total) || 0), 0)
+  const totalKwhVoltis = (voltisEco.consumo || []).reduce((s, c) => s + (Number(c.kwh) || 0), 0)
+  const precioMedioVoltis = totalKwhVoltis > 0 ? totalEnergiaVoltis / totalKwhVoltis : 0
 
-  // Simulación por periodo P1-P6: cada Pi de Voltis con el precio Pi de antigua
+  // ── Estimación contrafactual por periodo P1–P6 ──────────────────────────
+  //    kWh_antigua_Pi × precio_voltis_Pi
   const detalle: DetallePeriodoSim[] = []
-  let totalEnergiaSim = 0
+  let totalEnergiaEstimada = 0
 
   for (const periodo of PERIODOS_LUZ) {
     const vc = voltisCons[periodo] || { kwh: 0, precio: 0 }
     const ac = antiguaCons[periodo] || { kwh: 0, precio: 0 }
     const vp = voltisPot[periodo] || { kw: 0, precio: 0, dias: 0 }
-    if (vc.kwh === 0 && vp.kw === 0) continue
+    if (ac.kwh === 0 && vc.kwh === 0 && vp.kw === 0) continue
 
-    // Si la antigua no facturó este periodo (kwh=0 y precio=0), usamos el
-    // precio medio mensual como fallback razonable.
-    const precioPeriodoAntigua = ac.precio > 0 ? ac.precio : precioMedioAntigua
-    const costeEnergiaSim = vc.kwh * precioPeriodoAntigua
-    totalEnergiaSim += costeEnergiaSim
+    // Usamos el consumo histórico de la antigua y aplicamos el precio Voltis
+    // del mismo periodo. Si Voltis no facturó ese periodo, fallback al medio.
+    const precioPeriodoVoltis = vc.precio > 0 ? vc.precio : precioMedioVoltis
+    const costeEnergiaEstimada = ac.kwh * precioPeriodoVoltis
+    totalEnergiaEstimada += costeEnergiaEstimada
 
     detalle.push({
       periodo,
-      kwh: vc.kwh,
-      precioKwhAntigua: precioPeriodoAntigua,
-      precioKwhVoltis: vc.precio,
-      costeEnergiaSimulada: costeEnergiaSim,
+      // El campo "kwh" del detalle representa los kWh aplicados a la estimación
+      // (los HISTÓRICOS, que son los que se contrafactualizan).
+      kwh: ac.kwh,
+      precioKwhAntigua: ac.precio,
+      precioKwhVoltis: precioPeriodoVoltis,
+      costeEnergiaSimulada: costeEnergiaEstimada,
       costeEnergiaVoltis: vc.kwh * vc.precio,
       kw: vp.kw,
       dias: vp.dias,
@@ -488,41 +575,63 @@ export function simularLuzAntiguaConConsumoVoltis(
     })
   }
 
-  // ── Regulados → idénticos a la factura Voltis ────────────────────────────
-  // La potencia contratada (Σ kW × días × €/kW·día), excesos, bono social,
-  // alquiler de equipos y otrosRegulados son cargos regulados o cuotas fijas
-  // que no dependen del comercializador. Se pasan tal cual.
-  const totalPotenciaSim = real.totalPotencia
+  // ── Conceptos NO dependientes del consumo → de Voltis tal cual ──────────
+  //    Cargo potencia + peajes de potencia, excesos, bono social, alquiler.
+  //    Conservador: aunque al consumo histórico habría más excesos, mantenemos
+  //    los Voltis reales (subestimamos el contrafactual).
+  const totalPotencia = real.totalPotencia
   const excesos = real.excesos
   const bonoSocial = real.bonoSocial
   const alquiler = real.alquiler
   const otrosRegulados = real.otrosRegulados
 
+  // ── IEE → tipo vigente del periodo Voltis sobre (energía + pot + exc + bono)
   const ieePorcentaje = real.ieePorcentaje
-  const ivaPorcentaje = real.ivaPorcentaje
+  const baseIeeEstimada = totalEnergiaEstimada + totalPotencia + excesos + bonoSocial
+  const ieeImporteEstimado = baseIeeEstimada * ieePorcentaje
 
-  // Mismo % de IEE aplicado a la base eléctrica simulada (energía + potencia + excesos)
-  const baseIeeSim = totalEnergiaSim + totalPotenciaSim + excesos
-  const ieeImporteSim = baseIeeSim * ieePorcentaje
-  const baseImponibleSim = totalEnergiaSim + totalPotenciaSim + excesos + bonoSocial + alquiler + otrosRegulados + ieeImporteSim
-  const ivaImporteSim = baseImponibleSim * ivaPorcentaje
-  const totalFacturaSim = baseImponibleSim + ivaImporteSim
+  // ── Base imponible y IVA ────────────────────────────────────────────────
+  const ivaPorcentaje = real.ivaPorcentaje
+  const baseImponibleEstimada = totalEnergiaEstimada + totalPotencia + excesos + bonoSocial + alquiler + otrosRegulados + ieeImporteEstimado
+  const ivaImporteEstimado = baseImponibleEstimada * ivaPorcentaje
+  const totalFacturaEstimada = baseImponibleEstimada + ivaImporteEstimado
+
+  // ── Validación: precios Voltis × kWh Voltis ≈ energía Voltis real ───────
+  //    Si no cuadra, alguno de los precios extraídos por periodo es incorrecto.
+  let energiaRecalculadaVoltis = 0
+  for (const periodo of PERIODOS_LUZ) {
+    const vc = voltisCons[periodo] || { kwh: 0, precio: 0 }
+    energiaRecalculadaVoltis += vc.kwh * vc.precio
+  }
+  const deltaValidacion = Math.abs(energiaRecalculadaVoltis - totalEnergiaVoltis)
+  const toleranciaValidacion = Math.max(5, totalEnergiaVoltis * 0.01)
+  const validacion = {
+    delta: deltaValidacion,
+    tolerancia: toleranciaValidacion,
+    ok: deltaValidacion <= toleranciaValidacion,
+  }
 
   const resumen: ResumenFactura = {
-    totalEnergia: totalEnergiaSim,
-    totalPotencia: totalPotenciaSim,
+    totalEnergia: totalEnergiaEstimada,
+    totalPotencia,
     excesos,
     bonoSocial,
     alquiler,
     otrosRegulados,
     ieePorcentaje,
-    ieeImporte: ieeImporteSim,
-    baseImponible: baseImponibleSim,
+    ieeImporte: ieeImporteEstimado,
+    baseImponible: baseImponibleEstimada,
     ivaPorcentaje,
-    ivaImporte: ivaImporteSim,
-    totalFactura: totalFacturaSim,
+    ivaImporte: ivaImporteEstimado,
+    totalFactura: totalFacturaEstimada,
   }
-  return { resumen, detalle }
+  return { resumen, detalle, validacion }
+}
+
+/** @deprecated Alias retro-compatible. Usar estimarLuzVoltisConConsumoAntiguo. */
+export const simularLuzAntiguaConConsumoVoltis = (voltis: BillEconomics, antigua: BillEconomics) => {
+  const r = estimarLuzVoltisConConsumoAntiguo(voltis, antigua)
+  return { resumen: r.resumen, detalle: r.detalle }
 }
 
 // ── Simulación GAS — solo término variable energía ──────────────────────────
@@ -710,13 +819,50 @@ export function computarComparativa(
 
     const realVoltis = resumirFactura(voltisEco)
     const realAntigua = resumirFactura(antiguaEco)
-    const sim = supplyType === 'gas'
-      ? simularGasAntiguaConConsumoVoltis(voltisEco, antiguaEco)
-      : simularLuzAntiguaConConsumoVoltis(voltisEco, antiguaEco)
 
-    const ahorroMes = sim.resumen.totalFactura - realVoltis.totalFactura
-    const ahorroPorcentaje = sim.resumen.totalFactura > 0
-      ? (ahorroMes / sim.resumen.totalFactura) * 100
+    let estimadoResumen: ResumenFactura
+    let detalle: DetallePeriodoSim[]
+    let validacionEnergiaVoltis: { delta: number; tolerancia: number; ok: boolean } | undefined
+
+    if (supplyType === 'gas') {
+      // Gas: simulación clásica (precio Voltis × consumo Voltis vs precio antigua × consumo Voltis)
+      const sim = simularGasAntiguaConConsumoVoltis(voltisEco, antiguaEco)
+      estimadoResumen = sim.resumen
+      detalle = sim.detalle
+    } else {
+      // Luz: estimación CONTRAFACTUAL — precios Voltis aplicados al consumo histórico.
+      const est = estimarLuzVoltisConConsumoAntiguo(voltisEco, antiguaEco)
+      estimadoResumen = est.resumen
+      detalle = est.detalle
+      validacionEnergiaVoltis = est.validacion
+    }
+
+    // ── Descomposición del ahorro ──────────────────────────────────────────
+    // LUZ:
+    //   ahorroTarifa  = real_antigua − estimado_voltis_con_consumo_antiguo
+    //                   (precio antiguo aplicado al consumo del año pasado
+    //                    vs. precio Voltis aplicado al mismo consumo)
+    //   ahorroConsumo = estimado_voltis_con_consumo_antiguo − real_voltis
+    //                   (consumo año pasado vs. consumo año actual con misma tarifa)
+    //   ahorroTotal   = real_antigua − real_voltis = tarifa + consumo
+    //
+    // GAS: la "simulación" del módulo de gas es ya "lo que la antigua habría
+    //   cobrado al consumo Voltis", así que la descomposición no aplica del
+    //   mismo modo. Para gas, el ahorroTotal es entre la factura simulada
+    //   antigua (mismo consumo Voltis) y la real Voltis; el ahorroConsumo
+    //   queda en 0 y todo se atribuye a tarifa.
+    const ahorroTotalMes = realAntigua.totalFactura - realVoltis.totalFactura
+    let ahorroTarifa: number
+    let ahorroConsumo: number
+    if (supplyType === 'gas') {
+      ahorroTarifa = estimadoResumen.totalFactura - realVoltis.totalFactura
+      ahorroConsumo = 0
+    } else {
+      ahorroTarifa = realAntigua.totalFactura - estimadoResumen.totalFactura
+      ahorroConsumo = estimadoResumen.totalFactura - realVoltis.totalFactura
+    }
+    const ahorroPorcentaje = realAntigua.totalFactura > 0
+      ? (ahorroTotalMes / realAntigua.totalFactura) * 100
       : 0
 
     comparativaMeses.push({
@@ -731,27 +877,47 @@ export function computarComparativa(
       diasAntigua: diasFacturados(par.antigua.period_start, par.antigua.period_end),
       realAntigua,
       realVoltis,
-      simuladoAntigua: sim.resumen,
-      detallePeriodos: sim.detalle,
-      ahorroMes,
+      estimadoVoltisConConsumoAntiguo: estimadoResumen,
+      simuladoAntigua: estimadoResumen,  // alias retro-compat
+      detallePeriodos: detalle,
+      ahorroTarifa,
+      ahorroConsumo,
+      ahorroMes: ahorroTotalMes,
       ahorroPorcentaje,
+      validacionEnergiaVoltis,
     })
   }
 
-  // Totales agregados
-  let consumoTotalKwh = 0
+  // ── Totales agregados ──────────────────────────────────────────────────
+  let consumoTotalKwh = 0          // consumo real Voltis (año actual)
+  let consumoTotalKwhAntigua = 0   // consumo histórico antigua (año anterior)
   let voltisTotal = 0
-  let simuladoTotal = 0
+  let realAntiguaTotal = 0
+  let estimadoTotal = 0
   for (const m of comparativaMeses) {
     consumoTotalKwh += (m.voltisFactura.consumo || []).reduce((s, c) => s + (Number(c.kwh) || 0), 0)
       || Number(m.voltisFactura.consumoTotalKwh) || 0
+    consumoTotalKwhAntigua += (m.antiguaFactura.consumo || []).reduce((s, c) => s + (Number(c.kwh) || 0), 0)
+      || Number(m.antiguaFactura.consumoTotalKwh) || 0
     voltisTotal += m.realVoltis.totalFactura
-    simuladoTotal += m.simuladoAntigua.totalFactura
+    realAntiguaTotal += m.realAntigua.totalFactura
+    estimadoTotal += m.estimadoVoltisConConsumoAntiguo.totalFactura
   }
-  const ahorroTotal = simuladoTotal - voltisTotal
-  const ahorroPorcentaje = simuladoTotal > 0 ? (ahorroTotal / simuladoTotal) * 100 : 0
+  // En LUZ: ahorroTotal = real_antigua − real_voltis
+  // En GAS: ahorroTotal = estimado (= antigua simulada) − real_voltis (consumo mismo)
+  const ahorroTarifaTotal = supplyType === 'gas'
+    ? (estimadoTotal - voltisTotal)
+    : (realAntiguaTotal - estimadoTotal)
+  const ahorroConsumoTotal = supplyType === 'gas' ? 0 : (estimadoTotal - voltisTotal)
+  const ahorroTotal = supplyType === 'gas'
+    ? (estimadoTotal - voltisTotal)
+    : (realAntiguaTotal - voltisTotal)
+  const ahorroPorcentaje = supplyType === 'gas'
+    ? (estimadoTotal > 0 ? (ahorroTotal / estimadoTotal) * 100 : 0)
+    : (realAntiguaTotal > 0 ? (ahorroTotal / realAntiguaTotal) * 100 : 0)
+
   const eurosPorKwhVoltis = consumoTotalKwh > 0 ? voltisTotal / consumoTotalKwh : 0
-  const eurosPorKwhSimuladoAntigua = consumoTotalKwh > 0 ? simuladoTotal / consumoTotalKwh : 0
+  const eurosPorKwhAntigua = consumoTotalKwhAntigua > 0 ? realAntiguaTotal / consumoTotalKwhAntigua : 0
 
   return {
     supplyType,
@@ -762,12 +928,18 @@ export function computarComparativa(
     comercializadoraAntigua,
     totales: {
       consumoTotalKwh,
+      consumoTotalKwhAntigua,
       voltisTotal,
-      simuladoAntiguaTotal: simuladoTotal,
+      realAntiguaTotal,
+      estimadoConsumoAntiguoTotal: estimadoTotal,
+      simuladoAntiguaTotal: estimadoTotal,  // alias retro-compat
+      ahorroTarifa: ahorroTarifaTotal,
+      ahorroConsumo: ahorroConsumoTotal,
       ahorroTotal,
       ahorroPorcentaje,
       eurosPorKwhVoltis,
-      eurosPorKwhSimuladoAntigua,
+      eurosPorKwhAntigua,
+      eurosPorKwhSimuladoAntigua: eurosPorKwhAntigua,  // alias retro-compat
     },
   }
 }
@@ -787,30 +959,51 @@ export function aplicarFiltroMeses(
   const pares = res.pares.filter(p => setKeys.has(`${p.year}-${p.mes}`))
 
   let consumoTotalKwh = 0
+  let consumoTotalKwhAntigua = 0
   let voltisTotal = 0
-  let simuladoTotal = 0
+  let realAntiguaTotal = 0
+  let estimadoTotal = 0
   for (const m of pares) {
     consumoTotalKwh += (m.voltisFactura.consumo || []).reduce((s, c) => s + (Number(c.kwh) || 0), 0)
       || Number(m.voltisFactura.consumoTotalKwh) || 0
+    consumoTotalKwhAntigua += (m.antiguaFactura.consumo || []).reduce((s, c) => s + (Number(c.kwh) || 0), 0)
+      || Number(m.antiguaFactura.consumoTotalKwh) || 0
     voltisTotal += m.realVoltis.totalFactura
-    simuladoTotal += m.simuladoAntigua.totalFactura
+    realAntiguaTotal += m.realAntigua.totalFactura
+    estimadoTotal += m.estimadoVoltisConConsumoAntiguo.totalFactura
   }
-  const ahorroTotal = simuladoTotal - voltisTotal
-  const ahorroPorcentaje = simuladoTotal > 0 ? (ahorroTotal / simuladoTotal) * 100 : 0
+
+  const supplyType = res.supplyType
+  const ahorroTarifa = supplyType === 'gas'
+    ? (estimadoTotal - voltisTotal)
+    : (realAntiguaTotal - estimadoTotal)
+  const ahorroConsumo = supplyType === 'gas' ? 0 : (estimadoTotal - voltisTotal)
+  const ahorroTotal = supplyType === 'gas'
+    ? (estimadoTotal - voltisTotal)
+    : (realAntiguaTotal - voltisTotal)
+  const ahorroPorcentaje = supplyType === 'gas'
+    ? (estimadoTotal > 0 ? (ahorroTotal / estimadoTotal) * 100 : 0)
+    : (realAntiguaTotal > 0 ? (ahorroTotal / realAntiguaTotal) * 100 : 0)
   const eurosPorKwhVoltis = consumoTotalKwh > 0 ? voltisTotal / consumoTotalKwh : 0
-  const eurosPorKwhSimuladoAntigua = consumoTotalKwh > 0 ? simuladoTotal / consumoTotalKwh : 0
+  const eurosPorKwhAntigua = consumoTotalKwhAntigua > 0 ? realAntiguaTotal / consumoTotalKwhAntigua : 0
 
   return {
     ...res,
     pares,
     totales: {
       consumoTotalKwh,
+      consumoTotalKwhAntigua,
       voltisTotal,
-      simuladoAntiguaTotal: simuladoTotal,
+      realAntiguaTotal,
+      estimadoConsumoAntiguoTotal: estimadoTotal,
+      simuladoAntiguaTotal: estimadoTotal,
+      ahorroTarifa,
+      ahorroConsumo,
       ahorroTotal,
       ahorroPorcentaje,
       eurosPorKwhVoltis,
-      eurosPorKwhSimuladoAntigua,
+      eurosPorKwhAntigua,
+      eurosPorKwhSimuladoAntigua: eurosPorKwhAntigua,
     },
   }
 }
