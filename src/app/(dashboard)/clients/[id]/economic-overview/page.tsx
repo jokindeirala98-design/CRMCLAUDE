@@ -2,77 +2,75 @@
 
 /**
  * /clients/[id]/economic-overview
- *
- * Estudio económico global a nivel cliente: agrega todas las facturas
- * históricas de todos sus suministros y permite filtrar por modo de periodo
- * (últimas 12 facturas / año pasado / rango personalizado) y por tipo
- * (luz / gas / todos).
- *
- * Drill-down: clic en un suministro del ranking → navega a la ficha del
- * suministro con su tab AnnualEconomics abierto.
+ * Estudio Económico Global del cliente — estilo Voltis (azul cielo + Buddy).
  */
 
 import { useEffect, useState, useMemo } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import {
-  ArrowLeft, Loader2, AlertCircle, Zap, Flame,
-  TrendingDown, Building2, Receipt, ChevronRight,
+  ArrowLeft, Loader2, AlertCircle, Zap, Flame, AlertTriangle,
+  TrendingDown, TrendingUp, ChevronRight, Sparkles, Lightbulb,
+  Activity, BarChart3, Target, Award,
 } from 'lucide-react'
 
 type Mode = 'last12' | 'previous_year' | 'custom'
 type TypeFilter = 'all' | 'luz' | 'gas'
 
-interface RankingItem {
+// ── Tipos del payload ──────────────────────────────────────────────────────
+
+interface SupplyAggregate {
   supply: {
-    id: string
-    cups: string | null
-    type: 'luz' | 'gas' | null
-    tariff: string | null
-    name: string | null
-    address: string | null
-    comercializadora: string | null
-    consumoAnualKwh: number
+    id: string; cups: string | null; type: 'luz' | 'gas' | null
+    tariff: string | null; name: string | null; address: string | null
+    comercializadora: string | null; distribuidora: string | null
+    consumoAnualKwh: number; fechaSipsActualizado: string | null
+    potenciaContratada: Record<string, number> | null
   }
-  invoicesCount: number
-  windowFrom: string | null
-  windowTo: string | null
-  consumoAnualKwh: number
-  totalGasto: number
+  invoicesCount: number; mesesCubiertos: number
+  windowFrom: string | null; windowTo: string | null
+  consumoAnualKwh: number; consumoFacturadoKwh: number
+  totalGasto: number; totalEnergia: number; totalPotencia: number
+  totalExcesos: number; totalReactiva: number; totalIee: number; totalIva: number
   eurPorKwh: number
-  sinFacturas: boolean
+  consumoPorPeriodo: Record<string, number>
+  precioMedioPorPeriodo: Record<string, number>
+  esAnomalo: boolean; sinFacturas: boolean
 }
 
-interface Monthly {
-  year: number
-  month: number
-  totalLuz: number
-  totalGas: number
-  total: number
-  kwhLuz: number
-  kwhGas: number
-  invoicesCount: number
-}
+interface Monthly { year: number; month: number; totalLuz: number; totalGas: number; total: number; kwhLuz: number; kwhGas: number; invoicesCount: number }
 
 interface Overview {
   client: { id: string; name: string; cif: string | null; type: string }
-  mode: Mode
-  windowDescription: string
-  typeFilter: TypeFilter
+  mode: Mode; windowDescription: string; typeFilter: TypeFilter
+  fechaSipsMasReciente: string | null
   totals: {
-    gastoTotal: number
-    consumoTotalKwh: number
-    eurPorKwhMedio: number
-    suministrosCount: number
-    suministrosConFacturas: number
+    gastoTotal: number; gastoAnualizado: number
+    consumoTotalKwh: number; consumoFacturadoTotalKwh: number
+    coberturaFacturasPct: number; eurPorKwhMedio: number
+    suministrosCount: number; suministrosConFacturas: number; suministrosSinConsumo: number
     invoicesCount: number
     porTipo: {
-      luz: { gasto: number; consumoAnualKwh: number; suministros: number }
-      gas: { gasto: number; consumoAnualKwh: number; suministros: number }
+      luz: {
+        gasto: number; gastoAnualizado: number; consumoAnualKwh: number
+        consumoFacturadoKwh: number; suministros: number; eurPorKwhMedio: number
+        coberturaPct: number; excesos: number; reactiva: number
+        consumoPorPeriodo: Record<string, number>; precioMedioPorPeriodo: Record<string, number>
+      }
+      gas: {
+        gasto: number; gastoAnualizado: number; consumoAnualKwh: number
+        consumoFacturadoKwh: number; suministros: number; eurPorKwhMedio: number; coberturaPct: number
+      }
     }
   }
-  ranking: RankingItem[]
+  topConsumidores: SupplyAggregate[]
+  topGastadores: SupplyAggregate[]
+  anomalias: SupplyAggregate[]
+  ranking: SupplyAggregate[]
   monthly: Monthly[]
-  porTarifa: Array<{ tarifa: string; suministros: number; gasto: number; consumoAnualKwh: number }>
+  porTarifa: Array<{ tarifa: string; suministros: number; gasto: number; consumoAnualKwh: number; eurPorKwh: number }>
+  porDistribuidora: Array<{ distribuidora: string; suministros: number; consumoAnualKwh: number; gasto: number }>
+  concentracionPeriodos: { p1: number; p2: number; p3: number; p4: number; p5: number; p6: number; dominante: string; dominantePct: number }
+  ahorroPotencial: { excesosPotencia: number; cambioTarifa: number; correccionReactiva: number; total: number; descripcion: string[] }
 }
 
 const MESES_SHORT = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
@@ -84,6 +82,10 @@ const fmt = (n: number | null | undefined, d = 2): string => {
 const fmtEur = (n: number | null | undefined) => `${fmt(n, 2)} €`
 const fmtKwh = (n: number | null | undefined) => `${fmt(n, 0)} kWh`
 const fmtPct = (n: number) => `${fmt(n, 1)} %`
+
+// ════════════════════════════════════════════════════════════════════════════
+// PÁGINA PRINCIPAL
+// ════════════════════════════════════════════════════════════════════════════
 
 export default function EconomicOverviewPage() {
   const params = useParams()
@@ -98,26 +100,16 @@ export default function EconomicOverviewPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // ── Fetch ──────────────────────────────────────────────────────────────
-  // En modo 'custom' esperamos a que el usuario rellene las dos fechas
-  // antes de disparar la consulta al endpoint.
   const customReady = mode !== 'custom' || (from && to)
 
   useEffect(() => {
     if (!clientId) return
-    if (!customReady) {
-      setLoading(false)
-      return
-    }
+    if (!customReady) { setLoading(false); return }
     let cancelled = false
-    setLoading(true)
-    setError(null)
+    setLoading(true); setError(null)
 
     const qs = new URLSearchParams({ mode, type: typeFilter })
-    if (mode === 'custom' && from && to) {
-      qs.set('from', from)
-      qs.set('to', to)
-    }
+    if (mode === 'custom' && from && to) { qs.set('from', from); qs.set('to', to) }
 
     fetch(`/api/clients/${clientId}/economic-overview?${qs}`)
       .then(r => r.json())
@@ -132,38 +124,22 @@ export default function EconomicOverviewPage() {
     return () => { cancelled = true }
   }, [clientId, mode, typeFilter, from, to, customReady])
 
-  // ── Render ─────────────────────────────────────────────────────────────
   if (loading && !data) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-brand animate-spin" />
+      <div className="min-h-screen flex items-center justify-center" style={{ background: '#F0F6FF' }}>
+        <Loader2 className="w-8 h-8 animate-spin" style={{ color: '#4A6FE3' }} />
       </div>
     )
   }
 
-  // En modo custom sin fechas todavía mostramos la cabecera + selector de
-  // periodo para que el usuario pueda introducir las fechas, no un error.
   if (!customReady && !data) {
-    return (
-      <CustomEmptyState
-        clientId={clientId}
-        mode={mode}
-        setMode={setMode}
-        from={from}
-        to={to}
-        setFrom={setFrom}
-        setTo={setTo}
-        typeFilter={typeFilter}
-        setTypeFilter={setTypeFilter}
-        router={router}
-      />
-    )
+    return <CustomEmptyState clientId={clientId} mode={mode} setMode={setMode} from={from} to={to} setFrom={setFrom} setTo={setTo} typeFilter={typeFilter} setTypeFilter={setTypeFilter} router={router} />
   }
 
   if (error || !data) {
     return (
-      <div className="max-w-2xl mx-auto mt-12 p-6 rounded-2xl border border-err/30 bg-err-container/40">
-        <div className="flex items-center gap-3 text-err">
+      <div style={{ background: '#F0F6FF', minHeight: '100vh', padding: '3rem' }}>
+        <div className="max-w-2xl mx-auto p-6 rounded-2xl bg-white border border-red-200 flex items-center gap-3 text-red-700">
           <AlertCircle className="w-5 h-5" />
           <p>{error || 'No hay datos'}</p>
         </div>
@@ -172,210 +148,93 @@ export default function EconomicOverviewPage() {
   }
 
   return (
-    <div className="min-h-screen bg-bg text-ink font-sans">
+    <div className="voltis-overview font-sans" style={{ background: '#F0F6FF', minHeight: '100vh', color: '#1E293B' }}>
+      <style jsx global>{`
+        .voltis-overview, .voltis-overview * {
+          font-family: 'Inter', -apple-system, system-ui, sans-serif;
+        }
+        .voltis-overview .num {
+          font-family: 'Geist Mono', 'SF Mono', monospace;
+        }
+      `}</style>
 
-      {/* ── Header ─────────────────────────────────────────────────────── */}
-      <header className="px-6 md:px-10 pt-8 pb-6 border-b border-line/60">
-        <div className="flex items-center justify-between mb-6">
-          <button
-            onClick={() => router.push(`/clients/${clientId}`)}
-            className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-ink-3 hover:text-brand transition"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            Volver al cliente
-          </button>
-        </div>
+      <Header data={data} mode={mode} setMode={setMode} from={from} to={to} setFrom={setFrom} setTo={setTo}
+        typeFilter={typeFilter} setTypeFilter={setTypeFilter} router={router} />
 
-        <div className="text-[10px] font-mono tracking-[0.22em] text-salvia uppercase mb-3">
-          Estudio económico global
-        </div>
-        <h1 className="font-serif text-[2.5rem] md:text-[3.5rem] leading-[1.05] text-brand mb-2">
-          {data.client.name}
-        </h1>
-        <p className="text-xs text-ink-3">
-          {data.windowDescription} · {data.totals.suministrosCount} suministros
-          {data.totals.suministrosConFacturas < data.totals.suministrosCount && (
-            <span> ({data.totals.suministrosConFacturas} con facturas en el periodo)</span>
-          )}
-          {' · '}{data.totals.invoicesCount} facturas
-        </p>
-      </header>
-
-      {/* ── Filtros ────────────────────────────────────────────────────── */}
-      <section className="px-6 md:px-10 mt-6 flex flex-wrap items-center gap-3">
-        <div className="text-[10px] font-mono uppercase tracking-wider text-ink-3 mr-2">Periodo</div>
-        <ModeChip active={mode === 'last12'} onClick={() => setMode('last12')}>Últimas 12 facturas</ModeChip>
-        <ModeChip active={mode === 'previous_year'} onClick={() => setMode('previous_year')}>Año pasado ({new Date().getFullYear() - 1})</ModeChip>
-        <ModeChip active={mode === 'custom'} onClick={() => setMode('custom')}>Personalizado</ModeChip>
-        {mode === 'custom' && (
-          <div className="flex items-center gap-2 ml-2">
-            <input type="date" value={from} onChange={e => setFrom(e.target.value)}
-              className="px-2 py-1 text-xs rounded-lg bg-card border border-line font-mono" />
-            <span className="text-ink-4">→</span>
-            <input type="date" value={to} onChange={e => setTo(e.target.value)}
-              className="px-2 py-1 text-xs rounded-lg bg-card border border-line font-mono" />
-          </div>
-        )}
-
-        <div className="text-[10px] font-mono uppercase tracking-wider text-ink-3 ml-6 mr-2">Tipo</div>
-        <ModeChip active={typeFilter === 'all'} onClick={() => setTypeFilter('all')}>Todos</ModeChip>
-        <ModeChip active={typeFilter === 'luz'} onClick={() => setTypeFilter('luz')}><Zap className="w-3 h-3 inline mr-1" />Luz</ModeChip>
-        <ModeChip active={typeFilter === 'gas'} onClick={() => setTypeFilter('gas')}><Flame className="w-3 h-3 inline mr-1" />Gas</ModeChip>
+      {/* KPIs principales */}
+      <section className="px-6 md:px-12 -mt-12 pb-8 relative z-10">
+        <KpiGrid totals={data.totals} />
       </section>
 
-      {/* ── KPIs ───────────────────────────────────────────────────────── */}
-      <section className="px-6 md:px-10 mt-8 grid grid-cols-1 md:grid-cols-4 gap-4">
-        <KpiCard big label="Gasto total" value={fmt(data.totals.gastoTotal, 2)} unit="€" theme="brand" />
-        <KpiCard label="Consumo anual" value={fmt(data.totals.consumoTotalKwh, 0)} unit="kWh" />
-        <KpiCard label="€/kWh medio" value={fmt(data.totals.eurPorKwhMedio, 4)} unit="€/kWh" />
-        <KpiCard label="Suministros" value={String(data.totals.suministrosCount)} unit="totales" />
+      {/* Banner cobertura */}
+      <section className="px-6 md:px-12 pb-6">
+        <CoberturaBanner totals={data.totals} fechaSips={data.fechaSipsMasReciente} />
       </section>
 
-      {/* ── Desglose por tipo (consumo siempre SIPS/Excel, gasto del periodo) ── */}
-      <section className="px-6 md:px-10 mt-8 grid grid-cols-1 md:grid-cols-2 gap-4">
-        <TipoCard
-          icon={<Zap className="w-4 h-4 text-info" />}
-          label="Electricidad"
-          gasto={data.totals.porTipo.luz.gasto}
-          kwh={data.totals.porTipo.luz.consumoAnualKwh}
-          count={data.totals.porTipo.luz.suministros}
-          total={data.totals.gastoTotal}
-        />
-        <TipoCard
-          icon={<Flame className="w-4 h-4 text-warn" />}
-          label="Gas natural"
-          gasto={data.totals.porTipo.gas.gasto}
-          kwh={data.totals.porTipo.gas.consumoAnualKwh}
-          count={data.totals.porTipo.gas.suministros}
-          total={data.totals.gastoTotal}
-        />
+      {/* Por tipo: Luz y Gas en detalle */}
+      <section className="px-6 md:px-12 pb-8 grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <BloqueLuz luz={data.totals.porTipo.luz} concentracion={data.concentracionPeriodos} />
+        <BloqueGas gas={data.totals.porTipo.gas} />
       </section>
 
-      {/* ── Serie mensual (solo si hay >1 mes) ─────────────────────────── */}
+      {/* Ahorro potencial — punch comercial */}
+      <section className="px-6 md:px-12 pb-8">
+        <AhorroPotencialCard ahorro={data.ahorroPotencial} gastoAnual={data.totals.gastoAnualizado} />
+      </section>
+
+      {/* Top consumidores + Top gastadores */}
+      <section className="px-6 md:px-12 pb-8 grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <TopCard title="Top consumidores" subtitle="Mayor consumo anual" icon={<Zap className="w-4 h-4" />} items={data.topConsumidores} metric="consumo" router={router} />
+        <TopCard title="Top gastadores" subtitle="Mayor gasto en el periodo" icon={<TrendingUp className="w-4 h-4" />} items={data.topGastadores} metric="gasto" router={router} />
+      </section>
+
+      {/* Anomalías */}
+      {data.anomalias.length > 0 && (
+        <section className="px-6 md:px-12 pb-8">
+          <AnomaliasCard items={data.anomalias} router={router} />
+        </section>
+      )}
+
+      {/* Evolución mensual */}
       {data.monthly.length >= 2 && (
-        <section className="px-6 md:px-10 mt-10">
-          <div className="flex items-baseline gap-3 mb-4">
-            <span className="text-[10px] tracking-[0.18em] font-mono text-salvia uppercase">01</span>
-            <h2 className="font-serif text-2xl md:text-3xl text-brand">Evolución mensual</h2>
-          </div>
-          <MonthlyChart monthly={data.monthly} />
+        <section className="px-6 md:px-12 pb-8">
+          <SectionBlock num="04" title="Evolución mensual" subtitle="Gasto por mes separando luz y gas">
+            <MonthlyChart monthly={data.monthly} />
+          </SectionBlock>
         </section>
       )}
 
-      {/* ── Ranking ────────────────────────────────────────────────────── */}
-      <section className="px-6 md:px-10 mt-10">
-        <div className="flex items-baseline gap-3 mb-4">
-          <span className="text-[10px] tracking-[0.18em] font-mono text-salvia uppercase">02</span>
-          <h2 className="font-serif text-2xl md:text-3xl text-brand">Ranking de suministros</h2>
-        </div>
-        <p className="text-sm text-ink-3 mb-4">
-          Clic en un suministro para ver su Anual Economics completo factura a factura.
-        </p>
-
-        <div className="rounded-2xl border border-line bg-card overflow-hidden">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-line">
-                <th className="py-3 px-4 text-left text-[10px] font-mono uppercase tracking-wider text-ink-3">Suministro</th>
-                <th className="py-3 px-4 text-left text-[10px] font-mono uppercase tracking-wider text-ink-3">Tipo</th>
-                <th className="py-3 px-4 text-left text-[10px] font-mono uppercase tracking-wider text-ink-3">Tarifa</th>
-                <th className="py-3 px-4 text-right text-[10px] font-mono uppercase tracking-wider text-ink-3">Facturas</th>
-                <th className="py-3 px-4 text-right text-[10px] font-mono uppercase tracking-wider text-ink-3">Consumo</th>
-                <th className="py-3 px-4 text-right text-[10px] font-mono uppercase tracking-wider text-ink-3">€/kWh</th>
-                <th className="py-3 px-4 text-right text-[10px] font-mono uppercase tracking-wider text-ink-3">Gasto total</th>
-                <th className="py-3 px-4 text-right text-[10px] font-mono uppercase tracking-wider text-ink-3">% total</th>
-                <th className="py-3 px-4"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.ranking.map((r) => {
-                const pct = data.totals.gastoTotal > 0 ? (r.totalGasto / data.totals.gastoTotal) * 100 : 0
-                const isGas = r.supply.type === 'gas'
-                return (
-                  <tr
-                    key={r.supply.id}
-                    onClick={() => router.push(`/supplies/${r.supply.id}?tab=economics`)}
-                    className={`border-b border-line/40 last:border-b-0 cursor-pointer hover:bg-bg-2/40 transition group ${r.sinFacturas ? 'opacity-60' : ''}`}
-                  >
-                    <td className="py-3 px-4">
-                      <div className="text-sm font-semibold text-ink">{r.supply.name || r.supply.cups || '—'}</div>
-                      <div className="text-[10px] font-mono text-ink-3">{r.supply.cups || '—'}</div>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono ${isGas ? 'bg-warn-container/40 text-warn' : 'bg-info-container/40 text-info'}`}>
-                        {isGas ? <Flame className="w-2.5 h-2.5" /> : <Zap className="w-2.5 h-2.5" />}
-                        {isGas ? 'gas' : 'luz'}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-xs font-semibold text-ink">{r.supply.tariff || '—'}</td>
-                    <td className="py-3 px-4 text-right font-mono text-sm">
-                      {r.sinFacturas ? <span className="text-ink-4 italic">sin facturas</span> : r.invoicesCount}
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono text-sm">{fmtKwh(r.consumoAnualKwh)}</td>
-                    <td className="py-3 px-4 text-right font-mono text-sm text-ink-3">{r.totalGasto > 0 ? fmt(r.eurPorKwh, 4) : '—'}</td>
-                    <td className="py-3 px-4 text-right font-mono text-sm font-semibold text-brand">{r.totalGasto > 0 ? fmtEur(r.totalGasto) : '—'}</td>
-                    <td className="py-3 px-4 text-right font-mono text-xs text-ink-3">{r.totalGasto > 0 ? fmtPct(pct) : '—'}</td>
-                    <td className="py-3 px-4 text-right">
-                      <ChevronRight className="w-4 h-4 text-ink-3 group-hover:text-brand transition" />
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-            <tfoot>
-              <tr className="border-t-2 border-brand/60 bg-bg-2/30">
-                <td className="py-3 px-4 text-sm font-semibold" colSpan={4}>TOTAL</td>
-                <td className="py-3 px-4 text-right font-mono text-sm font-semibold">{fmtKwh(data.totals.consumoTotalKwh)}</td>
-                <td className="py-3 px-4 text-right font-mono text-sm font-semibold">{fmt(data.totals.eurPorKwhMedio, 4)}</td>
-                <td className="py-3 px-4 text-right font-mono text-base font-bold text-brand">{fmtEur(data.totals.gastoTotal)}</td>
-                <td className="py-3 px-4 text-right font-mono text-xs">100,0 %</td>
-                <td />
-              </tr>
-            </tfoot>
-          </table>
-        </div>
+      {/* Ranking completo */}
+      <section className="px-6 md:px-12 pb-8">
+        <SectionBlock num="05" title="Todos los suministros" subtitle={`${data.totals.suministrosCount} suministros · ${data.totals.invoicesCount} facturas analizadas`}>
+          <RankingTable items={data.ranking} totalGasto={data.totals.gastoTotal} router={router} />
+        </SectionBlock>
       </section>
 
-      {/* ── Por tarifa ─────────────────────────────────────────────────── */}
+      {/* Reparto por tarifa */}
       {data.porTarifa.length > 1 && (
-        <section className="px-6 md:px-10 mt-10">
-          <div className="flex items-baseline gap-3 mb-4">
-            <span className="text-[10px] tracking-[0.18em] font-mono text-salvia uppercase">03</span>
-            <h2 className="font-serif text-2xl md:text-3xl text-brand">Reparto por tarifa</h2>
-          </div>
-          <div className="rounded-2xl border border-line bg-card overflow-hidden">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-line">
-                  <th className="py-2 px-4 text-left text-[10px] font-mono uppercase tracking-wider text-ink-3">Tarifa</th>
-                  <th className="py-2 px-4 text-right text-[10px] font-mono uppercase tracking-wider text-ink-3">Suministros</th>
-                  <th className="py-2 px-4 text-right text-[10px] font-mono uppercase tracking-wider text-ink-3">Consumo</th>
-                  <th className="py-2 px-4 text-right text-[10px] font-mono uppercase tracking-wider text-ink-3">Gasto total</th>
-                  <th className="py-2 px-4 text-right text-[10px] font-mono uppercase tracking-wider text-ink-3">% del total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.porTarifa.map(t => {
-                  const pct = data.totals.gastoTotal > 0 ? (t.gasto / data.totals.gastoTotal) * 100 : 0
-                  return (
-                    <tr key={t.tarifa} className="border-b border-line/40 last:border-b-0">
-                      <td className="py-2 px-4 text-sm font-semibold">{t.tarifa}</td>
-                      <td className="py-2 px-4 text-right font-mono text-sm">{t.suministros}</td>
-                      <td className="py-2 px-4 text-right font-mono text-sm">{fmtKwh(t.consumoAnualKwh)}</td>
-                      <td className="py-2 px-4 text-right font-mono text-sm font-semibold">{fmtEur(t.gasto)}</td>
-                      <td className="py-2 px-4 text-right font-mono text-xs text-ink-3">{fmtPct(pct)}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+        <section className="px-6 md:px-12 pb-8">
+          <SectionBlock num="06" title="Reparto por tarifa" subtitle="€/kWh por tipo de tarifa — el dato más útil para optimizar">
+            <TarifaTable items={data.porTarifa} totalGasto={data.totals.gastoTotal} />
+          </SectionBlock>
         </section>
       )}
 
-      <footer className="px-6 md:px-10 py-8 mt-10 border-t border-line text-[11px] text-ink-3 flex items-center justify-between">
-        <span className="font-mono tracking-wider uppercase">Voltis · Estudio económico global</span>
-        <span className="font-mono">
+      {/* Distribuidoras */}
+      {data.porDistribuidora.length > 0 && (
+        <section className="px-6 md:px-12 pb-8">
+          <SectionBlock num="07" title="Distribuidoras" subtitle="Reparto por compañía distribuidora del cliente">
+            <DistribuidoraTable items={data.porDistribuidora} />
+          </SectionBlock>
+        </section>
+      )}
+
+      <footer className="px-6 md:px-12 py-10 border-t border-blue-100 mt-8 text-xs text-slate-500 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <BuddyIcon size={20} />
+          <span>Voltis Energía · Estudio económico global</span>
+        </div>
+        <span className="num">
           Generado {new Date().toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })}
         </span>
       </footer>
@@ -383,16 +242,73 @@ export default function EconomicOverviewPage() {
   )
 }
 
-// ── Sub-componentes ─────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════════════════
+// HEADER (hero azul con Buddy)
+// ════════════════════════════════════════════════════════════════════════════
 
-function ModeChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+function Header({ data, mode, setMode, from, to, setFrom, setTo, typeFilter, setTypeFilter, router }: any) {
+  return (
+    <header className="relative overflow-hidden pb-20" style={{
+      background: 'linear-gradient(135deg, #A8C8F0 0%, #6FA0E8 60%, #4A6FE3 100%)',
+    }}>
+      <div className="absolute inset-0 opacity-30 pointer-events-none">
+        <div className="absolute top-10 right-10 w-96 h-96 rounded-full" style={{ background: 'radial-gradient(circle, #FFFFFF 0%, transparent 70%)' }} />
+      </div>
+
+      <div className="relative px-6 md:px-12 pt-8">
+        <button onClick={() => router.push(`/clients/${data.client.id}`)}
+          className="flex items-center gap-2 text-xs font-medium text-white/80 hover:text-white transition mb-8">
+          <ArrowLeft className="w-4 h-4" />
+          Volver al cliente
+        </button>
+
+        <div className="flex items-center gap-8 flex-wrap">
+          <BuddyIcon size={96} />
+          <div className="flex-1 min-w-0">
+            <div className="text-[10px] font-bold tracking-[0.22em] text-white/70 uppercase mb-2">
+              Estudio económico global
+            </div>
+            <h1 className="text-4xl md:text-5xl font-bold text-white leading-tight">
+              {data.client.name}
+            </h1>
+            <p className="text-sm text-white/80 mt-2">
+              {data.windowDescription}{' · '}
+              {data.totals.suministrosCount} suministros{' · '}
+              {data.totals.invoicesCount} facturas analizadas
+            </p>
+          </div>
+        </div>
+
+        {/* Filtros */}
+        <div className="flex flex-wrap items-center gap-2 mt-8">
+          <span className="text-[10px] font-bold tracking-wider text-white/70 uppercase mr-2">Periodo</span>
+          <Chip active={mode === 'last12'} onClick={() => setMode('last12')}>Últimas 12 facturas</Chip>
+          <Chip active={mode === 'previous_year'} onClick={() => setMode('previous_year')}>Año pasado ({new Date().getFullYear() - 1})</Chip>
+          <Chip active={mode === 'custom'} onClick={() => setMode('custom')}>Personalizado</Chip>
+          {mode === 'custom' && (
+            <div className="flex items-center gap-2 ml-2">
+              <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="px-3 py-1.5 text-xs rounded-xl bg-white/95 text-slate-700 num" />
+              <span className="text-white/70">→</span>
+              <input type="date" value={to} onChange={e => setTo(e.target.value)} className="px-3 py-1.5 text-xs rounded-xl bg-white/95 text-slate-700 num" />
+            </div>
+          )}
+
+          <span className="text-[10px] font-bold tracking-wider text-white/70 uppercase ml-6 mr-2">Tipo</span>
+          <Chip active={typeFilter === 'all'} onClick={() => setTypeFilter('all')}>Todos</Chip>
+          <Chip active={typeFilter === 'luz'} onClick={() => setTypeFilter('luz')}><Zap className="w-3 h-3 inline mr-1" />Luz</Chip>
+          <Chip active={typeFilter === 'gas'} onClick={() => setTypeFilter('gas')}><Flame className="w-3 h-3 inline mr-1" />Gas</Chip>
+        </div>
+      </div>
+    </header>
+  )
+}
+
+function Chip({ active, onClick, children }: any) {
   return (
     <button
       onClick={onClick}
-      className={`px-3 py-1.5 rounded-xl border text-xs font-mono transition ${
-        active
-          ? 'bg-brand text-volt border-brand'
-          : 'bg-card text-ink border-line hover:border-brand/40'
+      className={`px-3 py-1.5 rounded-full text-xs font-semibold transition ${
+        active ? 'bg-white text-[#4A6FE3] shadow-md' : 'bg-white/20 text-white hover:bg-white/30 backdrop-blur-sm'
       }`}
     >
       {children}
@@ -400,143 +316,555 @@ function ModeChip({ active, onClick, children }: { active: boolean; onClick: () 
   )
 }
 
-function KpiCard({ label, value, unit, theme, big }: {
-  label: string; value: string; unit?: string; theme?: 'brand'; big?: boolean
-}) {
-  if (theme === 'brand') {
-    return (
-      <div className={`rounded-3xl bg-brand text-volt p-6 ${big ? 'md:col-span-2' : ''} relative overflow-hidden`}>
-        <div className="absolute -bottom-12 -right-8 w-48 h-48 rounded-full bg-volt/10 blur-2xl pointer-events-none" />
-        <div className="text-[10px] font-mono tracking-[0.22em] uppercase text-volt/70 mb-3">{label}</div>
-        <div className="font-serif text-[3rem] md:text-[3.5rem] leading-none">
-          {value} {unit && <span className="text-[1.5rem] text-volt/80">{unit}</span>}
-        </div>
-      </div>
-    )
-  }
+// ════════════════════════════════════════════════════════════════════════════
+// BUDDY — mascota Voltis SVG inline
+// ════════════════════════════════════════════════════════════════════════════
+
+function BuddyIcon({ size = 64 }: { size?: number }) {
   return (
-    <div className="rounded-3xl bg-card border border-line p-5">
-      <div className="text-[10px] font-mono uppercase tracking-wider text-ink-3 mb-2">{label}</div>
-      <div className="font-serif text-2xl text-brand">
-        {value} {unit && <span className="text-sm text-ink-3 ml-1">{unit}</span>}
-      </div>
+    <svg width={size} height={size * 1.15} viewBox="0 0 100 115" xmlns="http://www.w3.org/2000/svg" style={{ filter: 'drop-shadow(0 8px 24px rgba(0,0,0,0.15))' }}>
+      <defs>
+        <radialGradient id="bulbGrad" cx="0.4" cy="0.3">
+          <stop offset="0%" stopColor="#FFFFFF" />
+          <stop offset="40%" stopColor="#E0EFFF" />
+          <stop offset="100%" stopColor="#A8C8F0" />
+        </radialGradient>
+        <linearGradient id="bodyGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#4A6FE3" />
+          <stop offset="100%" stopColor="#2E4FBF" />
+        </linearGradient>
+      </defs>
+      {/* Bulb glass */}
+      <ellipse cx="50" cy="42" rx="34" ry="36" fill="url(#bulbGrad)" stroke="#FFFFFF" strokeWidth="1.5" />
+      {/* Filament smile (W shape rotated) */}
+      <path d="M35 38 Q40 28 45 38 Q50 28 55 38 Q60 28 65 38" stroke="#4A6FE3" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+      {/* Cuerpo / base */}
+      <rect x="36" y="72" width="28" height="22" rx="6" fill="url(#bodyGrad)" />
+      <ellipse cx="50" cy="93" rx="14" ry="3" fill="#2E4FBF" opacity="0.4" />
+      {/* Eyes */}
+      <circle cx="44" cy="82" r="2.2" fill="#FFFFFF" />
+      <circle cx="56" cy="82" r="2.2" fill="#FFFFFF" />
+      <circle cx="44.5" cy="82.5" r="0.9" fill="#1E293B" />
+      <circle cx="56.5" cy="82.5" r="0.9" fill="#1E293B" />
+      {/* Mouth */}
+      <path d="M46 88 Q50 91 54 88" stroke="#FFFFFF" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+      {/* Legs */}
+      <rect x="40" y="94" width="6" height="14" rx="3" fill="url(#bodyGrad)" />
+      <rect x="54" y="94" width="6" height="14" rx="3" fill="url(#bodyGrad)" />
+    </svg>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// KPI Grid principal
+// ════════════════════════════════════════════════════════════════════════════
+
+function KpiGrid({ totals }: { totals: Overview['totals'] }) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <Kpi big icon={<TrendingUp className="w-5 h-5" />} label="Gasto total del periodo"
+        value={fmt(totals.gastoTotal, 2)} unit="€"
+        hint={totals.gastoAnualizado > totals.gastoTotal * 1.05
+          ? `Anualizado: ${fmt(totals.gastoAnualizado, 0)} €/año`
+          : undefined} />
+      <Kpi icon={<Activity className="w-5 h-5" />} label="Consumo anual (oficial)"
+        value={fmt(totals.consumoTotalKwh, 0)} unit="kWh"
+        hint={`Cobertura facturas: ${fmtPct(totals.coberturaFacturasPct)}`} />
+      <Kpi icon={<BarChart3 className="w-5 h-5" />} label="Suministros"
+        value={String(totals.suministrosCount)} unit="totales"
+        hint={`${totals.suministrosConFacturas} con facturas en el periodo`} />
     </div>
   )
 }
 
-function TipoCard({ icon, label, gasto, kwh, count, total }: {
-  icon: React.ReactNode; label: string; gasto: number; kwh: number; count: number; total: number
-}) {
-  const pct = total > 0 ? (gasto / total) * 100 : 0
+function Kpi({ icon, label, value, unit, hint, big = false }: any) {
   return (
-    <div className="rounded-2xl bg-card border border-line p-5">
-      <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-wider text-ink-3 mb-3">
+    <div className={`rounded-2xl p-6 ${big ? 'md:col-span-1' : ''}`} style={{
+      background: big ? 'linear-gradient(135deg, #4A6FE3 0%, #2E4FBF 100%)' : '#FFFFFF',
+      color: big ? '#FFFFFF' : '#1E293B',
+      boxShadow: '0 10px 40px -10px rgba(74,111,227,0.25)',
+    }}>
+      <div className="flex items-center gap-2 mb-3" style={{ color: big ? '#C7DBFF' : '#4A6FE3' }}>
         {icon}
-        {label} · {count} suministros
+        <div className="text-[10px] font-bold tracking-[0.18em] uppercase">{label}</div>
       </div>
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <div className="font-serif text-2xl text-brand">{fmtEur(gasto)}</div>
-          <div className="text-xs text-ink-3 mt-1">{fmtKwh(kwh)}</div>
-        </div>
-        <div className="text-right">
-          <div className="text-[10px] font-mono uppercase tracking-wider text-ink-3">% del total</div>
-          <div className="font-serif text-lg text-salvia">{fmtPct(pct)}</div>
-        </div>
+      <div className="flex items-baseline gap-2">
+        <span className="text-4xl font-bold num">{value}</span>
+        {unit && <span className="text-base font-medium" style={{ color: big ? '#C7DBFF' : '#64748B' }}>{unit}</span>}
       </div>
-      {/* barra horizontal */}
-      <div className="mt-3 h-1.5 rounded-full bg-bg-2 overflow-hidden">
-        <div className="h-full bg-brand" style={{ width: `${pct}%` }} />
+      {hint && <div className="text-xs mt-3" style={{ color: big ? '#C7DBFF' : '#64748B' }}>{hint}</div>}
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Banner cobertura
+// ════════════════════════════════════════════════════════════════════════════
+
+function CoberturaBanner({ totals, fechaSips }: { totals: Overview['totals']; fechaSips: string | null }) {
+  const cobertura = totals.coberturaFacturasPct
+  const baja = cobertura < 75
+  const muyBaja = cobertura < 40
+  const color = muyBaja ? '#FEE2E2' : baja ? '#FEF3C7' : '#DCFCE7'
+  const colorBorder = muyBaja ? '#FCA5A5' : baja ? '#FCD34D' : '#86EFAC'
+  const colorText = muyBaja ? '#991B1B' : baja ? '#92400E' : '#166534'
+
+  return (
+    <div className="rounded-2xl p-4 flex items-center gap-3 border" style={{ background: color, borderColor: colorBorder }}>
+      <AlertTriangle className="w-5 h-5 flex-shrink-0" style={{ color: colorText }} />
+      <div className="flex-1 text-sm" style={{ color: colorText }}>
+        <span className="font-bold">{fmtPct(cobertura)} de cobertura.</span>{' '}
+        Las facturas analizadas cubren {fmt(totals.consumoFacturadoTotalKwh, 0)} kWh de los {fmt(totals.consumoTotalKwh, 0)} kWh anuales del cliente (SIPS/Excel).
+        {fechaSips && <span> Datos SIPS actualizados: {new Date(fechaSips).toLocaleDateString('es-ES')}.</span>}
+        {totals.suministrosSinConsumo > 0 && (
+          <span> {totals.suministrosSinConsumo} suministros sin consumo SIPS registrado.</span>
+        )}
       </div>
     </div>
   )
 }
 
-function CustomEmptyState({
-  clientId, mode, setMode, from, to, setFrom, setTo, typeFilter, setTypeFilter, router,
-}: {
-  clientId: string
-  mode: Mode; setMode: (m: Mode) => void
-  from: string; to: string; setFrom: (s: string) => void; setTo: (s: string) => void
-  typeFilter: TypeFilter; setTypeFilter: (t: TypeFilter) => void
-  router: ReturnType<typeof useRouter>
-}) {
+// ════════════════════════════════════════════════════════════════════════════
+// BloqueLuz — todo el detalle eléctrico
+// ════════════════════════════════════════════════════════════════════════════
+
+function BloqueLuz({ luz, concentracion }: { luz: Overview['totals']['porTipo']['luz']; concentracion: Overview['concentracionPeriodos'] }) {
+  if (luz.suministros === 0) return null
+  const periodos: Array<{ k: string; lbl: string; color: string }> = [
+    { k: 'P1', lbl: 'Punta', color: '#FBBF24' },
+    { k: 'P2', lbl: 'Llano', color: '#A78BFA' },
+    { k: 'P3', lbl: 'Valle', color: '#34D399' },
+    { k: 'P4', lbl: 'P4', color: '#FB7185' },
+    { k: 'P5', lbl: 'P5', color: '#60A5FA' },
+    { k: 'P6', lbl: 'Supervalle', color: '#22C55E' },
+  ]
+  const totalP = Object.values(luz.consumoPorPeriodo).reduce((s, v) => s + v, 0) || 1
+
   return (
-    <div className="min-h-screen bg-bg text-ink font-sans">
-      <header className="px-6 md:px-10 pt-8 pb-6 border-b border-line/60">
-        <div className="flex items-center justify-between mb-6">
-          <button
-            onClick={() => router.push(`/clients/${clientId}`)}
-            className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-ink-3 hover:text-brand transition"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            Volver al cliente
-          </button>
+    <div className="rounded-2xl bg-white p-6 space-y-5" style={{ boxShadow: '0 10px 40px -10px rgba(74,111,227,0.15)' }}>
+      <div className="flex items-center gap-3">
+        <div className="rounded-xl p-2.5" style={{ background: '#FEF3C7', color: '#B45309' }}><Zap className="w-5 h-5" /></div>
+        <div className="flex-1">
+          <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-slate-500">Electricidad</div>
+          <h3 className="text-xl font-bold text-slate-800">{luz.suministros} suministros</h3>
         </div>
-        <div className="text-[10px] font-mono tracking-[0.22em] text-salvia uppercase mb-3">
-          Estudio económico global
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <MiniKpi label="Gasto" value={fmtEur(luz.gasto)} />
+        <MiniKpi label="Consumo anual" value={fmtKwh(luz.consumoAnualKwh)} />
+        <MiniKpi label="€/kWh medio" value={fmt(luz.eurPorKwhMedio, 4)} unit="€/kWh" />
+      </div>
+
+      {(luz.excesos > 0 || luz.reactiva > 0) && (
+        <div className="rounded-xl p-3 border-l-4 border-amber-400 bg-amber-50 text-xs space-y-1">
+          {luz.excesos > 0 && (
+            <div className="text-amber-800">
+              <strong className="num">{fmtEur(luz.excesos)}</strong> facturados en <strong>excesos de potencia</strong> — recuperable renegociando potencias contratadas.
+            </div>
+          )}
+          {luz.reactiva > 0 && (
+            <div className="text-amber-800">
+              <strong className="num">{fmtEur(luz.reactiva)}</strong> en <strong>energía reactiva</strong> — corregible con batería de condensadores.
+            </div>
+          )}
         </div>
-        <h1 className="font-serif text-[2.5rem] md:text-[3rem] leading-[1.05] text-brand mb-2">
-          Selecciona un periodo
-        </h1>
-      </header>
-      <section className="px-6 md:px-10 mt-6 flex flex-wrap items-center gap-3">
-        <div className="text-[10px] font-mono uppercase tracking-wider text-ink-3 mr-2">Periodo</div>
-        <ModeChip active={mode === 'last12'} onClick={() => setMode('last12')}>Últimas 12 facturas</ModeChip>
-        <ModeChip active={mode === 'previous_year'} onClick={() => setMode('previous_year')}>Año pasado ({new Date().getFullYear() - 1})</ModeChip>
-        <ModeChip active={mode === 'custom'} onClick={() => setMode('custom')}>Personalizado</ModeChip>
-        {mode === 'custom' && (
-          <div className="flex items-center gap-2 ml-2">
-            <input type="date" value={from} onChange={e => setFrom(e.target.value)}
-              className="px-2 py-1 text-xs rounded-lg bg-card border border-line font-mono" />
-            <span className="text-ink-4">→</span>
-            <input type="date" value={to} onChange={e => setTo(e.target.value)}
-              className="px-2 py-1 text-xs rounded-lg bg-card border border-line font-mono" />
+      )}
+
+      {/* Concentración periodos */}
+      {totalP > 1 && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-slate-500">Concentración por periodo</div>
+            <div className="text-xs text-slate-600">
+              Dominante: <strong className="text-slate-800">{concentracion.dominante}</strong> · {fmtPct(concentracion.dominantePct)}
+            </div>
           </div>
-        )}
-        <div className="text-[10px] font-mono uppercase tracking-wider text-ink-3 ml-6 mr-2">Tipo</div>
-        <ModeChip active={typeFilter === 'all'} onClick={() => setTypeFilter('all')}>Todos</ModeChip>
-        <ModeChip active={typeFilter === 'luz'} onClick={() => setTypeFilter('luz')}><Zap className="w-3 h-3 inline mr-1" />Luz</ModeChip>
-        <ModeChip active={typeFilter === 'gas'} onClick={() => setTypeFilter('gas')}><Flame className="w-3 h-3 inline mr-1" />Gas</ModeChip>
-      </section>
-      <section className="px-6 md:px-10 mt-12 max-w-2xl">
-        <div className="rounded-2xl border border-dashed border-line bg-card p-8 text-center">
-          <p className="text-sm text-ink-3">
-            Indica una fecha de inicio y otra de fin para ver el estudio económico del rango personalizado.
-          </p>
+          <div className="flex h-7 rounded-lg overflow-hidden" style={{ boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.05)' }}>
+            {periodos.map(p => {
+              const pct = (luz.consumoPorPeriodo[p.k] / totalP) * 100
+              if (pct < 0.5) return null
+              return (
+                <div key={p.k} style={{ width: `${pct}%`, background: p.color }}
+                  className="flex items-center justify-center text-[10px] font-bold text-white"
+                  title={`${p.k} ${p.lbl}: ${fmtPct(pct)} · ${fmtKwh(luz.consumoPorPeriodo[p.k])}`}>
+                  {pct > 8 ? `${p.k} ${pct.toFixed(0)}%` : ''}
+                </div>
+              )
+            })}
+          </div>
+          <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mt-3 text-[11px]">
+            {periodos.map(p => (
+              <div key={p.k} className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm" style={{ background: p.color }} />
+                <span className="text-slate-600">{p.k}: {fmt(luz.consumoPorPeriodo[p.k], 0)} kWh</span>
+              </div>
+            ))}
+          </div>
         </div>
-      </section>
+      )}
+
+      {/* Precio medio por periodo */}
+      {Object.values(luz.precioMedioPorPeriodo).some(v => v > 0) && (
+        <div>
+          <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-slate-500 mb-2">Precio medio €/kWh por periodo</div>
+          <div className="grid grid-cols-3 md:grid-cols-6 gap-2 text-xs">
+            {periodos.map(p => {
+              const v = luz.precioMedioPorPeriodo[p.k] || 0
+              if (v === 0) return null
+              return (
+                <div key={p.k} className="rounded-lg bg-slate-50 p-2 text-center">
+                  <div className="text-[10px] text-slate-500 font-bold">{p.k}</div>
+                  <div className="text-sm font-semibold text-slate-800 num">{fmt(v, 4)}</div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// BloqueGas
+// ════════════════════════════════════════════════════════════════════════════
+
+function BloqueGas({ gas }: { gas: Overview['totals']['porTipo']['gas'] }) {
+  if (gas.suministros === 0) return null
+  return (
+    <div className="rounded-2xl bg-white p-6 space-y-5" style={{ boxShadow: '0 10px 40px -10px rgba(74,111,227,0.15)' }}>
+      <div className="flex items-center gap-3">
+        <div className="rounded-xl p-2.5" style={{ background: '#FFEDD5', color: '#C2410C' }}><Flame className="w-5 h-5" /></div>
+        <div className="flex-1">
+          <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-slate-500">Gas natural</div>
+          <h3 className="text-xl font-bold text-slate-800">{gas.suministros} suministros</h3>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <MiniKpi label="Gasto" value={fmtEur(gas.gasto)} />
+        <MiniKpi label="Consumo anual" value={fmtKwh(gas.consumoAnualKwh)} />
+        <MiniKpi label="€/kWh medio" value={fmt(gas.eurPorKwhMedio, 4)} unit="€/kWh" />
+      </div>
+
+      <div className="rounded-xl p-3 bg-slate-50 text-xs text-slate-600 leading-relaxed">
+        Consumo anual oficial del Excel ConsumoAnual de la distribuidora. En gas el único concepto competitivo es el TV Precio Fijo (€/kWh) — término fijo, peaje, IEH y alquileres son regulados.
+      </div>
+    </div>
+  )
+}
+
+function MiniKpi({ label, value, unit }: { label: string; value: string; unit?: string }) {
+  return (
+    <div className="rounded-xl bg-slate-50 p-3">
+      <div className="text-[10px] font-bold tracking-wider uppercase text-slate-500 mb-1">{label}</div>
+      <div className="text-base font-bold num text-slate-800">
+        {value} {unit && <span className="text-xs font-medium text-slate-500">{unit}</span>}
+      </div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// AHORRO POTENCIAL — punch comercial
+// ════════════════════════════════════════════════════════════════════════════
+
+function AhorroPotencialCard({ ahorro, gastoAnual }: { ahorro: Overview['ahorroPotencial']; gastoAnual: number }) {
+  if (ahorro.total < 100) return null
+  const pct = gastoAnual > 0 ? (ahorro.total / gastoAnual) * 100 : 0
+  return (
+    <div className="rounded-3xl p-7 relative overflow-hidden" style={{
+      background: 'linear-gradient(135deg, #4A6FE3 0%, #2E4FBF 100%)',
+      color: '#FFFFFF',
+      boxShadow: '0 20px 60px -15px rgba(74,111,227,0.5)',
+    }}>
+      <div className="absolute -right-12 -bottom-12 opacity-20"><BuddyIcon size={180} /></div>
+
+      <div className="relative">
+        <div className="flex items-center gap-2 mb-2">
+          <Sparkles className="w-5 h-5 text-yellow-300" />
+          <div className="text-[10px] font-bold tracking-[0.22em] uppercase text-blue-100">Ahorro potencial estimado</div>
+        </div>
+        <div className="text-5xl md:text-6xl font-bold num mb-2">{fmt(ahorro.total, 0)} €<span className="text-2xl text-blue-200 ml-2">/año</span></div>
+        <div className="text-blue-100 text-sm mb-5">
+          ≈ {fmtPct(pct)} sobre el gasto anual estimado del cliente
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {ahorro.excesosPotencia > 50 && (
+            <PalancaCard icon={<Target className="w-4 h-4" />} label="Renegociar potencias" value={ahorro.excesosPotencia} />
+          )}
+          {ahorro.cambioTarifa > 50 && (
+            <PalancaCard icon={<TrendingDown className="w-4 h-4" />} label="Optimización tarifaria" value={ahorro.cambioTarifa} />
+          )}
+          {ahorro.correccionReactiva > 50 && (
+            <PalancaCard icon={<Activity className="w-4 h-4" />} label="Corrección reactiva" value={ahorro.correccionReactiva} />
+          )}
+        </div>
+
+        <div className="mt-5 text-xs text-blue-100">
+          Estimación conservadora a partir de los conceptos facturados (excesos de potencia, energía reactiva) y el reparto por periodos. El ahorro real puede ser mayor tras estudio detallado por suministro.
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PalancaCard({ icon, label, value }: any) {
+  return (
+    <div className="rounded-xl p-4 bg-white/10 backdrop-blur-sm">
+      <div className="flex items-center gap-2 text-blue-100 text-[10px] font-bold tracking-wider uppercase mb-2">
+        {icon}{label}
+      </div>
+      <div className="text-2xl font-bold num">{fmt(value, 0)} €</div>
+      <div className="text-xs text-blue-200">al año</div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Top consumidores/gastadores
+// ════════════════════════════════════════════════════════════════════════════
+
+function TopCard({ title, subtitle, icon, items, metric, router }: any) {
+  if (!items?.length) return null
+  return (
+    <div className="rounded-2xl bg-white p-6" style={{ boxShadow: '0 10px 40px -10px rgba(74,111,227,0.15)' }}>
+      <div className="flex items-center gap-3 mb-5">
+        <div className="rounded-xl p-2 text-[#4A6FE3] bg-blue-50">{icon}</div>
+        <div>
+          <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-slate-500">{title}</div>
+          <div className="text-xs text-slate-500">{subtitle}</div>
+        </div>
+      </div>
+      <div className="space-y-2">
+        {items.map((r: any, i: number) => (
+          <button key={r.supply.id}
+            onClick={() => router.push(`/supplies/${r.supply.id}?tab=economics`)}
+            className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-blue-50 transition text-left">
+            <div className="text-xs font-bold text-slate-400 w-6">#{i + 1}</div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold text-slate-800 truncate">{r.supply.name || r.supply.cups}</div>
+              <div className="text-[10px] num text-slate-500">{r.supply.cups} · {r.supply.tariff}</div>
+            </div>
+            <div className="text-right">
+              <div className="text-sm font-bold num text-slate-800">
+                {metric === 'consumo' ? fmtKwh(r.consumoAnualKwh) : fmtEur(r.totalGasto)}
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-slate-400" />
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Anomalías
+// ════════════════════════════════════════════════════════════════════════════
+
+function AnomaliasCard({ items, router }: { items: SupplyAggregate[]; router: any }) {
+  return (
+    <div className="rounded-2xl bg-white p-6 border-l-4 border-amber-400" style={{ boxShadow: '0 10px 40px -10px rgba(245,158,11,0.2)' }}>
+      <div className="flex items-center gap-3 mb-3">
+        <div className="rounded-xl p-2 bg-amber-100 text-amber-700"><AlertTriangle className="w-5 h-5" /></div>
+        <div className="flex-1">
+          <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-amber-700">Anomalías detectadas</div>
+          <h3 className="text-base font-bold text-slate-800">{items.length} suministros con €/kWh fuera de rango</h3>
+        </div>
+      </div>
+      <p className="text-xs text-slate-600 mb-3">
+        Estos suministros tienen un €/kWh anómalo respecto a la media del cliente — revisarlos puede revelar errores de facturación o tarifas mal contratadas.
+      </p>
+      <div className="space-y-2">
+        {items.slice(0, 5).map(r => (
+          <button key={r.supply.id} onClick={() => router.push(`/supplies/${r.supply.id}?tab=economics`)}
+            className="w-full flex items-center gap-3 p-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 transition text-left">
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold text-slate-800 truncate">{r.supply.name || r.supply.cups}</div>
+              <div className="text-[10px] num text-slate-500">{r.supply.tariff}</div>
+            </div>
+            <div className="text-right">
+              <div className="text-[10px] uppercase tracking-wider text-amber-700 font-bold">€/kWh</div>
+              <div className="text-sm font-bold num text-amber-900">{fmt(r.eurPorKwh, 4)}</div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-amber-700" />
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Sección genérica
+// ════════════════════════════════════════════════════════════════════════════
+
+function SectionBlock({ num, title, subtitle, children }: any) {
+  return (
+    <div>
+      <div className="flex items-baseline gap-3 mb-4">
+        <span className="text-[10px] font-bold tracking-[0.18em] uppercase num text-[#4A6FE3]">{num}</span>
+        <div>
+          <h2 className="text-2xl font-bold text-slate-800">{title}</h2>
+          {subtitle && <p className="text-sm text-slate-500">{subtitle}</p>}
+        </div>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Ranking completo
+// ════════════════════════════════════════════════════════════════════════════
+
+function RankingTable({ items, totalGasto, router }: { items: SupplyAggregate[]; totalGasto: number; router: any }) {
+  return (
+    <div className="rounded-2xl bg-white overflow-hidden" style={{ boxShadow: '0 10px 40px -10px rgba(74,111,227,0.15)' }}>
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-slate-100 bg-slate-50">
+              <th className="py-3 px-4 text-left text-[10px] font-bold tracking-wider uppercase text-slate-500">Suministro</th>
+              <th className="py-3 px-4 text-left text-[10px] font-bold tracking-wider uppercase text-slate-500">Tipo</th>
+              <th className="py-3 px-4 text-left text-[10px] font-bold tracking-wider uppercase text-slate-500">Tarifa</th>
+              <th className="py-3 px-4 text-right text-[10px] font-bold tracking-wider uppercase text-slate-500">Facturas</th>
+              <th className="py-3 px-4 text-right text-[10px] font-bold tracking-wider uppercase text-slate-500">Consumo anual</th>
+              <th className="py-3 px-4 text-right text-[10px] font-bold tracking-wider uppercase text-slate-500">€/kWh</th>
+              <th className="py-3 px-4 text-right text-[10px] font-bold tracking-wider uppercase text-slate-500">Gasto</th>
+              <th className="py-3 px-4 text-right text-[10px] font-bold tracking-wider uppercase text-slate-500">% total</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {items.map(r => {
+              const pct = totalGasto > 0 ? (r.totalGasto / totalGasto) * 100 : 0
+              const isGas = r.supply.type === 'gas'
+              return (
+                <tr key={r.supply.id}
+                  onClick={() => router.push(`/supplies/${r.supply.id}?tab=economics`)}
+                  className={`border-b border-slate-50 cursor-pointer hover:bg-blue-50 transition ${r.sinFacturas ? 'opacity-60' : ''} ${r.esAnomalo ? 'bg-amber-50/40' : ''}`}>
+                  <td className="py-3 px-4">
+                    <div className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                      {r.supply.name || r.supply.cups}
+                      {r.esAnomalo && <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />}
+                    </div>
+                    <div className="text-[10px] num text-slate-400">{r.supply.cups}</div>
+                  </td>
+                  <td className="py-3 px-4">
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${isGas ? 'bg-orange-100 text-orange-700' : 'bg-yellow-100 text-yellow-800'}`}>
+                      {isGas ? <Flame className="w-2.5 h-2.5" /> : <Zap className="w-2.5 h-2.5" />}
+                      {isGas ? 'gas' : 'luz'}
+                    </span>
+                  </td>
+                  <td className="py-3 px-4 text-xs font-semibold text-slate-700">{r.supply.tariff || '—'}</td>
+                  <td className="py-3 px-4 text-right num text-sm text-slate-700">
+                    {r.sinFacturas ? <span className="italic text-slate-400">sin facturas</span> : r.invoicesCount}
+                  </td>
+                  <td className="py-3 px-4 text-right num text-sm text-slate-700">{fmtKwh(r.consumoAnualKwh)}</td>
+                  <td className="py-3 px-4 text-right num text-sm text-slate-500">{r.eurPorKwh > 0 ? fmt(r.eurPorKwh, 4) : '—'}</td>
+                  <td className="py-3 px-4 text-right num text-sm font-bold text-[#4A6FE3]">{r.totalGasto > 0 ? fmtEur(r.totalGasto) : '—'}</td>
+                  <td className="py-3 px-4 text-right num text-xs text-slate-500">{r.totalGasto > 0 ? fmtPct(pct) : '—'}</td>
+                  <td className="py-3 px-2"><ChevronRight className="w-4 h-4 text-slate-300" /></td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Tabla por tarifa
+// ════════════════════════════════════════════════════════════════════════════
+
+function TarifaTable({ items, totalGasto }: any) {
+  return (
+    <div className="rounded-2xl bg-white overflow-hidden" style={{ boxShadow: '0 10px 40px -10px rgba(74,111,227,0.15)' }}>
+      <table className="w-full">
+        <thead>
+          <tr className="border-b border-slate-100 bg-slate-50">
+            <th className="py-3 px-4 text-left text-[10px] font-bold tracking-wider uppercase text-slate-500">Tarifa</th>
+            <th className="py-3 px-4 text-right text-[10px] font-bold tracking-wider uppercase text-slate-500">Suministros</th>
+            <th className="py-3 px-4 text-right text-[10px] font-bold tracking-wider uppercase text-slate-500">Consumo anual</th>
+            <th className="py-3 px-4 text-right text-[10px] font-bold tracking-wider uppercase text-slate-500">€/kWh</th>
+            <th className="py-3 px-4 text-right text-[10px] font-bold tracking-wider uppercase text-slate-500">Gasto</th>
+            <th className="py-3 px-4 text-right text-[10px] font-bold tracking-wider uppercase text-slate-500">% total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((t: any) => {
+            const pct = totalGasto > 0 ? (t.gasto / totalGasto) * 100 : 0
+            return (
+              <tr key={t.tarifa} className="border-b border-slate-50 hover:bg-blue-50/40">
+                <td className="py-3 px-4 text-sm font-semibold text-slate-800">{t.tarifa}</td>
+                <td className="py-3 px-4 text-right num text-sm">{t.suministros}</td>
+                <td className="py-3 px-4 text-right num text-sm">{fmtKwh(t.consumoAnualKwh)}</td>
+                <td className="py-3 px-4 text-right num text-sm font-semibold text-[#4A6FE3]">{t.eurPorKwh > 0 ? fmt(t.eurPorKwh, 4) : '—'}</td>
+                <td className="py-3 px-4 text-right num text-sm font-bold">{fmtEur(t.gasto)}</td>
+                <td className="py-3 px-4 text-right num text-xs text-slate-500">{fmtPct(pct)}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function DistribuidoraTable({ items }: any) {
+  return (
+    <div className="rounded-2xl bg-white p-5" style={{ boxShadow: '0 10px 40px -10px rgba(74,111,227,0.15)' }}>
+      <div className="space-y-2">
+        {items.map((d: any) => (
+          <div key={d.distribuidora} className="flex items-center justify-between p-3 rounded-xl bg-slate-50">
+            <div className="text-sm font-semibold text-slate-800">{d.distribuidora}</div>
+            <div className="flex items-center gap-6 text-xs text-slate-600">
+              <span><strong>{d.suministros}</strong> suministros</span>
+              <span className="num">{fmtKwh(d.consumoAnualKwh)}</span>
+              <span className="num font-bold text-[#4A6FE3]">{fmtEur(d.gasto)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Gráfico mensual
+// ════════════════════════════════════════════════════════════════════════════
 
 function MonthlyChart({ monthly }: { monthly: Monthly[] }) {
   const max = Math.max(...monthly.map(m => m.total), 1)
-  const w = 800
-  const h = 240
-  const pad = 30
+  const w = 800, h = 260, pad = 40
   const xStep = monthly.length > 1 ? (w - 2 * pad) / (monthly.length - 1) : 0
   const yFor = (v: number) => h - pad - (v / max) * (h - 2 * pad)
 
   return (
-    <div className="rounded-2xl border border-line bg-card p-6">
+    <div className="rounded-2xl bg-white p-6" style={{ boxShadow: '0 10px 40px -10px rgba(74,111,227,0.15)' }}>
       <div className="overflow-x-auto">
-        <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-auto" preserveAspectRatio="xMidYMid meet">
-          {/* Bars stacked (luz + gas) */}
+        <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-auto">
+          <line x1={pad} y1={h - pad} x2={w - pad} y2={h - pad} stroke="#E2E8F0" />
           {monthly.map((m, i) => {
-            const x = pad + i * xStep - 12
+            const x = pad + i * xStep - 14
             const yLuz = yFor(m.totalLuz)
-            const yGas = yFor(m.totalLuz + m.totalGas)
+            const yTotal = yFor(m.total)
             const hLuz = (h - pad) - yLuz
-            const hGas = yLuz - yGas
+            const hGas = yLuz - yTotal
             return (
               <g key={i}>
-                {m.totalGas > 0 && <rect x={x} y={yGas} width={24} height={hGas} fill="#E8B89A" />}
-                {m.totalLuz > 0 && <rect x={x} y={yLuz} width={24} height={hLuz} fill="#6B8068" />}
-                <text x={pad + i * xStep} y={h - 6} textAnchor="middle" className="font-mono" fontSize="9" fill="#5A6B5F">
+                {m.totalGas > 0 && <rect x={x} y={yTotal} width={28} height={hGas} fill="#FB923C" rx={2} />}
+                {m.totalLuz > 0 && <rect x={x} y={yLuz} width={28} height={hLuz} fill="#4A6FE3" rx={2} />}
+                <text x={pad + i * xStep} y={h - 10} textAnchor="middle" fontSize="10" fill="#64748B" className="num">
                   {MESES_SHORT[m.month]} {String(m.year).slice(-2)}
                 </text>
-                <text x={pad + i * xStep} y={yFor(m.total) - 4} textAnchor="middle" className="font-mono" fontSize="9" fill="#2D3A33">
+                <text x={pad + i * xStep} y={yTotal - 5} textAnchor="middle" fontSize="9" fill="#1E293B" className="num">
                   {m.total > 10000 ? `${Math.round(m.total / 1000)}k` : Math.round(m.total)}
                 </text>
               </g>
@@ -544,10 +872,29 @@ function MonthlyChart({ monthly }: { monthly: Monthly[] }) {
           })}
         </svg>
       </div>
-      <div className="flex items-center gap-4 mt-4 text-[11px] font-mono text-ink-3">
-        <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-sm" style={{ background: '#6B8068' }} /> Electricidad</div>
-        <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-sm" style={{ background: '#E8B89A' }} /> Gas</div>
+      <div className="flex items-center gap-4 mt-4 text-xs text-slate-600">
+        <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-sm" style={{ background: '#4A6FE3' }} /> Electricidad</div>
+        <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-sm" style={{ background: '#FB923C' }} /> Gas</div>
       </div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Empty state custom
+// ════════════════════════════════════════════════════════════════════════════
+
+function CustomEmptyState({ clientId, mode, setMode, from, to, setFrom, setTo, typeFilter, setTypeFilter, router }: any) {
+  return (
+    <div className="min-h-screen" style={{ background: '#F0F6FF' }}>
+      <Header data={{ client: { id: clientId, name: '—' }, totals: { suministrosCount: 0, invoicesCount: 0 }, windowDescription: '' }}
+        mode={mode} setMode={setMode} from={from} to={to} setFrom={setFrom} setTo={setTo}
+        typeFilter={typeFilter} setTypeFilter={setTypeFilter} router={router} />
+      <section className="px-6 md:px-12 -mt-12 relative z-10">
+        <div className="rounded-2xl bg-white p-8 text-center text-slate-600" style={{ boxShadow: '0 10px 40px -10px rgba(74,111,227,0.15)' }}>
+          Selecciona una fecha de inicio y otra de fin para ver el estudio personalizado.
+        </div>
+      </section>
     </div>
   )
 }

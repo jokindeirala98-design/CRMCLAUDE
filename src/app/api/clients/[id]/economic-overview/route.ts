@@ -62,9 +62,6 @@ export async function GET(
     //    El consumo anual autoritativo viene de supply.consumption_data:
     //      - LUZ: SIPS (totalKwh / consumoPeriodos del Greening API)
     //      - GAS: ConsumoAnual del Excel Maestro (mismo campo totalKwh)
-    //    NO se calcula sumando facturas (las facturas pueden tener consumos
-    //    mal extraídos, periodos solapados o estar incompletas — la fuente
-    //    fiable del consumo anual es siempre el sistema de origen).
     const flatSupplies = supplies.map((s: any) => {
       const com = Array.isArray(s.comercializadora) ? s.comercializadora[0] : s.comercializadora
       const cd = (s.consumption_data || {}) as any
@@ -77,7 +74,10 @@ export async function GET(
         name: s.name,
         address: s.address,
         comercializadora: com?.name || null,
+        distribuidora: cd.distribuidora || null,
         consumoAnualKwh: consumoAnual,
+        fechaSipsActualizado: cd.fetched_at || cd.fechaUltimaLectura || null,
+        potenciaContratada: cd.potenciaContratada || null,
       }
     })
     const allInvoices: any[] = []
