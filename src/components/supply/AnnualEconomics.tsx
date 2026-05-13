@@ -2398,12 +2398,100 @@ function GasReportView({ invoices, supplyName, onBack, gasHistory }: {
 }) {
   const validInvoices = useMemo(() => invoices.filter(hasUsableData), [invoices])
 
+  // ── Years available across all valid invoices ────────────────────────────
+  const availableYears = useMemo(() => {
+    const yrs = new Set<number>()
+    validInvoices.forEach(inv => {
+      const { start, end } = getInvoiceDates(inv)
+      const { year } = getAssignedMonth(start, end)
+      if (year > 0) yrs.add(year)
+    })
+    return Array.from(yrs).sort()
+  }, [validInvoices])
+
+  // ── Year + Month filter state (mirrors electricity ReportView) ────────────
+  // Default: latest year if there are multiple years, otherwise 'all'.
+  // This avoids showing accumulated multi-year totals for supplies like COLEGIO
+  // (gas) where 114 facturas span 6+ years.
+  const defaultYear = availableYears.length > 1 ? availableYears[availableYears.length - 1] : 'all'
+  const [selectedYear, setSelectedYear] = useState<number | 'all'>(defaultYear)
+  const [selectedMonths, setSelectedMonths] = useState<Set<number>>(new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]))
+  const [dragAnchor, setDragAnchor] = useState<number | null>(null)
+
+  const isAnnual = selectedMonths.size === 12
+
+  const selectYear = (yr: number | 'all') => {
+    setSelectedYear(yr)
+    setSelectedMonths(new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]))
+  }
+  const toggleMonth = (monthIdx: number) => {
+    setSelectedMonths(prev => {
+      const next = new Set(prev)
+      if (next.has(monthIdx)) { if (next.size > 1) next.delete(monthIdx) }
+      else { next.add(monthIdx) }
+      return next
+    })
+  }
+  const selectAllMonths = () => setSelectedMonths(new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]))
+  const applyRange = (a: number, b: number) => {
+    const lo = Math.min(a, b); const hi = Math.max(a, b)
+    startTransition(() => setSelectedMonths(new Set(Array.from({ length: hi - lo + 1 }, (_, k) => lo + k))))
+  }
+  const handleMonthMouseDown = (i: number, e: React.MouseEvent) => {
+    e.preventDefault()
+    setDragAnchor(i)
+    startTransition(() => setSelectedMonths(new Set([i])))
+  }
+  const handleMonthMouseEnter = (i: number) => {
+    if (dragAnchor === null) return
+    applyRange(dragAnchor, i)
+  }
+
+  useEffect(() => {
+    const onUp = () => setDragAnchor(null)
+    window.addEventListener('mouseup', onUp)
+    return () => window.removeEventListener('mouseup', onUp)
+  }, [])
+
+  // Which months actually have data for the selected year context
+  const monthsWithData = useMemo(() => {
+    const months = new Set<number>()
+    const yearBase = selectedYear === 'all'
+      ? validInvoices
+      : validInvoices.filter(inv => {
+          const { start, end } = getInvoiceDates(inv)
+          return getAssignedMonth(start, end).year === selectedYear
+        })
+    yearBase.forEach(inv => {
+      const { start, end } = getInvoiceDates(inv)
+      const { month } = getAssignedMonth(start, end)
+      if (month >= 0 && month <= 11) months.add(month)
+    })
+    return months
+  }, [validInvoices, selectedYear])
+
+  // Filtered invoices by selected year AND selected months
+  const filteredInvoices = useMemo(() => {
+    let base = validInvoices
+    if (selectedYear !== 'all') {
+      base = base.filter(inv => {
+        const { start, end } = getInvoiceDates(inv)
+        return getAssignedMonth(start, end).year === selectedYear
+      })
+    }
+    return base.filter(inv => {
+      const { start, end } = getInvoiceDates(inv)
+      const { month } = getAssignedMonth(start, end)
+      return selectedMonths.has(month)
+    })
+  }, [validInvoices, selectedYear, selectedMonths])
+
   const { tableData, summaryStats, pieData } = useMemo(() => {
     let totalKwh = 0, totalEur = 0, totalEnergyNet = 0
     let totalTerminoFijo = 0, totalImpuesto = 0, totalAlquiler = 0, totalIva = 0
     let adjustedCount = 0
 
-    const tData = validInvoices.map(inv => {
+    const tData = filteredInvoices.map(inv => {
       const eco = getEco(inv)!
       const gp = eco.gasPricing || {} as GasPricing
       const { start, end } = getInvoiceDates(inv)
@@ -2460,7 +2548,7 @@ function GasReportView({ invoices, supplyName, onBack, gasHistory }: {
       summaryStats: { totalKwh, totalEur, totalEnergyNet, avgPrice, totalTerminoFijo, totalImpuesto, totalAlquiler, totalIva, adjustedCount, tariff },
       pieData: pData,
     }
-  }, [validInvoices])
+  }, [filteredInvoices])
 
   // Build chart arrays from gasHistory (if available & richer) or tableData
   // Uses sequential bars (one per period) to avoid cross-year calendar-month collisions
@@ -2520,14 +2608,74 @@ function GasReportView({ invoices, supplyName, onBack, gasHistory }: {
         <ArrowLeft className="w-5 h-5 text-[#2D3A33]" />
       </button>
 
-      <div className="relative z-10 max-w-7xl mx-auto px-8 py-20 space-y-12">
+      {/* ── Filter bar: Year pills + Month buttons (fixed at top) ──────────── */}
+      <div className="fixed top-0 inset-x-0 z-[205] flex flex-col gap-1.5 py-3 px-8 no-print"
+        style={{ background: 'rgba(244,238,226,0.92)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', borderBottom: '1px solid #E5DCC9' }}>
+
+        {/* Year pills — only shown when there are multiple years */}
+        {availableYears.length > 1 && (
+          <div className="flex items-center justify-center gap-1.5 flex-wrap">
+            <span className="text-[10px] font-bold tracking-widest text-[#8A9A8E] mr-1">AÑO</span>
+            {(['all', ...availableYears] as const).map(yr => (
+              <button
+                key={yr}
+                onClick={() => selectYear(yr as number | 'all')}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition ${
+                  selectedYear === yr
+                    ? 'bg-[#ea580c] text-[#FBF7EE]'
+                    : 'bg-[#EDE8DC] text-[#5A6B5F] hover:bg-[#E5DCC9]'
+                }`}>
+                {yr === 'all' ? 'GLOBAL' : yr}
+              </button>
+            ))}
+            <div className="w-px h-4 bg-[#E5DCC9] mx-1" />
+          </div>
+        )}
+
+        {/* Month buttons row */}
+        <div className="flex items-center gap-2 flex-wrap justify-center">
+          <button onClick={selectAllMonths}
+            className={`px-4 py-2 rounded-xl text-sm font-bold transition ${isAnnual ? 'bg-[#ea580c] text-[#FBF7EE]' : 'bg-[#EDE8DC] text-[#5A6B5F] hover:bg-[#E5DCC9]'}`}>
+            ANUAL
+          </button>
+          {CANONICAL_MONTHS.map((label, i) => {
+            const isSelected = selectedMonths.has(i)
+            const hasData = monthsWithData.has(i)
+            return (
+              <button
+                key={i}
+                data-month-idx={i}
+                onMouseDown={(e) => handleMonthMouseDown(i, e)}
+                onMouseEnter={() => handleMonthMouseEnter(i)}
+                onClick={() => toggleMonth(i)}
+                disabled={!hasData}
+                className={`px-3 py-2 rounded-xl text-xs font-bold transition select-none ${
+                  isSelected && hasData
+                    ? 'bg-[#ea580c] text-[#FBF7EE]'
+                    : hasData
+                      ? 'bg-[#EDE8DC] text-[#5A6B5F] hover:bg-[#E5DCC9]'
+                      : 'bg-[#F4EEE2] text-[#C5B89D] cursor-not-allowed'
+                }`}>
+                {label.toUpperCase()}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="relative z-10 max-w-7xl mx-auto px-8 py-24 space-y-12">
         {/* Title */}
         <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} className="text-center">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-warn-container/400/20 text-warn text-xs font-bold tracking-widest mb-4">
             <Flame className="w-4 h-4" /> INFORME DE GAS NATURAL
           </div>
           <h1 className="text-4xl font-black tracking-tight">{supplyName || 'SUMINISTRO'}</h1>
-          <p className="text-[#8A9A8E] mt-2 text-sm">{summaryStats.tariff} · {validInvoices.length} facturas analizadas</p>
+          <p className="text-[#8A9A8E] mt-2 text-sm">
+            {summaryStats.tariff} · {filteredInvoices.length} {filteredInvoices.length === 1 ? 'factura analizada' : 'facturas analizadas'}
+            {filteredInvoices.length !== validInvoices.length && (
+              <span className="text-[#C5B89D]"> · {validInvoices.length} histórico total</span>
+            )}
+          </p>
         </motion.div>
 
         {/* KPIs */}
@@ -2547,26 +2695,33 @@ function GasReportView({ invoices, supplyName, onBack, gasHistory }: {
           ))}
         </div>
 
-        {/* Cost distribution pie */}
-        {pieData.length > 0 && (
-          <div className="rounded-2xl p-6" style={glassStyle}>
-            <h3 className="text-xs font-bold tracking-[0.2em] mb-6" style={{ color: '#8A9A8E' }}>DISTRIBUCIÓN DE COSTES</h3>
-            <div className="flex flex-wrap items-center justify-center gap-8">
-              {pieData.map((item, i) => {
-                const pct = summaryStats.totalEur > 0 ? (item.value / summaryStats.totalEur * 100) : 0
-                return (
-                  <div key={i} className="flex items-center gap-3">
-                    <div className="w-4 h-4 rounded-full" style={{ background: item.color }} />
-                    <div>
-                      <p className="text-sm font-bold text-[#2D3A33]">{item.label}</p>
-                      <p className="text-xs" style={{ color: '#8A9A8E' }}>{item.value.toFixed(2)} € ({pct.toFixed(1)}%)</p>
+        {/* Cost distribution pie
+            Porcentaje = item / Σ pieData (suman 100 %) en lugar de item / totalEur,
+            porque algunas facturas tienen costeNetoConsumo sin totalFactura, lo que
+            inflaba la suma de componentes muy por encima del total facturado
+            (p.ej. 453 % de "Energía Neta"). */}
+        {pieData.length > 0 && (() => {
+          const pieSum = pieData.reduce((s, p) => s + p.value, 0)
+          return (
+            <div className="rounded-2xl p-6" style={glassStyle}>
+              <h3 className="text-xs font-bold tracking-[0.2em] mb-6" style={{ color: '#8A9A8E' }}>DISTRIBUCIÓN DE COSTES</h3>
+              <div className="flex flex-wrap items-center justify-center gap-8">
+                {pieData.map((item, i) => {
+                  const pct = pieSum > 0 ? (item.value / pieSum * 100) : 0
+                  return (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className="w-4 h-4 rounded-full" style={{ background: item.color }} />
+                      <div>
+                        <p className="text-sm font-bold text-[#2D3A33]">{item.label}</p>
+                        <p className="text-xs" style={{ color: '#8A9A8E' }}>{item.value.toFixed(2)} € ({pct.toFixed(1)}%)</p>
+                      </div>
                     </div>
-                  </div>
-                )
-              })}
+                  )
+                })}
+              </div>
             </div>
-          </div>
-        )}
+          )
+        })()}
 
         {/* Toggle chart: kWh / € */}
         {(gasChartKwh.some(m => m.totalKwh > 0) || gasChartEur.some(m => m.totalKwh > 0)) && (
