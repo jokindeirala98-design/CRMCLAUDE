@@ -163,7 +163,7 @@ export function EstudiosPendientes() {
       )}
 
       {!loading && !error && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
           {tasks.map(task => {
             const isGas = task.supply?.type === 'gas' || /^RL/i.test(task.supply?.tariff || '')
             const TypeIcon = isGas ? Flame : Zap
@@ -174,57 +174,65 @@ export function EstudiosPendientes() {
                 onDragOver={handleDragOver(task.id)}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop(task)}
-                className={`relative rounded-2xl border-2 transition-all ${
+                onClick={() => router.push(`/supplies/${task.supply_id}`)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    router.push(`/supplies/${task.supply_id}`)
+                  }
+                }}
+                className={`relative rounded-xl border transition-all cursor-pointer ${
                   drag
-                    ? 'border-[#4A6FE3] bg-blue-50 scale-[1.01]'
-                    : 'border-dashed border-line-2 bg-card hover:border-[#A8C8F0]'
+                    ? 'border-2 border-[#4A6FE3] bg-blue-50 scale-[1.01]'
+                    : 'border border-line bg-card hover:border-[#A8C8F0] hover:shadow-sm'
                 }`}
-                style={{ padding: 16 }}
+                style={{ padding: 10 }}
+                title={`Abrir ${clientLabel(task)}`}
               >
-                <div className="flex items-start gap-3 mb-3">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${isGas ? 'bg-warn-container/40 text-warn' : 'bg-blue-100 text-[#4A6FE3]'}`}>
-                    <TypeIcon className="w-5 h-5" />
+                <div className="flex items-center gap-2 mb-2">
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${isGas ? 'bg-warn-container/40 text-warn' : 'bg-blue-100 text-[#4A6FE3]'}`}>
+                    <TypeIcon className="w-3.5 h-3.5" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => router.push(`/supplies/${task.supply_id}`)}
-                        className="text-sm font-bold text-ink truncate hover:text-[#4A6FE3] transition text-left flex-1 min-w-0"
-                        title="Abrir suministro"
-                      >
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-bold text-ink truncate">
                         {clientLabel(task)}
-                        <ChevronRight className="w-3.5 h-3.5 inline-block ml-1 align-middle text-ink-4" />
-                      </button>
-                      {/* Badge con iniciales del comercial responsable */}
+                      </span>
                       <CommercialBadge commercial={task.client?.commercial} />
                     </div>
-                    <div className="text-[11px] text-ink-3 truncate font-mono mt-0.5">
-                      {task.supply?.cups || 'Sin CUPS'} · {task.supply?.tariff || '—'}
+                    <div className="text-[10px] text-ink-3 truncate font-mono">
+                      {task.supply?.cups
+                        ? `${task.supply.cups.slice(0, 4)}…${task.supply.cups.slice(-6)}`
+                        : 'Sin CUPS'}
+                      {task.supply?.tariff && ` · ${task.supply.tariff}`}
                     </div>
-                    <div className="text-[11px] text-ink-4 mt-1">
-                      <span className="font-semibold text-ink-2">{task.invoiceCount}</span> factura{task.invoiceCount === 1 ? '' : 's'} extraída{task.invoiceCount === 1 ? '' : 's'}
-                      {' · '}
-                      Desde {new Date(task.created_at).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}
-                    </div>
+                  </div>
+                  <div className="text-[10px] text-ink-4 flex-shrink-0">
+                    <span className="font-semibold text-ink-2">{task.invoiceCount}</span> fra.
                   </div>
                 </div>
 
+                {/* Dropzone — al hacer click NO debe navegar al supply, solo abrir el file picker */}
                 <label
                   htmlFor={`file-${task.id}`}
-                  className={`flex items-center justify-center gap-2 py-3 px-4 rounded-xl cursor-pointer transition text-xs font-semibold ${
+                  onClick={(e) => e.stopPropagation()}
+                  className={`flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg cursor-pointer transition text-[10px] font-semibold ${
                     drag
                       ? 'bg-[#4A6FE3] text-white'
                       : 'bg-bg-2 text-ink-2 hover:bg-blue-50 hover:text-[#4A6FE3]'
                   }`}
                 >
-                  <Upload className="w-3.5 h-3.5" />
-                  {drag ? 'Suelta para adjuntar' : 'Arrastra el estudio o haz click para subir'}
+                  <Upload className="w-3 h-3" />
+                  {drag ? 'Suelta el estudio' : 'Arrastra o sube el estudio'}
                   <input
                     id={`file-${task.id}`}
                     type="file"
                     className="hidden"
                     accept=".pdf,.xlsx,.xls,.csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     onChange={handleFileInput(task)}
+                    onClick={(e) => e.stopPropagation()}
                   />
                 </label>
               </div>

@@ -583,12 +583,18 @@ export default function ClientsPage() {
 
                     {/* Footer */}
                     <div className="flex items-center justify-between pt-2 border-t border-line">
-                      <div
-                        className="inline-flex items-center justify-center min-w-[32px] h-[22px] px-2 rounded-md bg-[#1F3A2E] text-volt text-[10px] font-bold tracking-wider flex-shrink-0"
-                        title={client.commercial?.full_name || client.commercial?.email || 'Sin comercial asignado'}
-                      >
-                        {client.commercial?.nickname || getUserInitials(client.commercial?.full_name || client.commercial?.email) || '?'}
-                      </div>
+                      {(() => {
+                        const initials = client.commercial?.nickname || getUserInitials(client.commercial?.full_name || client.commercial?.email)
+                        if (!initials) return <div />
+                        return (
+                          <div
+                            className="inline-flex items-center justify-center min-w-[32px] h-[22px] px-2 rounded-md bg-[#1F3A2E] text-volt text-[10px] font-bold tracking-wider flex-shrink-0"
+                            title={client.commercial?.full_name || client.commercial?.email || 'Comercial'}
+                          >
+                            {initials}
+                          </div>
+                        )
+                      })()}
                       <Badge variant={supplyCount > 0 ? 'info' : 'default'} hideDot>
                         {supplyCount} sum.
                       </Badge>
@@ -640,12 +646,18 @@ export default function ClientsPage() {
                     ))}
                   </div>
                   <Badge variant="info" hideDot>{supplyCount} sum.</Badge>
-                  <span
-                    className="hidden sm:inline-flex items-center justify-center min-w-[32px] h-[22px] px-2 rounded-md bg-[#1F3A2E] text-volt text-[10px] font-bold tracking-wider"
-                    title={client.commercial?.full_name || client.commercial?.email || 'Sin comercial'}
-                  >
-                    {client.commercial?.nickname || getUserInitials(client.commercial?.full_name || client.commercial?.email) || '?'}
-                  </span>
+                  {(() => {
+                    const initials = client.commercial?.nickname || getUserInitials(client.commercial?.full_name || client.commercial?.email)
+                    if (!initials) return null
+                    return (
+                      <span
+                        className="hidden sm:inline-flex items-center justify-center min-w-[32px] h-[22px] px-2 rounded-md bg-[#1F3A2E] text-volt text-[10px] font-bold tracking-wider"
+                        title={client.commercial?.full_name || client.commercial?.email || 'Comercial'}
+                      >
+                        {initials}
+                      </span>
+                    )
+                  })()}
                   <ChevronRight className="w-4 h-4 text-ink-4 group-hover:text-brand" />
                 </div>
               )

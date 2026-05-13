@@ -681,12 +681,12 @@ export default function SuppliesPage() {
                               <td className="px-5 py-3.5">
                                 <div className="flex items-center gap-2">
                                   <p className="text-sm font-medium text-ink truncate max-w-[180px]">{group.clientName}</p>
-                                  {group.commercial && (
+                                  {group.commercial?.nickname && (
                                     <span
                                       className="inline-flex items-center justify-center min-w-[28px] h-[18px] px-1.5 rounded-md bg-[#1F3A2E] text-volt text-[9px] font-bold tracking-wider flex-shrink-0"
                                       title={group.commercial.full_name || group.commercial.email || 'Comercial'}
                                     >
-                                      {group.commercial.nickname || '?'}
+                                      {group.commercial.nickname}
                                     </span>
                                   )}
                                 </div>
@@ -728,12 +728,12 @@ export default function SuppliesPage() {
                                 <span className="text-[10px] font-bold text-brand bg-brand/10 px-1.5 py-0.5 rounded-full leading-none">
                                   {group.supplies.length}
                                 </span>
-                                {group.commercial && (
+                                {group.commercial?.nickname && (
                                   <span
                                     className="inline-flex items-center justify-center min-w-[28px] h-[18px] px-1.5 rounded-md bg-[#1F3A2E] text-volt text-[9px] font-bold tracking-wider flex-shrink-0"
                                     title={group.commercial.full_name || group.commercial.email || 'Comercial'}
                                   >
-                                    {group.commercial.nickname || '?'}
+                                    {group.commercial.nickname}
                                   </span>
                                 )}
                               </div>
