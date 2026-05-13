@@ -449,7 +449,14 @@ export function TechnologicalReportView({
   onBackToTable
 }: TechnologicalReportViewProps) {
 
-  const reportRows = report?.rows_snapshot ? (report.rows_snapshot as ConsumptionSnapshot[]) : rows
+  // Si el informe está en borrador (draft), SIEMPRE leemos los rows en vivo
+  // desde la tabla consumption_snapshots. Solo cuando se publica (published)
+  // se usa el rows_snapshot congelado para preservar la versión final.
+  // Esto evita mostrar datos viejos en draft cuando los snapshots se han
+  // corregido o sincronizado desde el Excel del cliente.
+  const reportRows = (report?.status === 'published' && report?.rows_snapshot)
+    ? (report.rows_snapshot as ConsumptionSnapshot[])
+    : rows
   const classified = classifyRows(reportRows)
   const grandTotal = totalConsumption(reportRows)
   const elecTotal  = totalConsumption(classified.electricity)
