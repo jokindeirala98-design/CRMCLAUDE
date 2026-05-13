@@ -1280,7 +1280,7 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
                         onClick={(e) => { e.stopPropagation(); onRescan(inv) }}
                         disabled={busyRescan === inv.id}
                         title="Volver a analizar el PDF con IA y actualizar los datos"
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-info-container/400/20 hover:bg-info-container/400/30 text-info text-[10px] transition disabled:opacity-50"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 hover:bg-blue-200 text-blue-700 font-semibold text-[10px] transition disabled:opacity-50"
                       >
                         {busyRescan === inv.id ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <RefreshCw className="w-2.5 h-2.5" />}
                         Re-escanear
@@ -1291,7 +1291,7 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
                         onClick={(e) => { e.stopPropagation(); onDelete(inv) }}
                         disabled={busyDelete === inv.id}
                         title="Eliminar factura"
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-err-container/400/20 hover:bg-err-container/400/30 text-err text-[10px] transition disabled:opacity-50"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 hover:bg-red-200 text-red-700 font-semibold text-[10px] transition disabled:opacity-50"
                       >
                         {busyDelete === inv.id ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <X className="w-2.5 h-2.5" />}
                         Eliminar
@@ -4830,11 +4830,11 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
               </div>
               <div className="flex items-center gap-3 justify-end">
                 <button onClick={() => setConfirmDeleteId(null)}
-                  className="px-4 py-2 rounded-xl text-sm text-white/60 hover:text-white hover:bg-white/10 transition">
+                  className="px-4 py-2 rounded-xl text-sm font-medium text-[#5A6B5F] hover:bg-[#E5DCC9] transition">
                   Cancelar
                 </button>
                 <button onClick={confirmDelete}
-                  className="px-4 py-2 rounded-xl text-sm font-bold text-white bg-err-container/400/80 hover:bg-err-container/400 transition">
+                  className="px-4 py-2 rounded-xl text-sm font-bold text-white bg-[#DC2626] hover:bg-[#B91C1C] transition shadow-sm">
                   Eliminar
                 </button>
               </div>
