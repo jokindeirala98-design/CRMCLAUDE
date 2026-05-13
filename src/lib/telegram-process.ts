@@ -393,17 +393,39 @@ export async function processTelegramInboxItem(
     }
   }
 
-  // 7. Try by holder name keywords
+  // 7a. Match fuzzy por nombre canónico (ignora SL/SA/SLU, promueve nombre y
+  //     preserva alias). Este es el camino preferido: misma normalización que
+  //     usa la subida web, así clientes como "UNICE TOYS S.L." y "UNICE TOYS"
+  //     nunca se duplican.
+  if (!clientId && holderName && holderName !== 'No detectado') {
+    try {
+      const { matchClientByHolderName } = await import('@/lib/client-matcher')
+      const hasPostalCodePre = (s?: string | null) => !!s && /\b\d{5}\b/.test(s)
+      const fiscalAddrPre =
+        [extractedData?.fiscal_address, extractedData?.supply_address].find(hasPostalCodePre) ||
+        extractedData?.fiscal_address || extractedData?.supply_address || null
+      const matched = await matchClientByHolderName(supabase, {
+        holderName,
+        cifNif: holderCif,
+        fiscalAddress: fiscalAddrPre,
+      })
+      if (matched) {
+        clientId = matched.id
+        if (matched.updated) console.log(`[TelegramProcess] Cliente ${matched.name} actualizado con datos de factura nueva`)
+        else console.log(`[TelegramProcess] Matched client by canonical name: ${matched.name}`)
+      }
+    } catch (err) {
+      console.warn('[TelegramProcess] Fuzzy match error:', err)
+    }
+  }
+
+  // 7b. Fallback: keyword scoring (cubre casos no-canónicos, ej. nombres con
+  //     erratas o sin sufijo legal pero misma palabra brand).
   if (!clientId && holderName && holderName !== 'No detectado') {
     const keywords = extractKeywords(holderName)
     if (keywords.length > 0) {
-      // Use the first brand keyword (non-generic, original word order) as the
-      // primary search term. This avoids searching for generic words like
-      // "industria" that appear as substrings in many unrelated company names.
       const brandKeywords = extractBrandKeywords(holderName)
-      const primaryKeyword = brandKeywords.length > 0
-        ? brandKeywords[0]   // e.g. "rodona" instead of "industria"
-        : keywords[0]        // fallback: first keyword if all are generic
+      const primaryKeyword = brandKeywords.length > 0 ? brandKeywords[0] : keywords[0]
 
       const { data: nameMatches } = await supabase
         .from('clients')
@@ -417,12 +439,10 @@ export async function processTelegramInboxItem(
           score: keywords.filter(k => c.name.toLowerCase().includes(k)).length,
         })).sort((a, b) => b.score - a.score)
 
-        // When there are multiple keywords, require at least 2 to match
-        // to avoid single-word false positives (e.g. "industria" ≠ "industriales")
         const minScore = keywords.length >= 2 ? 2 : 1
         if (scored[0].score >= minScore) {
           clientId = scored[0].id
-          console.log(`[TelegramProcess] Matched client by name: ${scored[0].name} (score ${scored[0].score}/${keywords.length})`)
+          console.log(`[TelegramProcess] Matched client by keyword fallback: ${scored[0].name} (score ${scored[0].score}/${keywords.length})`)
         }
       }
     }

@@ -137,19 +137,29 @@ export async function matchClientByHolderName(
   const primary = [...words].sort((a, b) => b.length - a.length)[0]
   if (!primary) return null
 
-  let q = supabase.from('clients').select('id, name, cif, nif, cif_nif, fiscal_address').ilike('name', `%${primary}%`).limit(20)
+  let q = supabase.from('clients').select('id, name, alias, cif, nif, cif_nif, fiscal_address').ilike('name', `%${primary}%`).limit(20)
   if (opts.commercialIdFilter) q = q.eq('commercial_id', opts.commercialIdFilter)
   const { data: rows } = await q
-  const candidates = (rows || []) as Array<{ id: string; name: string; cif: string | null; nif: string | null; cif_nif: string | null; fiscal_address: string | null }>
+  const candidates = (rows || []) as Array<{ id: string; name: string; alias: string | null; cif: string | null; nif: string | null; cif_nif: string | null; fiscal_address: string | null }>
 
   // 2. Match canónico estricto: misma clave canónica = mismo cliente
   const match = candidates.find(c => canonicalClientKey(c.name) === targetKey)
   if (!match) return null
 
-  // 3. Calcular patch: promover nombre + rellenar campos vacíos
+  // 3. Calcular patch: promover nombre + preservar alias + rellenar campos vacíos
   const patch: Record<string, any> = {}
   const promoted = preferMoreCompleteName(match.name, holder)
-  if (promoted !== match.name) patch.name = promoted
+  if (promoted !== match.name) {
+    patch.name = promoted
+    // Regla del usuario: si el cliente NO tenía alias y vamos a sobrescribir
+    // el nombre coloquial con el oficial (ej. "unice toys" → "UNICE TOYS S.L."),
+    // preservamos el nombre coloquial como alias para mantener el "nombre con
+    // el que el comercial conoce al cliente". Solo si el viejo no era ya el
+    // oficial completo (evitamos guardar alias=name).
+    if (!match.alias && match.name !== promoted) {
+      patch.alias = match.name
+    }
+  }
 
   const incomingCifNif = (fact.cifNif || '').trim().toUpperCase()
   if (incomingCifNif) {

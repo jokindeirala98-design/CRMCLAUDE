@@ -77,6 +77,36 @@ export default function ComparativaVoltisV2({ supplyId, onBack }: Props) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<string>('')
+  const [downloadingHtml, setDownloadingHtml] = useState(false)
+
+  // ── Descargar HTML standalone para mandar al cliente ──────────────────────
+  // Llama al endpoint /standalone-html (que embebe las facturas del periodo
+  // comparado en base64) y descarga el archivo .html resultante. El comercial
+  // luego lo manda al cliente por email/WhatsApp.
+  const handleDownloadHtml = async () => {
+    setDownloadingHtml(true)
+    try {
+      const res = await fetch(`/api/comparativa/${supplyId}/standalone-html`)
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({ error: 'Error generando HTML' }))
+        throw new Error(errBody.error || `Error ${res.status}`)
+      }
+      const blob = await res.blob()
+      // Recuperar nombre del Content-Disposition si está
+      const disp = res.headers.get('content-disposition') || ''
+      const m = disp.match(/filename="([^"]+)"/)
+      const filename = m?.[1] || `voltis_comparativa.html`
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = filename
+      document.body.appendChild(a); a.click(); document.body.removeChild(a)
+      setTimeout(() => URL.revokeObjectURL(url), 100)
+    } catch (e: any) {
+      alert(e?.message || 'Error descargando HTML')
+    } finally {
+      setDownloadingHtml(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -119,7 +149,13 @@ export default function ComparativaVoltisV2({ supplyId, onBack }: Props) {
 
   return (
     <div style={{ background: C.bgSoft, minHeight: '100vh', fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif" }}>
-      <Hero supply={supply} resultado={resultado} onBack={onBack ?? (() => router.back())} />
+      <Hero
+        supply={supply}
+        resultado={resultado}
+        onBack={onBack ?? (() => router.back())}
+        onDownloadHtml={handleDownloadHtml}
+        downloadingHtml={downloadingHtml}
+      />
 
       <div style={{ maxWidth: 1200, margin: '-32px auto 0', padding: '0 32px 48px', position: 'relative', zIndex: 2 }}>
         {/* Tabs */}
@@ -180,10 +216,12 @@ export default function ComparativaVoltisV2({ supplyId, onBack }: Props) {
 // HERO con mascot Buddy
 // ══════════════════════════════════════════════════════════════════════════
 
-function Hero({ supply, resultado, onBack }: {
+function Hero({ supply, resultado, onBack, onDownloadHtml, downloadingHtml }: {
   supply: ApiV2Response['supply']
   resultado: ResultadoTripartito
   onBack: () => void
+  onDownloadHtml: () => void
+  downloadingHtml: boolean
 }) {
   const c = resultado.cobertura
   const periodoTxt = c.desde && c.hasta
@@ -207,12 +245,27 @@ function Hero({ supply, resultado, onBack }: {
           <span style={{ fontSize: 11, color: C.text3, textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600 }}>Cliente</span>
           <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{supply.client_name || '—'}</span>
         </div>
-        <div style={{ marginLeft: 'auto', textAlign: 'right', fontSize: 12, lineHeight: 1.5 }}>
-          <div style={{ color: C.text3 }}>CUPS</div>
-          <div style={{ fontWeight: 600, color: C.text, fontFamily: "'SF Mono', Menlo, monospace", fontSize: 11 }}>
-            {supply.cups || '—'}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button
+            onClick={onDownloadHtml}
+            disabled={downloadingHtml}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px',
+              borderRadius: 10, border: 'none', cursor: downloadingHtml ? 'wait' : 'pointer',
+              background: C.blue, color: '#fff', fontWeight: 600, fontSize: 12,
+              fontFamily: 'inherit', opacity: downloadingHtml ? 0.7 : 1,
+              boxShadow: '0 4px 12px rgba(19,59,122,0.15)',
+            }}>
+            {downloadingHtml ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+            {downloadingHtml ? 'Generando…' : 'Descargar HTML para cliente'}
+          </button>
+          <div style={{ textAlign: 'right', fontSize: 12, lineHeight: 1.5 }}>
+            <div style={{ color: C.text3 }}>CUPS</div>
+            <div style={{ fontWeight: 600, color: C.text, fontFamily: "'SF Mono', Menlo, monospace", fontSize: 11 }}>
+              {supply.cups || '—'}
+            </div>
+            <div style={{ color: C.text3 }}>{supply.tariff || '—'}</div>
           </div>
-          <div style={{ color: C.text3 }}>{supply.tariff || '—'}</div>
         </div>
       </div>
 
