@@ -641,6 +641,8 @@ export default function ClientDetailPage() {
                     key={supply.id}
                     role="button"
                     tabIndex={0}
+                    onMouseEnter={() => router.prefetch(`/supplies/${supply.id}`)}
+                    onFocus={() => router.prefetch(`/supplies/${supply.id}`)}
                     onClick={() => { if (!isEditingName) router.push(`/supplies/${supply.id}`) }}
                     onKeyDown={(e) => {
                       if (isEditingName) return

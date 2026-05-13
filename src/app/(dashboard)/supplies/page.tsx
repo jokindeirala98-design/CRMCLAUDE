@@ -170,6 +170,8 @@ function SuppliesModal({ group, consumptionMap, onClose }: {
                 return (
                   <button
                     key={supply.id}
+                    onMouseEnter={() => router.prefetch(`/supplies/${supply.id}`)}
+                    onFocus={() => router.prefetch(`/supplies/${supply.id}`)}
                     onClick={() => { router.push(`/supplies/${supply.id}`); onClose() }}
                     className="text-left bg-card border border-line rounded-2xl p-3.5 active:scale-[0.97] active:bg-bg-2 transition-all flex flex-col gap-2"
                   >
@@ -651,6 +653,7 @@ export default function SuppliesPage() {
                           const item = group.supplies[0]
                           return (
                             <tr key={item.id}
+                              onMouseEnter={() => router.prefetch(`/supplies/${item.id}`)}
                               onClick={() => router.push(`/supplies/${item.id}`)}
                               className={cn('group hover:bg-brand/5 cursor-pointer transition-colors',
                                 !isLastGroup && 'border-b border-line')}>
