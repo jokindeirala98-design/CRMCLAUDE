@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import {
   ArrowLeft, Building2, Mail, Phone, MapPin, FileText,
   CreditCard, Zap, Edit2, Trash2, Plus, ExternalLink, FileCheck,
-  Send, Sparkles, AlertTriangle, BarChart3,
+  Send, Sparkles, AlertTriangle, BarChart3, TrendingUp,
   Check, XCircle, Clock, DollarSign, Pencil, X, Flame, Phone as PhoneIcon,
   Loader2, Activity, ShieldOff, ShieldCheck, Copy, CheckCheck, UserCog,
 } from 'lucide-react'
@@ -569,6 +569,17 @@ export default function ClientDetailPage() {
               />
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
+              {(client.supplies?.length || 0) > 0 && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => router.push(`/clients/${id}/economic-overview`)}
+                  title="Estudio económico agregado de todos los suministros"
+                >
+                  <TrendingUp className="w-4 h-4" />
+                  Estudio económico global
+                </Button>
+              )}
               <Button size="sm" onClick={() => setShowBulkUpload(true)}>
                 <Plus className="w-4 h-4" />
                 Importar facturas
