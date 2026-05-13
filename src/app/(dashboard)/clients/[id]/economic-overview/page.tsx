@@ -804,35 +804,75 @@ function DistribuidoraTable({ items }: any) {
 // ════════════════════════════════════════════════════════════════════════════
 
 function MonthlyChart({ monthly }: { monthly: Monthly[] }) {
-  const max = Math.max(...monthly.map(m => m.total), 1)
-  const w = 800, h = 260, pad = 40
-  const xStep = monthly.length > 1 ? (w - 2 * pad) / (monthly.length - 1) : 0
-  const yFor = (v: number) => h - pad - (v / max) * (h - 2 * pad)
+  // Mostramos sólo los últimos 13 meses (año + margen). Si el cliente tiene
+  // facturas antiguas residuales, evitamos que distorsionen la escala con
+  // barras minúsculas indescifrables.
+  const data = monthly.slice(-13)
+  const max = Math.max(...data.map(m => m.total), 1)
+  // Layout en función del nº de barras
+  const n = data.length
+  const w = 900, h = 280
+  const padL = 50, padR = 20, padT = 30, padB = 60   // padB grande para etiquetas rotadas
+  const innerW = w - padL - padR
+  const innerH = h - padT - padB
+  const barW = Math.min(40, (innerW / n) * 0.65)
+  const xCenter = (i: number) => padL + (innerW / n) * (i + 0.5)
+  const yFor = (v: number) => padT + innerH - (v / max) * innerH
+  // Grid horizontal cada 25%
+  const gridLines = [0, 0.25, 0.5, 0.75, 1].map(p => ({
+    y: padT + innerH * (1 - p),
+    val: max * p,
+  }))
 
   return (
     <div className="rounded-2xl bg-white p-6" style={{ boxShadow: '0 10px 40px -10px rgba(74,111,227,0.15)' }}>
+      {monthly.length > 13 && (
+        <div className="text-[11px] text-slate-500 mb-3">
+          Mostrando los últimos 13 meses agregados (de {monthly.length} con datos).
+        </div>
+      )}
       <div className="overflow-x-auto">
-        <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-auto">
-          <line x1={pad} y1={h - pad} x2={w - pad} y2={h - pad} stroke="#E2E8F0" />
-          {monthly.map((m, i) => {
-            const x = pad + i * xStep - 14
+        <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-auto" preserveAspectRatio="xMidYMid meet">
+          {/* Grid horizontal con etiquetas Y */}
+          {gridLines.map((g, i) => (
+            <g key={i}>
+              <line x1={padL} y1={g.y} x2={w - padR} y2={g.y} stroke="#F1F5F9" strokeDasharray="3 4" />
+              <text x={padL - 8} y={g.y + 3} textAnchor="end" fontSize="9" fill="#94A3B8" className="num">
+                {g.val >= 1000 ? `${Math.round(g.val / 1000)}k` : Math.round(g.val)}
+              </text>
+            </g>
+          ))}
+
+          {/* Barras */}
+          {data.map((m, i) => {
+            const xc = xCenter(i)
+            const x = xc - barW / 2
             const yLuz = yFor(m.totalLuz)
             const yTotal = yFor(m.total)
-            const hLuz = (h - pad) - yLuz
+            const hLuz = (padT + innerH) - yLuz
             const hGas = yLuz - yTotal
             return (
-              <g key={i}>
-                {m.totalGas > 0 && <rect x={x} y={yTotal} width={28} height={hGas} fill="#FB923C" rx={2} />}
-                {m.totalLuz > 0 && <rect x={x} y={yLuz} width={28} height={hLuz} fill="#4A6FE3" rx={2} />}
-                <text x={pad + i * xStep} y={h - 10} textAnchor="middle" fontSize="10" fill="#64748B" className="num">
+              <g key={`${m.year}-${m.month}`}>
+                {m.totalGas > 0 && <rect x={x} y={yTotal} width={barW} height={Math.max(0, hGas)} fill="#FB923C" rx={2} />}
+                {m.totalLuz > 0 && <rect x={x} y={yLuz} width={barW} height={Math.max(0, hLuz)} fill="#4A6FE3" rx={2} />}
+                {/* Valor total encima — solo si supera 3% del máximo (legible) */}
+                {m.total > max * 0.03 && (
+                  <text x={xc} y={yTotal - 6} textAnchor="middle" fontSize="10" fill="#1E293B" className="num" fontWeight="600">
+                    {m.total >= 1000 ? `${(m.total / 1000).toFixed(m.total >= 10000 ? 0 : 1)}k` : Math.round(m.total)}
+                  </text>
+                )}
+                {/* Etiqueta mes/año rotada 45° para no solaparse */}
+                <text x={xc} y={padT + innerH + 14}
+                  textAnchor="end" fontSize="10" fill="#64748B" className="num"
+                  transform={`rotate(-45, ${xc}, ${padT + innerH + 14})`}>
                   {MESES_SHORT[m.month]} {String(m.year).slice(-2)}
-                </text>
-                <text x={pad + i * xStep} y={yTotal - 5} textAnchor="middle" fontSize="9" fill="#1E293B" className="num">
-                  {m.total > 10000 ? `${Math.round(m.total / 1000)}k` : Math.round(m.total)}
                 </text>
               </g>
             )
           })}
+
+          {/* Línea base */}
+          <line x1={padL} y1={padT + innerH} x2={w - padR} y2={padT + innerH} stroke="#CBD5E1" strokeWidth="1" />
         </svg>
       </div>
       <div className="flex items-center gap-4 mt-4 text-xs text-slate-600">
