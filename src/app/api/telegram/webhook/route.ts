@@ -720,6 +720,39 @@ async function handleDocumentFile(msg: TelegramMessage) {
   const mimeType = fileType === 'pdf' ? 'application/pdf' : 'image/jpeg'
   const mediaGroupId = msg.media_group_id
 
+  // ── Aviso de fotos sueltas ────────────────────────────────────────────────
+  // Si el comercial envía fotos UNA POR UNA (sin album), Telegram NO manda
+  // media_group_id y cada foto se procesa como factura independiente. Eso
+  // genera supplies fantasma cuando cada foto solo trae media factura (CUPS
+  // en una página, CIF en otra). Si detecto >=2 fotos del mismo chat en los
+  // últimos 90s sin album, le aviso UNA vez por ráfaga.
+  if (isTelegramPhoto && !mediaGroupId) {
+    try {
+      const supabase = createBotSupabase()
+      const ninetySecAgo = new Date(Date.now() - 90 * 1000).toISOString()
+      const { count } = await supabase
+        .from('telegram_inbox')
+        .select('id', { count: 'exact', head: true })
+        .eq('chat_id', chatId)
+        .eq('file_type', 'image')
+        .gte('created_at', ninetySecAgo)
+      if ((count || 0) >= 1) {
+        // Es al menos la 2ª foto suelta en 90s — aviso suave UNA vez
+        const convo = await getConvo(chatId)
+        const flag = (convo?.data as any)?.last_loose_photo_warn || 0
+        const nowMs = Date.now()
+        if (nowMs - flag > 10 * 60 * 1000) {  // máx 1 aviso cada 10 min
+          await sendMessage(chatId,
+            '📌 <b>Consejo:</b> si una factura ocupa varias páginas, mándalas como <b>álbum</b> ' +
+            '(selecciona todas las fotos antes de enviar) o como <b>PDF</b>. ' +
+            'Así el bot las procesa juntas y no se duplican.'
+          )
+          await setConvo(chatId, convo?.step || 'idle', { ...(convo?.data || {}), last_loose_photo_warn: nowMs })
+        }
+      }
+    } catch { /* nunca bloquear el flujo principal por este aviso */ }
+  }
+
   try {
     // Download file from Telegram
     console.log(`[Telegram] Downloading file ${fileId}${mediaGroupId ? ` (group ${mediaGroupId})` : ''} for user ${user.userId}`)

@@ -20,6 +20,51 @@ function getSupabase() {
   return createClient(supabaseUrl, supabaseKey)
 }
 
+// Lista canónica de comercializadoras energéticas españolas — para detectar
+// cuándo Gemini ha extraído erróneamente el logo (NOVALUZ, IBERDROLA…) como
+// `holder_name` en facturas donde el titular real está en otra página.
+//
+// Se compara normalizando: lowercase, sin acentos, sin sufijos legales
+// (SL/SA), sin espacios extra. Si holder_name canónico coincide con una de
+// estas, lo descartamos para que el flujo no cree un cliente fantasma.
+const COMERCIALIZADORAS_CONOCIDAS = new Set([
+  'iberdrola', 'iberdrola clientes',
+  'endesa', 'endesa energia', 'endesa energia xxi',
+  'naturgy', 'naturgy iberia',
+  'repsol', 'repsol comercializadora',
+  'totalenergies', 'total energies',
+  'holaluz', 'octopus', 'octopus energy',
+  'plenitude', 'eni plenitude', 'ekyner',
+  'galp', 'galp energia',
+  'novaluz', 'nova luz',
+  'audax', 'aldro', 'aldro energia',
+  'gas natural fenosa', 'fenosa',
+  'edp', 'edp comercializadora',
+  'acciona', 'acciona energia',
+  'nufri', 'pepeenergy', 'pepe energy',
+  'cide hcenergia', 'enercluster', 'lucera',
+  'imagina energia', 'goiener', 'som energia',
+])
+
+function normalizaParaMatch(s: string): string {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[.,;:]/g, ' ')
+    .replace(/\b(s\.?l\.?u?\.?|s\.?a\.?u?\.?|s\.?c\.?|s\.?coop\.?|c\.?b\.?|sociedad|limitada|anonima|cooperativa)\b/g, '')
+    .replace(/\s+/g, ' ').trim()
+}
+
+function isComercializadoraName(name: string | null | undefined): boolean {
+  if (!name) return false
+  const norm = normalizaParaMatch(name)
+  if (!norm) return false
+  if (COMERCIALIZADORAS_CONOCIDAS.has(norm)) return true
+  // Match parcial: la palabra principal coincide con una comercializadora
+  for (const c of COMERCIALIZADORAS_CONOCIDAS) {
+    if (norm === c || norm.startsWith(c + ' ') || norm.endsWith(' ' + c)) return true
+  }
+  return false
+}
+
 // Legal suffixes for client name cleaning
 const LEGAL_SUFFIXES = /\b(s\.?l\.?u?\.?|s\.?a\.?|s\.?c\.?|s\.?coop\.?|c\.?b\.?|sociedad|limitada|anonima|anónima|cooperativa|comunidad\s+de\s+bienes)\b/gi
 const FILLER_WORDS = /\b(de|del|la|las|los|el|y|e|en|con|a)\b/gi
@@ -320,7 +365,21 @@ export async function processTelegramInboxItem(
   // 4. Extract key fields
   const rawCups = extractedData?.cups || null
   const cups = rawCups ? normalizeCups(rawCups) : null
-  const holderName = extractedData?.holder_name || extractedData?.economics?.titular || null
+  let holderName = extractedData?.holder_name || extractedData?.economics?.titular || null
+
+  // ── Filtro anti-comercializadoras ────────────────────────────────────────
+  // Si Gemini extrae como "holder_name" lo que en realidad es el logo de la
+  // comercializadora (NOVALUZ, IBERDROLA…), nos creaba un cliente erróneo.
+  // Si el nombre coincide con una comercializadora conocida y NO hay CIF,
+  // lo descartamos para que el flujo decida "no holder" y caiga en match
+  // por CUPS o pida más contexto en lugar de crear cliente fantasma.
+  if (holderName && isComercializadoraName(holderName)) {
+    const cifRaw = (extractedData?.holder_cif_nif || extractedData?.holder_cif || extractedData?.economics?.cif_titular || '').trim()
+    if (!cifRaw || cifRaw.length < 8) {
+      console.log(`[TelegramProcess] holder_name "${holderName}" parece comercializadora y sin CIF — descartando holder`)
+      holderName = null
+    }
+  }
   const holderCif = extractedData?.holder_cif_nif || extractedData?.holder_cif || extractedData?.economics?.cif_titular || null
   const tariff = extractedData?.tariff || extractedData?.economics?.tarifa || null
   const address = extractedData?.supply_address || extractedData?.billing_address || null
@@ -389,6 +448,33 @@ export async function processTelegramInboxItem(
       if (cifMatches?.length) {
         clientId = cifMatches[0].id
         console.log(`[TelegramProcess] Matched client by CIF: ${cifMatches[0].name}`)
+
+        // ── Asociación contextual: si NO tengo CUPS pero el mismo comercial
+        //    subió otra factura del mismo cliente con CUPS en los últimos
+        //    15 min, asocio al supply hermano en lugar de crear uno fantasma
+        //    "sin CUPS". Patrón típico de fotos sueltas: una foto tiene CIF
+        //    y otra tiene CUPS — sin esto se crearían dos supplies separados.
+        if (!supplyId && !cups) {
+          const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString()
+          const { data: recentSibling } = await supabase
+            .from('invoices')
+            .select('supply_id, supplies:supplies!inner(id, cups, client_id)')
+            .eq('uploaded_by', item.user_id)
+            .gte('created_at', fifteenMinAgo)
+            .order('created_at', { ascending: false })
+            .limit(20)
+          // Buscar primer sibling cuyo supply pertenezca al mismo cliente Y tenga CUPS
+          const match = (recentSibling || []).find((r: any) => {
+            const sup = Array.isArray(r.supplies) ? r.supplies[0] : r.supplies
+            return sup && sup.client_id === clientId && sup.cups
+          })
+          if (match) {
+            const sup: any = Array.isArray((match as any).supplies) ? (match as any).supplies[0] : (match as any).supplies
+            supplyId = sup.id
+            isExistingSupply = true
+            console.log(`[TelegramProcess] Asociación contextual: factura sin CUPS pero misma comercial + mismo cliente reciente → supply ${supplyId}`)
+          }
+        }
       }
     }
   }
