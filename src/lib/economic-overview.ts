@@ -126,8 +126,15 @@ function getInvoiceTotal(inv: OverviewInvoiceLite): number {
 function getInvoiceKwh(inv: OverviewInvoiceLite): number {
   const eco = inv.extracted_data?.economics as BillEconomics | undefined
   if (!eco) return 0
+  // Preferimos sumar el array consumo[] cuando tenga datos: es el desglose
+  // por periodos extraído del cuerpo de la factura y es la fuente más fiable.
+  // El campo consumoTotalKwh a veces el extractor lo confunde con un
+  // "consumo acumulado anual" mostrado al final de la factura, lo cual
+  // sobrestima brutalmente cuando se suma a lo largo del año.
+  const sumaArr = (eco.consumo || []).reduce((s, c) => s + (Number(c.kwh) || 0), 0)
+  if (sumaArr > 0) return sumaArr
   if (Number(eco.consumoTotalKwh) > 0) return Number(eco.consumoTotalKwh)
-  return (eco.consumo || []).reduce((s, c) => s + (Number(c.kwh) || 0), 0)
+  return 0
 }
 
 /** Filtra una lista de facturas a las 12 más recientes por period_end. */
@@ -160,6 +167,69 @@ function filterByRange(invs: OverviewInvoiceLite[], from: string, to: string): O
   })
 }
 
+/**
+ * Filtra facturas inservibles para una agregación económica:
+ *
+ *   1. Sin total facturado: el total_amount y el economics.totalFactura son
+ *      nulos o 0. Estas facturas inflan el consumo pero no aportan al gasto,
+ *      distorsionando el €/kWh medio.
+ *
+ *   2. Sin fechas de periodo: no se pueden ubicar temporalmente.
+ *
+ *   3. Con €/kWh < 0,015 (anómalo): es habitual que el extractor confunda
+ *      el "consumo acumulado anual" mostrado al final de un PDF con el
+ *      consumo del periodo facturado. Una factura mensual de gas que
+ *      muestre 358.690 kWh con un total de 700 € da €/kWh = 0,002, que es
+ *      imposible (el precio mínimo de gas regulado es ~0,03 €/kWh). Estas
+ *      facturas se descartan: su kWh está claramente contaminado.
+ *
+ * Umbral 0,015 €/kWh: por debajo es físicamente imposible incluso para
+ * tarifas reguladas más baratas. Por encima entran consumos correctos
+ * incluso con tarifas excepcionales.
+ */
+function filtrarFacturasFiables(invs: OverviewInvoiceLite[]): OverviewInvoiceLite[] {
+  return invs.filter(inv => {
+    const total = getInvoiceTotal(inv)
+    const hasPeriod = !!(inv.period_end || inv.period_start)
+    if (total <= 0 || !hasPeriod) return false
+    const kwh = getInvoiceKwh(inv)
+    if (kwh > 0) {
+      const eurPorKwh = total / kwh
+      // < 0,015 €/kWh es imposible — kWh contaminado por consumo acumulado
+      if (eurPorKwh < 0.015) return false
+    }
+    return true
+  })
+}
+
+/**
+ * Deduplica facturas del mismo suministro que cubren el MISMO MES NATURAL
+ * (dominante). Si hay varias, se conserva la de mayor total_amount, asumiendo
+ * que las otras son duplicados, rectificaciones o lecturas parciales que ya
+ * están contenidas en la principal.
+ *
+ * Esto evita contar el mismo mes varias veces cuando el cliente sube la misma
+ * factura repetida, hay facturas de ajuste o periodos solapados.
+ */
+function deduplicarPorMesNatural(invs: OverviewInvoiceLite[]): OverviewInvoiceLite[] {
+  const porMes = new Map<string, OverviewInvoiceLite>()
+  for (const inv of invs) {
+    const am = getAssignedMonth(inv.period_start, inv.period_end)
+    if (!am) continue
+    const key = `${am.year}-${am.month}`
+    const existing = porMes.get(key)
+    if (!existing) {
+      porMes.set(key, inv)
+    } else {
+      // Conservar la de mayor total
+      if (getInvoiceTotal(inv) > getInvoiceTotal(existing)) {
+        porMes.set(key, inv)
+      }
+    }
+  }
+  return Array.from(porMes.values())
+}
+
 /** Selecciona las facturas relevantes según modo, agrupando por supply_id. */
 function selectInvoicesByMode(
   invoices: OverviewInvoiceLite[],
@@ -176,10 +246,17 @@ function selectInvoicesByMode(
     bySupply.get(inv.supply_id)!.push(inv)
   }
 
+  // Limpieza por suministro: facturas fiables (con total y periodo) y deduplicadas por mes natural
+  const limpiado = new Map<string, OverviewInvoiceLite[]>()
+  for (const [supId, invs] of bySupply.entries()) {
+    const fiables = filtrarFacturasFiables(invs)
+    limpiado.set(supId, deduplicarPorMesNatural(fiables))
+  }
+
   // Aplicar criterio
   if (mode === 'last12') {
     const out = new Map<string, OverviewInvoiceLite[]>()
-    for (const [supId, invs] of bySupply.entries()) {
+    for (const [supId, invs] of limpiado.entries()) {
       out.set(supId, take12MostRecent(invs))
     }
     return out
@@ -188,7 +265,7 @@ function selectInvoicesByMode(
   if (mode === 'previous_year') {
     const lastYear = new Date().getFullYear() - 1
     const out = new Map<string, OverviewInvoiceLite[]>()
-    for (const [supId, invs] of bySupply.entries()) {
+    for (const [supId, invs] of limpiado.entries()) {
       out.set(supId, filterByYear(invs, lastYear))
     }
     return out
@@ -199,7 +276,7 @@ function selectInvoicesByMode(
     throw new Error('custom mode requires from/to dates')
   }
   const out = new Map<string, OverviewInvoiceLite[]>()
-  for (const [supId, invs] of bySupply.entries()) {
+  for (const [supId, invs] of limpiado.entries()) {
     out.set(supId, filterByRange(invs, opts.from, opts.to))
   }
   return out
