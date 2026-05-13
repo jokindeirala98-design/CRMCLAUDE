@@ -122,21 +122,35 @@ export default function ComparativaVoltis({ supplyId, pdfMode = false, pdfMeses 
   }, [data, selectedMeses])
 
   // ── Totales filtrados ─────────────────────────────────────────────────────
+  // IMPORTANTE: el ahorro acumulado tiene que coincidir con la suma de los
+  // ahorros mensuales que se muestran en las MesCard.
+  //   ahorroMes (backend, línea 854) = realAntigua.totalFactura − realVoltis.totalFactura
+  // Antes el frontend agregaba `simuladoAntigua` (contrafactual = precios Voltis ×
+  // consumo antiguo), que es solo el efecto-consumo. Para UNICE eso daba 14.165 €
+  // mientras la suma de meses era 34.318 €. Ahora agregamos realAntigua para que
+  // ambos números cuadren (mismo concepto: factura real antigua − factura real
+  // Voltis del mismo mes, incluye tanto efecto-tarifa como efecto-consumo).
   const totales = useMemo(() => {
     let consumo = 0
+    let consumoAntigua = 0
     let voltis = 0
-    let simulado = 0
+    let realAntigua = 0
+    let simulado = 0  // contrafactual (referencia para "precio medio si tarifa Voltis al consumo antiguo")
     for (const p of paresFiltrados) {
       consumo += (p.voltisFactura.consumo || []).reduce((s, c) => s + (Number(c.kwh) || 0), 0)
         || Number(p.voltisFactura.consumoTotalKwh) || 0
+      consumoAntigua += (p.antiguaFactura.consumo || []).reduce((s, c) => s + (Number(c.kwh) || 0), 0)
+        || Number(p.antiguaFactura.consumoTotalKwh) || 0
       voltis += p.realVoltis.totalFactura
+      realAntigua += p.realAntigua.totalFactura
       simulado += p.simuladoAntigua.totalFactura
     }
-    const ahorro = simulado - voltis
-    const pct = simulado > 0 ? (ahorro / simulado) * 100 : 0
+    const ahorro = realAntigua - voltis           // ← coincide con Σ ahorroMes
+    const pct = realAntigua > 0 ? (ahorro / realAntigua) * 100 : 0
     const eurKwhVoltis = consumo > 0 ? voltis / consumo : 0
+    const eurKwhAntigua = consumoAntigua > 0 ? realAntigua / consumoAntigua : 0
     const eurKwhSim = consumo > 0 ? simulado / consumo : 0
-    return { consumo, voltis, simulado, ahorro, pct, eurKwhVoltis, eurKwhSim }
+    return { consumo, consumoAntigua, voltis, realAntigua, simulado, ahorro, pct, eurKwhVoltis, eurKwhAntigua, eurKwhSim }
   }, [paresFiltrados])
 
   // ── Toggle mes ────────────────────────────────────────────────────────────
@@ -242,15 +256,15 @@ export default function ComparativaVoltis({ supplyId, pdfMode = false, pdfMeses 
       {/* ── DESGLOSE MES A MES ──────────────────────────────────────────── */}
       <section className="px-6 md:px-10 mt-10">
         <div className="flex items-baseline gap-3 mb-4">
-          <span className="text-[10px] tracking-[0.18em] font-mono text-salvia uppercase">01</span>
-          <h2 className="font-serif text-2xl md:text-3xl text-brand">
+          <span className="text-[10px] tracking-[0.18em] font-bold text-[#4A6FE3] uppercase num">01</span>
+          <h2 className="text-2xl md:text-3xl font-bold text-slate-800">
             Desglose factura a factura
           </h2>
         </div>
         <p className="text-sm text-ink-3 mb-6 max-w-2xl">
           {isGas
-            ? 'Cada mes muestra el coste real de la factura Voltis y lo que habría cobrado la comercializadora antigua al mismo consumo. En gas solo varía el término variable de energía (€/kWh) — el resto es regulado.'
-            : 'Cada mes muestra el coste real de la factura Voltis y lo que habría cobrado la comercializadora antigua al mismo consumo, aplicando el precio €/kWh de cada periodo P1–P6 del mismo mes del año anterior. El impuesto eléctrico y el IVA se recalculan con el tipo vigente. Los conceptos regulados (potencia, excesos, bono social, alquiler) se pasan idénticos.'}
+            ? 'Cada mes compara la factura real Voltis del mes en curso con la factura real de la comercializadora antigua del mismo mes del año anterior. En gas solo es competitivo el término variable de energía — los regulados se pasan idénticos.'
+            : 'Cada mes compara la factura real Voltis del mes en curso con la factura real de la comercializadora antigua del mismo mes del año anterior. El ahorro incluye tanto el efecto de tarifa como la variación de consumo entre los dos periodos.'}
         </p>
 
         <div className="grid gap-4">
@@ -279,8 +293,8 @@ export default function ComparativaVoltis({ supplyId, pdfMode = false, pdfMeses 
       {paresFiltrados.length >= 2 && (
         <section className="px-6 md:px-10 mt-12">
           <div className="flex items-baseline gap-3 mb-4">
-            <span className="text-[10px] tracking-[0.18em] font-mono text-salvia uppercase">02</span>
-            <h2 className="font-serif text-2xl md:text-3xl text-brand">
+            <span className="text-[10px] tracking-[0.18em] font-bold text-[#4A6FE3] uppercase num">02</span>
+            <h2 className="text-2xl md:text-3xl font-bold text-slate-800">
               Precio medio €/kWh, mes a mes
             </h2>
           </div>
@@ -291,8 +305,8 @@ export default function ComparativaVoltis({ supplyId, pdfMode = false, pdfMeses 
       {/* ── METODOLOGÍA ─────────────────────────────────────────────────── */}
       <section className="px-6 md:px-10 mt-12 mb-12">
         <div className="flex items-baseline gap-3 mb-4">
-          <span className="text-[10px] tracking-[0.18em] font-mono text-salvia uppercase">03</span>
-          <h2 className="font-serif text-2xl md:text-3xl text-brand">
+          <span className="text-[10px] tracking-[0.18em] font-bold text-[#4A6FE3] uppercase num">03</span>
+          <h2 className="text-2xl md:text-3xl font-bold text-slate-800">
             Cómo se calcula este ahorro
           </h2>
         </div>
@@ -333,96 +347,139 @@ function Header({
   const [cupsOpen, setCupsOpen] = useState(false)
   const isGas = comparativa.supplyType === 'gas'
   return (
-    <header className="px-6 md:px-10 pt-8 pb-6 border-b border-line/60">
-      {/* Top row: back + actions */}
-      {!pdfMode && (
-        <div className="flex items-center justify-between mb-6">
-          {onBack ? (
-            <button
-              onClick={onBack}
-              className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-ink-3 hover:text-brand transition"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              Volver al suministro
-            </button>
-          ) : <span />}
-          <button
-            onClick={onDownloadPdf}
-            disabled={downloading}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-brand text-volt text-xs font-semibold tracking-wide hover:bg-brand-2 transition disabled:opacity-60"
-          >
-            {downloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-            Descargar PDF
-          </button>
-        </div>
-      )}
-
-      {/* Eyebrow */}
-      <div className="flex items-center gap-3 mb-3">
-        <span className="text-[10px] font-mono tracking-[0.22em] text-salvia uppercase">
-          Informe Voltis · Comparativa de coste real
-        </span>
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-volt/30 text-volt-ink text-[10px] font-mono">
-          {isGas ? <Flame className="w-3 h-3" /> : <Zap className="w-3 h-3" />}
-          {isGas ? 'Gas natural' : 'Electricidad'}
-        </span>
+    <header className="relative overflow-hidden pb-10" style={{
+      background: 'linear-gradient(135deg, #A8C8F0 0%, #6FA0E8 60%, #4A6FE3 100%)',
+    }}>
+      <div className="absolute inset-0 opacity-30 pointer-events-none">
+        <div className="absolute top-10 right-10 w-96 h-96 rounded-full" style={{ background: 'radial-gradient(circle, #FFFFFF 0%, transparent 70%)' }} />
       </div>
 
-      {/* Title — editorial serif */}
-      <h1 className="font-serif text-[2.5rem] md:text-[3.5rem] leading-[1.05] text-brand mb-3">
-        {comparativa.comercializadoraVoltis ?? 'Voltis'}{' '}
-        <span className="text-ink-3 italic font-light">vs</span>{' '}
-        {comparativa.comercializadoraAntigua ?? 'comercializadora anterior'}
-      </h1>
-
-      {/* Subtitle: cliente · cups · tarifa · periodo */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-ink-3">
-        <span className="font-semibold text-ink">{supply.client_name ?? '—'}</span>
-        <span className="text-ink-4">·</span>
-        {/* CUPS selector */}
-        {cupsWithVoltis.length > 1 ? (
-          <div className="relative">
+      <div className="relative px-6 md:px-10 pt-8">
+        {/* Top row: back + actions */}
+        {!pdfMode && (
+          <div className="flex items-center justify-between mb-8">
+            {onBack ? (
+              <button onClick={onBack}
+                className="flex items-center gap-2 text-xs font-medium text-white/80 hover:text-white transition">
+                <ArrowLeft className="w-4 h-4" />
+                Volver al suministro
+              </button>
+            ) : <span />}
             <button
-              onClick={() => setCupsOpen(o => !o)}
-              className="inline-flex items-center gap-1 font-mono text-[11px] bg-bg-2 px-2 py-1 rounded-md hover:bg-card transition"
+              onClick={onDownloadPdf}
+              disabled={downloading}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white text-[#4A6FE3] text-xs font-bold tracking-wide hover:bg-blue-50 transition disabled:opacity-60 shadow-md"
             >
-              {supply.cups ? supply.cups.slice(0, 4) + '…' + supply.cups.slice(-6) : 'sin CUPS'}
-              <ChevronDown className="w-3 h-3" />
+              {downloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+              Descargar PDF
             </button>
-            {cupsOpen && (
-              <div className="absolute z-20 top-full mt-1 left-0 bg-card border border-line rounded-xl shadow-lg min-w-[280px] overflow-hidden">
-                {cupsWithVoltis.map(s => (
-                  <button
-                    key={s.id}
-                    onClick={() => { onChangeSupply(s.id); setCupsOpen(false) }}
-                    className={`w-full text-left px-3 py-2 text-xs hover:bg-bg-2 transition flex items-center justify-between ${s.id === activeSupplyId ? 'bg-bg-2' : ''}`}
-                  >
-                    <span className="font-mono text-[11px]">{s.cups || '—'}</span>
-                    <span className="text-[10px] text-ink-3 uppercase tracking-wider">{s.tariff || s.type}</span>
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
-        ) : (
-          <span className="font-mono text-[11px]">{supply.cups || '—'}</span>
         )}
-        <span className="text-ink-4">·</span>
-        <span className="font-semibold">{supply.tariff || '—'}</span>
-        <span className="text-ink-4">·</span>
-        <span>
-          {comparativa.pares.length === 0
-            ? '—'
-            : (() => {
-                const sorted = [...comparativa.pares].sort((a, b) => (a.year - b.year) || (a.mes - b.mes))
-                const first = sorted[0]
-                const last = sorted[sorted.length - 1]
-                return `${MESES_SHORT[first.mes]} ${first.year}${last !== first ? ` – ${MESES_SHORT[last.mes]} ${last.year}` : ''}`
-              })()
-          }
-        </span>
+
+        <div className="flex items-center gap-8 flex-wrap">
+          {!pdfMode && <BuddyIcon size={88} />}
+          <div className="flex-1 min-w-0">
+            {/* Eyebrow */}
+            <div className="flex items-center gap-3 mb-2">
+              <span className="text-[10px] font-bold tracking-[0.22em] text-white/70 uppercase">
+                Informe Voltis · Comparativa de coste real
+              </span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/25 text-white text-[10px] font-bold uppercase tracking-wider backdrop-blur-sm">
+                {isGas ? <Flame className="w-3 h-3" /> : <Zap className="w-3 h-3" />}
+                {isGas ? 'Gas' : 'Electricidad'}
+              </span>
+            </div>
+
+            {/* Title */}
+            <h1 className="text-3xl md:text-5xl font-bold text-white leading-tight">
+              {comparativa.comercializadoraVoltis ?? 'Voltis'}{' '}
+              <span className="text-white/70 italic font-light">vs</span>{' '}
+              {comparativa.comercializadoraAntigua ?? 'comercializadora anterior'}
+            </h1>
+
+            {/* Subtitle */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/80 mt-3">
+              <span className="font-semibold text-white">{supply.client_name ?? '—'}</span>
+              <span className="text-white/50">·</span>
+              {cupsWithVoltis.length > 1 ? (
+                <div className="relative">
+                  <button
+                    onClick={() => setCupsOpen(o => !o)}
+                    className="inline-flex items-center gap-1 font-mono text-[11px] bg-white/20 px-2 py-1 rounded-md hover:bg-white/30 backdrop-blur-sm transition text-white"
+                  >
+                    {supply.cups ? supply.cups.slice(0, 4) + '…' + supply.cups.slice(-6) : 'sin CUPS'}
+                    <ChevronDown className="w-3 h-3" />
+                  </button>
+                  {cupsOpen && (
+                    <div className="absolute z-20 top-full mt-1 left-0 bg-white border border-slate-200 rounded-xl shadow-lg min-w-[280px] overflow-hidden">
+                      {cupsWithVoltis.map(s => (
+                        <button
+                          key={s.id}
+                          onClick={() => { onChangeSupply(s.id); setCupsOpen(false) }}
+                          className={`w-full text-left px-3 py-2 text-xs hover:bg-blue-50 transition flex items-center justify-between ${s.id === activeSupplyId ? 'bg-blue-50' : ''}`}
+                        >
+                          <span className="font-mono text-[11px] text-slate-700">{s.cups || '—'}</span>
+                          <span className="text-[10px] text-slate-500 uppercase tracking-wider">{s.tariff || s.type}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <span className="font-mono text-[11px] bg-white/20 px-2 py-0.5 rounded-md backdrop-blur-sm">{supply.cups || '—'}</span>
+              )}
+              <span className="text-white/50">·</span>
+              <span className="font-semibold">{supply.tariff || '—'}</span>
+              <span className="text-white/50">·</span>
+              <span>
+                {comparativa.pares.length === 0
+                  ? '—'
+                  : (() => {
+                      const sorted = [...comparativa.pares].sort((a, b) => (a.year - b.year) || (a.mes - b.mes))
+                      const first = sorted[0]
+                      const last = sorted[sorted.length - 1]
+                      return `${MESES_SHORT[first.mes]} ${first.year}${last !== first ? ` – ${MESES_SHORT[last.mes]} ${last.year}` : ''}`
+                    })()
+                }
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
     </header>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// BUDDY — mascota Voltis SVG inline (idéntico al informe global)
+// ════════════════════════════════════════════════════════════════════════════
+
+function BuddyIcon({ size = 64 }: { size?: number }) {
+  return (
+    <svg width={size} height={size * 1.15} viewBox="0 0 100 115" xmlns="http://www.w3.org/2000/svg" style={{ filter: 'drop-shadow(0 8px 24px rgba(0,0,0,0.15))' }}>
+      <defs>
+        <radialGradient id="bulbGradCV" cx="0.4" cy="0.3">
+          <stop offset="0%" stopColor="#FFFFFF" />
+          <stop offset="40%" stopColor="#E0EFFF" />
+          <stop offset="100%" stopColor="#A8C8F0" />
+        </radialGradient>
+        <linearGradient id="bodyGradCV" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#4A6FE3" />
+          <stop offset="100%" stopColor="#2E4FBF" />
+        </linearGradient>
+      </defs>
+      <ellipse cx="50" cy="42" rx="34" ry="36" fill="url(#bulbGradCV)" stroke="#FFFFFF" strokeWidth="1.5" />
+      <path d="M35 38 Q40 28 45 38 Q50 28 55 38 Q60 28 65 38" stroke="#4A6FE3" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+      <rect x="36" y="72" width="28" height="22" rx="6" fill="url(#bodyGradCV)" />
+      <ellipse cx="50" cy="93" rx="14" ry="3" fill="#2E4FBF" opacity="0.4" />
+      <circle cx="44" cy="82" r="2.2" fill="#FFFFFF" />
+      <circle cx="56" cy="82" r="2.2" fill="#FFFFFF" />
+      <circle cx="44.5" cy="82.5" r="0.9" fill="#1E293B" />
+      <circle cx="56.5" cy="82.5" r="0.9" fill="#1E293B" />
+      <path d="M46 88 Q50 91 54 88" stroke="#FFFFFF" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+      <rect x="40" y="94" width="6" height="14" rx="3" fill="url(#bodyGradCV)" />
+      <rect x="54" y="94" width="6" height="14" rx="3" fill="url(#bodyGradCV)" />
+    </svg>
   )
 }
 
@@ -433,39 +490,51 @@ function Header({
 function Kpis({ ahorro, ahorroPct, consumo, isGas }: {
   ahorro: number; ahorroPct: number; consumo: number; isGas: boolean
 }) {
+  // Negative savings (paid more with Voltis) → red KPI; positive → blue gradient
+  const positivo = ahorro >= 0
   return (
-    <section className="px-6 md:px-10 mt-8 grid grid-cols-1 md:grid-cols-3 gap-4">
-      {/* Ahorro total — el grande */}
-      <div className="md:col-span-2 rounded-3xl bg-brand text-volt p-8 relative overflow-hidden">
-        <div className="absolute -bottom-12 -right-8 w-48 h-48 rounded-full bg-volt/10 blur-2xl pointer-events-none" />
-        <div className="text-[10px] font-mono tracking-[0.22em] uppercase text-volt/70 mb-3">
+    <section className="px-6 md:px-10 -mt-6 mb-2 grid grid-cols-1 md:grid-cols-3 gap-4 relative z-10">
+      {/* Ahorro total — el grande, gradiente azul Voltis */}
+      <div className="md:col-span-2 rounded-3xl p-8 relative overflow-hidden" style={{
+        background: positivo
+          ? 'linear-gradient(135deg, #4A6FE3 0%, #2E4FBF 100%)'
+          : 'linear-gradient(135deg, #DC2626 0%, #991B1B 100%)',
+        color: '#FFFFFF',
+        boxShadow: '0 20px 60px -15px rgba(74,111,227,0.45)',
+      }}>
+        <div className="absolute -bottom-12 -right-8 w-48 h-48 rounded-full bg-white/10 blur-2xl pointer-events-none" />
+        <div className="text-[10px] font-bold tracking-[0.22em] uppercase mb-3" style={{ color: '#C7DBFF' }}>
           Ahorro acumulado
         </div>
-        <div className="font-serif text-[4rem] md:text-[5rem] leading-none">
-          {fmt(ahorro, 2)}
-          <span className="text-[2rem] md:text-[2.5rem] align-top ml-2 text-volt/80">€</span>
+        <div className="text-[3.5rem] md:text-[5rem] font-bold leading-none num">
+          {ahorro >= 0 ? '' : '−'}{fmt(Math.abs(ahorro), 2)}
+          <span className="text-[1.75rem] md:text-[2.5rem] align-top ml-2 opacity-80">€</span>
         </div>
-        <div className="mt-4 flex items-center gap-3 text-volt/80 text-sm">
+        <div className="mt-4 flex items-center gap-2 text-sm opacity-90">
           <TrendingDown className="w-4 h-4" />
           <span>
-            {fmtPct(ahorroPct)} menos que con la comercializadora anterior
+            {positivo
+              ? `${fmtPct(ahorroPct)} menos que con la comercializadora anterior`
+              : `${fmtPct(Math.abs(ahorroPct))} más caro que con la anterior`}
           </span>
         </div>
       </div>
 
       {/* Consumo */}
-      <div className="rounded-3xl bg-card border border-line p-6 flex flex-col justify-between">
+      <div className="rounded-3xl bg-white p-6 flex flex-col justify-between" style={{
+        boxShadow: '0 10px 40px -10px rgba(74,111,227,0.25)',
+      }}>
         <div>
-          <div className="text-[10px] font-mono tracking-[0.22em] uppercase text-ink-3 mb-3">
-            Consumo analizado
+          <div className="flex items-center gap-2 mb-3 text-[#4A6FE3]">
+            {isGas ? <Flame className="w-4 h-4" /> : <Zap className="w-4 h-4" />}
+            <div className="text-[10px] font-bold tracking-[0.18em] uppercase">Consumo analizado</div>
           </div>
-          <div className="font-serif text-3xl text-brand">
+          <div className="text-4xl font-bold num text-slate-800">
             {fmt(consumo, 0)}
-            <span className="text-base text-ink-3 ml-1">kWh</span>
+            <span className="text-base text-slate-500 ml-1 font-medium">kWh</span>
           </div>
         </div>
-        <div className="mt-4 flex items-center gap-2 text-[11px] font-mono text-ink-3 uppercase tracking-wider">
-          {isGas ? <Flame className="w-3 h-3" /> : <Zap className="w-3 h-3" />}
+        <div className="mt-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
           {isGas ? 'Gas natural' : 'Electricidad'}
         </div>
       </div>
@@ -613,7 +682,7 @@ function MesCard({ par, isGas, expanded, onToggle, pdfMode }: {
         <div className="flex items-center gap-6 shrink-0">
           <div className="text-right">
             <div className="text-[10px] font-mono uppercase tracking-wider text-ink-3">Ahorro</div>
-            <div className="font-serif text-2xl text-salvia">+{fmt(par.ahorroMes, 2)} €</div>
+            <div className="text-2xl font-bold num text-[#4A6FE3]">+{fmt(par.ahorroMes, 2)} €</div>
           </div>
           {!pdfMode && (
             <ChevronRight className={`w-5 h-5 text-ink-3 transition ${expanded ? 'rotate-90' : ''}`} />
@@ -776,7 +845,7 @@ function DesgloseGas({ par }: { par: ComparativaMes }) {
             <td className="py-3 text-sm font-semibold">Coste energía + IVA</td>
             <td className="py-3 text-right font-mono text-base font-bold text-brand">{fmtEur(r.totalEnergia + r.ivaImporte)}</td>
             <td className="py-3 text-right font-mono text-base font-bold text-ink-3">{fmtEur(s.totalEnergia + s.ivaImporte)}</td>
-            <td className="py-3 text-right font-mono text-base font-bold text-salvia">+{fmt(par.ahorroMes, 2)} €</td>
+            <td className="py-3 text-right font-mono text-base font-bold text-[#4A6FE3]">+{fmt(par.ahorroMes, 2)} €</td>
           </tr>
         </tbody>
       </table>
@@ -796,18 +865,21 @@ function DesgloseGas({ par }: { par: ComparativaMes }) {
 
 function PrecioMedioPanel({ pares, totales }: {
   pares: ComparativaMes[]
-  totales: { eurKwhVoltis: number; eurKwhSim: number }
+  totales: { eurKwhVoltis: number; eurKwhAntigua: number }
 }) {
-  // Calcula €/kWh real por mes
+  // €/kWh real por mes — Voltis a su consumo, antigua a su propio consumo
+  // (ambos divididos por su consumo respectivo del mismo mes).
   const data = pares.map(p => {
-    const consumo = (p.voltisFactura.consumo || []).reduce((s, c) => s + (Number(c.kwh) || 0), 0)
+    const consumoV = (p.voltisFactura.consumo || []).reduce((s, c) => s + (Number(c.kwh) || 0), 0)
       || Number(p.voltisFactura.consumoTotalKwh) || 0
+    const consumoA = (p.antiguaFactura.consumo || []).reduce((s, c) => s + (Number(c.kwh) || 0), 0)
+      || Number(p.antiguaFactura.consumoTotalKwh) || 0
     return {
       mes: p.mes,
       year: p.year,
-      consumo,
-      eurKwhVoltis: consumo > 0 ? p.realVoltis.totalFactura / consumo : 0,
-      eurKwhSim: consumo > 0 ? p.simuladoAntigua.totalFactura / consumo : 0,
+      consumo: consumoV,
+      eurKwhVoltis: consumoV > 0 ? p.realVoltis.totalFactura / consumoV : 0,
+      eurKwhSim: consumoA > 0 ? p.realAntigua.totalFactura / consumoA : 0,
     }
   })
 
@@ -825,21 +897,21 @@ function PrecioMedioPanel({ pares, totales }: {
   }
 
   return (
-    <div className="rounded-3xl bg-card border border-line p-6 space-y-6">
+    <div className="rounded-3xl bg-white p-6 space-y-6" style={{ boxShadow: '0 10px 40px -10px rgba(74,111,227,0.15)', border: '1px solid #E0EAFF' }}>
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <div className="text-[10px] font-mono uppercase tracking-wider text-ink-3 mb-1">Coste medio (todo incluido)</div>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Coste medio (todo incluido)</div>
           <div className="flex items-baseline gap-3">
-            <span className="font-serif text-3xl text-brand">{fmt(totales.eurKwhVoltis, 6)}</span>
-            <span className="text-sm text-ink-3">€/kWh Voltis</span>
-            <span className="text-ink-4 mx-2">·</span>
-            <span className="font-serif text-2xl text-ink-3">{fmt(totales.eurKwhSim, 6)}</span>
-            <span className="text-sm text-ink-3">€/kWh antigua</span>
+            <span className="text-3xl font-bold text-[#4A6FE3] num">{fmt(totales.eurKwhVoltis, 6)}</span>
+            <span className="text-sm text-slate-500">€/kWh Voltis</span>
+            <span className="text-slate-300 mx-2">·</span>
+            <span className="text-2xl font-bold text-slate-700 num">{fmt(totales.eurKwhAntigua, 6)}</span>
+            <span className="text-sm text-slate-500">€/kWh antigua</span>
           </div>
         </div>
         <div className="text-right">
-          <div className="text-[10px] font-mono uppercase tracking-wider text-ink-3 mb-1">Diferencia €/kWh</div>
-          <div className="font-serif text-2xl text-salvia">−{fmt(totales.eurKwhSim - totales.eurKwhVoltis, 6)}</div>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Diferencia €/kWh</div>
+          <div className="text-2xl font-bold text-[#4A6FE3] num">−{fmt(totales.eurKwhAntigua - totales.eurKwhVoltis, 6)}</div>
         </div>
       </div>
 
