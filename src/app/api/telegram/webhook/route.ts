@@ -339,12 +339,11 @@ async function handleMessage(msg: TelegramMessage) {
 
   const user = await getLinkedUser(chatId)
   if (!user) {
-    // Chat sin cuenta vinculada → arrancar onboarding inline.
-    await setConvo(chatId, 'onboarding_name', {})
+    // Chat sin cuenta vinculada → pedir PIN de acceso primero.
+    await setConvo(chatId, 'onboarding_pin', { pin_attempts: 0 })
     return sendMessage(chatId,
-      '👋 Antes de empezar necesito activar tu cuenta.\n\n' +
-      '👤 <b>¿Cuál es tu nombre completo?</b>\n' +
-      '<i>Ej.: Jokin de Irala</i>'
+      '🔒 Este bot es solo para el equipo Voltis.\n' +
+      'Introduce el <b>PIN de acceso</b> que te ha facilitado tu administrador.'
     )
   }
 
@@ -403,13 +402,12 @@ async function handleCommand(msg: TelegramMessage, text: string) {
           )
         }
       }
-      // Chat nuevo → arrancar onboarding pidiendo el nombre.
-      await setConvo(chatId, 'onboarding_name', {})
+      // Chat nuevo → primero PIN de acceso, luego datos.
+      await setConvo(chatId, 'onboarding_pin', { pin_attempts: 0 })
       return sendMessage(chatId,
         '⚡ <b>Bienvenido al CRM Voltis</b>\n\n' +
-        'Para activar tu cuenta necesito un par de datos.\n\n' +
-        '👤 <b>¿Cuál es tu nombre completo?</b>\n' +
-        '<i>Ej.: Jokin de Irala</i>'
+        '🔒 Este bot es solo para el equipo Voltis.\n' +
+        'Introduce el <b>PIN de acceso</b> que te ha facilitado tu administrador.'
       )
 
     case '/vincular':
@@ -693,11 +691,10 @@ async function handleDocumentFile(msg: TelegramMessage) {
 
   const user = await getLinkedUser(chatId)
   if (!user) {
-    await setConvo(chatId, 'onboarding_name', {})
+    await setConvo(chatId, 'onboarding_pin', { pin_attempts: 0 })
     return sendMessage(chatId,
-      '👋 Antes de procesar facturas necesito activar tu cuenta.\n\n' +
-      '👤 <b>¿Cuál es tu nombre completo?</b>\n' +
-      '<i>Ej.: Jokin de Irala</i>'
+      '🔒 Este bot es solo para el equipo Voltis.\n' +
+      'Antes de procesar nada, introduce el <b>PIN de acceso</b>.'
     )
   }
 
@@ -2225,6 +2222,41 @@ async function handleConvoStep(msg: TelegramMessage, convo: ConversationState) {
   if (text === '/cancelar' || text === '/cancel') {
     await clearConvo(chatId)
     return sendMessage(chatId, '✅ Cancelado.')
+  }
+
+  // ── Onboarding: PIN de acceso ─────────────────────────────────────────────
+  // Filtra accesos no autorizados antes de pedir datos personales. El PIN
+  // se compara con TELEGRAM_BOT_ACCESS_PIN (fallback "1888"). Tras 5 intentos
+  // fallidos en el mismo chat, se limpia la conversación para evitar fuerza
+  // bruta — el usuario tendrá que volver a hacer /start.
+  if (convo.step === 'onboarding_pin') {
+    const expectedPin = (process.env.TELEGRAM_BOT_ACCESS_PIN || '1888').trim()
+    const attempt = text.trim()
+    const attempts = Number(convo.data?.pin_attempts || 0) + 1
+
+    if (attempt === expectedPin) {
+      await setConvo(chatId, 'onboarding_name', {})
+      return sendMessage(chatId,
+        '✅ <b>PIN correcto</b>\n\n' +
+        'Para activar tu cuenta necesito un par de datos.\n\n' +
+        '👤 <b>¿Cuál es tu nombre completo?</b>\n' +
+        '<i>Ej.: Jokin de Irala</i>'
+      )
+    }
+
+    if (attempts >= 5) {
+      await clearConvo(chatId)
+      return sendMessage(chatId,
+        '🚫 Demasiados intentos fallidos. Inténtalo más tarde con /start.\n' +
+        'Si crees que es un error, contacta con un administrador.'
+      )
+    }
+
+    await setConvo(chatId, 'onboarding_pin', { pin_attempts: attempts })
+    return sendMessage(chatId,
+      `❌ PIN incorrecto (${attempts}/5).\n` +
+      'Vuelve a introducir el <b>PIN de acceso</b>.'
+    )
   }
 
   // ── Onboarding: nombre completo ───────────────────────────────────────────
