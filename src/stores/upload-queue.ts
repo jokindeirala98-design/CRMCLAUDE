@@ -626,29 +626,87 @@ export async function processJobInBackground(jobId: string): Promise<void> {
           : 'luz')
 
       // ── Resolve correct client for this CUPS group ──────────────────────────
-      // Each invoice may belong to a different client (multi-client batch upload).
-      // Use holder_cif_nif / holder_name from the invoice to find or create the
-      // right client, falling back to the job-level client only if no data available.
+      // Regla de oro: el CUPS manda. Si ya existe un supply con ese CUPS, la
+      // factura se asocia a SU cliente, sin importar si el CIF/nombre extraído
+      // de la factura no coincide al 100 %. Esto evita duplicados tipo
+      // "Vegoplas" + "Vegoplas SL" cuando una nueva factura del mismo CUPS
+      // trae el holder con un sufijo distinto.
+      //
+      // Orden de resolución:
+      //   1. CUPS ya existente → usar su client_id (corta el flujo).
+      //   2. Match exacto por CIF/NIF.
+      //   3. Match fuzzy por nombre (canonical, ignora SL/SA/SLU…).
+      //   4. Crear cliente nuevo (única vía si todo lo demás falla).
       let groupClientId = currentJob.clientId
 
       const holderCifNif = cleanIdentifier(first.holder_cif_nif || first.cif || first.nif)
       const holderName = (first.holder_name || first.account_holder || '').trim()
 
-      if (holderCifNif && holderCifNif.length >= 8) {
-        // 1. Try match by CIF/NIF
+      // ── 1. CUPS ya existente: usar su client_id (regla absoluta) ────────────
+      let cupsResolvedClientId: string | null = null
+      if (cups && cups.length >= 20) {
         try {
-          const { data: byId } = await supabase
-            .from('clients')
-            .select('id')
-            .or(`cif_nif.ilike.%${holderCifNif}%,cif.ilike.%${holderCifNif}%,nif.ilike.%${holderCifNif}%`)
-            .limit(1)
-            .maybeSingle()
-          if (byId) {
-            groupClientId = byId.id
-          } else if (holderName) {
-            // 2. Create new client with invoice data
+          const { cupsBase20 } = await import('@/lib/utils/cups')
+          const base20 = cupsBase20(cups)
+          if (base20) {
+            const { data: cupsSupply } = await supabase
+              .from('supplies')
+              .select('client_id')
+              .ilike('cups', `${base20}%`)
+              .limit(1)
+              .maybeSingle()
+            if (cupsSupply?.client_id) {
+              cupsResolvedClientId = cupsSupply.client_id as string
+              groupClientId = cupsSupply.client_id as string
+              console.log(`[UploadQueue] CUPS ${cups} ya existe → cliente fijado a ${cupsResolvedClientId} (ignorando holder de la factura)`)
+            }
+          }
+        } catch (err) {
+          console.warn('[UploadQueue] CUPS lookup error:', err)
+        }
+      }
+
+      // Si el CUPS resolvió el cliente, NO seguimos: ni buscamos por CIF ni
+      // creamos nada. Cualquier discrepancia en CIF/nombre se ignora a propósito.
+      if (!cupsResolvedClientId) {
+        // ── 2. Match por CIF/NIF ─────────────────────────────────────────────
+        if (holderCifNif && holderCifNif.length >= 8) {
+          try {
+            const { data: byId } = await supabase
+              .from('clients')
+              .select('id')
+              .or(`cif_nif.ilike.%${holderCifNif}%,cif.ilike.%${holderCifNif}%,nif.ilike.%${holderCifNif}%`)
+              .limit(1)
+              .maybeSingle()
+            if (byId) groupClientId = byId.id
+          } catch (err) {
+            console.warn('[UploadQueue] CIF lookup error for', cups, err)
+          }
+        }
+
+        // ── 3. Match fuzzy por nombre (canonical, ignora SL/SA) ───────────────
+        if (groupClientId === currentJob.clientId && holderName) {
+          try {
+            const { matchClientByHolderName } = await import('@/lib/client-matcher')
+            const fiscalAddr = (first.fiscal_address || first.supply_address || '').trim() || null
+            const matched = await matchClientByHolderName(supabase, {
+              holderName,
+              cifNif: holderCifNif,
+              fiscalAddress: fiscalAddr,
+            })
+            if (matched) {
+              groupClientId = matched.id
+              if (matched.updated) console.log(`[UploadQueue] Cliente ${matched.name} actualizado con datos de factura nueva`)
+            }
+          } catch (err) {
+            console.warn('[UploadQueue] Fuzzy name match error for', cups, err)
+          }
+        }
+
+        // ── 4. Crear cliente nuevo (única vía si CUPS + CIF + nombre fallan) ──
+        if (groupClientId === currentJob.clientId && holderName && holderCifNif && holderCifNif.length >= 8) {
+          try {
             const isAyunt = /ayuntamiento|ajuntament|concello|diputaci/i.test(holderName)
-            // Particular: DNI (starts with digit) or NIE (starts with X, Y, Z)
             const isParticular = /^\d/.test(holderCifNif) || /^[XYZ]/i.test(holderCifNif)
             const clientType = isAyunt ? 'ayuntamiento' : isParticular ? 'particular' : 'empresa'
             const { data: newC } = await supabase
@@ -665,28 +723,11 @@ export async function processJobInBackground(jobId: string): Promise<void> {
               .single()
             if (newC) {
               groupClientId = newC.id
-              console.log(`[UploadQueue] Created client for CUPS ${cups}: ${holderName} (${holderCifNif})`)
+              console.log(`[UploadQueue] Cliente nuevo creado para CUPS ${cups}: ${holderName} (${holderCifNif})`)
             }
+          } catch (err) {
+            console.warn('[UploadQueue] Client creation error for', cups, err)
           }
-        } catch (err) {
-          console.warn('[UploadQueue] Client resolution error for', cups, err)
-        }
-      } else if (holderName && holderName !== currentJob.clientName) {
-        // No CIF/NIF but have a name — try name match
-        try {
-          const words = holderName.split(/\s+/).filter((w: string) => w.length >= 4)
-          const keyword = [...words].sort((a: string, b: string) => b.length - a.length)[0]
-          if (keyword) {
-            const { data: byName } = await supabase
-              .from('clients')
-              .select('id')
-              .ilike('name', `%${keyword}%`)
-              .limit(1)
-              .maybeSingle()
-            if (byName) groupClientId = byName.id
-          }
-        } catch (err) {
-          console.warn('[UploadQueue] Client name lookup error for', cups, err)
         }
       }
 
