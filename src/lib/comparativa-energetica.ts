@@ -230,6 +230,13 @@ function sumaConceptos(otros: OtroConcepto[] | undefined, pred: (c: string) => b
  * función gasPricing ya está en el bloque correspondiente).
  */
 export function resumirFactura(eco: BillEconomics): ResumenFactura {
+  // ── Gas: estructura distinta ─ las facturas de gas llevan los conceptos
+  //    en gasPricing (terminoFijoTotal, impuestoHidrocarbTotal, alquilerTotal,
+  //    ivaTotal…) en lugar de en otrosConceptos. Las tratamos aparte.
+  if (eco.gasPricing) {
+    return resumirFacturaGas(eco)
+  }
+
   const totalEnergia = (eco.consumo || []).reduce((s, c) => s + (Number(c.total) || 0), 0)
   const totalPotencia = (eco.potencia || []).reduce((s, p) => s + (Number(p.total) || 0), 0)
 
@@ -280,6 +287,101 @@ export function resumirFactura(eco: BillEconomics): ResumenFactura {
     otrosRegulados,
     ieePorcentaje,
     ieeImporte,
+    baseImponible,
+    ivaPorcentaje,
+    ivaImporte,
+    totalFactura,
+  }
+}
+
+/**
+ * Reduce una factura de GAS a su resumen numérico.
+ *
+ * Estructura de una factura de gas natural:
+ *   energía  = consumoTotalKwh × precio_kWh
+ *   término fijo (TF + cargos ATR) → regulado
+ *   peaje TV Red Local → regulado
+ *   IEH (impuesto hidrocarburos) → regulado
+ *   alquiler equipos → regulado
+ *   IVA → recalculado sobre la base
+ *
+ * Mapeo a ResumenFactura (estructura común):
+ *   totalEnergia    → energía (consumo × precio)
+ *   totalPotencia   → 0 (gas no tiene potencia)
+ *   excesos         → 0
+ *   bonoSocial      → 0
+ *   alquiler        → gasPricing.alquilerTotal
+ *   otrosRegulados  → terminoFijo + IEH + (peaje TV Red Local si extraído) − descuentos
+ *   ieePorcentaje   → 0 (no aplica)
+ *   ieeImporte      → 0
+ *   ivaPorcentaje   → derivado de ivaTotal/base, o ivaPorcentaje declarado
+ *   ivaImporte      → gasPricing.ivaTotal o calculado
+ */
+/** Normaliza un IVA al tipo oficial más cercano (0%, 4%, 5%, 10%, 21%).
+ *  El extractor a veces declara 21% cuando la factura tenía la reducción al 10%.
+ *  El ivaTotal real es fiable; el porcentaje derivado señala el tipo correcto. */
+function normalizarIvaPorcentaje(declarado: number | null, calculado: number): number {
+  const TIPOS_OFICIALES = [0, 0.04, 0.05, 0.10, 0.21]
+  const dec = declarado !== null ? (declarado >= 1 ? declarado / 100 : declarado) : null
+  // Si lo declarado coincide con el calculado (±1,5%), confiamos en lo declarado.
+  if (dec !== null && Math.abs(dec - calculado) < 0.015 && TIPOS_OFICIALES.includes(dec)) return dec
+  // Si no, devolvemos el tipo oficial más cercano al calculado.
+  let best = TIPOS_OFICIALES[0]
+  let bestDiff = Math.abs(calculado - best)
+  for (const t of TIPOS_OFICIALES) {
+    const d = Math.abs(calculado - t)
+    if (d < bestDiff) { bestDiff = d; best = t }
+  }
+  return best
+}
+
+function resumirFacturaGas(eco: BillEconomics): ResumenFactura {
+  const gp = eco.gasPricing || {}
+  // Energía: preferimos sumar consumo[].total; si está vacío, consumo × precio
+  let totalEnergia = (eco.consumo || []).reduce((s, c) => s + (Number(c.total) || 0), 0)
+  if (totalEnergia === 0) {
+    const consumo = Number(eco.consumoTotalKwh) || (eco.consumo || []).reduce((s, c) => s + (Number(c.kwh) || 0), 0)
+    totalEnergia = consumo * (Number(gp.precioKwh) || 0)
+  }
+
+  const terminoFijo = Number(gp.terminoFijoTotal) || 0
+  const ieh = Number(gp.impuestoHidrocarbTotal) || 0
+  const alquiler = Number(gp.alquilerTotal) || 0
+  const descuentoTF = Number(gp.descuentoTerminoFijo) || 0
+  const descuentoOtros = Number(gp.descuentoOtros) || 0
+
+  const otrosRegulados = terminoFijo + ieh - descuentoTF - descuentoOtros
+
+  const ivaTotalDeclarado = gp.ivaTotal !== undefined && gp.ivaTotal !== null ? Number(gp.ivaTotal) : null
+  const ivaPctDeclarado = gp.ivaPorcentaje !== undefined && gp.ivaPorcentaje !== null ? Number(gp.ivaPorcentaje) : null
+  const baseImponible = totalEnergia + alquiler + otrosRegulados
+
+  let ivaImporte: number
+  let ivaPorcentaje: number
+  if (ivaTotalDeclarado !== null && baseImponible > 0) {
+    // El ivaTotal real es fiable. Normalizamos el tipo al oficial más cercano
+    // para que el cálculo simulado use el tipo correcto (21%, 10%, etc.).
+    const ivaCalculado = ivaTotalDeclarado / baseImponible
+    ivaImporte = ivaTotalDeclarado
+    ivaPorcentaje = normalizarIvaPorcentaje(ivaPctDeclarado, ivaCalculado)
+  } else if (ivaPctDeclarado !== null) {
+    ivaPorcentaje = ivaPctDeclarado >= 1 ? ivaPctDeclarado / 100 : ivaPctDeclarado
+    ivaImporte = baseImponible * ivaPorcentaje
+  } else {
+    ivaPorcentaje = 0
+    ivaImporte = 0
+  }
+  const totalFactura = baseImponible + ivaImporte
+
+  return {
+    totalEnergia,
+    totalPotencia: 0,
+    excesos: 0,
+    bonoSocial: 0,
+    alquiler,
+    otrosRegulados,
+    ieePorcentaje: 0,
+    ieeImporte: 0,
     baseImponible,
     ivaPorcentaje,
     ivaImporte,
@@ -442,36 +544,44 @@ export function simularGasAntiguaConConsumoVoltis(
   const antiguaGas = antiguaEco.gasPricing || {}
   const consumo = Number(voltisEco.consumoTotalKwh) || (voltisEco.consumo || []).reduce((s, c) => s + (Number(c.kwh) || 0), 0)
 
+  // Precios de energía: el TV Precio Fijo (€/kWh) es el único concepto que
+  // depende del comercializador. Todo lo demás (TF, peaje, IEH, alquiler) es
+  // regulado y se pasa idéntico desde la factura Voltis.
   const precioVoltis = Number(voltisGas.precioKwh) || 0
   let precioAntigua = Number(antiguaGas.precioKwh) || 0
-  // Fallback: si gasPricing no tiene precio, intentar derivarlo del consumo array
   if (precioAntigua === 0 && antiguaEco.consumo && antiguaEco.consumo.length > 0) {
     const totalAntigua = antiguaEco.consumo.reduce((s, c) => s + (Number(c.total) || 0), 0)
     const kwhAntigua = antiguaEco.consumo.reduce((s, c) => s + (Number(c.kwh) || 0), 0)
     if (kwhAntigua > 0) precioAntigua = totalAntigua / kwhAntigua
   }
 
+  // Real Voltis (con todos los conceptos regulados):
   const real = resumirFactura(voltisEco)
-  const ivaPorcentaje = real.ivaPorcentaje > 0 ? real.ivaPorcentaje : (Number(voltisGas.ivaPorcentaje) || 0) / 100
 
+  // Energía simulada: cambia el precio, no el consumo
   const totalEnergiaSim = consumo * precioAntigua
-  // En gas no hay potencia
-  const totalPotenciaSim = 0
-  // Términos regulados: tomamos los de Voltis tal cual
-  const excesos = real.excesos
-  const bonoSocial = real.bonoSocial
+
+  // Costes regulados pasan IDÉNTICOS desde Voltis (alquiler, TF+IEH+peaje
+  // empaquetados en otrosRegulados por resumirFacturaGas).
   const alquiler = real.alquiler
   const otrosRegulados = real.otrosRegulados
-  const ieeImporteSim = 0
-  const baseImponibleSim = totalEnergiaSim + totalPotenciaSim + excesos + bonoSocial + alquiler + otrosRegulados
-  const ivaImporteSim = baseImponibleSim * ivaPorcentaje
+  const ivaPorcentaje = real.ivaPorcentaje  // tipo oficial normalizado
+
+  const baseImponibleSim = totalEnergiaSim + alquiler + otrosRegulados
+
+  // IVA simulado: partimos del IVA REAL (que ya está en la factura, lo dejamos
+  // como referencia exacta) y le sumamos solo el incremento sobre la energía
+  // adicional, con el tipo oficial. Esto reproduce la fórmula del PDF:
+  //   Ahorro = (precio_antigua − precio_voltis) × consumo × (1 + IVA)
+  const deltaEnergia = totalEnergiaSim - real.totalEnergia
+  const ivaImporteSim = real.ivaImporte + deltaEnergia * ivaPorcentaje
   const totalFacturaSim = baseImponibleSim + ivaImporteSim
 
   const resumen: ResumenFactura = {
     totalEnergia: totalEnergiaSim,
     totalPotencia: 0,
-    excesos,
-    bonoSocial,
+    excesos: 0,
+    bonoSocial: 0,
     alquiler,
     otrosRegulados,
     ieePorcentaje: 0,
@@ -482,7 +592,7 @@ export function simularGasAntiguaConConsumoVoltis(
     totalFactura: totalFacturaSim,
   }
 
-  // Detalle "pseudo-periodo" para gas: una sola fila
+  // Detalle "pseudo-periodo" para gas: una sola fila informativa
   const detalle: DetallePeriodoSim[] = [{
     periodo: 'P1',
     kwh: consumo,
