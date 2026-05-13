@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { Save, UserPlus, Shield, Users, Key, ExternalLink, CheckCircle, AlertCircle, Trash2, RotateCw, Lock, Edit2, MessageCircle, Link2, Unlink, Copy, Check, CalendarDays } from 'lucide-react'
+import { Save, UserPlus, Shield, Users, Key, ExternalLink, CheckCircle, AlertCircle, Trash2, RotateCw, Lock, Edit2, MessageCircle, Unlink, Copy, CalendarDays } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
@@ -89,8 +89,6 @@ export default function SettingsPage() {
   const [gcalConnected,       setGcalConnected]       = useState(false)
   const [gcalLoading,         setGcalLoading]         = useState(false)
   const [sharedCalConnected,  setSharedCalConnected]  = useState(false)
-  const [linkCode, setLinkCode] = useState<string | null>(null)
-  const [codeCopied, setCodeCopied] = useState(false)
 
   const fetchTelegramLink = useCallback(async () => {
     if (!user) return
@@ -103,36 +101,6 @@ export default function SettingsPage() {
       .single()
     setTelegramLink(data)
   }, [user])
-
-  const generateLinkCode = async () => {
-    if (!user) return
-    setTelegramLoading(true)
-    const supabase = createClient()
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase()
-
-    // Delete any existing pending codes for this user
-    await supabase
-      .from('telegram_links')
-      .delete()
-      .eq('user_id', user.id)
-      .eq('status', 'pending')
-
-    // Create new pending link
-    const { error } = await supabase.from('telegram_links').insert({
-      user_id: user.id,
-      link_code: code,
-      status: 'pending',
-      created_at: new Date().toISOString(),
-    })
-
-    if (!error) {
-      setLinkCode(code)
-      toast('success', 'Código generado. Escanea el QR o toca el enlace de Telegram.')
-    } else {
-      toast('error', 'Error generando código')
-    }
-    setTelegramLoading(false)
-  }
 
   const unlinkTelegram = async () => {
     if (!user || !telegramLink) return
@@ -159,13 +127,6 @@ export default function SettingsPage() {
       toast('error', 'Error al desvincular')
     }
     setGcalLoading(false)
-  }
-
-  const copyCode = () => {
-    if (!linkCode) return
-    navigator.clipboard.writeText(`/start ${linkCode}`)
-    setCodeCopied(true)
-    setTimeout(() => setCodeCopied(false), 2000)
   }
 
   useEffect(() => {
@@ -763,57 +724,38 @@ export default function SettingsPage() {
           ) : (
             <div className="space-y-3">
               <p className="text-sm text-ink-3">
-                Vincula tu cuenta de Telegram para recibir notificaciones push y enviar facturas directamente al CRM.
+                Abre el bot y pulsa <b>Iniciar</b>. Te pedirá tu nombre y email — con eso queda activado y vinculado a tu cuenta del CRM. Puedes compartir el enlace con cualquier comercial del equipo.
               </p>
-              <div className="flex flex-col sm:flex-row gap-3">
-                <Button onClick={generateLinkCode} disabled={telegramLoading}>
-                  <Link2 className="w-4 h-4" />
-                  Generar codigo de vinculacion
-                </Button>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <a
+                  href="https://t.me/VOLTISCRM_bot"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-[#229ED9] text-white rounded-xl text-sm font-semibold hover:bg-[#1a8bbf] transition-all"
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.247-2.02 9.52c-.148.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.16 14.4l-2.96-.924c-.643-.204-.656-.643.136-.953l11.57-4.463c.537-.194 1.006.131.656 2.187z"/>
+                  </svg>
+                  Abrir bot en Telegram
+                </a>
+                <button
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText('https://t.me/VOLTISCRM_bot')
+                      toast('success', 'Enlace copiado: t.me/VOLTISCRM_bot')
+                    } catch {
+                      toast('error', 'No se pudo copiar al portapapeles')
+                    }
+                  }}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-bg-2 text-ink rounded-xl text-sm font-semibold hover:bg-card transition-all border border-line"
+                >
+                  <Copy className="w-4 h-4" />
+                  Copiar enlace para compartir
+                </button>
               </div>
-              {linkCode && (
-                <div className="p-4 bg-info-container/40 rounded-xl space-y-4">
-                  <p className="text-sm font-medium text-info">Escanea el QR con tu móvil para vincular Telegram al instante:</p>
-                  <div className="flex flex-col sm:flex-row items-center gap-4">
-                    {/* QR code — uses tg:// protocol to avoid Android stripping ?start= param */}
-                    <div className="flex-shrink-0 p-2 bg-white rounded-xl shadow-sm">
-                      <img
-                        src={`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(`tg://resolve?domain=VOLTISCRM_bot&start=${linkCode}`)}&size=160x160&margin=4`}
-                        alt="QR Telegram"
-                        width={160}
-                        height={160}
-                        className="rounded-lg"
-                      />
-                    </div>
-                    <div className="flex-1 space-y-3 text-center sm:text-left">
-                      <p className="text-sm text-info">
-                        Escanea el QR con la <b>cámara del móvil</b> → Telegram se abrirá con el código listo → pulsa <b>Iniciar</b>.
-                      </p>
-                      <a
-                        href={`https://t.me/VOLTISCRM_bot?start=${linkCode}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#229ED9] text-white rounded-xl text-sm font-semibold hover:bg-[#1a8bbf] transition-all"
-                      >
-                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.247-2.02 9.52c-.148.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.16 14.4l-2.96-.924c-.643-.204-.656-.643.136-.953l11.57-4.463c.537-.194 1.006.131.656 2.187z"/>
-                        </svg>
-                        Pulsa aquí desde el móvil
-                      </a>
-                      <p className="text-xs text-info/70">
-                        O escribe en @VOLTISCRM_bot: <code className="bg-white/60 px-1 py-0.5 rounded font-mono">/vincular {linkCode}</code>
-                        <button
-                          onClick={copyCode}
-                          className="ml-2 p-1 bg-white/60 rounded hover:bg-white transition-colors inline-flex"
-                          title="Copiar código"
-                        >
-                          {codeCopied ? <Check className="w-3 h-3 text-ok" /> : <Copy className="w-3 h-3 text-info" />}
-                        </button>
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
+              <p className="text-xs text-ink-4">
+                Enlace directo: <code className="bg-bg-2 px-1.5 py-0.5 rounded font-mono">t.me/VOLTISCRM_bot</code>
+              </p>
             </div>
           )}
         </Card>
