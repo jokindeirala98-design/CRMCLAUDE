@@ -178,9 +178,12 @@ footer { margin-top: 32px; padding: 20px 0; border-top: 1px solid var(--border);
 }
 `
 
-// ── Buddy SVG inline ──────────────────────────────────────────────────────
+// ── Buddy mascot ──────────────────────────────────────────────────────────
+// Si existe `public/voltis-mascota.png` se embebe en base64. Si no,
+// fallback al SVG inline. El endpoint que llama a generarHtmlStandalone
+// pasa `mascotBase64` cuando ha podido leer el archivo del disco.
 
-const BUDDY_SVG = `<svg class="hero-mascot" viewBox="0 0 100 115" xmlns="http://www.w3.org/2000/svg">
+const BUDDY_SVG_FALLBACK = `<svg class="hero-mascot" viewBox="0 0 100 115" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <radialGradient id="bulbG" cx="0.4" cy="0.3">
       <stop offset="0%" stop-color="#FFFFFF"/>
@@ -204,6 +207,13 @@ const BUDDY_SVG = `<svg class="hero-mascot" viewBox="0 0 100 115" xmlns="http://
   <rect x="40" y="94" width="6" height="14" rx="3" fill="url(#bodyG)"/>
   <rect x="54" y="94" width="6" height="14" rx="3" fill="url(#bodyG)"/>
 </svg>`
+
+function buddyHtml(mascotBase64?: string | null, mascotMime?: string): string {
+  if (mascotBase64) {
+    return `<img class="hero-mascot" src="data:${mascotMime || 'image/png'};base64,${mascotBase64}" alt="Buddy"/>`
+  }
+  return BUDDY_SVG_FALLBACK
+}
 
 // ── Charts SVG ────────────────────────────────────────────────────────────
 
@@ -585,8 +595,12 @@ export function generarHtmlStandalone(args: {
   pdfs: PdfEmbed[]
   /** CUPS del suministro principal (el que el usuario abrió). */
   cupsPrincipal?: string | null
+  /** Imagen mascota Buddy en base64 (sin prefijo data:). Si no, se usa SVG fallback. */
+  mascotBase64?: string | null
+  /** MIME de la mascota (image/png, image/jpeg…). Default: image/png. */
+  mascotMime?: string
 }): string {
-  const { supply, resultadoLuz, resultadoGas, pdfs, cupsPrincipal } = args
+  const { supply, resultadoLuz, resultadoGas, pdfs, cupsPrincipal, mascotBase64, mascotMime } = args
   const hasLuz = !!resultadoLuz && resultadoLuz.pares.length > 0
   const hasGas = !!resultadoGas && resultadoGas.pares.length > 0
 
@@ -673,7 +687,7 @@ export function generarHtmlStandalone(args: {
         <h1>Tu ahorro energético, en datos</h1>
         <p>Comparativa ${esc(tipoDescr)} de ${cobertura.mesesComparados} ${cobertura.mesesComparados === 1 ? 'mes' : 'meses'} (${esc(periodo)}) con Voltis frente a ${esc(comercAntigua)}.</p>
       </div>
-      ${BUDDY_SVG}
+      ${buddyHtml(mascotBase64, mascotMime)}
     </div>
   </header>
 

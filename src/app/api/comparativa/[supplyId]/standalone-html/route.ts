@@ -13,12 +13,26 @@
  * pulsa "Descargar HTML para cliente" desde ComparativaVoltisV2.
  */
 import { NextRequest, NextResponse } from 'next/server'
+import { readFile } from 'fs/promises'
+import path from 'path'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { computarTripartita, type ResultadoTripartito } from '@/lib/comparativa-tripartita'
 import { generarHtmlStandalone, type PdfEmbed, type SupplyInfo } from '@/lib/comparativa-html-generator'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60   // descargar PDFs + base64 puede tardar 10-30s
+
+/** Lee la mascota Buddy del filesystem (public/) y la devuelve en base64.
+ *  Si el archivo no existe, devuelve null y el generador caerá al SVG. */
+async function loadMascotBase64(): Promise<{ base64: string; mime: string } | null> {
+  try {
+    const filePath = path.join(process.cwd(), 'public', 'mascota-transparente.png')
+    const buf = await readFile(filePath)
+    return { base64: buf.toString('base64'), mime: 'image/png' }
+  } catch {
+    return null
+  }
+}
 
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 
@@ -159,12 +173,17 @@ export async function GET(_req: NextRequest, { params }: { params: { supplyId: s
       client_cif: clientRel?.cif ?? clientRel?.cif_nif ?? clientRel?.nif ?? null,
     }
 
+    // Mascota Buddy embebida (si existe en public/) — en paralelo a los PDFs
+    const mascot = await loadMascotBase64()
+
     const html = generarHtmlStandalone({
       supply: supplyInfo,
       resultadoLuz: hasLuz ? resultadoLuz : null,
       resultadoGas: hasGas ? resultadoGas : null,
       pdfs,
       cupsPrincipal: principal.cups,
+      mascotBase64: mascot?.base64 ?? null,
+      mascotMime: mascot?.mime,
     })
 
     // Nombre del archivo: usa el rango de meses cubierto por luz si existe, si no gas

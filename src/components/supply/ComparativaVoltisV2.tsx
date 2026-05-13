@@ -383,13 +383,33 @@ function Hero({ supply, resultadoLuz, resultadoGas, stats, onBack, onDownloadHtm
             {totalSupplies > 1 ? ` · ${totalSupplies} suministros agregados` : ''}.
           </p>
         </div>
-        <BuddySVG />
+        <BuddyMascot />
       </div>
     </header>
   )
 }
 
-function BuddySVG() {
+function BuddyMascot() {
+  // Usa la imagen oficial cuando esté disponible (public/voltis-mascota.png).
+  // Si la imagen no existe (404), el navegador la oculta y queda el SVG
+  // fallback ya renderizado debajo.
+  const [imgFailed, setImgFailed] = useState(false)
+  if (imgFailed) return <BuddySVGFallback />
+  return (
+    <img
+      src="/mascota-transparente.png"
+      alt="Buddy · Mascota Voltis"
+      width={200}
+      onError={() => setImgFailed(true)}
+      style={{
+        width: 200, height: 'auto', flexShrink: 0,
+        filter: 'drop-shadow(0 12px 32px rgba(19, 59, 122, 0.25))',
+      }}
+    />
+  )
+}
+
+function BuddySVGFallback() {
   return (
     <svg width={200} height={230} viewBox="0 0 100 115" xmlns="http://www.w3.org/2000/svg"
       style={{ filter: 'drop-shadow(0 12px 32px rgba(19, 59, 122, 0.25))', flexShrink: 0 }}>
