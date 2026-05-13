@@ -25,10 +25,6 @@ CREATE INDEX IF NOT EXISTS idx_invoices_pending_extraction
   ON public.invoices (supply_id)
   WHERE extraction_status <> 'completed';
 
--- Lista clientes por comercial y estado de caída
-CREATE INDEX IF NOT EXISTS idx_clients_commercial_fallen
-  ON public.clients (commercial_id, is_fallen);
-
 -- Suministros por tipo + status (para listados filtrados en /supplies)
 CREATE INDEX IF NOT EXISTS idx_supplies_type_status
   ON public.supplies (type, status);
