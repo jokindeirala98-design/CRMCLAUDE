@@ -16,7 +16,7 @@ import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Loader2, AlertCircle, Zap, Flame, Download,
-  TrendingDown, FileText, ExternalLink, X,
+  TrendingDown, FileText, ExternalLink, X, Maximize2, Minimize2,
 } from 'lucide-react'
 import type { ResultadoTripartito } from '@/lib/comparativa-tripartita'
 
@@ -122,12 +122,41 @@ export default function ComparativaVoltisV2({ supplyId, onBack }: Props) {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault()
+        // Si está en fullscreen del navegador, salir primero del fullscreen
+        if (document.fullscreenElement) {
+          document.exitFullscreen().catch(() => {})
+          return
+        }
         ;(onBack ?? (() => router.back()))()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onBack, router])
+
+  // ── Fullscreen API del navegador ──────────────────────────────────────────
+  // Activar fullscreen REAL (oculta URL bar, pestañas y todo) requiere un
+  // gesto del usuario. Un click en cualquier sitio del overlay nada más
+  // entrar lo activa; también hay un botón explícito.
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  useEffect(() => {
+    const onFsChange = () => setIsFullscreen(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', onFsChange)
+    return () => document.removeEventListener('fullscreenchange', onFsChange)
+  }, [])
+
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen()
+      } else {
+        await document.documentElement.requestFullscreen({ navigationUI: 'hide' as any })
+      }
+    } catch (err: any) {
+      // Algunos navegadores rechazan si no es gesture-initiated o si lo bloqueó iframe
+      console.warn('[Fullscreen] no disponible:', err?.message)
+    }
+  }
 
   // Bloquear scroll del body mientras la vista está abierta a pantalla completa
   useEffect(() => {
@@ -198,23 +227,44 @@ export default function ComparativaVoltisV2({ supplyId, onBack }: Props) {
         background: C.bgSoft,
         fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
       }}>
-      {/* Botón cerrar — siempre accesible arriba a la derecha */}
-      <button
-        onClick={() => (onBack ?? (() => router.back()))()}
-        title="Cerrar (ESC o doble click)"
-        aria-label="Cerrar"
-        style={{
-          position: 'fixed', top: 16, right: 16, zIndex: 10001,
-          width: 44, height: 44, borderRadius: 999, border: 'none', cursor: 'pointer',
-          background: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(8px)',
-          boxShadow: '0 4px 20px rgba(19,59,122,0.18)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: C.text, transition: 'transform 0.15s',
-        }}
-        onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.05)' }}
-        onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)' }}>
-        <X className="w-5 h-5" />
-      </button>
+      {/* Controles flotantes — fullscreen + cerrar */}
+      <div style={{ position: 'fixed', top: 16, right: 16, zIndex: 10001, display: 'flex', gap: 8 }}>
+        <button
+          onClick={toggleFullscreen}
+          title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa real (oculta navegador)'}
+          aria-label="Pantalla completa"
+          style={{
+            width: 44, height: 44, borderRadius: 999, border: 'none', cursor: 'pointer',
+            background: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(8px)',
+            boxShadow: '0 4px 20px rgba(19,59,122,0.18)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: C.text, transition: 'transform 0.15s',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.05)' }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)' }}>
+          {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+        </button>
+        <button
+          onClick={() => {
+            if (document.fullscreenElement) {
+              document.exitFullscreen().catch(() => {})
+            }
+            ;(onBack ?? (() => router.back()))()
+          }}
+          title="Cerrar (ESC o doble click)"
+          aria-label="Cerrar"
+          style={{
+            width: 44, height: 44, borderRadius: 999, border: 'none', cursor: 'pointer',
+            background: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(8px)',
+            boxShadow: '0 4px 20px rgba(19,59,122,0.18)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: C.text, transition: 'transform 0.15s',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.05)' }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)' }}>
+          <X className="w-5 h-5" />
+        </button>
+      </div>
       <Hero
         supply={supply}
         resultadoLuz={resultadoLuz}

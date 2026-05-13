@@ -153,12 +153,45 @@ footer { margin-top: 32px; padding: 20px 0; border-top: 1px solid var(--border);
   font-size: 11px; color: var(--text-3); display: flex; justify-content: space-between; }
 
 @media (max-width: 720px) {
-  .topbar { padding: 14px 20px; flex-wrap: wrap; }
+  body { font-size: 14px; }
+  .topbar { padding: 12px 16px; flex-wrap: wrap; gap: 10px; }
   .topbar-right { width: 100%; text-align: left; margin-left: 0; }
-  .hero-content { flex-direction: column; align-items: flex-start; padding: 36px 20px 48px; gap: 24px; }
-  .hero-mascot { width: 140px; align-self: center; }
-  .hero-text h1 { font-size: 28px; }
-  .container { padding: 0 16px 32px; }
+  .hero-content { flex-direction: column; align-items: center; padding: 28px 16px 36px; gap: 18px; text-align: center; }
+  .hero-mascot { width: 130px; order: -1; }
+  .hero-text { text-align: center; }
+  .hero-text h1 { font-size: 26px; line-height: 1.15; }
+  .hero-text p { font-size: 14px; }
+  .container { padding: 0 12px 32px; margin-top: -20px; }
+
+  .tabs { padding: 4px; gap: 2px; }
+  .tab { padding: 10px 12px; font-size: 12px; min-height: 40px; }
+  .tab span { white-space: nowrap; }
+  .tab svg { display: none; }   /* en móvil quitamos iconos, solo label */
+
+  .section-header h2 { font-size: 19px; }
+  .kpi-grid { grid-template-columns: 1fr; gap: 10px; margin-bottom: 18px; }
+  .kpi { padding: 14px 16px; }
+  .kpi-value { font-size: 22px; }
+  .card { padding: 16px; margin-bottom: 18px; }
+  .card h3 { font-size: 13px; }
+  .cols-2 { grid-template-columns: 1fr; gap: 12px; }
+  .simple-table td { padding: 9px 0; font-size: 12.5px; }
+
+  /* Tablas: scroll horizontal — la celda no rompe a varias líneas */
+  .card > .data-table,
+  .data-table { display: block; overflow-x: auto; white-space: nowrap; }
+  .data-table thead th, .data-table tbody td { padding: 10px 12px; font-size: 12.5px; }
+
+  /* Charts más bajos en móvil */
+  .bar-chart svg { max-height: 220px; }
+
+  .doc-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .doc-card { padding: 12px; }
+  .doc-card .icon { width: 32px; height: 32px; }
+  .doc-card .title { font-size: 12px; }
+
+  .btn-print { padding: 10px 18px; font-size: 13px; }
+  footer { flex-direction: column; gap: 6px; text-align: center; }
 }
 
 @media print {
@@ -719,33 +752,56 @@ export function generarHtmlStandalone(args: {
   </div>
 
   <script>
-    // Tabs
-    document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
-      document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
-      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-      t.classList.add('active');
-      const target = document.getElementById('panel-' + t.dataset.tab);
-      if (target) target.classList.add('active');
-    }));
+  (function() {
+    function init() {
+      try {
+        // ── Tabs: click + touchend para iOS, sin doble disparo ─────────────
+        var tabs = document.querySelectorAll('.tab');
+        var panels = document.querySelectorAll('.tab-panel');
+        function activate(tabBtn) {
+          for (var i = 0; i < tabs.length; i++) tabs[i].classList.remove('active');
+          for (var j = 0; j < panels.length; j++) panels[j].classList.remove('active');
+          tabBtn.classList.add('active');
+          var target = document.getElementById('panel-' + tabBtn.dataset.tab);
+          if (target) target.classList.add('active');
+        }
+        Array.prototype.forEach.call(tabs, function(t) {
+          t.addEventListener('click', function(e) { e.preventDefault(); activate(t); });
+        });
 
-    // Documentos: base64 → blob → download
-    const DOCS = ${JSON.stringify(docsObj)};
-    function b64ToBlob(b64, mime) {
-      const bin = atob(b64);
-      const buf = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
-      return new Blob([buf], { type: mime });
+        // ── Documentos: base64 → blob → download ───────────────────────────
+        var DOCS = window.__VOLTIS_DOCS__ || {};
+        function b64ToBlob(b64, mime) {
+          var bin = atob(b64);
+          var buf = new Uint8Array(bin.length);
+          for (var k = 0; k < bin.length; k++) buf[k] = bin.charCodeAt(k);
+          return new Blob([buf], { type: mime });
+        }
+        window.downloadDoc = function(key) {
+          var doc = DOCS[key];
+          if (!doc) return;
+          var blob = b64ToBlob(doc.data, doc.mime);
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement('a');
+          a.href = url; a.download = doc.filename;
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          setTimeout(function() { URL.revokeObjectURL(url); }, 100);
+        };
+      } catch (err) {
+        console.error('[Voltis HTML] init error:', err);
+      }
     }
-    window.downloadDoc = function(key) {
-      const doc = DOCS[key];
-      if (!doc) return;
-      const blob = b64ToBlob(doc.data, doc.mime);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = doc.filename;
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 100);
-    };
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+    } else {
+      init();
+    }
+  })();
+  </script>
+  <script id="__voltis_docs_data" type="application/json">${JSON.stringify(docsObj).replace(/</g, '\\u003c')}</script>
+  <script>
+    try { window.__VOLTIS_DOCS__ = JSON.parse(document.getElementById('__voltis_docs_data').textContent); }
+    catch(e) { window.__VOLTIS_DOCS__ = {}; console.error('[Voltis HTML] DOCS parse error', e); }
   </script>
 </body>
 </html>`

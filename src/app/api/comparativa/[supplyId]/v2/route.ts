@@ -50,11 +50,41 @@ export async function GET(
       return NextResponse.json({ error: 'Supply not found' }, { status: 404 })
     }
 
-    // 2. TODOS los supplies del cliente con sus facturas
-    const { data: clientSupplies } = await supabase
+    // 2. TODOS los supplies del cliente + facturas de los últimos 24 meses.
+    //    La metodología tripartita solo compara año anterior con año
+    //    actual; facturas más antiguas no aportan al cálculo y saturan
+    //    el response.
+    const cutoffDate = new Date()
+    cutoffDate.setMonth(cutoffDate.getMonth() - 24)
+    const cutoffIso = cutoffDate.toISOString()
+
+    const { data: suppliesData } = await supabase
       .from('supplies')
-      .select(`id, cups, tariff, type, name, invoices:invoices(*)`)
+      .select('id, cups, tariff, type, name')
       .eq('client_id', principal.client_id)
+    const supplyIds = (suppliesData || []).map((s: any) => s.id)
+
+    let invoicesData: any[] = []
+    if (supplyIds.length > 0) {
+      const { data } = await supabase
+        .from('invoices')
+        .select('id, supply_id, file_url, period_start, period_end, source, total_amount, extracted_data, created_at')
+        .in('supply_id', supplyIds)
+        .gte('period_end', cutoffIso)
+      invoicesData = data || []
+    }
+
+    // Reconstruir la estructura supplies[].invoices[] esperada por el resto
+    const invoicesBySupply = new Map<string, any[]>()
+    for (const inv of invoicesData) {
+      const arr = invoicesBySupply.get(inv.supply_id) || []
+      arr.push(inv)
+      invoicesBySupply.set(inv.supply_id, arr)
+    }
+    const clientSupplies = (suppliesData || []).map((s: any) => ({
+      ...s,
+      invoices: invoicesBySupply.get(s.id) || [],
+    }))
 
     if (!clientSupplies || clientSupplies.length === 0) {
       return NextResponse.json({ error: 'Sin supplies en el cliente' }, { status: 404 })
