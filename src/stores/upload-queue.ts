@@ -368,33 +368,27 @@ export async function processJobInBackground(jobId: string): Promise<void> {
       }
     }
 
-    // 2. Try matching by holder name keywords
+    // 2. Try matching by holder name with canonical key (ignora SL/SA/SLU…)
+    //    Si encuentra cliente, también promueve el nombre al más completo y
+    //    rellena CIF / dirección si estaban vacíos.
     if (!matchedClient) {
-      const stopWords = new Set([
-        'de', 'del', 'la', 'las', 'los', 'el', 'y', 'e', 'o', 'en', 'por', 'con', 'para',
-        'sl', 'sa', 'slu', 'cb', 'sc', 'sociedad', 'limitada', 'anonima',
-      ])
+      // Import dinámico para evitar problemas de bundling
+      const { matchClientByHolderName } = await import('@/lib/client-matcher')
       for (const c of candidates) {
         if (!c.name || c.name === 'No detectado') continue
-        const cname: string = c.name
-        const words: string[] = cname.split(/\s+/).filter((w: string) => w.length >= 3 && !stopWords.has(w.toLowerCase()))
-        if (!words.length) continue
-        const primaryKeyword = [...words].sort((a, b) => b.length - a.length)[0]
         try {
-          const { data: matches } = await supabase
-            .from('clients')
-            .select('id, name')
-            .ilike('name', `%${primaryKeyword}%`)
-            .limit(5)
-          if (matches?.length) {
-            const scored = (matches as Array<{ id: string; name: string }>).map((m) => ({
-              ...m,
-              score: words.filter((w: string) => m.name.toLowerCase().includes(w.toLowerCase())).length,
-            })).sort((a: { score: number }, b: { score: number }) => b.score - a.score)
-            if (scored[0].score >= 1) {
-              matchedClient = { id: scored[0].id, name: scored[0].name }
-              break
-            }
+          // Buscar también dirección fiscal en el extractedData (varios nombres posibles)
+          const sourceMeta = analyzedFiles.find(f => (f.extractedData?.holder_name || f.extractedData?.account_holder || '').trim() === c.name)?.extractedData || {}
+          const fiscalAddr = (sourceMeta.fiscal_address || sourceMeta.supply_address || '').trim() || null
+          const matched = await matchClientByHolderName(supabase, {
+            holderName: c.name,
+            cifNif: c.cifNif,
+            fiscalAddress: fiscalAddr,
+          })
+          if (matched) {
+            matchedClient = { id: matched.id, name: matched.name }
+            if (matched.updated) console.log('[UploadQueue] Cliente actualizado por match:', matched.name)
+            break
           }
         } catch (err) {
           console.warn('[UploadQueue] Name lookup error:', err)

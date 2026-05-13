@@ -953,11 +953,15 @@ export default function SupplyDetailPage() {
         }
 
         if (!targetSupplyId) {
-          await supabase.storage.from('documents').remove([storageData.path]).catch(() => {})
+          // ⚠️ NO eliminamos el archivo de Storage: queda persistido por si el
+          //    usuario quiere crear el supply correspondiente y reasignarlo.
+          //    Tampoco creamos un cliente nuevo silenciosamente (UNICE TOYS vs
+          //    UNICE TOYS SL): asumimos que el cliente ya existe.
           newProgress[fileId] = 'wrong-client'
           setVoltisUploadProgress({ ...newProgress })
+          const cupsType = /^ES02\d/.test(invoiceCupsNorm) ? 'gas' : 'luz'
           showNotification(
-            `El CUPS ${invoiceCupsNorm} de "${file.name}" no pertenece a ningún suministro de este cliente.`,
+            `⚠️ El CUPS ${invoiceCupsNorm} (${cupsType}) de "${file.name}" no tiene suministro en este cliente. Crea primero el suministro de ${cupsType} y vuelve a subir la factura.`,
             'error'
           )
           errorCount++
