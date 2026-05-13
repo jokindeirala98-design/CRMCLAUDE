@@ -36,13 +36,9 @@ const AnnualEconomics = dynamic(
   () => import('@/components/supply/AnnualEconomics'),
   { ssr: false, loading: () => <div className="flex items-center justify-center py-20 text-ink-3 text-sm">Cargando estudio económico…</div> }
 )
-const ComparativaVoltis = dynamic(
-  () => import('@/components/supply/ComparativaVoltis'),
-  { ssr: false, loading: () => <div className="flex items-center justify-center py-20 text-ink-3 text-sm">Cargando comparativa…</div> }
-)
 const ComparativaVoltisV2 = dynamic(
   () => import('@/components/supply/ComparativaVoltisV2'),
-  { ssr: false, loading: () => <div className="flex items-center justify-center py-20 text-ink-3 text-sm">Cargando comparativa V2…</div> }
+  { ssr: false, loading: () => <div className="flex items-center justify-center py-20 text-ink-3 text-sm">Cargando comparativa…</div> }
 )
 const PowerStudy = dynamic(
   () => import('@/components/supply/PowerStudy').then(m => m.PowerStudy),
@@ -168,10 +164,6 @@ export default function SupplyDetailPage() {
   const [docsOverlayOpen, setDocsOverlayOpen] = useState(false)
   const [technicalModalOpen, setTechnicalModalOpen] = useState(false)
   const [economicStudyOpen, setEconomicStudyOpen] = useState(false)
-  // Toggle entre comparativa V1 (actual, en producción) y V2 (beta tripartita).
-  // V1 sigue siendo la vista por defecto. Cambio cosmético: añadir un botón
-  // pequeño dentro del panel comparativa para alternar entre ambas.
-  const [useComparativaV2, setUseComparativaV2] = useState(false)
   const [powerAdjustForStudyOpen, setPowerAdjustForStudyOpen] = useState(false)
   const [studyAdjustedPowers, setStudyAdjustedPowers] = useState<number[] | null>(null)
   const [studyPowerInputs, setStudyPowerInputs] = useState<Record<string, string>>({})
@@ -2524,33 +2516,12 @@ export default function SupplyDetailPage() {
           />
         )}
 
-        {/* ═══════ COMPARATIVA VOLTIS ═══════ */}
+        {/* ═══════ COMPARATIVA VOLTIS (V2 fullscreen) ══════════════════════
+            V2 es ahora la única versión. Renderiza como overlay fullscreen
+            via portal — ESC, doble click en el fondo o el botón "Volver"
+            cierran la vista y devuelven al usuario a la ficha del supply. */}
         {activeTab === 'comparativa-voltis' && supply.invoices?.some((inv: any) => inv.source === 'voltis') && (
-          <div className="rounded-3xl overflow-hidden bg-bg border border-line">
-            {/* Toggle V1/V2 — V1 sigue como default. V2 es la metodología
-                tripartita en validación. Cuando V2 quede aprobada por el equipo
-                comercial, sustituiremos la V1 por completo. */}
-            <div className="flex items-center justify-end gap-2 px-4 pt-4">
-              <button
-                onClick={() => setUseComparativaV2(false)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                  !useComparativaV2 ? 'bg-brand text-volt' : 'bg-bg-2 text-ink-3 hover:bg-card'
-                }`}>
-                Versión actual
-              </button>
-              <button
-                onClick={() => setUseComparativaV2(true)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                  useComparativaV2 ? 'bg-[#1B4FA0] text-white' : 'bg-bg-2 text-ink-3 hover:bg-card'
-                }`}>
-                V2 (beta) · metodología tripartita
-              </button>
-            </div>
-            {useComparativaV2
-              ? <ComparativaVoltisV2 supplyId={supply.id} />
-              : <ComparativaVoltis supplyId={supply.id} />
-            }
-          </div>
+          <ComparativaVoltisV2 supplyId={supply.id} onBack={() => setActiveTab(null)} />
         )}
 
         {/* ═══════ TIMESTAMPS ═══════ */}

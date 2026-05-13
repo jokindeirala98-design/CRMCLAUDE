@@ -12,10 +12,11 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Loader2, AlertCircle, Zap, Flame, Download,
-  TrendingDown, FileText, ExternalLink,
+  TrendingDown, FileText, ExternalLink, X,
 } from 'lucide-react'
 import type { ResultadoTripartito } from '@/lib/comparativa-tripartita'
 
@@ -55,11 +56,19 @@ interface ApiV2Response {
     name: string | null
     client_id: string
     client_name: string | null
+    client_alias: string | null
     client_cif: string | null
     comercializadora: string | null
   }
-  resultado: ResultadoTripartito
-  otrosCupsClient: Array<{ id: string; cups: string | null; tariff: string | null; type: string; has_voltis: boolean }>
+  resultadoLuz: ResultadoTripartito | null
+  resultadoGas: ResultadoTripartito | null
+  supplies: Array<{ id: string; cups: string | null; tariff: string | null; type: string; name: string | null; has_voltis: boolean }>
+  stats: {
+    suppliesLuz: number
+    suppliesGas: number
+    suppliesLuzVoltis: number
+    suppliesGasVoltis: number
+  }
 }
 
 interface Props {
@@ -108,6 +117,32 @@ export default function ComparativaVoltisV2({ supplyId, onBack }: Props) {
     }
   }
 
+  // Tecla ESC para salir
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        ;(onBack ?? (() => router.back()))()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onBack, router])
+
+  // Bloquear scroll del body mientras la vista está abierta a pantalla completa
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
+
+  // Doble click en el fondo (no en el contenido) → salir
+  const handleBackdropDblClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.target === e.currentTarget) {
+      ;(onBack ?? (() => router.back()))()
+    }
+  }
+
   useEffect(() => {
     let cancelled = false
     setLoading(true); setError(null)
@@ -117,9 +152,12 @@ export default function ComparativaVoltisV2({ supplyId, onBack }: Props) {
         if (cancelled) return
         if (json.error) throw new Error(json.error)
         setData(json)
-        // Tab inicial según tipo de suministro
-        const isGas = json.resultado.supplyType === 'gas'
-        setActiveTab(isGas ? 'ahorro-gas' : 'ahorro-luz')
+        // Tab inicial: la primera pestaña según lo disponible (luz → gas → documentos)
+        const hasLuz = !!json.resultadoLuz && json.resultadoLuz.pares.length > 0
+        const hasGas = !!json.resultadoGas && json.resultadoGas.pares.length > 0
+        if (hasLuz) setActiveTab('ahorro-luz')
+        else if (hasGas) setActiveTab('ahorro-gas')
+        else setActiveTab('documentos')
       })
       .catch(e => { if (!cancelled) setError(e?.message || 'Error') })
       .finally(() => { if (!cancelled) setLoading(false) })
@@ -130,28 +168,58 @@ export default function ComparativaVoltisV2({ supplyId, onBack }: Props) {
   if (error) return <Centered><div className="text-sm" style={{ color: '#DC2626' }}><AlertCircle className="inline w-4 h-4 mr-2" />{error}</div></Centered>
   if (!data) return null
 
-  const { supply, resultado } = data
-  const isGas = resultado.supplyType === 'gas'
+  const { supply, resultadoLuz, resultadoGas, stats } = data
+  const hasLuz = !!resultadoLuz && resultadoLuz.pares.length > 0
+  const hasGas = !!resultadoGas && resultadoGas.pares.length > 0
 
-  // Pestañas según tipo
-  const tabs: Array<{ id: string; label: string; icon?: React.ReactNode }> = isGas
-    ? [
-        { id: 'ahorro-gas', label: 'Ahorro gas', icon: <Flame className="w-4 h-4" /> },
-        { id: 'estimacion-gas', label: 'Estimación gas' },
-        { id: 'documentos', label: 'Documentos', icon: <FileText className="w-4 h-4" /> },
-      ]
-    : [
-        { id: 'ahorro-luz', label: 'Ahorro luz', icon: <Zap className="w-4 h-4" /> },
-        { id: 'consumos-luz', label: 'Consumos luz' },
-        { id: 'estimacion-luz', label: 'Estimación luz' },
-        { id: 'documentos', label: 'Documentos', icon: <FileText className="w-4 h-4" /> },
-      ]
+  // Pestañas dinámicas según lo disponible
+  const tabs: Array<{ id: string; label: string; icon?: React.ReactNode }> = []
+  if (hasLuz) {
+    tabs.push({ id: 'ahorro-luz', label: 'Ahorro luz', icon: <Zap className="w-4 h-4" /> })
+    tabs.push({ id: 'consumos-luz', label: 'Consumos luz' })
+    tabs.push({ id: 'estimacion-luz', label: 'Estimación luz' })
+  }
+  if (hasGas) {
+    tabs.push({ id: 'ahorro-gas', label: 'Ahorro gas', icon: <Flame className="w-4 h-4" /> })
+    tabs.push({ id: 'estimacion-gas', label: 'Estimación gas' })
+  }
+  tabs.push({ id: 'documentos', label: 'Documentos', icon: <FileText className="w-4 h-4" /> })
 
-  return (
-    <div style={{ background: C.bgSoft, minHeight: '100vh', fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif" }}>
+  // Validación combinada
+  const facturasMal =
+    (resultadoLuz?.validacionFacturas.filter(v => !v.ok).length || 0)
+    + (resultadoGas?.validacionFacturas.filter(v => !v.ok).length || 0)
+
+  const node = (
+    <div
+      onDoubleClick={handleBackdropDblClick}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 9999, overflowY: 'auto',
+        background: C.bgSoft,
+        fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+      }}>
+      {/* Botón cerrar — siempre accesible arriba a la derecha */}
+      <button
+        onClick={() => (onBack ?? (() => router.back()))()}
+        title="Cerrar (ESC o doble click)"
+        aria-label="Cerrar"
+        style={{
+          position: 'fixed', top: 16, right: 16, zIndex: 10001,
+          width: 44, height: 44, borderRadius: 999, border: 'none', cursor: 'pointer',
+          background: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(8px)',
+          boxShadow: '0 4px 20px rgba(19,59,122,0.18)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: C.text, transition: 'transform 0.15s',
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.05)' }}
+        onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)' }}>
+        <X className="w-5 h-5" />
+      </button>
       <Hero
         supply={supply}
-        resultado={resultado}
+        resultadoLuz={resultadoLuz}
+        resultadoGas={resultadoGas}
+        stats={stats}
         onBack={onBack ?? (() => router.back())}
         onDownloadHtml={handleDownloadHtml}
         downloadingHtml={downloadingHtml}
@@ -181,20 +249,34 @@ export default function ComparativaVoltisV2({ supplyId, onBack }: Props) {
         </div>
 
         {/* Panels */}
-        {activeTab === 'ahorro-luz' && <AhorroPanel data={data} supplyType="luz" />}
-        {activeTab === 'consumos-luz' && <ConsumosPanel data={data} />}
-        {activeTab === 'estimacion-luz' && <EstimacionPanel data={data} supplyType="luz" />}
-        {activeTab === 'ahorro-gas' && <AhorroPanel data={data} supplyType="gas" />}
-        {activeTab === 'estimacion-gas' && <EstimacionPanel data={data} supplyType="gas" />}
-        {activeTab === 'documentos' && <DocumentosPanel data={data} />}
+        {activeTab === 'ahorro-luz' && hasLuz && <AhorroPanel resultado={resultadoLuz!} supplyType="luz" />}
+        {activeTab === 'consumos-luz' && hasLuz && <ConsumosPanel resultado={resultadoLuz!} />}
+        {activeTab === 'estimacion-luz' && hasLuz && <EstimacionPanel resultado={resultadoLuz!} supplyType="luz" />}
+        {activeTab === 'ahorro-gas' && hasGas && <AhorroPanel resultado={resultadoGas!} supplyType="gas" />}
+        {activeTab === 'estimacion-gas' && hasGas && <EstimacionPanel resultado={resultadoGas!} supplyType="gas" />}
+        {activeTab === 'documentos' && <DocumentosPanel resultadoLuz={resultadoLuz} resultadoGas={resultadoGas} />}
+
+        {/* Aviso multi-supply (ayuntamiento con varios supplies del mismo tipo) */}
+        {(stats.suppliesLuzVoltis > 1 || stats.suppliesGasVoltis > 1) && (
+          <div style={{
+            marginTop: 24, padding: 14, borderRadius: 12, background: C.blueSoft,
+            border: `1px solid ${C.blueLight}`, color: C.blueDark, fontSize: 13,
+          }}>
+            <strong>📊 Agregación multi-supply:</strong>{' '}
+            {stats.suppliesLuzVoltis > 0 && `${stats.suppliesLuzVoltis} suministro(s) de luz`}
+            {stats.suppliesLuzVoltis > 0 && stats.suppliesGasVoltis > 0 && ' + '}
+            {stats.suppliesGasVoltis > 0 && `${stats.suppliesGasVoltis} suministro(s) de gas`}
+            {' '}con facturas Voltis sumados en esta comparativa.
+          </div>
+        )}
 
         {/* Aviso de validación si alguna factura no cuadra */}
-        {resultado.validacionFacturas.some(v => !v.ok) && (
+        {facturasMal > 0 && (
           <div style={{
             marginTop: 24, padding: 14, borderRadius: 12, background: '#FFF7ED',
             border: '1px solid #FED7AA', color: '#9A3412', fontSize: 13,
           }}>
-            <strong>⚠ Validación:</strong> {resultado.validacionFacturas.filter(v => !v.ok).length} factura(s) tienen una desviación &gt;0,10 €
+            <strong>⚠ Validación:</strong> {facturasMal} factura(s) tienen una desviación &gt;0,10 €
             entre el total declarado y la reconstrucción. Revisa la extracción antes de publicar.
           </div>
         )}
@@ -204,29 +286,45 @@ export default function ComparativaVoltisV2({ supplyId, onBack }: Props) {
           marginTop: 32, padding: '20px 0', borderTop: `1px solid ${C.border}`,
           fontSize: 11, color: C.text3, display: 'flex', justifyContent: 'space-between',
         }}>
-          <span style={{ textTransform: 'uppercase', letterSpacing: 0.8 }}>Voltis · Comparativa V2 · Metodología tripartita</span>
+          <span style={{ textTransform: 'uppercase', letterSpacing: 0.8 }}>Voltis · Comparativa · Metodología tripartita</span>
           <span>Generado {new Date().toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
         </footer>
       </div>
     </div>
   )
+
+  // Render via portal a document.body para que sea fullscreen
+  // independientemente del contenedor padre y bloquee la ficha del supply.
+  if (typeof document !== 'undefined') {
+    return createPortal(node, document.body)
+  }
+  return node
 }
 
 // ══════════════════════════════════════════════════════════════════════════
 // HERO con mascot Buddy
 // ══════════════════════════════════════════════════════════════════════════
 
-function Hero({ supply, resultado, onBack, onDownloadHtml, downloadingHtml }: {
+function Hero({ supply, resultadoLuz, resultadoGas, stats, onBack, onDownloadHtml, downloadingHtml }: {
   supply: ApiV2Response['supply']
-  resultado: ResultadoTripartito
+  resultadoLuz: ResultadoTripartito | null
+  resultadoGas: ResultadoTripartito | null
+  stats: ApiV2Response['stats']
   onBack: () => void
   onDownloadHtml: () => void
   downloadingHtml: boolean
 }) {
-  const c = resultado.cobertura
+  const hasLuz = !!resultadoLuz && resultadoLuz.pares.length > 0
+  const hasGas = !!resultadoGas && resultadoGas.pares.length > 0
+  const c = hasLuz ? resultadoLuz!.cobertura : resultadoGas!.cobertura
   const periodoTxt = c.desde && c.hasta
     ? `${MESES_SHORT[c.desde.mes]} ${c.desde.year} – ${MESES_SHORT[c.hasta.mes]} ${c.hasta.year}`
     : '—'
+  const tipoDescr = hasLuz && hasGas ? 'eléctrica y de gas natural' : (hasLuz ? 'eléctrica' : 'de gas natural')
+  const comercAntigua = (hasLuz && resultadoLuz?.comercializadoraAntigua)
+    || (hasGas && resultadoGas?.comercializadoraAntigua)
+    || 'tu antigua comercializadora'
+  const totalSupplies = stats.suppliesLuzVoltis + stats.suppliesGasVoltis
   return (
     <header style={{ background: `linear-gradient(135deg, ${C.blueHero} 0%, ${C.blueLight} 100%)`, position: 'relative', overflow: 'hidden' }}>
       <div style={{
@@ -260,11 +358,17 @@ function Hero({ supply, resultado, onBack, onDownloadHtml, downloadingHtml }: {
             {downloadingHtml ? 'Generando…' : 'Descargar HTML para cliente'}
           </button>
           <div style={{ textAlign: 'right', fontSize: 12, lineHeight: 1.5 }}>
-            <div style={{ color: C.text3 }}>CUPS</div>
-            <div style={{ fontWeight: 600, color: C.text, fontFamily: "'SF Mono', Menlo, monospace", fontSize: 11 }}>
-              {supply.cups || '—'}
+            <div style={{ color: C.text3 }}>
+              {totalSupplies > 1 ? 'Suministros' : 'CUPS'}
             </div>
-            <div style={{ color: C.text3 }}>{supply.tariff || '—'}</div>
+            <div style={{ fontWeight: 600, color: C.text, fontFamily: "'SF Mono', Menlo, monospace", fontSize: 11 }}>
+              {totalSupplies > 1
+                ? `${totalSupplies} agregados`
+                : (supply.cups || '—')}
+            </div>
+            <div style={{ color: C.text3 }}>
+              {hasLuz && hasGas ? 'Luz + Gas' : (hasLuz ? 'Electricidad' : 'Gas natural')}
+            </div>
           </div>
         </div>
       </div>
@@ -275,7 +379,8 @@ function Hero({ supply, resultado, onBack, onDownloadHtml, downloadingHtml }: {
             Tu ahorro energético, en datos
           </h1>
           <p style={{ fontSize: 16, margin: 0, maxWidth: 540, color: 'rgba(255,255,255,0.95)', lineHeight: 1.5 }}>
-            Comparativa {resultado.supplyType === 'gas' ? 'de gas natural' : 'eléctrica'} de {c.mesesComparados} {c.mesesComparados === 1 ? 'mes' : 'meses'} ({periodoTxt}) con Voltis frente a {resultado.comercializadoraAntigua || 'tu antigua comercializadora'}.
+            Comparativa {tipoDescr} de {c.mesesComparados} {c.mesesComparados === 1 ? 'mes' : 'meses'} ({periodoTxt}) con Voltis frente a {comercAntigua}
+            {totalSupplies > 1 ? ` · ${totalSupplies} suministros agregados` : ''}.
           </p>
         </div>
         <BuddySVG />
@@ -362,8 +467,7 @@ function Card({ children, style }: { children: React.ReactNode; style?: React.CS
 // PESTAÑA: AHORRO (luz o gas)
 // ══════════════════════════════════════════════════════════════════════════
 
-function AhorroPanel({ data, supplyType }: { data: ApiV2Response; supplyType: 'luz' | 'gas' }) {
-  const { resultado } = data
+function AhorroPanel({ resultado, supplyType }: { resultado: ResultadoTripartito; supplyType: 'luz' | 'gas' }) {
   const d = resultado.descomposicion
   const isGas = supplyType === 'gas'
 
@@ -474,8 +578,7 @@ function AhorroPanel({ data, supplyType }: { data: ApiV2Response; supplyType: 'l
 // PESTAÑA: CONSUMOS (sólo luz)
 // ══════════════════════════════════════════════════════════════════════════
 
-function ConsumosPanel({ data }: { data: ApiV2Response }) {
-  const { resultado } = data
+function ConsumosPanel({ resultado }: { resultado: ResultadoTripartito }) {
   const kwhAntes = resultado.S0.porMes.reduce((s, m) => s + m.resumen.consumoKwh, 0)
   const kwhAhora = resultado.S3.porMes.reduce((s, m) => s + m.resumen.consumoKwh, 0)
   const diasAntes = resultado.S0.porMes.reduce((s, m) => s + m.resumen.dias, 0)
@@ -535,8 +638,7 @@ function ConsumosPanel({ data }: { data: ApiV2Response }) {
 // PESTAÑA: ESTIMACIÓN (luz o gas) — metodología tripartita
 // ══════════════════════════════════════════════════════════════════════════
 
-function EstimacionPanel({ data, supplyType }: { data: ApiV2Response; supplyType: 'luz' | 'gas' }) {
-  const { resultado } = data
+function EstimacionPanel({ resultado, supplyType }: { resultado: ResultadoTripartito; supplyType: 'luz' | 'gas' }) {
   const d = resultado.descomposicion
   const cn = resultado.cambiosNormativos
   const huboNormativo = cn.some(c => c.ivaCambio || c.ieCambio || c.iehCambio)
@@ -623,29 +725,45 @@ function EstimacionPanel({ data, supplyType }: { data: ApiV2Response; supplyType
 // PESTAÑA: DOCUMENTOS
 // ══════════════════════════════════════════════════════════════════════════
 
-function DocumentosPanel({ data }: { data: ApiV2Response }) {
-  const pares = data.resultado.pares
+function DocumentosPanel({ resultadoLuz, resultadoGas }: {
+  resultadoLuz: ResultadoTripartito | null
+  resultadoGas: ResultadoTripartito | null
+}) {
+  const seccion = (titulo: string, r: ResultadoTripartito | null) => {
+    if (!r || r.pares.length === 0) return null
+    return (
+      <div style={{ marginBottom: 32 }}>
+        <h3 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700, color: C.text }}>{titulo}</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
+          {r.pares.map((p, i) => (
+            <React.Fragment key={i}>
+              <DocCard
+                title={`${MESES[p.mes]} ${p.year - 1} · Antigua`}
+                subtitle={r.comercializadoraAntigua || 'Comercializadora previa'}
+                fileUrl={p.antigua.file_url}
+                color={C.greyAntes}
+              />
+              <DocCard
+                title={`${MESES[p.mes]} ${p.year} · Voltis`}
+                subtitle={r.comercializadoraVoltis || 'Voltis'}
+                fileUrl={p.voltis.file_url}
+                color={C.blue}
+              />
+            </React.Fragment>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div>
       <SectionHeader meta="DOCUMENTOS" title="Facturas del periodo comparado" />
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
-        {pares.map((p, i) => (
-          <React.Fragment key={i}>
-            <DocCard
-              title={`${MESES[p.mes]} ${p.year - 1} · Antigua`}
-              subtitle={data.resultado.comercializadoraAntigua || 'Comercializadora previa'}
-              fileUrl={p.antigua.file_url}
-              color={C.greyAntes}
-            />
-            <DocCard
-              title={`${MESES[p.mes]} ${p.year} · Voltis`}
-              subtitle={data.resultado.comercializadoraVoltis || 'Voltis'}
-              fileUrl={p.voltis.file_url}
-              color={C.blue}
-            />
-          </React.Fragment>
-        ))}
-      </div>
+      {seccion('Luz', resultadoLuz)}
+      {seccion('Gas', resultadoGas)}
+      {(!resultadoLuz || resultadoLuz.pares.length === 0) && (!resultadoGas || resultadoGas.pares.length === 0) && (
+        <p style={{ fontSize: 13, color: C.text3 }}>No hay facturas en este informe.</p>
+      )}
     </div>
   )
 }
