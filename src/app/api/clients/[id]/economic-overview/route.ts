@@ -17,6 +17,34 @@ import { computarOverview, type OverviewMode } from '@/lib/economic-overview'
 
 export const runtime = 'nodejs'
 
+/**
+ * Comprime una factura a su forma "lite": solo los campos necesarios para
+ * la agregación. Reduce drásticamente el payload (extracted_data.economics
+ * suele tener 5-10 KB por factura; comprimido baja a <1 KB).
+ */
+function compactInvoice(inv: any) {
+  const eco = inv.extracted_data?.economics
+  return {
+    id: inv.id,
+    supply_id: inv.supply_id,
+    source: inv.source || 'historica',
+    period_start: inv.period_start,
+    period_end: inv.period_end,
+    total_amount: inv.total_amount,
+    // Reconstruimos un extracted_data minimal compatible con el motor
+    extracted_data: eco ? {
+      economics: {
+        consumo: eco.consumo,
+        consumoTotalKwh: eco.consumoTotalKwh,
+        totalFactura: eco.totalFactura,
+        potencia: eco.potencia,
+        otrosConceptos: eco.otrosConceptos,
+        gasPricing: eco.gasPricing,
+      },
+    } : null,
+  }
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: { id: string } },
@@ -28,6 +56,7 @@ export async function GET(
 
     const clientId = params.id
     const sp = req.nextUrl.searchParams
+    const isRaw = sp.get('raw') === '1'
     const modeParam = (sp.get('mode') || 'last12') as OverviewMode
     if (!['last12', 'previous_year', 'custom'].includes(modeParam)) {
       return NextResponse.json({ error: 'Invalid mode' }, { status: 400 })
@@ -96,7 +125,19 @@ export async function GET(
       }
     }
 
-    // 4. Cómputo
+    // 4. Modo "raw": devolver solo los datos crudos compactados.
+    //    La página los carga UNA vez y recompute en cliente cuando cambian
+    //    filtros, eliminando la latencia de red en cada interacción.
+    if (isRaw) {
+      const compactInvoices = allInvoices.map(compactInvoice)
+      return NextResponse.json({
+        client: { id: client.id, name: client.name, cif: client.cif || client.cif_nif || client.nif || null, type: client.type },
+        supplies: flatSupplies,
+        invoices: compactInvoices,
+      })
+    }
+
+    // 5. Modo computado (retro-compatibilidad): hace el cómputo en servidor.
     const result = computarOverview({
       supplies: flatSupplies,
       invoices: allInvoices,

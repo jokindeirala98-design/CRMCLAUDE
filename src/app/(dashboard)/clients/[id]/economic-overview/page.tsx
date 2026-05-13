@@ -12,9 +12,17 @@ import {
   TrendingDown, TrendingUp, ChevronRight, Sparkles, Lightbulb,
   Activity, BarChart3, Target, Award,
 } from 'lucide-react'
+import { computarOverview, type OverviewMode } from '@/lib/economic-overview'
 
 type Mode = 'last12' | 'previous_year' | 'custom'
 type TypeFilter = 'all' | 'luz' | 'gas'
+
+// Datos crudos que llegan del endpoint en modo ?raw=1
+interface RawDataset {
+  client: { id: string; name: string; cif: string | null; type: string }
+  supplies: any[]
+  invoices: any[]
+}
 
 // ── Tipos del payload ──────────────────────────────────────────────────────
 
@@ -96,33 +104,51 @@ export default function EconomicOverviewPage() {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
-  const [data, setData] = useState<Overview | null>(null)
+  const [raw, setRaw] = useState<RawDataset | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const customReady = mode !== 'custom' || (from && to)
 
+  // ── Carga ÚNICA del dataset crudo ──
+  // El endpoint con ?raw=1 devuelve supplies + facturas compactadas. A partir
+  // de ahí TODA la recomputación de filtros (modo, tipo, rango personalizado)
+  // se hace en cliente con useMemo → cambios instantáneos sin red.
   useEffect(() => {
     if (!clientId) return
-    if (!customReady) { setLoading(false); return }
     let cancelled = false
     setLoading(true); setError(null)
-
-    const qs = new URLSearchParams({ mode, type: typeFilter })
-    if (mode === 'custom' && from && to) { qs.set('from', from); qs.set('to', to) }
-
-    fetch(`/api/clients/${clientId}/economic-overview?${qs}`)
+    fetch(`/api/clients/${clientId}/economic-overview?raw=1`)
       .then(r => r.json())
       .then(json => {
         if (cancelled) return
         if (json.error) throw new Error(json.error)
-        setData(json)
+        setRaw(json)
       })
       .catch(e => { if (!cancelled) setError(e?.message || 'Error') })
       .finally(() => { if (!cancelled) setLoading(false) })
-
     return () => { cancelled = true }
-  }, [clientId, mode, typeFilter, from, to, customReady])
+  }, [clientId])
+
+  // ── Cómputo client-side ──
+  // Se reejecuta cuando cambian los filtros pero NO hace fetch.
+  const data: Overview | null = useMemo(() => {
+    if (!raw || !customReady) return null
+    try {
+      const result = computarOverview({
+        supplies: raw.supplies,
+        invoices: raw.invoices,
+        mode: mode as OverviewMode,
+        from: mode === 'custom' ? from : undefined,
+        to: mode === 'custom' ? to : undefined,
+        typeFilter,
+      })
+      return { client: raw.client, ...result } as Overview
+    } catch (e: any) {
+      console.error('[overview compute]', e)
+      return null
+    }
+  }, [raw, mode, typeFilter, from, to, customReady])
 
   if (loading && !data) {
     return (
