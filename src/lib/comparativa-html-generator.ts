@@ -31,6 +31,7 @@ export interface SupplyInfo {
 export interface PdfEmbed {
   invoiceId: string
   side: 'antigua' | 'voltis'
+  supplyType: 'luz' | 'gas'
   base64: string
   mime: string
   filename: string
@@ -519,10 +520,7 @@ function estimacionPanel(r: ResultadoTripartito, supplyType: 'luz' | 'gas'): str
   </div>`
 }
 
-function documentosPanel(pdfs: PdfEmbed[]): string {
-  const antiguas = pdfs.filter(p => p.side === 'antigua')
-  const voltis = pdfs.filter(p => p.side === 'voltis')
-
+function documentosPanel(pdfsLuz: PdfEmbed[], pdfsGas: PdfEmbed[]): string {
   const docCard = (p: PdfEmbed, color: string) => `
     <div class="doc-card" style="border-top:3px solid ${color}" onclick="window.downloadDoc('${esc(p.invoiceId)}')">
       <div class="icon" style="background:${color}1F;color:${color}">
@@ -537,53 +535,117 @@ function documentosPanel(pdfs: PdfEmbed[]): string {
     </div>
   `
 
+  const seccion = (titulo: string, pdfs: PdfEmbed[]) => {
+    if (!pdfs.length) return ''
+    const antiguas = pdfs.filter(p => p.side === 'antigua')
+    const voltis = pdfs.filter(p => p.side === 'voltis')
+    return `<div style="margin-bottom:32px">
+      <h3 style="margin:0 0 16px;font-size:15px;font-weight:700;color:#1A1A1A">${esc(titulo)}</h3>
+      ${antiguas.length ? `<h4 style="margin:0 0 10px;color:#5A5A5A;font-size:12px;text-transform:uppercase;letter-spacing:0.6px">Antigua comercializadora</h4>
+        <div class="doc-grid" style="margin-bottom:18px">${antiguas.map(p => docCard(p, '#B8C5D6')).join('')}</div>` : ''}
+      ${voltis.length ? `<h4 style="margin:0 0 10px;color:#5A5A5A;font-size:12px;text-transform:uppercase;letter-spacing:0.6px">Voltis</h4>
+        <div class="doc-grid">${voltis.map(p => docCard(p, '#1B4FA0')).join('')}</div>` : ''}
+    </div>`
+  }
+
   return `<div class="tab-panel" id="panel-documentos">
     <div class="section-header">
       <div class="meta">DOCUMENTOS</div>
       <h2>Facturas del periodo comparado</h2>
     </div>
-    ${antiguas.length ? `<h3 style="margin:0 0 12px;color:#5A5A5A;font-size:13px">Antigua comercializadora</h3>
-      <div class="doc-grid" style="margin-bottom:24px">${antiguas.map(p => docCard(p, '#B8C5D6')).join('')}</div>` : ''}
-    ${voltis.length ? `<h3 style="margin:0 0 12px;color:#5A5A5A;font-size:13px">Voltis</h3>
-      <div class="doc-grid">${voltis.map(p => docCard(p, '#1B4FA0')).join('')}</div>` : ''}
-    ${pdfs.length === 0 ? `<p style="font-size:13px;color:#8A8A8A">No hay facturas adjuntas en este informe.</p>` : ''}
+    ${seccion('Luz', pdfsLuz)}
+    ${seccion('Gas', pdfsGas)}
+    ${(pdfsLuz.length + pdfsGas.length) === 0 ? `<p style="font-size:13px;color:#8A8A8A">No hay facturas adjuntas en este informe.</p>` : ''}
   </div>`
 }
 
 // ── HTML completo ─────────────────────────────────────────────────────────
 
+// ── Iconos SVG inline (Tabler-style) ──────────────────────────────────────
+const ICON = {
+  bolt: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex-shrink:0"><path d="M13 3l0 7l6 0l-8 11l0 -7l-6 0l8 -11"/></svg>',
+  chart: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex-shrink:0"><path d="M3 13a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1z"/><path d="M9 9a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1z"/><path d="M15 5a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v14a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1z"/><path d="M4 20h14"/></svg>',
+  calc: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex-shrink:0"><path d="M4 3m0 2a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2z"/><path d="M8 7m0 1a1 1 0 0 1 1 -1h6a1 1 0 0 1 1 1v1a1 1 0 0 1 -1 1h-6a1 1 0 0 1 -1 -1z"/><path d="M8 14l0 .01"/><path d="M12 14l0 .01"/><path d="M16 14l0 .01"/><path d="M8 17l0 .01"/><path d="M12 17l0 .01"/><path d="M16 17l0 .01"/></svg>',
+  flame: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex-shrink:0"><path d="M12 12c2 -2.96 0 -7 -1 -8c0 3.038 -1.773 4.741 -3 6c-1.226 1.26 -2 3.24 -2 5a5 5 0 0 0 10 0c0 -1.532 -1.056 -3.94 -2 -5c-1.786 3 -2.791 3 -2 2z"/></svg>',
+  file: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;flex-shrink:0"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2z"/></svg>',
+}
+
+/**
+ * Genera HTML standalone con AMBOS suministros (luz + gas) si el cliente
+ * tiene los dos. Si solo tiene uno, omite las pestañas del otro.
+ * El parámetro `pdfs` agrupa todas las facturas (tanto luz como gas).
+ */
 export function generarHtmlStandalone(args: {
   supply: SupplyInfo
-  resultado: ResultadoTripartito
+  /** Resultado tripartito de luz (si el cliente tiene supply de luz con facturas Voltis). */
+  resultadoLuz?: ResultadoTripartito | null
+  /** Resultado tripartito de gas (si el cliente tiene supply de gas con facturas Voltis). */
+  resultadoGas?: ResultadoTripartito | null
+  /** PDFs embebidos de TODAS las facturas (luz + gas) del periodo comparado. */
   pdfs: PdfEmbed[]
+  /** CUPS del suministro principal (el que el usuario abrió). */
+  cupsPrincipal?: string | null
 }): string {
-  const { supply, resultado: r, pdfs } = args
-  const isGas = r.supplyType === 'gas'
+  const { supply, resultadoLuz, resultadoGas, pdfs, cupsPrincipal } = args
+  const hasLuz = !!resultadoLuz && resultadoLuz.pares.length > 0
+  const hasGas = !!resultadoGas && resultadoGas.pares.length > 0
 
-  const tabs: Array<{ id: string; label: string }> = isGas
-    ? [
-        { id: 'ahorro-gas', label: 'Ahorro gas' },
-        { id: 'estimacion-gas', label: 'Estimación gas' },
-        { id: 'documentos', label: 'Documentos' },
-      ]
-    : [
-        { id: 'ahorro-luz', label: 'Ahorro luz' },
-        { id: 'consumos-luz', label: 'Consumos luz' },
-        { id: 'estimacion-luz', label: 'Estimación luz' },
-        { id: 'documentos', label: 'Documentos' },
-      ]
+  if (!hasLuz && !hasGas) {
+    // Caso extremo: ningún resultado válido. Devolver HTML mínimo.
+    return `<!DOCTYPE html><html><body style="font-family:Inter;padding:40px;text-align:center">
+      <h1>Comparativa Voltis</h1>
+      <p>No se han encontrado parejas factura antigua ↔ Voltis para generar la comparativa.</p>
+    </body></html>`
+  }
 
-  const periodo = r.cobertura.desde && r.cobertura.hasta
-    ? `${MESES_SHORT[r.cobertura.desde.mes]} ${r.cobertura.desde.year} – ${MESES_SHORT[r.cobertura.hasta.mes]} ${r.cobertura.hasta.year}`
+  // Pestañas dinámicas según lo que haya disponible
+  const tabs: Array<{ id: string; label: string; icon: string }> = []
+  if (hasLuz) {
+    tabs.push({ id: 'ahorro-luz', label: 'Ahorro luz', icon: ICON.bolt })
+    tabs.push({ id: 'consumos-luz', label: 'Consumos luz', icon: ICON.chart })
+    tabs.push({ id: 'estimacion-luz', label: 'Estimación luz', icon: ICON.calc })
+  }
+  if (hasGas) {
+    tabs.push({ id: 'ahorro-gas', label: 'Ahorro gas', icon: ICON.flame })
+    tabs.push({ id: 'estimacion-gas', label: 'Estimación gas', icon: ICON.calc })
+  }
+  tabs.push({ id: 'documentos', label: 'Documentos', icon: ICON.file })
+
+  // Texto hero — se construye combinando luz/gas
+  const cobertura = (hasLuz ? resultadoLuz! : resultadoGas!).cobertura
+  const periodo = cobertura.desde && cobertura.hasta
+    ? `${MESES_SHORT[cobertura.desde.mes]} ${cobertura.desde.year} – ${MESES_SHORT[cobertura.hasta.mes]} ${cobertura.hasta.year}`
     : '—'
+  const tipoDescr = hasLuz && hasGas
+    ? 'eléctrica y de gas natural'
+    : (hasLuz ? 'eléctrica' : 'de gas natural')
+  const comercAntigua = (hasLuz && resultadoLuz?.comercializadoraAntigua)
+    || (hasGas && resultadoGas?.comercializadoraAntigua)
+    || 'tu antigua comercializadora'
 
-  // Diccionario JS de PDFs embebidos
+  // CUPS / tarifa visibles en el topbar: el principal si está, si no el primero disponible
+  const cupsVisible = cupsPrincipal || supply.cups || (hasLuz ? resultadoLuz?.cups : null) || (hasGas ? resultadoGas?.cups : null) || '—'
+  const tarifaVisible = supply.tariff
+    || (hasLuz ? resultadoLuz?.tarifa : null)
+    || (hasGas ? resultadoGas?.tarifa : null)
+    || '—'
+
+  // Diccionario JS de PDFs embebidos (compartido luz + gas)
   const docsObj = pdfs.reduce<Record<string, { data: string; mime: string; filename: string }>>((acc, p) => {
     acc[p.invoiceId] = { data: p.base64, mime: p.mime, filename: p.filename }
     return acc
   }, {})
 
-  const facturasMal = r.validacionFacturas.filter(v => !v.ok).length
+  // Validación: sumar facturas mal de ambos
+  const facturasMal =
+    (resultadoLuz?.validacionFacturas.filter(v => !v.ok).length || 0)
+    + (resultadoGas?.validacionFacturas.filter(v => !v.ok).length || 0)
+
+  // PDFs filtrados por tipo para la pestaña Documentos
+  const pdfsLuz = pdfs.filter(p => p.supplyType === 'luz')
+  const pdfsGas = pdfs.filter(p => p.supplyType === 'gas')
+
+  const firstTabId = tabs[0].id
 
   return `<!DOCTYPE html>
 <html lang="es">
@@ -602,14 +664,14 @@ export function generarHtmlStandalone(args: {
       </div>
       <div class="topbar-right">
         <div class="small">CUPS</div>
-        <div class="big">${esc(supply.cups || '—')}</div>
-        <div class="small">${esc(supply.tariff || '—')} · ${isGas ? 'Gas natural' : 'Electricidad'}</div>
+        <div class="big">${esc(cupsVisible)}</div>
+        <div class="small">${esc(tarifaVisible)} · ${hasLuz && hasGas ? 'Luz + Gas' : (hasLuz ? 'Electricidad' : 'Gas natural')}</div>
       </div>
     </div>
     <div class="hero-content">
       <div class="hero-text">
         <h1>Tu ahorro energético, en datos</h1>
-        <p>Comparativa ${isGas ? 'de gas natural' : 'eléctrica'} de ${r.cobertura.mesesComparados} ${r.cobertura.mesesComparados === 1 ? 'mes' : 'meses'} (${esc(periodo)}) con Voltis frente a ${esc(r.comercializadoraAntigua || 'tu antigua comercializadora')}.</p>
+        <p>Comparativa ${esc(tipoDescr)} de ${cobertura.mesesComparados} ${cobertura.mesesComparados === 1 ? 'mes' : 'meses'} (${esc(periodo)}) con Voltis frente a ${esc(comercAntigua)}.</p>
       </div>
       ${BUDDY_SVG}
     </div>
@@ -617,13 +679,15 @@ export function generarHtmlStandalone(args: {
 
   <div class="container">
     <div class="tabs">
-      ${tabs.map((t, i) => `<button class="tab ${i === 0 ? 'active' : ''}" data-tab="${esc(t.id)}">${esc(t.label)}</button>`).join('')}
+      ${tabs.map(t => `<button class="tab ${t.id === firstTabId ? 'active' : ''}" data-tab="${esc(t.id)}">${t.icon}<span>${esc(t.label)}</span></button>`).join('')}
     </div>
 
-    ${isGas
-      ? `${ahorroPanel(r, 'gas', true)}${estimacionPanel(r, 'gas')}${documentosPanel(pdfs)}`
-      : `${ahorroPanel(r, 'luz', true)}${consumosPanel(r)}${estimacionPanel(r, 'luz')}${documentosPanel(pdfs)}`
-    }
+    ${hasLuz ? ahorroPanel(resultadoLuz!, 'luz', firstTabId === 'ahorro-luz') : ''}
+    ${hasLuz ? consumosPanel(resultadoLuz!) : ''}
+    ${hasLuz ? estimacionPanel(resultadoLuz!, 'luz') : ''}
+    ${hasGas ? ahorroPanel(resultadoGas!, 'gas', firstTabId === 'ahorro-gas') : ''}
+    ${hasGas ? estimacionPanel(resultadoGas!, 'gas') : ''}
+    ${documentosPanel(pdfsLuz, pdfsGas)}
 
     ${facturasMal > 0 ? `<div class="warning"><strong>⚠ Validación:</strong> ${facturasMal} factura(s) tienen una desviación &gt;0,10 € entre el total declarado y la reconstrucción.</div>` : ''}
 
