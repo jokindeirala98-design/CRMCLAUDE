@@ -11,11 +11,18 @@ import { Header } from '@/components/layout/Header'
 import { Button } from '@/components/ui/Button'
 import { Badge, StatusBadge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
+import dynamic from 'next/dynamic'
 import { createClient } from '@/lib/supabase/client'
 import { getUserInitials } from '@/lib/utils/format'
 import { normalizeTariff } from '@/lib/consumption-utils'
-import { NewTaskModal } from '@/components/modals/NewTaskModal'
 import type { Client, SupplyStatus } from '@/types/database'
+
+// Lazy-load: el modal solo se descarga al abrirse (siempre renderizado pero
+// con prop `open` condicional; aún así, dynamic difiere el chunk).
+const NewTaskModal = dynamic(
+  () => import('@/components/modals/NewTaskModal').then(m => m.NewTaskModal),
+  { ssr: false }
+)
 
 // ── Status groups for filtering ──
 const STATUS_GROUPS: { label: string; statuses: SupplyStatus[] }[] = [

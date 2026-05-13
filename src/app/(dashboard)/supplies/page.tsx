@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import {
   Plus, Zap, X, ChevronRight, MapPin, Search,
   SlidersHorizontal, Camera, Upload,
@@ -10,10 +11,16 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Header } from '@/components/layout/Header'
 import { Button } from '@/components/ui/Button'
 import { Badge, StatusBadge } from '@/components/ui/Badge'
-import { BulkUploadModal } from '@/components/modals/BulkUploadModal'
 import { createClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/auth'
 import { cn } from '@/lib/utils/cn'
+
+// Lazy-load: el modal solo se descarga al abrirlo (renderizado condicional vía open prop).
+// API y comportamiento idénticos; solo cambia el momento de carga.
+const BulkUploadModal = dynamic(
+  () => import('@/components/modals/BulkUploadModal').then(m => m.BulkUploadModal),
+  { ssr: false }
+)
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -374,52 +381,76 @@ export default function SuppliesPage() {
     if (filter !== 'all') suppliesQ = suppliesQ.eq('status', filter)
     if (myClientIds !== null) suppliesQ = suppliesQ.in('client_id', myClientIds)
 
-    const [suppliesResult, invoicesResult] = await Promise.all([
-      suppliesQ,
-      // SLIM: solo pedimos el path JSON específico (consumoTotalKwh) en lugar
-      // del extracted_data entero. Reduce el payload de varios MB a unos KB:
-      // antes traía 5-10 KB por factura × N facturas → 5-10 MB en cable;
-      // ahora pide un único número por fila → ~50 KB total.
-      // La lógica de agregación es idéntica: sumar kWh por supply_id.
-      supabase
-        .from('invoices')
-        .select('supply_id, kwh:extracted_data->economics->consumoTotalKwh')
-        .not('extracted_data', 'is', null),
-    ])
+    // ── PASO 1: cargar supplies inmediatamente y pintar la tabla ──────────
+    // El consumo de la mayoría de supplies se calcula con `consumption_data`
+    // del propio supply (SIPS para luz, Excel Maestro para gas). Solo cuando
+    // ese campo está vacío hace falta la suma de facturas (fallback). Por eso
+    // pintamos la tabla cuanto antes y dejamos invoices para PASO 2.
+    const suppliesResult = await suppliesQ
 
-    const invoiceKwhSum: Record<string, number> = {}
-    invoicesResult.data?.forEach((inv: any) => {
-      // Postgres JSON path → llega como número o string numérico; normalizamos.
-      const raw = inv.kwh
-      const kwh = typeof raw === 'number' ? raw : (raw != null ? Number(raw) : 0)
-      if (kwh > 0 && inv.supply_id) {
-        invoiceKwhSum[inv.supply_id] = (invoiceKwhSum[inv.supply_id] || 0) + kwh
-      }
-    })
+    const computeConsumption = (supplies: any[], invoiceKwhSum: Record<string, number>) => {
+      const consumptionData: Record<string, number> = {}
+      supplies.forEach((supply: any) => {
+        const cd = supply.consumption_data as any
+        const isGas = supply.type === 'gas'
+        if (isGas) {
+          const gasTotal = Number(cd?.totalKwh) || 0
+          if (gasTotal > 0) { consumptionData[supply.id] = gasTotal; return }
+          const histSum = (cd?.gasHistory || []).reduce((s: number, p: any) => s + (Number(p.kwh) || 0), 0)
+          if (histSum > 0) consumptionData[supply.id] = histSum
+        } else {
+          const cp = cd?.consumoPeriodos || {}
+          const periodosSum = (Number(cp.P1)||0)+(Number(cp.P2)||0)+(Number(cp.P3)||0)+(Number(cp.P4)||0)+(Number(cp.P5)||0)+(Number(cp.P6)||0)
+          if (periodosSum > 0) { consumptionData[supply.id] = periodosSum; return }
+          const sipsTotal = Number(cd?.totalKwh) || Number(cd?.total) || 0
+          if (sipsTotal > 0) { consumptionData[supply.id] = sipsTotal; return }
+          const invSum = invoiceKwhSum[supply.id] || 0
+          if (invSum > 0) consumptionData[supply.id] = invSum
+        }
+      })
+      return consumptionData
+    }
 
-    const consumptionData: Record<string, number> = {}
-    suppliesResult.data?.forEach((supply: any) => {
-      const cd = supply.consumption_data as any
-      const isGas = supply.type === 'gas'
-      if (isGas) {
-        const gasTotal = Number(cd?.totalKwh) || 0
-        if (gasTotal > 0) { consumptionData[supply.id] = gasTotal; return }
-        const histSum = (cd?.gasHistory || []).reduce((s: number, p: any) => s + (Number(p.kwh) || 0), 0)
-        if (histSum > 0) consumptionData[supply.id] = histSum
-      } else {
-        const cp = cd?.consumoPeriodos || {}
-        const periodosSum = (Number(cp.P1)||0)+(Number(cp.P2)||0)+(Number(cp.P3)||0)+(Number(cp.P4)||0)+(Number(cp.P5)||0)+(Number(cp.P6)||0)
-        if (periodosSum > 0) { consumptionData[supply.id] = periodosSum; return }
-        const sipsTotal = Number(cd?.totalKwh) || Number(cd?.total) || 0
-        if (sipsTotal > 0) { consumptionData[supply.id] = sipsTotal; return }
-        const invSum = invoiceKwhSum[supply.id] || 0
-        if (invSum > 0) consumptionData[supply.id] = invSum
-      }
-    })
-
-    setConsumptionMap(consumptionData)
+    // Render inmediato con lo que ya tenemos (sin facturas → fallback "—" para
+    // los pocos supplies que dependan de ellas).
+    const firstPass = computeConsumption(suppliesResult.data || [], {})
+    setConsumptionMap(firstPass)
     setSupplies(suppliesResult.data || [])
     setLoading(false)
+
+    // ── PASO 2: en segundo plano, traer la suma de facturas y completar el
+    //    fallback solo en los supplies que aún no tienen consumo asignado.
+    //    No bloquea el render. Si falla, la tabla ya está visible y útil.
+    void (async () => {
+      const { data: invoicesData } = await supabase
+        .from('invoices')
+        .select('supply_id, kwh:extracted_data->economics->consumoTotalKwh')
+        .not('extracted_data', 'is', null)
+
+      const invoiceKwhSum: Record<string, number> = {}
+      invoicesData?.forEach((inv: any) => {
+        const raw = inv.kwh
+        const kwh = typeof raw === 'number' ? raw : (raw != null ? Number(raw) : 0)
+        if (kwh > 0 && inv.supply_id) {
+          invoiceKwhSum[inv.supply_id] = (invoiceKwhSum[inv.supply_id] || 0) + kwh
+        }
+      })
+
+      // Solo actualizamos los supplies que en la primera pasada NO tenían
+      // consumo (firstPass[supply.id] indefinido). Los demás conservan su
+      // valor para evitar parpadeo o pisar datos buenos.
+      setConsumptionMap(prev => {
+        const next = { ...prev }
+        ;(suppliesResult.data || []).forEach((supply: any) => {
+          if (next[supply.id] != null) return
+          const isGas = supply.type === 'gas'
+          if (isGas) return  // gas no usa invoices como fallback
+          const invSum = invoiceKwhSum[supply.id] || 0
+          if (invSum > 0) next[supply.id] = invSum
+        })
+        return next
+      })
+    })()
   }, [filter, user])
 
   useEffect(() => { fetchSupplies() }, [fetchSupplies])
