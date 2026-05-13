@@ -8,6 +8,7 @@ import { analyzeDocument, analyzeInvoice } from '@/lib/gemini'
 import { normalizeCups, cupsBase20 } from '@/lib/utils/cups'
 import { fetchSipsForCups } from '@/lib/sips'
 import { normalizeTariff } from '@/lib/consumption-utils'
+import { findOrCreateCommercial, isValidEmail } from '@/lib/telegram-onboarding'
 
 // Extend Vercel function timeout to 60s (requires Vercel Pro for >10s, but
 // declaring it avoids premature cuts on serverless cold starts)
@@ -337,7 +338,15 @@ async function handleMessage(msg: TelegramMessage) {
   }
 
   const user = await getLinkedUser(chatId)
-  if (!user) return sendMessage(chatId, '🔒 Vincula tu cuenta con /vincular')
+  if (!user) {
+    // Chat sin cuenta vinculada → arrancar onboarding inline.
+    await setConvo(chatId, 'onboarding_name', {})
+    return sendMessage(chatId,
+      '👋 Antes de empezar necesito activar tu cuenta.\n\n' +
+      '👤 <b>¿Cuál es tu nombre completo?</b>\n' +
+      '<i>Ej.: Jokin de Irala</i>'
+    )
+  }
 
   // ── CUPS detection (must come before CIF/NIF — CUPS starts with "ES") ──────
   const cleanText = text.replace(/[\s.\-()]/g, '').toUpperCase()
@@ -382,14 +391,25 @@ async function handleCommand(msg: TelegramMessage, text: string) {
 
   switch (cmd.toLowerCase()) {
     case '/start':
+      // /start CODIGO → flujo legacy (códigos del CRM aún funcionan)
       if (arg) return handleLinkCode(chatId, arg, msg.from.id)
+      // Si el chat ya está vinculado a una cuenta, no relanzamos onboarding
+      {
+        const existing = await getLinkedUser(chatId)
+        if (existing) {
+          return sendMessage(chatId,
+            `👋 Hola de nuevo, <b>${existing.userName}</b>.\n\n` +
+            'Envíame facturas o el nombre de un cliente para empezar.'
+          )
+        }
+      }
+      // Chat nuevo → arrancar onboarding pidiendo el nombre.
+      await setConvo(chatId, 'onboarding_name', {})
       return sendMessage(chatId,
-        '⚡ <b>Voltis CRM Bot</b>\n\n' +
-        'Soy tu asistente. Puedo:\n' +
-        '• Guardar <b>documentos</b> que me envíes en tu Bandeja\n' +
-        '• Consultar tus <b>clientes y suministros</b>\n' +
-        '• Mostrar tus <b>tareas del día</b>\n\n' +
-        'Para empezar, vincula tu cuenta con <b>/vincular</b>'
+        '⚡ <b>Bienvenido al CRM Voltis</b>\n\n' +
+        'Para activar tu cuenta necesito un par de datos.\n\n' +
+        '👤 <b>¿Cuál es tu nombre completo?</b>\n' +
+        '<i>Ej.: Jokin de Irala</i>'
       )
 
     case '/vincular':
@@ -673,7 +693,12 @@ async function handleDocumentFile(msg: TelegramMessage) {
 
   const user = await getLinkedUser(chatId)
   if (!user) {
-    return sendMessage(chatId, '🔒 Vincula tu cuenta con <b>/vincular</b> para procesar documentos.')
+    await setConvo(chatId, 'onboarding_name', {})
+    return sendMessage(chatId,
+      '👋 Antes de procesar facturas necesito activar tu cuenta.\n\n' +
+      '👤 <b>¿Cuál es tu nombre completo?</b>\n' +
+      '<i>Ej.: Jokin de Irala</i>'
+    )
   }
 
   // Extract file info
@@ -2200,6 +2225,92 @@ async function handleConvoStep(msg: TelegramMessage, convo: ConversationState) {
   if (text === '/cancelar' || text === '/cancel') {
     await clearConvo(chatId)
     return sendMessage(chatId, '✅ Cancelado.')
+  }
+
+  // ── Onboarding: nombre completo ───────────────────────────────────────────
+  if (convo.step === 'onboarding_name') {
+    const name = text.trim()
+    if (name.length < 3 || !/[A-Za-zÁÉÍÓÚáéíóúÑñ]/.test(name)) {
+      return sendMessage(chatId,
+        '⚠️ Por favor escribe tu <b>nombre completo</b> (al menos nombre y apellido).\n' +
+        '<i>Ej.: Jokin de Irala</i>'
+      )
+    }
+    await setConvo(chatId, 'onboarding_email', { onboarding_name: name })
+    return sendMessage(chatId,
+      `Gracias, <b>${name}</b> 👋\n\n` +
+      '📧 <b>¿Cuál es tu email corporativo?</b>\n' +
+      '<i>Lo usarás para acceder al CRM por la web.</i>'
+    )
+  }
+
+  // ── Onboarding: email + creación de cuenta ───────────────────────────────
+  if (convo.step === 'onboarding_email') {
+    const email = text.trim().toLowerCase()
+    if (!isValidEmail(email)) {
+      return sendMessage(chatId,
+        '⚠️ Ese email no parece válido. Inténtalo de nuevo.\n' +
+        '<i>Ej.: jokin@voltisenergia.com</i>'
+      )
+    }
+    const fullName = (convo.data?.onboarding_name as string) || 'Sin nombre'
+
+    await sendChatAction(chatId, 'typing')
+    try {
+      const onboarded = await findOrCreateCommercial({ email, fullName })
+
+      // Vincular chat → users_profile en telegram_links (compat con el resto del bot)
+      const supabase = createBotSupabase()
+      // Desactivar links activos previos del mismo user (un comercial = un chat)
+      await supabase.from('telegram_links').update({ status: 'unlinked' })
+        .eq('user_id', onboarded.id).eq('status', 'active')
+      // Insertar nuevo link activo
+      await supabase.from('telegram_links').insert({
+        user_id: onboarded.id,
+        telegram_chat_id: chatId,
+        telegram_user_id: msg.from?.id || null,
+        status: 'active',
+        linked_at: new Date().toISOString(),
+      })
+
+      // Limpiar conversación
+      await clearConvo(chatId)
+
+      const roleLabel = onboarded.role === 'admin' ? 'administrador' : 'comercial'
+
+      if (onboarded.alreadyExisted) {
+        return sendMessage(chatId,
+          `✅ <b>Cuenta vinculada</b>\n\n` +
+          `Hola <b>${onboarded.full_name}</b> (${onboarded.nickname}). Ya tenías cuenta en el CRM como <b>${roleLabel}</b>; ahora este Telegram queda conectado.\n\n` +
+          `Ya puedes enviarme facturas o el nombre de un cliente. 📂`
+        )
+      }
+
+      // Cuenta recién creada: enviar credenciales
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
+      const passwordLine = onboarded.generatedPassword
+        ? `🔑 <b>Contraseña:</b> <code>${onboarded.generatedPassword}</code>\n`
+        : '🔑 Tu contraseña actual sigue siendo válida — usa "He olvidado mi contraseña" en la web si no la recuerdas.\n'
+
+      return sendMessage(chatId,
+        `✅ <b>Cuenta creada</b>\n\n` +
+        `<b>Nombre:</b> ${onboarded.full_name}\n` +
+        `<b>Abreviatura:</b> ${onboarded.nickname}\n` +
+        `<b>Rol:</b> ${roleLabel}\n` +
+        `<b>Email:</b> <code>${onboarded.email}</code>\n` +
+        passwordLine +
+        `🌐 <b>Web:</b> ${appUrl}/login\n\n` +
+        `Guarda estos datos. Cámbiate la contraseña al primer acceso.\n\n` +
+        `Ya puedes enviarme facturas o el nombre de un cliente. 📂`
+      )
+    } catch (err: any) {
+      console.error('[Telegram onboarding]', err)
+      await clearConvo(chatId)
+      return sendMessage(chatId,
+        `❌ No se pudo activar la cuenta: ${err?.message || 'error desconocido'}.\n\n` +
+        'Vuelve a empezar con /start o avisa a un administrador.'
+      )
+    }
   }
 
   // ── Tariff picker: user replies 1 / 2 / 3 to select a comparativa ──────────
