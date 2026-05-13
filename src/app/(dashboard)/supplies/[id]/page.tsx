@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import {
   ArrowLeft, Zap, Building2, MapPin, FileText, CreditCard,
   ChevronRight, CheckCircle2, Circle, Clock, XCircle,
@@ -11,15 +12,11 @@ import {
   Plus, X, Pencil, Check, Flame, Phone as PhoneIcon, Copy, Mail, Scale
 } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
-import { PowerStudy } from '@/components/supply/PowerStudy'
-import ComparativaVoltis from '@/components/supply/ComparativaVoltis'
-import AnnualEconomics from '@/components/supply/AnnualEconomics'
 import { ClientDetailModal } from '@/components/clients/ClientDetailModal'
 import { Card } from '@/components/ui/Card'
 import { Badge, StatusBadge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { TechnicalAuditModal } from '@/components/modals/TechnicalAuditModal'
-import { EconomicStudyModal } from '@/components/modals/EconomicStudyModal'
 import { DataTable } from '@/components/ui/DataTable'
 import { createClient } from '@/lib/supabase/client'
 import { formatDate, formatCurrency } from '@/lib/utils/format'
@@ -30,8 +27,31 @@ import { downloadClientInvoicesZip, type DownloadProgress } from '@/lib/utils/do
 import { advanceSupplyPipeline } from '@/lib/supply-pipeline'
 import { useAuthStore } from '@/stores/auth'
 import type { SupplyStatus } from '@/types/database'
-import { GasExcelImport } from '@/components/supply/GasExcelImport'
 import { generatePropuestaHTML, generateContratoHTML, generateAndDownloadPDF } from '@/lib/voltis-contract-templates'
+
+// ── Lazy-load: solo se descargan al abrir la pestaña/modal correspondiente.
+//    Reducen el bundle inicial de la ficha de suministro significativamente.
+//    El componente final es idéntico al import estático: misma API, mismas props.
+const AnnualEconomics = dynamic(
+  () => import('@/components/supply/AnnualEconomics'),
+  { ssr: false, loading: () => <div className="flex items-center justify-center py-20 text-ink-3 text-sm">Cargando estudio económico…</div> }
+)
+const ComparativaVoltis = dynamic(
+  () => import('@/components/supply/ComparativaVoltis'),
+  { ssr: false, loading: () => <div className="flex items-center justify-center py-20 text-ink-3 text-sm">Cargando comparativa…</div> }
+)
+const PowerStudy = dynamic(
+  () => import('@/components/supply/PowerStudy').then(m => m.PowerStudy),
+  { ssr: false, loading: () => <div className="flex items-center justify-center py-20 text-ink-3 text-sm">Cargando estudio de potencias…</div> }
+)
+const EconomicStudyModal = dynamic(
+  () => import('@/components/modals/EconomicStudyModal').then(m => m.EconomicStudyModal),
+  { ssr: false }
+)
+const GasExcelImport = dynamic(
+  () => import('@/components/supply/GasExcelImport').then(m => m.GasExcelImport),
+  { ssr: false, loading: () => <div className="flex items-center justify-center py-8 text-ink-3 text-sm">Cargando importador…</div> }
+)
 
 // ── Voltis contract helpers ───────────────────────────────────────────────────
 const SC_MODALITY_LABELS: Record<string, string> = {

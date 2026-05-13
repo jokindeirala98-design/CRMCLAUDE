@@ -22,10 +22,16 @@ import {
   X,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import dynamic from 'next/dynamic'
 import { getViewUrl, getDownloadUrl } from '@/lib/utils/storage'
 import { advanceSupplyPipeline } from '@/lib/supply-pipeline'
-import { EconomicStudyModal } from '@/components/modals/EconomicStudyModal'
 import { getPeriodCount } from '@/lib/boe-prices'
+
+// Lazy-load: el modal solo se descarga al abrirse (renderizado condicional).
+const EconomicStudyModal = dynamic(
+  () => import('@/components/modals/EconomicStudyModal').then(m => m.EconomicStudyModal),
+  { ssr: false }
+)
 
 /* ---------- types ---------- */
 interface PendingSupply {
