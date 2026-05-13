@@ -171,14 +171,6 @@ export interface OverviewResult {
     dominante: string         // 'P6' por ejemplo
     dominantePct: number
   }
-  /** Ahorro potencial estimado por palancas */
-  ahorroPotencial: {
-    excesosPotencia: number    // todo lo facturado en excesos es recuperable
-    cambioTarifa: number       // estimación si hay potencial de cambio
-    correccionReactiva: number // 0 si no hay reactiva
-    total: number
-    descripcion: string[]
-  }
 }
 
 // ── Helpers de extracción de facturas ──────────────────────────────────────
@@ -426,46 +418,6 @@ function marcarAnomalias(supplies: SupplyAggregate[]): void {
   }
 }
 
-// ── Estimación de ahorro potencial ─────────────────────────────────────────
-
-function estimarAhorroPotencial(ranking: SupplyAggregate[], concentracionP1: number): OverviewResult['ahorroPotencial'] {
-  // 1. Excesos de potencia: TODO lo facturado en excesos se considera
-  //    recuperable renegociando potencias contratadas.
-  const excesosPotencia = ranking.reduce((s, r) => s + r.totalExcesos, 0)
-  // Anualizar
-  const excesosAnualizados = ranking.reduce((s, r) => {
-    if (r.mesesCubiertos === 0) return s
-    return s + (r.totalExcesos * (12 / r.mesesCubiertos))
-  }, 0)
-
-  // 2. Cambio de tarifa: si hay mucha concentración fuera del periodo óptimo,
-  //    estimamos 5-8% del gasto eléctrico ahorrable.
-  const gastoLuz = ranking.filter(r => r.supply.type === 'luz')
-    .reduce((s, r) => s + r.totalGasto * (r.mesesCubiertos > 0 ? 12 / r.mesesCubiertos : 1), 0)
-  const cambioTarifa = concentracionP1 > 40 ? gastoLuz * 0.08 : gastoLuz * 0.04
-
-  // 3. Corrección reactiva: lo facturado se evita corrigiendo el factor de potencia
-  const reactivaAnualizada = ranking.reduce((s, r) => {
-    if (r.mesesCubiertos === 0) return s
-    return s + (r.totalReactiva * (12 / r.mesesCubiertos))
-  }, 0)
-
-  const total = excesosAnualizados + cambioTarifa + reactivaAnualizada
-  const descripcion: string[] = []
-  if (excesosAnualizados > 100) descripcion.push(`Renegociar potencias contratadas: ${excesosAnualizados.toFixed(0)} €/año`)
-  if (cambioTarifa > 100) descripcion.push(`Optimización tarifaria: ${cambioTarifa.toFixed(0)} €/año`)
-  if (reactivaAnualizada > 50) descripcion.push(`Corrección reactiva: ${reactivaAnualizada.toFixed(0)} €/año`)
-  if (descripcion.length === 0) descripcion.push('Sin oportunidades detectadas automáticamente con los datos actuales.')
-
-  return {
-    excesosPotencia: excesosAnualizados,
-    cambioTarifa,
-    correccionReactiva: reactivaAnualizada,
-    total,
-    descripcion,
-  }
-}
-
 // ── Función principal ──────────────────────────────────────────────────────
 
 export function computarOverview(inputs: OverviewInputs): OverviewResult {
@@ -635,9 +587,6 @@ export function computarOverview(inputs: OverviewInputs): OverviewResult {
     gasto: info.gasto,
   })).sort((a, b) => b.suministros - a.suministros)
 
-  // Ahorro potencial
-  const ahorroPotencial = estimarAhorroPotencial(ranking, concentracionPeriodos.p1)
-
   // Descripción
   let windowDescription = ''
   if (mode === 'last12') windowDescription = 'Últimas 12 facturas de cada suministro'
@@ -697,7 +646,6 @@ export function computarOverview(inputs: OverviewInputs): OverviewResult {
     porTarifa,
     porDistribuidora,
     concentracionPeriodos,
-    ahorroPotencial,
   }
 }
 

@@ -78,7 +78,6 @@ interface Overview {
   porTarifa: Array<{ tarifa: string; suministros: number; gasto: number; consumoAnualKwh: number; eurPorKwh: number }>
   porDistribuidora: Array<{ distribuidora: string; suministros: number; consumoAnualKwh: number; gasto: number }>
   concentracionPeriodos: { p1: number; p2: number; p3: number; p4: number; p5: number; p6: number; dominante: string; dominantePct: number }
-  ahorroPotencial: { excesosPotencia: number; cambioTarifa: number; correccionReactiva: number; total: number; descripcion: string[] }
 }
 
 const MESES_SHORT = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
@@ -201,11 +200,6 @@ export default function EconomicOverviewPage() {
       <section className="px-6 md:px-12 pb-8 grid grid-cols-1 lg:grid-cols-2 gap-5">
         <BloqueLuz luz={data.totals.porTipo.luz} concentracion={data.concentracionPeriodos} />
         <BloqueGas gas={data.totals.porTipo.gas} />
-      </section>
-
-      {/* Ahorro potencial — punch comercial */}
-      <section className="px-6 md:px-12 pb-8">
-        <AhorroPotencialCard ahorro={data.ahorroPotencial} gastoAnual={data.totals.gastoAnualizado} />
       </section>
 
       {/* Top consumidores + Top gastadores */}
@@ -483,15 +477,15 @@ function BloqueLuz({ luz, concentracion }: { luz: Overview['totals']['porTipo'][
       </div>
 
       {(luz.excesos > 0 || luz.reactiva > 0) && (
-        <div className="rounded-xl p-3 border-l-4 border-amber-400 bg-amber-50 text-xs space-y-1">
+        <div className="rounded-xl p-3 bg-slate-50 text-xs space-y-1">
           {luz.excesos > 0 && (
-            <div className="text-amber-800">
-              <strong className="num">{fmtEur(luz.excesos)}</strong> facturados en <strong>excesos de potencia</strong> — recuperable renegociando potencias contratadas.
+            <div className="text-slate-700">
+              <strong className="num">{fmtEur(luz.excesos)}</strong> facturados en <strong>excesos de potencia</strong>.
             </div>
           )}
           {luz.reactiva > 0 && (
-            <div className="text-amber-800">
-              <strong className="num">{fmtEur(luz.reactiva)}</strong> en <strong>energía reactiva</strong> — corregible con batería de condensadores.
+            <div className="text-slate-700">
+              <strong className="num">{fmtEur(luz.reactiva)}</strong> facturados en <strong>energía reactiva</strong>.
             </div>
           )}
         </div>
@@ -593,63 +587,6 @@ function MiniKpi({ label, value, unit }: { label: string; value: string; unit?: 
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// AHORRO POTENCIAL — punch comercial
-// ════════════════════════════════════════════════════════════════════════════
-
-function AhorroPotencialCard({ ahorro, gastoAnual }: { ahorro: Overview['ahorroPotencial']; gastoAnual: number }) {
-  if (ahorro.total < 100) return null
-  const pct = gastoAnual > 0 ? (ahorro.total / gastoAnual) * 100 : 0
-  return (
-    <div className="rounded-3xl p-7 relative overflow-hidden" style={{
-      background: 'linear-gradient(135deg, #4A6FE3 0%, #2E4FBF 100%)',
-      color: '#FFFFFF',
-      boxShadow: '0 20px 60px -15px rgba(74,111,227,0.5)',
-    }}>
-      <div className="absolute -right-12 -bottom-12 opacity-20"><BuddyIcon size={180} /></div>
-
-      <div className="relative">
-        <div className="flex items-center gap-2 mb-2">
-          <Sparkles className="w-5 h-5 text-yellow-300" />
-          <div className="text-[10px] font-bold tracking-[0.22em] uppercase text-blue-100">Ahorro potencial estimado</div>
-        </div>
-        <div className="text-5xl md:text-6xl font-bold num mb-2">{fmt(ahorro.total, 0)} €<span className="text-2xl text-blue-200 ml-2">/año</span></div>
-        <div className="text-blue-100 text-sm mb-5">
-          ≈ {fmtPct(pct)} sobre el gasto anual estimado del cliente
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {ahorro.excesosPotencia > 50 && (
-            <PalancaCard icon={<Target className="w-4 h-4" />} label="Renegociar potencias" value={ahorro.excesosPotencia} />
-          )}
-          {ahorro.cambioTarifa > 50 && (
-            <PalancaCard icon={<TrendingDown className="w-4 h-4" />} label="Optimización tarifaria" value={ahorro.cambioTarifa} />
-          )}
-          {ahorro.correccionReactiva > 50 && (
-            <PalancaCard icon={<Activity className="w-4 h-4" />} label="Corrección reactiva" value={ahorro.correccionReactiva} />
-          )}
-        </div>
-
-        <div className="mt-5 text-xs text-blue-100">
-          Estimación conservadora a partir de los conceptos facturados (excesos de potencia, energía reactiva) y el reparto por periodos. El ahorro real puede ser mayor tras estudio detallado por suministro.
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function PalancaCard({ icon, label, value }: any) {
-  return (
-    <div className="rounded-xl p-4 bg-white/10 backdrop-blur-sm">
-      <div className="flex items-center gap-2 text-blue-100 text-[10px] font-bold tracking-wider uppercase mb-2">
-        {icon}{label}
-      </div>
-      <div className="text-2xl font-bold num">{fmt(value, 0)} €</div>
-      <div className="text-xs text-blue-200">al año</div>
-    </div>
-  )
-}
-
-// ════════════════════════════════════════════════════════════════════════════
 // Top consumidores/gastadores
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -702,7 +639,7 @@ function AnomaliasCard({ items, router }: { items: SupplyAggregate[]; router: an
         </div>
       </div>
       <p className="text-xs text-slate-600 mb-3">
-        Estos suministros tienen un €/kWh anómalo respecto a la media del cliente — revisarlos puede revelar errores de facturación o tarifas mal contratadas.
+        Suministros con €/kWh fuera de la banda media del cliente. Se listan únicamente como lectura para inspección.
       </p>
       <div className="space-y-2">
         {items.slice(0, 5).map(r => (
