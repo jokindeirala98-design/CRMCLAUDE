@@ -1695,6 +1695,21 @@ export default function SupplyDetailPage() {
                     </button>
                   )}
                 </div>
+
+                {/* ─── Estudio económico subido (admins) ──────────────────
+                    Si el supply tiene un estudio adjunto desde el tracker
+                    admin, lo mostramos con opción a verlo y eliminarlo.
+                    Eliminar reabre la tarea pendiente automáticamente. */}
+                {supply?.economic_study_url && (
+                  <EconomicStudyBlock
+                    url={supply.economic_study_url}
+                    filename={supply.economic_study_filename || 'Estudio económico'}
+                    uploadedAt={supply.economic_study_uploaded_at}
+                    supplyId={supply.id}
+                    isAdmin={user?.role === 'admin'}
+                    onDeleted={() => fetchSupply()}
+                  />
+                )}
               </div>
             )}
           </Card>
@@ -3493,6 +3508,90 @@ export default function SupplyDetailPage() {
           })()}
           onClose={() => { setEconomicStudyOpen(false); setStudyAdjustedPowers(null) }}
         />
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bloque "Estudio económico subido" — visible cuando el supply tiene un
+// estudio adjuntado vía el tracker admin del panel. Si el usuario es admin
+// puede eliminarlo, lo que reabre la tarea pendiente automáticamente.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function EconomicStudyBlock({ url, filename, uploadedAt, supplyId, isAdmin, onDeleted }: {
+  url: string
+  filename: string
+  uploadedAt: string | null
+  supplyId: string
+  isAdmin: boolean
+  onDeleted: () => void
+}) {
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const handleDelete = async () => {
+    setDeleting(true); setErr(null)
+    try {
+      const res = await fetch(`/api/supplies/${supplyId}/economic-study/delete`, { method: 'DELETE' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Error eliminando')
+      setConfirmOpen(false)
+      onDeleted()
+    } catch (e: any) {
+      setErr(e?.message || 'Error')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#EEF4FB] border border-[#A8C8F0]">
+      <FileText className="w-4 h-4 text-[#4A6FE3]" />
+      <a href={url} target="_blank" rel="noopener noreferrer"
+        className="text-xs font-semibold text-[#1B4FA0] hover:underline truncate max-w-[260px]"
+        title={filename}>
+        {filename}
+      </a>
+      {uploadedAt && (
+        <span className="text-[10px] text-ink-3">
+          · {formatDate(uploadedAt)}
+        </span>
+      )}
+      {isAdmin && (
+        <button
+          onClick={() => setConfirmOpen(true)}
+          className="ml-2 text-[10px] font-semibold text-err hover:underline"
+          title="Eliminar estudio (reabre la tarea pendiente)"
+        >
+          Eliminar
+        </button>
+      )}
+      {confirmOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+             onClick={() => !deleting && setConfirmOpen(false)}>
+          <div className="bg-card rounded-2xl shadow-xl max-w-md w-full p-6 border border-line"
+               onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base font-bold text-ink mb-1">Eliminar estudio económico</h3>
+            <p className="text-sm text-ink-3 mb-4">
+              Se borrará el archivo <b>{filename}</b> del suministro. La tarea de
+              "estudio económico pendiente" volverá a aparecer en el panel admin
+              para que subas uno nuevo.
+            </p>
+            {err && <p className="text-xs text-err mb-3">{err}</p>}
+            <div className="flex items-center justify-end gap-2">
+              <button onClick={() => setConfirmOpen(false)} disabled={deleting}
+                className="px-4 py-2 rounded-xl text-sm font-semibold text-ink-2 hover:bg-bg-2 disabled:opacity-50">
+                Cancelar
+              </button>
+              <button onClick={handleDelete} disabled={deleting}
+                className="px-4 py-2 rounded-xl text-sm font-bold text-white bg-[#DC2626] hover:bg-[#B91C1C] disabled:opacity-50">
+                {deleting ? 'Eliminando…' : 'Sí, eliminar'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

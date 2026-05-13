@@ -583,15 +583,11 @@ export default function ClientsPage() {
 
                     {/* Footer */}
                     <div className="flex items-center justify-between pt-2 border-t border-line">
-                      <div className="flex items-center gap-1.5">
-                        <div className="w-5 h-5 rounded-full bg-brand flex items-center justify-center flex-shrink-0">
-                          <span className="text-volt text-[9px] font-bold">
-                            {(client.commercial?.nickname || client.commercial?.full_name || client.commercial?.email || '?').charAt(0).toUpperCase()}
-                          </span>
-                        </div>
-                        <span className="text-[10px] text-ink-3 truncate max-w-[90px]">
-                          {client.commercial?.nickname || getUserInitials(client.commercial?.full_name || client.commercial?.email)}
-                        </span>
+                      <div
+                        className="inline-flex items-center justify-center min-w-[32px] h-[22px] px-2 rounded-md bg-[#1F3A2E] text-volt text-[10px] font-bold tracking-wider flex-shrink-0"
+                        title={client.commercial?.full_name || client.commercial?.email || 'Sin comercial asignado'}
+                      >
+                        {client.commercial?.nickname || getUserInitials(client.commercial?.full_name || client.commercial?.email) || '?'}
                       </div>
                       <Badge variant={supplyCount > 0 ? 'info' : 'default'} hideDot>
                         {supplyCount} sum.
@@ -644,8 +640,11 @@ export default function ClientsPage() {
                     ))}
                   </div>
                   <Badge variant="info" hideDot>{supplyCount} sum.</Badge>
-                  <span className="text-xs text-ink-3 font-medium hidden sm:block">
-                    {getUserInitials(client.commercial?.full_name || client.commercial?.email)}
+                  <span
+                    className="hidden sm:inline-flex items-center justify-center min-w-[32px] h-[22px] px-2 rounded-md bg-[#1F3A2E] text-volt text-[10px] font-bold tracking-wider"
+                    title={client.commercial?.full_name || client.commercial?.email || 'Sin comercial'}
+                  >
+                    {client.commercial?.nickname || getUserInitials(client.commercial?.full_name || client.commercial?.email) || '?'}
                   </span>
                   <ChevronRight className="w-4 h-4 text-ink-4 group-hover:text-brand" />
                 </div>

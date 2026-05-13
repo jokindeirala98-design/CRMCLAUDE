@@ -13,6 +13,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/auth'
 import { formatCurrency, formatDate, formatNumber } from '@/lib/utils/format'
 import type { Client, Supply, Subscription, Billing, Task, Notification } from '@/types/database'
+import { EstudiosPendientes } from '@/components/admin/EstudiosPendientes'
 
 // ---- Types ----
 interface MetricCard {
@@ -462,6 +463,11 @@ export default function PanelPage() {
       <Header title="Panel" subtitle="Vista general" />
 
       <main className="px-4 lg:px-6 py-6 max-w-7xl mx-auto">
+        {/* SECCIÓN ADMIN: tracker de estudios económicos pendientes.
+            El propio componente se oculta automáticamente si el endpoint
+            responde 403 (usuario no admin) o si no hay tareas. */}
+        <EstudiosPendientes />
+
         <AnimatePresence mode="wait">
 
           {/* SECTION 1: Metric Cards */}

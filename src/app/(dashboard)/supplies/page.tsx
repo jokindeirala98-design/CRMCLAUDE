@@ -78,6 +78,8 @@ interface SupplyGroup {
   clientId: string
   clientName: string
   clientCif?: string
+  /** Comercial responsable del cliente — para badge con iniciales en las filas. */
+  commercial?: { nickname: string | null; full_name: string | null; email: string | null } | null
   supplies: Supply[]
   totalKwh: number
 }
@@ -376,7 +378,7 @@ export default function SuppliesPage() {
       if (myClientIds.length === 0) { setSupplies([]); setConsumptionMap({}); setLoading(false); return }
     }
 
-    const baseSelect = 'id, name, cups, tariff, type, status, address, created_at, updated_at, client_id, consumption_data, comercializadora_id, client:clients(name, cif_nif)'
+    const baseSelect = 'id, name, cups, tariff, type, status, address, created_at, updated_at, client_id, consumption_data, comercializadora_id, client:clients(name, cif_nif, commercial:users_profile!commercial_id(id, full_name, nickname, email))'
     let suppliesQ = supabase.from('supplies').select(baseSelect).order('created_at', { ascending: false })
     if (filter !== 'all') suppliesQ = suppliesQ.eq('status', filter)
     if (myClientIds !== null) suppliesQ = suppliesQ.in('client_id', myClientIds)
@@ -432,7 +434,19 @@ export default function SuppliesPage() {
     const groups: SupplyGroup[] = []
     clientMap.forEach((items, clientId) => {
       const totalKwh = items.reduce((sum, s) => sum + (consumptionMap[s.id] || 0), 0)
-      groups.push({ clientId, clientName: items[0]?.client?.name || 'Sin cliente', clientCif: items[0]?.client?.cif_nif, supplies: items, totalKwh })
+      const commercial: any = (items[0]?.client as any)?.commercial
+      groups.push({
+        clientId,
+        clientName: items[0]?.client?.name || 'Sin cliente',
+        clientCif: items[0]?.client?.cif_nif,
+        commercial: commercial ? {
+          nickname: commercial.nickname || null,
+          full_name: commercial.full_name || null,
+          email: commercial.email || null,
+        } : null,
+        supplies: items,
+        totalKwh,
+      })
     })
     if (sortBy !== 'recent') groups.sort((a, b) => sortBy === 'consumption_desc' ? b.totalKwh - a.totalKwh : a.totalKwh - b.totalKwh)
     return groups
@@ -665,8 +679,18 @@ export default function SuppliesPage() {
                                 </span>
                               </td>
                               <td className="px-5 py-3.5">
-                                <p className="text-sm font-medium text-ink truncate max-w-[180px]">{group.clientName}</p>
-                                {group.clientCif && <p className="text-xs text-ink-3">{group.clientCif}</p>}
+                                <div className="flex items-center gap-2">
+                                  <p className="text-sm font-medium text-ink truncate max-w-[180px]">{group.clientName}</p>
+                                  {group.commercial && (
+                                    <span
+                                      className="inline-flex items-center justify-center min-w-[28px] h-[18px] px-1.5 rounded-md bg-[#1F3A2E] text-volt text-[9px] font-bold tracking-wider flex-shrink-0"
+                                      title={group.commercial.full_name || group.commercial.email || 'Comercial'}
+                                    >
+                                      {group.commercial.nickname || '?'}
+                                    </span>
+                                  )}
+                                </div>
+                                {group.clientCif && <p className="text-xs text-ink-3 mt-0.5">{group.clientCif}</p>}
                               </td>
                               <td className="px-5 py-3.5">
                                 <Badge variant={item.type === 'gas' ? 'warning' : 'info'}>{formatTariff(item.tariff)}</Badge>
@@ -704,6 +728,14 @@ export default function SuppliesPage() {
                                 <span className="text-[10px] font-bold text-brand bg-brand/10 px-1.5 py-0.5 rounded-full leading-none">
                                   {group.supplies.length}
                                 </span>
+                                {group.commercial && (
+                                  <span
+                                    className="inline-flex items-center justify-center min-w-[28px] h-[18px] px-1.5 rounded-md bg-[#1F3A2E] text-volt text-[9px] font-bold tracking-wider flex-shrink-0"
+                                    title={group.commercial.full_name || group.commercial.email || 'Comercial'}
+                                  >
+                                    {group.commercial.nickname || '?'}
+                                  </span>
+                                )}
                               </div>
                               {group.clientCif && <p className="text-[11px] text-ink-3 mt-0.5">{group.clientCif}</p>}
                             </td>
