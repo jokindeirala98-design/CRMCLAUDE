@@ -25,27 +25,22 @@ export async function GET() {
       return NextResponse.json({ error: 'Solo administradores' }, { status: 403 })
     }
 
-    // Solo tareas de supplies dados de alta en los últimos 3 días.
-    // Las tareas antiguas siguen en BD (no se borran) pero no aparecen aquí —
-    // así el tracker queda enfocado en lo que entra de nuevo. Si un supply
-    // antiguo necesita estudio, el admin puede subirlo desde la ficha del
-    // supply directamente sin pasar por el tracker.
-    const cutoff = new Date()
-    cutoff.setDate(cutoff.getDate() - 3)
-    const cutoffIso = cutoff.toISOString()
-
+    // Todas las tareas pendientes — sin filtro temporal automático.
+    // Las tareas antiguas (anteriores al arranque del tracker) se descartan
+    // manualmente con un UPDATE puntual en BD (status='dismissed'). A partir
+    // de ahí, las que aparecen aquí permanecen hasta que el admin suba el
+    // estudio o las descarte explícitamente — no caducan por tiempo.
     const { data: tasks, error } = await supabase
       .from('admin_tasks')
       .select(`
         id, type, supply_id, client_id, status, created_at,
-        supply:supplies!inner(id, cups, tariff, type, name, address, created_at),
+        supply:supplies(id, cups, tariff, type, name, address, created_at),
         client:clients(
           id, name, alias, cif, nif, cif_nif, commercial_id,
           commercial:users_profile!commercial_id(id, full_name, nickname, email)
         )
       `)
       .eq('status', 'pending')
-      .gte('supply.created_at', cutoffIso)
       .order('created_at', { ascending: false })
 
     if (error) {
