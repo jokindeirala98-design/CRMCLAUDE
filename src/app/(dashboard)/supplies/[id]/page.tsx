@@ -1659,6 +1659,21 @@ export default function SupplyDetailPage() {
                       Estudios de Suministro
                     </button>
                   )}
+
+                  {/* ─── Estudio económico global del cliente ─── */}
+                  {supply?.client?.id && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        router.push(`/clients/${supply.client.id}/economic-overview`)
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-0.5 rounded-md text-[11px] font-bold bg-volt/30 text-volt-ink hover:bg-volt hover:text-volt-ink transition-all shadow-sm border border-volt/40"
+                      title="Estudio económico global de todos los suministros del cliente"
+                    >
+                      <TrendingUp className="w-3.5 h-3.5" />
+                      Estudio anual global
+                    </button>
+                  )}
                 </div>
               </div>
             )}

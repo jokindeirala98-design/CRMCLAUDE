@@ -94,8 +94,16 @@ export default function EconomicOverviewPage() {
   const [error, setError] = useState<string | null>(null)
 
   // ── Fetch ──────────────────────────────────────────────────────────────
+  // En modo 'custom' esperamos a que el usuario rellene las dos fechas
+  // antes de disparar la consulta al endpoint.
+  const customReady = mode !== 'custom' || (from && to)
+
   useEffect(() => {
     if (!clientId) return
+    if (!customReady) {
+      setLoading(false)
+      return
+    }
     let cancelled = false
     setLoading(true)
     setError(null)
@@ -117,7 +125,7 @@ export default function EconomicOverviewPage() {
       .finally(() => { if (!cancelled) setLoading(false) })
 
     return () => { cancelled = true }
-  }, [clientId, mode, typeFilter, from, to])
+  }, [clientId, mode, typeFilter, from, to, customReady])
 
   // ── Render ─────────────────────────────────────────────────────────────
   if (loading && !data) {
@@ -125,6 +133,25 @@ export default function EconomicOverviewPage() {
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="w-8 h-8 text-brand animate-spin" />
       </div>
+    )
+  }
+
+  // En modo custom sin fechas todavía mostramos la cabecera + selector de
+  // periodo para que el usuario pueda introducir las fechas, no un error.
+  if (!customReady && !data) {
+    return (
+      <CustomEmptyState
+        clientId={clientId}
+        mode={mode}
+        setMode={setMode}
+        from={from}
+        to={to}
+        setFrom={setFrom}
+        setTo={setTo}
+        typeFilter={typeFilter}
+        setTypeFilter={setTypeFilter}
+        router={router}
+      />
     )
   }
 
@@ -410,6 +437,64 @@ function TipoCard({ icon, label, gasto, kwh, count, total }: {
       <div className="mt-3 h-1.5 rounded-full bg-bg-2 overflow-hidden">
         <div className="h-full bg-brand" style={{ width: `${pct}%` }} />
       </div>
+    </div>
+  )
+}
+
+function CustomEmptyState({
+  clientId, mode, setMode, from, to, setFrom, setTo, typeFilter, setTypeFilter, router,
+}: {
+  clientId: string
+  mode: Mode; setMode: (m: Mode) => void
+  from: string; to: string; setFrom: (s: string) => void; setTo: (s: string) => void
+  typeFilter: TypeFilter; setTypeFilter: (t: TypeFilter) => void
+  router: ReturnType<typeof useRouter>
+}) {
+  return (
+    <div className="min-h-screen bg-bg text-ink font-sans">
+      <header className="px-6 md:px-10 pt-8 pb-6 border-b border-line/60">
+        <div className="flex items-center justify-between mb-6">
+          <button
+            onClick={() => router.push(`/clients/${clientId}`)}
+            className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-ink-3 hover:text-brand transition"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Volver al cliente
+          </button>
+        </div>
+        <div className="text-[10px] font-mono tracking-[0.22em] text-salvia uppercase mb-3">
+          Estudio económico global
+        </div>
+        <h1 className="font-serif text-[2.5rem] md:text-[3rem] leading-[1.05] text-brand mb-2">
+          Selecciona un periodo
+        </h1>
+      </header>
+      <section className="px-6 md:px-10 mt-6 flex flex-wrap items-center gap-3">
+        <div className="text-[10px] font-mono uppercase tracking-wider text-ink-3 mr-2">Periodo</div>
+        <ModeChip active={mode === 'last12'} onClick={() => setMode('last12')}>Últimas 12 facturas</ModeChip>
+        <ModeChip active={mode === 'previous_year'} onClick={() => setMode('previous_year')}>Año pasado ({new Date().getFullYear() - 1})</ModeChip>
+        <ModeChip active={mode === 'custom'} onClick={() => setMode('custom')}>Personalizado</ModeChip>
+        {mode === 'custom' && (
+          <div className="flex items-center gap-2 ml-2">
+            <input type="date" value={from} onChange={e => setFrom(e.target.value)}
+              className="px-2 py-1 text-xs rounded-lg bg-card border border-line font-mono" />
+            <span className="text-ink-4">→</span>
+            <input type="date" value={to} onChange={e => setTo(e.target.value)}
+              className="px-2 py-1 text-xs rounded-lg bg-card border border-line font-mono" />
+          </div>
+        )}
+        <div className="text-[10px] font-mono uppercase tracking-wider text-ink-3 ml-6 mr-2">Tipo</div>
+        <ModeChip active={typeFilter === 'all'} onClick={() => setTypeFilter('all')}>Todos</ModeChip>
+        <ModeChip active={typeFilter === 'luz'} onClick={() => setTypeFilter('luz')}><Zap className="w-3 h-3 inline mr-1" />Luz</ModeChip>
+        <ModeChip active={typeFilter === 'gas'} onClick={() => setTypeFilter('gas')}><Flame className="w-3 h-3 inline mr-1" />Gas</ModeChip>
+      </section>
+      <section className="px-6 md:px-10 mt-12 max-w-2xl">
+        <div className="rounded-2xl border border-dashed border-line bg-card p-8 text-center">
+          <p className="text-sm text-ink-3">
+            Indica una fecha de inicio y otra de fin para ver el estudio económico del rango personalizado.
+          </p>
+        </div>
+      </section>
     </div>
   )
 }
