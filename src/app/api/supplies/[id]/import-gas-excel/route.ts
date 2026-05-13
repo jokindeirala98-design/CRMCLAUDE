@@ -514,24 +514,15 @@ export async function POST(
         const maestro = ex.sourceFormat === 'maestro' ? ex : r.sourceFormat === 'maestro' ? r : null
         const historial = ex.sourceFormat === 'historial' ? ex : r.sourceFormat === 'historial' ? r : null
 
-        // ── Recalcular total anual desde los 12 meses más recientes del
-        //    historial combinado. Es la fuente más fiable: ConsumoAnual del
-        //    Maestro a veces viene mal (separador de miles mal parseado,
-        //    valores en unidades extrañas, etc.). El historial son medidas
-        //    reales y sumarlas cronológicamente da el consumo anual real.
-        //    El ConsumoAnual del Maestro queda como fallback si no hay
-        //    suficiente historial (<12 meses).
-        const histDesc = [...combinedHistory].sort(
-          (a, b) => new Date(b.fechaInicio).getTime() - new Date(a.fechaInicio).getTime()
-        )
-        const sum12 = histDesc.slice(0, 12).reduce((s, h) => s + (Number(h.kwh) || 0), 0)
-        const maestroTotal = maestro && maestro.totalKwh > 0 ? maestro.totalKwh : 0
-        // Si el historial cubre 12+ meses y la suma es plausible, usar esa.
-        // Si no, caer al Maestro. Si el Maestro está vacío pero hay algún
-        // historial, usar lo que haya.
-        const bestTotalKwh = histDesc.length >= 12 && sum12 > 0
-          ? sum12
-          : (maestroTotal > 0 ? maestroTotal : sum12 || Math.max(ex.totalKwh, r.totalKwh))
+        // El ConsumoAnual del Maestro es la fuente AUTORITATIVA. La distribuidora
+        // lo declara explícitamente en el archivo y representa el consumo anual
+        // real del cliente. Solo se usa el historial como fallback si el Maestro
+        // viene vacío (totalKwh = 0). NO se usa para "validar" el Maestro porque
+        // el historial puede tener entradas duplicadas, unidades diferentes o
+        // periodos solapados.
+        const bestTotalKwh = maestro && maestro.totalKwh > 0
+          ? maestro.totalKwh
+          : Math.max(ex.totalKwh, r.totalKwh)
 
         mergedMap.set(key, {
           cups:          ex.cups,
