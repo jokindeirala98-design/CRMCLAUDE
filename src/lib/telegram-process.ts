@@ -432,6 +432,40 @@ export async function processTelegramInboxItem(
         await supabase.from('supplies').update(patch).eq('id', supplyId)
         console.log(`[TelegramProcess] Patched existing supply ${supplyId}:`, patch)
       }
+    } else {
+      // ── Match fuzzy CUPS (Hamming ≤ 2) ─────────────────────────────────
+      //    Captura errores típicos del OCR/Gemini en el código de
+      //    distribuidora (pos 2-5) o letras de control (pos 18-19):
+      //    p.ej. ES0022060007937199KN ↔ ES0226060007937199KN. Guard de
+      //    seguridad: el segmento 6-17 (punto de suministro) DEBE coincidir
+      //    al 100 % — eso garantiza que no fusionamos suministros físicamente
+      //    distintos. Misma lógica que el flujo web (upload-queue.ts).
+      const { data: candidates } = await supabase
+        .from('supplies')
+        .select('id, client_id, cups, tariff, address, type')
+        .like('cups', 'ES%')
+        .limit(500)
+      if (candidates && candidates.length > 0) {
+        const fuzzyMatch = candidates.find((s: any) => {
+          if (!s.cups || s.cups.length !== cups.length) return false
+          if (cups.length >= 18 && s.cups.slice(6, 18) !== cups.slice(6, 18)) return false
+          let diffs = 0
+          for (let i = 0; i < cups.length; i++) {
+            if (s.cups[i] !== cups[i]) diffs++
+            if (diffs > 2) return false
+          }
+          return diffs > 0 && diffs <= 2
+        })
+        if (fuzzyMatch) {
+          supplyId = fuzzyMatch.id
+          clientId = fuzzyMatch.client_id
+          isExistingSupply = true
+          console.log(`[TelegramProcess] Fuzzy supply match: CUPS extraído "${cups}" → DB "${fuzzyMatch.cups}" (diff ≤ 2)`)
+          // Si nuestro CUPS extraído tiene más sentido que el guardado
+          // (raro), no lo sobreescribimos por seguridad: confiamos en el
+          // que ya está en BD.
+        }
+      }
     }
   }
 
