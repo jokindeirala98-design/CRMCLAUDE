@@ -29,6 +29,34 @@ function getByPeriod(items: any[] | undefined, period: 'P1' | 'P2' | 'P3', key: 
   return undefined
 }
 
+/**
+ * Lee precios de POTENCIA normalizando P1+P3 → P1+P2 (lo que aparece en
+ * facturas 2.0TD que numeran la potencia valle como P3 en lugar de P2).
+ *
+ * Reglas:
+ *  - Si la factura tiene P1 y P2 → devolver tal cual
+ *  - Si la factura tiene P1 y P3 (sin P2) → tratar P3 como P2 (valle)
+ *  - Si solo tiene P1 → devolver P1 también como P2
+ */
+function getPowerNormalized(items: any[] | undefined, period: 'P1' | 'P2', key: string): number | undefined {
+  if (!Array.isArray(items)) return undefined
+  const p1 = getByPeriod(items, 'P1', key)
+  if (period === 'P1') return p1
+  // period === 'P2': busca P2, si no encuentra busca P3, si tampoco usa P1
+  const p2 = getByPeriod(items, 'P2', key)
+  if (p2 !== undefined) return p2
+  const p3 = getByPeriod(items, 'P3', key)
+  if (p3 !== undefined) return p3
+  return p1
+}
+
+/**
+ * Igual que getPowerNormalized pero para kW contratados (no precios).
+ */
+function getPowerKwNormalized(items: any[] | undefined, period: 'P1' | 'P2'): number | undefined {
+  return getPowerNormalized(items, period, 'kw')
+}
+
 function detectFixedFees(eco: any): number {
   if (!eco?.otrosConceptos || !Array.isArray(eco.otrosConceptos)) return 0
   const KEYWORDS = [
@@ -136,8 +164,8 @@ function buildBillFromInvoice(inv: any, clientCif?: string | null): BillSample |
     energyP1: getByPeriod(eco.consumo, 'P1', 'precioKwh'),
     energyP2: getByPeriod(eco.consumo, 'P2', 'precioKwh'),
     energyP3: getByPeriod(eco.consumo, 'P3', 'precioKwh'),
-    powerP1: getByPeriod(eco.potencia, 'P1', 'precioKwDia'),
-    powerP2: getByPeriod(eco.potencia, 'P2', 'precioKwDia'),
+    powerP1: getPowerNormalized(eco.potencia, 'P1', 'precioKwDia'),
+    powerP2: getPowerNormalized(eco.potencia, 'P2', 'precioKwDia'),
     hasBonoSocial: bono.has,
     bonoSocialDiscount: bono.discount,
     fixedFeesMonthly: detectFixedFees(eco),
@@ -199,10 +227,26 @@ export async function GET(
     const consSrc = consData.consumoPeriodos ?? {}
     const maxSrc = consData.potenciaMaxDemandada ?? consData.maximetros ?? {}
 
+    // Potencia contratada SIPS — normalizar P1/P2/P3 a P1+P2 para 2.0TD
+    // (en 2.0 solo hay 2 periodos de potencia; SIPS a veces los etiqueta P1+P3)
     const potenciaP1 = Number(potSrc.P1 ?? potSrc.p1 ?? 0)
     const potenciaP2Raw = Number(potSrc.P2 ?? potSrc.p2 ?? 0)
     const potenciaP3 = Number(potSrc.P3 ?? potSrc.p3 ?? 0)
-    const potenciaP2 = potenciaP3 > 0.1 && potenciaP2Raw < 0.5 ? potenciaP3 : potenciaP2Raw
+    // Si P2 está vacío o es artefacto (<0.5 kW) y P3 tiene un valor real
+    // (>0.1 kW), usar P3 como P2 (valle).
+    const potenciaP2 = (potenciaP2Raw < 0.5 && potenciaP3 > 0.1) ? potenciaP3 : (potenciaP2Raw || potenciaP3 || potenciaP1)
+
+    // Fallback adicional: si SIPS está vacío pero las facturas traen kW,
+    // tomarlo del array de potencia de la última factura.
+    let finalPotenciaP1 = potenciaP1
+    let finalPotenciaP2 = potenciaP2
+    if (finalPotenciaP1 === 0 && finalPotenciaP2 === 0) {
+      const lastEco = (invoices?.[0]?.extracted_data as any)?.economics
+      if (lastEco?.potencia) {
+        finalPotenciaP1 = getPowerKwNormalized(lastEco.potencia, 'P1') ?? 0
+        finalPotenciaP2 = getPowerKwNormalized(lastEco.potencia, 'P2') ?? 0
+      }
+    }
 
     let consumoP1 = Number(consSrc.P1 ?? consSrc.p1 ?? 0)
     let consumoP2 = Number(consSrc.P2 ?? consSrc.p2 ?? 0)
@@ -254,7 +298,8 @@ export async function GET(
 
     // 5) Calcular multi-factura
     const result = computarComparativaGanaMulti({
-      potenciaP1, potenciaP2,
+      potenciaP1: finalPotenciaP1,
+      potenciaP2: finalPotenciaP2,
       consumoP1, consumoP2, consumoP3,
       bills,
       scenarios,
@@ -270,7 +315,8 @@ export async function GET(
       },
       // Datos editables que la UI usa para "recalcular"
       input: {
-        potenciaP1, potenciaP2,
+        potenciaP1: finalPotenciaP1,
+        potenciaP2: finalPotenciaP2,
         consumoP1, consumoP2, consumoP3,
         currentEnergyP1: result.priceAnalysis?.tariffNature === 'fija'
           ? (result.priceAnalysis.energyP1?.median ?? 0)
