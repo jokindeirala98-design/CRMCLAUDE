@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { findOrCreatePortalLink } from '@/lib/portal-data'
 import { buildDossierPdf } from '@/lib/dossier-pdf'
+import { voltisPortalUrl } from '@/lib/voltis-info'
 
 export const runtime = 'nodejs'
 export const maxDuration = 30
@@ -47,7 +48,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="voltis-acceso-${filenameBase}.pdf"`,
         'X-Link-Existed': existed ? 'true' : 'false',
-        'X-Portal-Link': `${process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'}/portal/${token}`,
+        'X-Portal-Link': voltisPortalUrl(token),
       },
     })
   } catch (e: any) {
