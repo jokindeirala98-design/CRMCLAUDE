@@ -46,16 +46,60 @@ function detectFixedFees(eco: any): number {
   return dias > 0 ? (total / dias) * 30 : total
 }
 
-function detectBonoSocial(eco: any): { has: boolean; discount: number } {
-  let discount = 0, detected = false
-  if (eco?.otrosConceptos && Array.isArray(eco.otrosConceptos)) {
-    for (const c of eco.otrosConceptos) {
-      const txt = String(c.concepto ?? '').toLowerCase()
-      if (txt.includes('bono social')) {
-        detected = true
-        const monto = Math.abs(Number(c.total ?? 0))
-        if (monto > 0) discount += monto
-      }
+/**
+ * Detecta Bono Social REAL del titular (no la financiación que pagan todos).
+ *
+ * Reglas:
+ *  - El cargo "Financiación bono social" / "Cofinanciación bono social" SIEMPRE
+ *    aparece en TODAS las facturas eléctricas españolas (lo pagan todos
+ *    los consumidores). Debe IGNORARSE.
+ *  - Solo se marca bono social al titular cuando el concepto indica
+ *    descuento aplicado o tarifa social/TUR:
+ *      "Descuento bono social", "Bono social aplicado", "TUR", "Tarifa social",
+ *      "Tarifa de último recurso", o cualquier "bono social" con importe
+ *      NEGATIVO (descuento).
+ *  - Empresas (CIF que empieza por A, B, C, D, E, F, G, J, P, Q, R, S, U, V, N)
+ *    NO pueden tener bono social: descartar siempre.
+ */
+function detectBonoSocial(eco: any, clientCif?: string | null): { has: boolean; discount: number } {
+  // Guard 1: empresas no tienen bono social
+  if (clientCif) {
+    const firstLetter = clientCif.trim().charAt(0).toUpperCase()
+    if ('ABCDEFGHJPQRSUVN'.includes(firstLetter)) {
+      return { has: false, discount: 0 }
+    }
+  }
+
+  if (!eco?.otrosConceptos || !Array.isArray(eco.otrosConceptos)) {
+    return { has: false, discount: 0 }
+  }
+
+  // Palabras que descartan: estos conceptos son cargos comunes (todos pagan)
+  const FALSE_POSITIVE = ['financiación bono', 'financiacion bono', 'cofinanc', 'aportación bono']
+  // Palabras que confirman: descuento real al titular
+  const TRUE_POSITIVE = [
+    'descuento bono', 'bono social aplicado', 'tarifa social',
+    'tarifa de último recurso', 'tarifa ultimo recurso', 'tur ',
+    'bono social tur',
+  ]
+
+  let discount = 0
+  let detected = false
+  for (const c of eco.otrosConceptos) {
+    const txt = String(c.concepto ?? '').toLowerCase()
+    const monto = Number(c.total ?? 0)
+    if (!isFinite(monto)) continue
+    // Es bono social aplicado al titular si:
+    //   a) coincide con alguno de los términos TRUE_POSITIVE
+    //   b) o contiene "bono social" Y el monto es NEGATIVO (descuento)
+    const isFalsePositive = FALSE_POSITIVE.some(kw => txt.includes(kw))
+    const isTruePositive = TRUE_POSITIVE.some(kw => txt.includes(kw))
+    const isNegativeBonoLine = txt.includes('bono social') && monto < -0.01
+
+    if (isFalsePositive && !isTruePositive && !isNegativeBonoLine) continue
+    if (isTruePositive || isNegativeBonoLine) {
+      detected = true
+      discount += Math.abs(monto)
     }
   }
   return { has: detected, discount }
@@ -64,7 +108,7 @@ function detectBonoSocial(eco: any): { has: boolean; discount: number } {
 /**
  * Construye un BillSample a partir de una invoice con extracted_data.economics.
  */
-function buildBillFromInvoice(inv: any): BillSample | null {
+function buildBillFromInvoice(inv: any, clientCif?: string | null): BillSample | null {
   const eco = (inv?.extracted_data as any)?.economics
   if (!eco) return null
 
@@ -76,7 +120,7 @@ function buildBillFromInvoice(inv: any): BillSample | null {
     return 30
   })()
 
-  const bono = detectBonoSocial(eco)
+  const bono = detectBonoSocial(eco, clientCif)
 
   return {
     invoiceId: inv.id,
@@ -131,17 +175,21 @@ export async function GET(
       return NextResponse.json({ error: 'Comparativa Gana 2.0TD aplica solo a luz' }, { status: 400 })
     }
 
+    // CIF del cliente para evitar falsos positivos de bono social en empresas
+    const clientRel = Array.isArray(supply.client) ? supply.client[0] : supply.client
+    const clientCif = clientRel?.cif ?? clientRel?.cif_nif ?? clientRel?.nif ?? null
+
     // 2) TODAS las facturas con economics
     const { data: invoices } = await supabase
       .from('invoices')
       .select('id, period_start, period_end, extracted_data, total_amount, created_at')
       .eq('supply_id', supplyId)
       .order('period_end', { ascending: false, nullsFirst: false })
-      .limit(24)   // máximo 2 años por si acaso
+      .limit(24)
 
     const bills: BillSample[] = []
     for (const inv of invoices ?? []) {
-      const b = buildBillFromInvoice(inv)
+      const b = buildBillFromInvoice(inv, clientCif)
       if (b) bills.push(b)
     }
 
@@ -213,14 +261,12 @@ export async function GET(
       potenciaMaxDemandadaKw: potenciaMaxDemandadaKw || undefined,
     })
 
-    const clientRel = Array.isArray(supply.client) ? supply.client[0] : supply.client
-
     return NextResponse.json({
       supply: {
         id: supply.id, cups: supply.cups, tariff: supply.tariff, name: supply.name,
         client_id: supply.client_id,
         client_name: clientRel?.alias || clientRel?.name || null,
-        client_cif: clientRel?.cif ?? clientRel?.cif_nif ?? clientRel?.nif ?? null,
+        client_cif: clientCif,
       },
       // Datos editables que la UI usa para "recalcular"
       input: {
