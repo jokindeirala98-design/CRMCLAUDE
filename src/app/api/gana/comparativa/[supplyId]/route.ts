@@ -1,95 +1,53 @@
 /**
  * GET /api/gana/comparativa/[supplyId]
  *
- * Carga todos los datos de un supply para calcular la comparativa Gana con la
- * fórmula commer-style: SIPS, factura más reciente, maxímetro (pot. máx
- * demandada), detección bono social, fees fijos (Smart Iberdrola etc) y
- * tarifas Gana vigentes.
+ * Carga TODAS las facturas del supply (no solo la última) y las pasa al motor
+ * multi-factura. Permite detectar tarifa indexada por keywords + variabilidad
+ * y promediar precios por kWh entre facturas.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import {
-  computarComparativaGana,
+  computarComparativaGanaMulti,
   buildScenariosFromTarifas,
   type GanaTarifaRow,
-  type InputComparativa2td,
+  type BillSample,
 } from '@/lib/comparativa-2td-gana'
 
 export const runtime = 'nodejs'
 
-// ─── Helpers extracción factura ─────────────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────────────────────
 
-function extractPriceByPeriod(items: any[] | undefined, key: 'precioKwh' | 'precioKwDia'): {
-  P1: number; P2: number; P3: number
-} {
-  const result = { P1: 0, P2: 0, P3: 0 }
-  if (!Array.isArray(items)) return result
+function getByPeriod(items: any[] | undefined, period: 'P1' | 'P2' | 'P3', key: string): number | undefined {
+  if (!Array.isArray(items)) return undefined
   for (const it of items) {
     const per = String(it.periodo || '').toUpperCase().replace(/[^P1-9]/g, '')
-    const val = Number(it[key] ?? 0)
-    if (!isFinite(val) || val <= 0) continue
-    if (per === 'P1') result.P1 = val
-    else if (per === 'P2') result.P2 = val
-    else if (per === 'P3') result.P3 = val
+    if (per !== period) continue
+    const v = Number(it[key] ?? 0)
+    if (isFinite(v) && v > 0) return v
   }
-  if (result.P2 === 0 && result.P3 > 0) result.P2 = result.P3
-  if (result.P3 === 0 && result.P2 > 0) result.P3 = result.P2
-  return result
+  return undefined
 }
 
-function extractConsumoFromInvoice(items: any[] | undefined): {
-  P1: number; P2: number; P3: number
-} {
-  const r = { P1: 0, P2: 0, P3: 0 }
-  if (!Array.isArray(items)) return r
-  for (const it of items) {
-    const per = String(it.periodo || '').toUpperCase().replace(/[^P1-9]/g, '')
-    const val = Number(it.kwh ?? 0)
-    if (!isFinite(val) || val < 0) continue
-    if (per === 'P1') r.P1 = val
-    else if (per === 'P2') r.P2 = val
-    else if (per === 'P3') r.P3 = val
-  }
-  return r
-}
-
-/**
- * Detecta cargos fijos no incluidos en la fórmula básica
- * (Smart Iberdrola, mantenimiento, seguros…).
- */
-function detectFixedFees(eco: any): { monthly: number; concepts: string[] } {
-  if (!eco?.otrosConceptos || !Array.isArray(eco.otrosConceptos)) {
-    return { monthly: 0, concepts: [] }
-  }
+function detectFixedFees(eco: any): number {
+  if (!eco?.otrosConceptos || !Array.isArray(eco.otrosConceptos)) return 0
   const KEYWORDS = [
     'smart', 'mantenimiento', 'seguro', 'protec', 'cobertura', 'asistencia',
     'plus', 'club', 'tranquilidad', 'happy', 'plan ', 'servicio',
   ]
-  const concepts: string[] = []
   let total = 0
   for (const c of eco.otrosConceptos) {
     const txt = String(c.concepto ?? '').toLowerCase()
     const monto = Number(c.total ?? 0)
     if (!isFinite(monto) || monto <= 0) continue
-    if (KEYWORDS.some(kw => txt.includes(kw))) {
-      total += monto
-      concepts.push(`${c.concepto} (${monto.toFixed(2)} €)`)
-    }
+    if (KEYWORDS.some(kw => txt.includes(kw))) total += monto
   }
   const dias = Number(eco.diasFacturados ?? 30)
-  const monthly = dias > 0 ? (total / dias) * 30 : total
-  return { monthly, concepts }
+  return dias > 0 ? (total / dias) * 30 : total
 }
 
-/**
- * Detecta indicios de bono social en la factura o el cliente.
- * Sin acceso al sistema de CNMC, usamos heurísticas:
- *  - precio energía bruto < 0.10 €/kWh sin descuentos por separado
- *  - concepto "Bono Social" / "Descuento bono" en otrosConceptos
- */
 function detectBonoSocial(eco: any): { has: boolean; discount: number } {
-  let discount = 0
-  let detected = false
+  let discount = 0, detected = false
   if (eco?.otrosConceptos && Array.isArray(eco.otrosConceptos)) {
     for (const c of eco.otrosConceptos) {
       const txt = String(c.concepto ?? '').toLowerCase()
@@ -101,6 +59,45 @@ function detectBonoSocial(eco: any): { has: boolean; discount: number } {
     }
   }
   return { has: detected, discount }
+}
+
+/**
+ * Construye un BillSample a partir de una invoice con extracted_data.economics.
+ */
+function buildBillFromInvoice(inv: any): BillSample | null {
+  const eco = (inv?.extracted_data as any)?.economics
+  if (!eco) return null
+
+  const dias = Number(eco.diasFacturados ?? 0) || (() => {
+    if (inv.period_start && inv.period_end) {
+      const ms = new Date(inv.period_end).getTime() - new Date(inv.period_start).getTime()
+      return Math.max(1, Math.round(ms / 86400000))
+    }
+    return 30
+  })()
+
+  const bono = detectBonoSocial(eco)
+
+  return {
+    invoiceId: inv.id,
+    fechaInicio: eco.fechaInicio ?? inv.period_start,
+    fechaFin: eco.fechaFin ?? inv.period_end,
+    diasFacturados: dias,
+    totalFactura: Number(eco.totalFactura ?? inv.total_amount ?? 0) || undefined,
+    comercializadora: String(eco.comercializadora || inv.extracted_data?.comercializadora || ''),
+    tarifa: String(eco.tarifa || inv.extracted_data?.tariff || ''),
+    kwhP1: getByPeriod(eco.consumo, 'P1', 'kwh'),
+    kwhP2: getByPeriod(eco.consumo, 'P2', 'kwh'),
+    kwhP3: getByPeriod(eco.consumo, 'P3', 'kwh'),
+    energyP1: getByPeriod(eco.consumo, 'P1', 'precioKwh'),
+    energyP2: getByPeriod(eco.consumo, 'P2', 'precioKwh'),
+    energyP3: getByPeriod(eco.consumo, 'P3', 'precioKwh'),
+    powerP1: getByPeriod(eco.potencia, 'P1', 'precioKwDia'),
+    powerP2: getByPeriod(eco.potencia, 'P2', 'precioKwDia'),
+    hasBonoSocial: bono.has,
+    bonoSocialDiscount: bono.discount,
+    fixedFeesMonthly: detectFixedFees(eco),
+  }
 }
 
 // ─── Route ──────────────────────────────────────────────────────────────────
@@ -117,7 +114,7 @@ export async function GET(
     const supplyId = params.supplyId
     if (!supplyId) return NextResponse.json({ error: 'supplyId required' }, { status: 400 })
 
-    // 1) Supply + cliente + consumption_data (potencias, consumos, maxímetros)
+    // 1) Supply
     const { data: supply, error: supErr } = await supabase
       .from('supplies')
       .select(`
@@ -134,21 +131,21 @@ export async function GET(
       return NextResponse.json({ error: 'Comparativa Gana 2.0TD aplica solo a luz' }, { status: 400 })
     }
 
-    // 2) Última factura con economics
+    // 2) TODAS las facturas con economics
     const { data: invoices } = await supabase
       .from('invoices')
       .select('id, period_start, period_end, extracted_data, total_amount, created_at')
       .eq('supply_id', supplyId)
       .order('period_end', { ascending: false, nullsFirst: false })
-      .limit(10)
+      .limit(24)   // máximo 2 años por si acaso
 
-    const recentInvoice = (invoices ?? []).find(inv => {
-      const eco = (inv.extracted_data as any)?.economics
-      return eco && (Array.isArray(eco.consumo) || Array.isArray(eco.potencia))
-    })
-    const eco = (recentInvoice?.extracted_data as any)?.economics ?? null
+    const bills: BillSample[] = []
+    for (const inv of invoices ?? []) {
+      const b = buildBillFromInvoice(inv)
+      if (b) bills.push(b)
+    }
 
-    // 3) SIPS / consumption_data
+    // 3) SIPS para potencia y consumo anual
     const consData = (supply.consumption_data as any) ?? {}
     const potSrc = consData.potenciaContratada ?? {}
     const consSrc = consData.consumoPeriodos ?? {}
@@ -163,20 +160,23 @@ export async function GET(
     let consumoP2 = Number(consSrc.P2 ?? consSrc.p2 ?? 0)
     let consumoP3 = Number(consSrc.P3 ?? consSrc.p3 ?? 0)
 
-    // Fallback al desglose factura si SIPS está vacío
-    if (consumoP1 === 0 && consumoP2 === 0 && consumoP3 === 0 && eco) {
-      const fromInvoice = extractConsumoFromInvoice(eco.consumo)
-      const dias = Number(eco.diasFacturados ?? 30)
-      // Extrapolar a 365 días
-      const factor = dias > 0 ? 365 / dias : 12
-      consumoP1 = fromInvoice.P1 * factor
-      consumoP2 = fromInvoice.P2 * factor
-      consumoP3 = fromInvoice.P3 * factor
+    // Fallback: sumar todas las facturas y extrapolar a 365
+    if (consumoP1 === 0 && consumoP2 === 0 && consumoP3 === 0 && bills.length > 0) {
+      const totalDays = bills.reduce((a, b) => a + (b.diasFacturados ?? 0), 0)
+      const sumP1 = bills.reduce((a, b) => a + (b.kwhP1 ?? 0), 0)
+      const sumP2 = bills.reduce((a, b) => a + (b.kwhP2 ?? 0), 0)
+      const sumP3 = bills.reduce((a, b) => a + (b.kwhP3 ?? 0), 0)
+      if (totalDays > 0) {
+        const factor = 365 / totalDays
+        consumoP1 = sumP1 * factor
+        consumoP2 = sumP2 * factor
+        consumoP3 = sumP3 * factor
+      }
     }
 
-    // Si todo sigue vacío y tenemos consumo total, reparto Commer 25/25/50
+    // Si aún 0 → reparto Commer 25/25/50 desde consumoAnualKwh
     if (consumoP1 === 0 && consumoP2 === 0 && consumoP3 === 0) {
-      const totalAnual = Number(consData.consumoAnualKwh ?? eco?.consumoTotalKwh ?? 0)
+      const totalAnual = Number(consData.consumoAnualKwh ?? 0)
       if (totalAnual > 0) {
         consumoP1 = totalAnual * 0.25
         consumoP2 = totalAnual * 0.25
@@ -184,32 +184,13 @@ export async function GET(
       }
     }
 
-    // Potencia máx demandada — para optimización
     const potenciaMaxDemandadaKw = Math.max(
       Number(maxSrc.P1 ?? maxSrc.p1 ?? maxSrc.max ?? 0),
       Number(maxSrc.P2 ?? maxSrc.p2 ?? 0),
       Number(consData.maxDemandedKw ?? 0),
     )
 
-    // 4) Precios actuales factura
-    const energiaActual = extractPriceByPeriod(eco?.consumo, 'precioKwh')
-    const potenciaActual = extractPriceByPeriod(eco?.potencia, 'precioKwDia')
-
-    // Importe factura + días para extrapolación
-    const totalBillAmount = Number(recentInvoice?.total_amount ?? eco?.totalFactura ?? 0)
-    const diasFacturados = Number(eco?.diasFacturados ?? 0) || (() => {
-      if (recentInvoice?.period_start && recentInvoice?.period_end) {
-        const ms = new Date(recentInvoice.period_end).getTime() - new Date(recentInvoice.period_start).getTime()
-        return Math.max(1, Math.round(ms / (1000 * 60 * 60 * 24)))
-      }
-      return 30
-    })()
-
-    // 5) Bono social + cargos fijos
-    const fees = eco ? detectFixedFees(eco) : { monthly: 0, concepts: [] }
-    const bono = eco ? detectBonoSocial(eco) : { has: false, discount: 0 }
-
-    // 6) Tarifas Gana vigentes
+    // 4) Tarifas Gana
     const { data: tarifas } = await supabase
       .from('gana_tarifas')
       .select('id, nombre, tipo, precio_p1, precio_p2, precio_p3, potencia_p1, potencia_p2, extras_anuales')
@@ -217,55 +198,51 @@ export async function GET(
       .eq('tarifa_atr', '2.0TD')
 
     const scenarios = buildScenariosFromTarifas((tarifas ?? []) as GanaTarifaRow[])
-
     if (scenarios.length === 0) {
       return NextResponse.json({
-        error: 'No hay tarifas Gana vigentes. Un admin debe ejecutar POST /api/gana/refresh-tarifas.',
+        error: 'No hay tarifas Gana vigentes. Ejecuta POST /api/gana/refresh-tarifas o carga las tarifas manualmente.',
       }, { status: 412 })
     }
 
-    // 7) Calcular
-    const input: InputComparativa2td = {
-      consumoP1,
-      consumoP2,
-      consumoP3,
-      potenciaP1,
-      potenciaP2,
-      currentEnergyP1: energiaActual.P1,
-      currentEnergyP2: energiaActual.P2,
-      currentEnergyP3: energiaActual.P3,
-      currentPowerP1: potenciaActual.P1,
-      currentPowerP2: potenciaActual.P2 || potenciaActual.P3,
-      totalBillAmount: totalBillAmount || undefined,
-      diasFacturados: diasFacturados || undefined,
-      hasBonoSocial: bono.has,
-      bonoSocialDiscount: bono.discount,
+    // 5) Calcular multi-factura
+    const result = computarComparativaGanaMulti({
+      potenciaP1, potenciaP2,
+      consumoP1, consumoP2, consumoP3,
+      bills,
+      scenarios,
       potenciaMaxDemandadaKw: potenciaMaxDemandadaKw || undefined,
-      fixedFeesMonthly: fees.monthly || undefined,
-    }
-
-    const result = computarComparativaGana({ input, scenarios })
+    })
 
     const clientRel = Array.isArray(supply.client) ? supply.client[0] : supply.client
 
     return NextResponse.json({
       supply: {
-        id: supply.id,
-        cups: supply.cups,
-        tariff: supply.tariff,
-        name: supply.name,
+        id: supply.id, cups: supply.cups, tariff: supply.tariff, name: supply.name,
         client_id: supply.client_id,
         client_name: clientRel?.alias || clientRel?.name || null,
         client_cif: clientRel?.cif ?? clientRel?.cif_nif ?? clientRel?.nif ?? null,
       },
-      input,
-      feesInfo: fees,
-      bonoInfo: bono,
-      lastInvoiceId: recentInvoice?.id ?? null,
-      lastInvoicePeriod: recentInvoice
-        ? { start: recentInvoice.period_start, end: recentInvoice.period_end }
-        : null,
+      // Datos editables que la UI usa para "recalcular"
+      input: {
+        potenciaP1, potenciaP2,
+        consumoP1, consumoP2, consumoP3,
+        currentEnergyP1: result.priceAnalysis?.tariffNature === 'fija'
+          ? (result.priceAnalysis.energyP1?.median ?? 0)
+          : (result.priceAnalysis?.energyP1?.weightedMean ?? 0),
+        currentEnergyP2: result.priceAnalysis?.tariffNature === 'fija'
+          ? (result.priceAnalysis.energyP2?.median ?? 0)
+          : (result.priceAnalysis?.energyP2?.weightedMean ?? 0),
+        currentEnergyP3: result.priceAnalysis?.tariffNature === 'fija'
+          ? (result.priceAnalysis.energyP3?.median ?? 0)
+          : (result.priceAnalysis?.energyP3?.weightedMean ?? 0),
+        currentPowerP1: result.priceAnalysis?.powerP1?.weightedMean ?? 0,
+        currentPowerP2: result.priceAnalysis?.powerP2?.weightedMean ?? 0,
+        totalBillAmount: result.priceAnalysis?.totalAmount,
+        diasFacturados: result.priceAnalysis?.totalDays,
+        potenciaMaxDemandadaKw: potenciaMaxDemandadaKw || undefined,
+      },
       result,
+      bills,
       tarifas,
     })
   } catch (e: any) {

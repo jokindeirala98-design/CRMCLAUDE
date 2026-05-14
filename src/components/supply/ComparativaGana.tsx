@@ -26,7 +26,21 @@ interface Props {
   onClose: () => void
 }
 
-type ScenarioGroup = 'full_2tdcalc' | 'bono_social' | 'tarifa_3_0_personalizada' | 'no_data'
+type ScenarioGroup = 'full_2tdcalc' | 'bono_social' | 'tarifa_3_0_personalizada' | 'no_data' | 'indexada_insuficiente'
+
+interface PriceRange {
+  min: number; max: number; mean: number; weightedMean: number; median: number
+  variability: number; samples: number
+}
+interface PriceAnalysis {
+  numBills: number
+  tariffNature: 'fija' | 'variable' | 'indexada_detectada' | 'desconocida'
+  indexedDetectedKeywords: string[]
+  energyP1: PriceRange | null; energyP2: PriceRange | null; energyP3: PriceRange | null
+  powerP1: PriceRange | null; powerP2: PriceRange | null
+  totalKwh: { p1: number; p2: number; p3: number; total: number }
+  totalDays: number; totalAmount: number
+}
 
 interface ScenarioResult {
   tipo: 'fija_24h' | 'tramos' | 'mercado'
@@ -81,8 +95,6 @@ interface ApiResponse {
     potenciaMaxDemandadaKw?: number
     fixedFeesMonthly?: number
   }
-  feesInfo: { monthly: number; concepts: string[] }
-  bonoInfo: { has: boolean; discount: number }
   result: {
     scenarioGroup: ScenarioGroup
     scenarios: ScenarioResult[]
@@ -97,7 +109,9 @@ interface ApiResponse {
       perfil: 'valle' | 'punta' | 'equilibrado'
       recomendacionTextual: string
     }
+    priceAnalysis: PriceAnalysis | null
   }
+  bills?: any[]
   lastInvoicePeriod?: { start: string | null; end: string | null } | null
 }
 
@@ -349,14 +363,23 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
                     </h3>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <Badge tone="default" icon={Zap}>{data.supply.tariff}</Badge>
-                      {data.bonoInfo.has && <Badge tone="info" icon={BadgePercent}>Bono Social</Badge>}
+                      {result.priceAnalysis && (
+                        <Badge
+                          tone={
+                            result.priceAnalysis.tariffNature === 'fija' ? 'ok' :
+                            result.priceAnalysis.tariffNature === 'indexada_detectada' ? 'warn' :
+                            result.priceAnalysis.tariffNature === 'variable' ? 'warn' : 'info'
+                          }
+                          icon={Receipt}
+                        >
+                          {result.priceAnalysis.numBills} {result.priceAnalysis.numBills === 1 ? 'factura' : 'facturas'}
+                          {result.priceAnalysis.tariffNature === 'fija' && ' · tarifa fija'}
+                          {result.priceAnalysis.tariffNature === 'variable' && ' · precios variables'}
+                          {result.priceAnalysis.tariffNature === 'indexada_detectada' && ' · indexada detectada'}
+                        </Badge>
+                      )}
                       {result.powerOptimization && (
                         <Badge tone="ok" icon={Gauge}>Optimización potencia disponible</Badge>
-                      )}
-                      {data.feesInfo.monthly > 0 && (
-                        <Badge tone="warn" icon={AlertTriangle}>
-                          Cargos fijos: ~{fmtEur(data.feesInfo.monthly)}/mes
-                        </Badge>
                       )}
                     </div>
                   </div>
@@ -399,6 +422,34 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
                   <PeriodBar label="P2 Llano"  value={data.input.consumoP2} total={consumoAnual} color="bg-amber-500" />
                   <PeriodBar label="P3 Valle"  value={data.input.consumoP3} total={consumoAnual} color="bg-emerald-500" />
                 </div>
+
+                {/* Análisis precios actuales (rangos) */}
+                {result.priceAnalysis && result.priceAnalysis.numBills > 1 && (
+                  <details className="mt-4 rounded-xl border border-stone-200 bg-stone-50 overflow-hidden">
+                    <summary className="px-4 py-3 cursor-pointer hover:bg-stone-100 text-sm font-semibold text-stone-700 flex items-center gap-2">
+                      <ChevronDown className="w-4 h-4" />
+                      Rango de precios actuales · {result.priceAnalysis.numBills} facturas analizadas
+                    </summary>
+                    <div className="px-4 pb-3 grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+                      {(['energyP1','energyP2','energyP3'] as const).map((k, i) => {
+                        const r = result.priceAnalysis![k]
+                        const labels = ['P1 Punta', 'P2 Llano', 'P3 Valle'][i]
+                        if (!r) return null
+                        return (
+                          <div key={k} className="bg-white rounded-lg border border-stone-200 p-2.5">
+                            <div className="font-semibold text-stone-700 text-[11px] mb-1">{labels}</div>
+                            <div className="font-mono text-stone-900">
+                              {fmt(r.weightedMean, 5)} <span className="text-[10px] text-stone-500">€/kWh</span>
+                            </div>
+                            <div className="text-[10px] text-stone-500 mt-0.5">
+                              Rango: {fmt(r.min, 4)}–{fmt(r.max, 4)} · σ {fmt(r.variability * 100, 1)}%
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </details>
+                )}
 
                 {/* Perfil de consumo */}
                 <div className="mt-4 rounded-xl bg-stone-50 border border-stone-200 p-3 flex items-start gap-2.5 text-sm text-stone-700">
@@ -448,6 +499,14 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
                   icon={AlertTriangle}
                   tone="warn"
                   title="Faltan datos para calcular"
+                  body={result.notice || ''}
+                />
+              )}
+              {result.scenarioGroup === 'indexada_insuficiente' && (
+                <SpecialNotice
+                  icon={AlertTriangle}
+                  tone="warn"
+                  title="Tarifa indexada · sube más facturas"
                   body={result.notice || ''}
                 />
               )}
