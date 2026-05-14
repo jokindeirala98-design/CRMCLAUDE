@@ -34,42 +34,29 @@ export function voltisFullAddress(): string {
 /**
  * Base URL del portal cliente.
  *
- * Política IRREVOCABLE: el enlace que recibe el cliente JAMÁS expone la URL
- * Vercel del CRM. Siempre será https://portal.voltisenergia.com.
+ * Política actual (DNS de portal.voltisenergia.com aún no configurado):
+ *   • Por defecto usa la URL del deploy Vercel para que el link FUNCIONE.
+ *   • La env var `NEXT_PUBLIC_PORTAL_URL` se respeta SOLO si:
+ *       1. Es https://
+ *       2. NO apunta a un dominio *.vercel.app (auto-protección)
+ *       3. NO contiene "portal.voltisenergia.com" (auto-protección hasta
+ *          que el DNS esté configurado — si no, los clientes ven enlaces rotos)
  *
- * Para que ese enlace funcione, hay que dirigir ese dominio al deployment.
- * Tres opciones (elige la que prefieras):
- *
- *  A) Dominio Vercel (recomendado, 5 minutos):
- *     1. Vercel → Project voltis-crm-bueno → Settings → Domains → Add
- *        `portal.voltisenergia.com`.
- *     2. En tu proveedor DNS de voltisenergia.com: CNAME `portal` →
- *        `cname.vercel-dns.com`.
- *     3. Esperar a que Vercel diga "Valid configuration".
- *
- *  B) Redirección desde voltisenergia.com (si el dominio principal lo gestionas tú):
- *     - Configura una regla 301 desde `voltisenergia.com/portal/*` →
- *       `https://voltis-crm-bueno.vercel.app/portal/*`.
- *     - Y cambia abajo `BASE` a `https://voltisenergia.com`.
- *
- *  C) Override por env var:
- *     - Vercel → Settings → Environment Variables → Add
- *       NEXT_PUBLIC_PORTAL_URL = `https://miPortalPersonalizado.com`.
- *
- * Hasta que actives A o B, el enlace mostrará la URL bonita pero dará 404
- * al abrirlo. Una vez configurado, los dossieres ya generados también
- * funcionarán automáticamente (la URL ya está hardcodeada en cada PDF).
- */
-/**
- * TEMPORAL: hasta que se configure portal.voltisenergia.com en DNS,
- * usamos la URL del deploy actual para que el link funcione en cualquier
- * dispositivo. Cuando se configure el dominio, definir
- * `NEXT_PUBLIC_PORTAL_URL=https://portal.voltisenergia.com` en Vercel y
- * el código lo respetará automáticamente.
+ * Cuando configures el DNS de portal.voltisenergia.com en Vercel + DNS provider,
+ * elimina la condición `!isPortalVoltisEnergia` de abajo y los nuevos
+ * dossieres saldrán con la URL bonita.
  */
 export function voltisPortalBaseUrl(): string {
   const env = process.env.NEXT_PUBLIC_PORTAL_URL
-  if (env && /^https?:\/\//.test(env)) return env.replace(/\/$/, '')
+  if (env && /^https?:\/\//.test(env)) {
+    const isVercel = /\.vercel\.app/i.test(env)
+    const isPortalVoltisEnergia = /portal\.voltisenergia\.com/i.test(env)
+    // Mientras el dominio no resuelva en DNS, ignoramos esta env var para
+    // que el cliente nunca reciba un link roto.
+    if (!isVercel && !isPortalVoltisEnergia) {
+      return env.replace(/\/$/, '')
+    }
+  }
   return VOLTIS_INFO.app_url
 }
 
