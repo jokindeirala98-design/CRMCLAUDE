@@ -1,0 +1,11 @@
+/* Estilos portal Voltis (overrides tailwind) */
+.portal-shell {
+  font-family: 'Geist', system-ui, sans-serif;
+}
+.portal-serif {
+  font-family: 'Instrument Serif', Georgia, serif;
+  font-style: italic;
+}
+.portal-mono {
+  font-family: 'Geist Mono', 'JetBrains Mono', monospace;
+}

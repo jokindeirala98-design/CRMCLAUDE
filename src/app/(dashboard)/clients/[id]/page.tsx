@@ -23,6 +23,7 @@ import { normalizeTariff } from '@/lib/consumption-utils'
 import { getViewUrl } from '@/lib/utils/storage'
 import ConsumptionDistribution from './components/ConsumptionDistribution'
 import ContractSection from '@/components/clients/ContractSection'
+import { PartnersPanel } from '@/components/clients/PartnersPanel'
 
 export default function ClientDetailPage() {
   const { id } = useParams()
@@ -503,6 +504,9 @@ export default function ClientDetailPage() {
               </div>
             </div>
           </Card>
+
+          {/* Partners externos (solo admins) */}
+          <PartnersPanel clientId={client.id} />
 
           {/* Datos de contacto */}
           <Card>

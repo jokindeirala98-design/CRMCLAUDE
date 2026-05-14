@@ -605,8 +605,8 @@ export default function InboxPage() {
               }}
               className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-primary/40 bg-primary/5 hover:bg-primary/10 transition-all"
             >
-              <div className="w-10 h-10 rounded-xl bg-brand flex items-center justify-center flex-shrink-0">
-                <Sparkles className="w-5 h-5 text-white" />
+              <div className="w-10 h-10 rounded-xl bg-brand flex items-center justify-center flex-shrink-0 p-1.5">
+                <img src="/mascota-transparente.png" alt="Voltis" className="w-full h-full object-contain" />
               </div>
               <div className="text-left flex-1">
                 <p className="text-sm font-bold text-brand">Auto-detectar cliente</p>

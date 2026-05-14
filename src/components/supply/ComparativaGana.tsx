@@ -300,8 +300,8 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
         {/* Header */}
         <div className="flex items-center justify-between px-4 md:px-8 py-4 border-b border-stone-200 bg-white">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-emerald-500 to-sky-500 grid place-items-center flex-shrink-0 shadow-lg shadow-emerald-500/20">
-              <Sparkles className="w-5 h-5 text-white" />
+            <div className="w-11 h-11 rounded-2xl bg-[#1F3A2E] grid place-items-center flex-shrink-0 shadow-lg shadow-emerald-700/20 p-1.5">
+              <img src="/mascota-transparente.png" alt="Voltis" className="w-full h-full object-contain" />
             </div>
             <div className="min-w-0">
               <h2 className="text-lg md:text-xl font-bold text-stone-900 truncate">
@@ -715,8 +715,8 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
 function LoadingSequence({ stepIdx }: { stepIdx: number }) {
   return (
     <div className="flex flex-col items-center justify-center py-20 px-6">
-      <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-emerald-500 to-sky-500 grid place-items-center mb-6 shadow-xl shadow-emerald-500/30 animate-pulse">
-        <Sparkles className="w-9 h-9 text-white" />
+      <div className="w-24 h-24 rounded-3xl bg-[#1F3A2E] grid place-items-center mb-6 shadow-xl shadow-emerald-700/30 animate-pulse p-3">
+        <img src="/mascota-transparente.png" alt="Voltis" className="w-full h-full object-contain" />
       </div>
       <div className="text-lg font-bold text-stone-900 mb-1">Análisis inteligente</div>
       <div className="text-sm text-stone-500 mb-8">Calculando ahorros con tarifas Gana Energía</div>

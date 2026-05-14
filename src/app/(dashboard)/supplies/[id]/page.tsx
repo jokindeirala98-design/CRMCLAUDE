@@ -2564,6 +2564,43 @@ export default function SupplyDetailPage() {
           <ComparativaGana supplyId={supply.id} onClose={() => setActiveTab(null)} />
         )}
 
+        {/* ═══════ ACCESO PORTAL CLIENTE ═══════════════════════════════════
+            Botón para generar el dossier de bienvenida que el comercial
+            envía al cliente. El link es único por cliente y reutilizable. */}
+        {supply.client_id && (
+          <div className="rounded-2xl border border-stone-200 bg-white p-4">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="min-w-0">
+                <div className="text-xs uppercase tracking-wide font-semibold text-stone-500">
+                  Acceso portal del cliente
+                </div>
+                <div className="text-sm text-stone-700 mt-1">
+                  Genera el dossier de bienvenida con el enlace privado para que el cliente
+                  acceda a su informe energético anual desde cualquier navegador.
+                </div>
+              </div>
+              <button
+                onClick={async () => {
+                  try {
+                    const res = await fetch(`/api/clients/${supply.client_id}/dossier`)
+                    if (!res.ok) throw new Error('No se pudo generar el dossier')
+                    const blob = await res.blob()
+                    const a = document.createElement('a')
+                    a.href = URL.createObjectURL(blob)
+                    a.download = `voltis-acceso-${(supply.client?.alias || supply.client?.name || 'cliente').toLowerCase().replace(/[^a-z0-9]+/g, '-')}.html`
+                    document.body.appendChild(a); a.click(); a.remove()
+                  } catch (e: any) {
+                    alert('Error: ' + (e?.message ?? e))
+                  }
+                }}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-brand text-white text-sm font-semibold hover:opacity-90"
+              >
+                Generar dossier de acceso
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* ═══════ TIMESTAMPS ═══════ */}
         <div className="flex gap-4 text-xs text-ink-3">
           <span>Creado: {formatDate(supply.created_at)}</span>
