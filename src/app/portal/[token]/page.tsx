@@ -223,17 +223,11 @@ export default function PortalLanding() {
 
         {/* Footer */}
         <footer className="text-center py-6 text-xs text-stone-500">
-          Voltis Energía · {VOLTIS_INFO_DISPLAY.phone} · {VOLTIS_INFO_DISPLAY.website}
+          Voltis Energía · 747 474 360 · admin@voltisenergia.com · voltisenergia.com
         </footer>
       </main>
     </div>
   )
-}
-
-// Datos Voltis (estáticos en cliente — el server tiene la fuente de verdad)
-const VOLTIS_INFO_DISPLAY = {
-  phone: '+34 948 00 00 00',
-  website: 'voltisenergia.com',
 }
 
 function Kpi({ icon: Icon, label, value, subtitle, accent }:

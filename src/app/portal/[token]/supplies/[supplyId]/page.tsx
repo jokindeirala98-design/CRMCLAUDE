@@ -150,7 +150,7 @@ export default function PortalSupply() {
         )}
 
         <footer className="text-center py-6 text-xs text-stone-500">
-          Voltis Energía · +34 948 00 00 00 · voltisenergia.com
+          Voltis Energía · 747 474 360 · admin@voltisenergia.com · voltisenergia.com
         </footer>
       </main>
     </div>

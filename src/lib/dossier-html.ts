@@ -127,13 +127,12 @@ export function buildDossierHtml(args: {
     <div class="footer">
       <div class="footer-brand">
         <strong>${VOLTIS_INFO.name}</strong>
-        <span>· ${VOLTIS_INFO.tagline ?? ''}</span>
       </div>
       <div class="footer-info">
         <b>${VOLTIS_INFO.phone}</b><br/>
         ${VOLTIS_INFO.email}<br/>
         ${addr}<br/>
-        ${VOLTIS_INFO.website} · CIF ${VOLTIS_INFO.cif}
+        ${VOLTIS_INFO.website}
       </div>
     </div>
 

@@ -1,23 +1,20 @@
 /**
  * Información corporativa Voltis Energía.
+ * Datos extraídos de voltisenergia.com/contacto (mayo 2026).
  *
- * Edita aquí los datos UNA SOLA VEZ y se propagan al dossier de bienvenida,
- * footers de PDFs y cualquier otro sitio donde aparezcan los datos de la empresa.
+ * Los campos que NO aparecen en la web (CIF, etc.) se omiten deliberadamente.
  */
 export const VOLTIS_INFO = {
   name: 'Voltis Energía',
-  legal_name: 'Voltis Energía S.L.',
-  cif: 'B12345678',                                    // ← edítame
-  address_street: 'Calle Mayor, 1',                    // ← edítame
-  address_city: 'Pamplona',                            // ← edítame
-  address_postcode: '31001',                           // ← edítame
-  address_province: 'Navarra',                         // ← edítame
-  phone: '+34 948 00 00 00',                           // ← edítame
-  email: 'hola@voltisenergia.com',                     // ← edítame
+  address_street: 'Parque Empresarial Ansoain, Calle Berriobide 38, Of. 209',
+  address_city: 'Ansoáin',
+  address_postcode: '31013',
+  address_province: 'Navarra',
+  phone: '747 474 360',
+  email: 'admin@voltisenergia.com',
   website: 'voltisenergia.com',
   app_url: 'https://voltis-crm-bueno.vercel.app',
   portal_path: '/portal',
-  tagline: 'Energía clara, sin sorpresas',             // claim opcional
 } as const
 
 /** Línea formateada de dirección completa */
