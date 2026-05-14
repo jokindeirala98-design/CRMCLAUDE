@@ -13,3 +13,8 @@ next-env.d.ts
 # Claude Code worktrees (temporary branches created by Claude)
 .claude/worktrees/
 .vercel
+
+# Scratch test scripts (created during dev sessions)
+test-*.mjs
+test-*.cjs
+src/lib/*.bak
