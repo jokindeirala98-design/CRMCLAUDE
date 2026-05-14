@@ -11,6 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import ExcelJS from 'exceljs'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { createClient as createAdminClient } from '@supabase/supabase-js'
 import {
   computarComparativaGanaMulti,
   buildScenariosFromTarifas,
@@ -155,7 +156,10 @@ export async function POST(req: NextRequest, { params }: { params: { supplyId: s
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const { tipo } = await req.json() as { tipo: 'fija_24h' | 'tramos' | 'mercado' }
+    const { tipo, attach } = await req.json() as {
+      tipo: 'fija_24h' | 'tramos' | 'mercado'
+      attach?: boolean    // si true: adjunta el Excel al supply como informe económico
+    }
     if (!['fija_24h', 'tramos', 'mercado'].includes(tipo)) {
       return NextResponse.json({ error: 'tipo inválido' }, { status: 400 })
     }
@@ -447,6 +451,76 @@ export async function POST(req: NextRequest, { params }: { params: { supplyId: s
 
     const buffer = Buffer.from(await wb.xlsx.writeBuffer())
     const filename = `Comparativa_Gana_${tariffName.replace(/\s+/g, '_')}_${clientName.replace(/\s+/g, '_')}.xlsx`
+
+    // ── Si attach=true: subir a Storage y asociar al supply ────────────────
+    if (attach) {
+      const adminSupabase = createAdminClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        { auth: { persistSession: false } },
+      )
+      const storagePath = `${supplyId}/${Date.now()}_${filename}`
+      const { error: upErr } = await adminSupabase.storage
+        .from('estudios-economicos')
+        .upload(storagePath, buffer, {
+          contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          upsert: false,
+        })
+      if (upErr) {
+        if (/Bucket not found|bucket/i.test(upErr.message)) {
+          return NextResponse.json({
+            error: 'El bucket "estudios-economicos" no existe en Supabase Storage.',
+          }, { status: 500 })
+        }
+        return NextResponse.json({ error: `Error subiendo: ${upErr.message}` }, { status: 500 })
+      }
+      const { data: urlData } = adminSupabase.storage
+        .from('estudios-economicos')
+        .getPublicUrl(storagePath)
+
+      // Perfil del usuario que adjunta
+      const { data: profile } = await supabase
+        .from('users_profile')
+        .select('id')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      await adminSupabase
+        .from('supplies')
+        .update({
+          economic_study_url: urlData?.publicUrl ?? null,
+          economic_study_filename: filename,
+          economic_study_uploaded_at: new Date().toISOString(),
+          economic_study_uploaded_by: profile?.id ?? null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', supplyId)
+
+      // Cerrar admin_task si existía pendiente
+      await adminSupabase
+        .from('admin_tasks')
+        .update({
+          status: 'completed',
+          completed_at: new Date().toISOString(),
+          completed_by: profile?.id ?? null,
+        })
+        .eq('supply_id', supplyId)
+        .eq('type', 'estudio_economico_pendiente')
+        .eq('status', 'pending')
+
+      // Devolver el archivo TAMBIÉN (para que el usuario lo descargue)
+      return new NextResponse(buffer, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'Content-Disposition': `attachment; filename="${filename}"`,
+          'Cache-Control': 'no-cache',
+          'X-Attached-To-Supply': 'true',
+          'X-Attached-Url': urlData?.publicUrl ?? '',
+        },
+      })
+    }
+
     return new NextResponse(buffer, {
       status: 200,
       headers: {

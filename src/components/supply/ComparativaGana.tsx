@@ -235,6 +235,14 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
 
   async function downloadXlsx(scenario: ScenarioResult) {
     if (!data) return
+
+    // Preguntar si quiere adjuntar al supply como informe económico
+    const wantAttach = window.confirm(
+      `¿Adjuntar esta comparativa (${scenario.nombre}) a la ficha del suministro como informe económico?\n\n` +
+      `· Sí → se guarda automáticamente en el supply (Informe Económico) Y se descarga.\n` +
+      `· Cancelar → solo se descarga, podrás subirla manualmente después.`,
+    )
+
     setDownloading(scenario.tipo)
     try {
       // Usa el endpoint específico que genera Excel con los MISMOS valores
@@ -242,12 +250,13 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
       const res = await fetch(`/api/gana/comparativa/${supplyId}/excel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tipo: scenario.tipo }),
+        body: JSON.stringify({ tipo: scenario.tipo, attach: wantAttach }),
       })
       if (!res.ok) {
         const j = await res.json().catch(() => null)
         throw new Error(j?.error ?? `HTTP ${res.status}`)
       }
+      const attached = res.headers.get('X-Attached-To-Supply') === 'true'
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -255,6 +264,13 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
       a.download = `Comparativa_Gana_${scenario.nombre.replace(/\s+/g, '_')}_${(data.supply.client_name || 'cliente').replace(/\s+/g, '_')}.xlsx`
       document.body.appendChild(a); a.click(); a.remove()
       URL.revokeObjectURL(url)
+
+      if (attached) {
+        // Notificación visual: el archivo se guardó en el supply
+        setTimeout(() => {
+          alert('✅ Comparativa adjuntada al suministro como Informe Económico.')
+        }, 200)
+      }
     } catch (e: any) {
       alert(`Error generando Excel: ${e?.message ?? e}`)
     } finally {
