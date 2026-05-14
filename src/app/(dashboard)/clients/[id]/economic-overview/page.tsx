@@ -342,36 +342,17 @@ function Chip({ active, onClick, children }: any) {
 
 function BuddyIcon({ size = 64 }: { size?: number }) {
   return (
-    <svg width={size} height={size * 1.15} viewBox="0 0 100 115" xmlns="http://www.w3.org/2000/svg" style={{ filter: 'drop-shadow(0 8px 24px rgba(0,0,0,0.15))' }}>
-      <defs>
-        <radialGradient id="bulbGrad" cx="0.4" cy="0.3">
-          <stop offset="0%" stopColor="#FFFFFF" />
-          <stop offset="40%" stopColor="#E0EFFF" />
-          <stop offset="100%" stopColor="#A8C8F0" />
-        </radialGradient>
-        <linearGradient id="bodyGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#4A6FE3" />
-          <stop offset="100%" stopColor="#2E4FBF" />
-        </linearGradient>
-      </defs>
-      {/* Bulb glass */}
-      <ellipse cx="50" cy="42" rx="34" ry="36" fill="url(#bulbGrad)" stroke="#FFFFFF" strokeWidth="1.5" />
-      {/* Filament smile (W shape rotated) */}
-      <path d="M35 38 Q40 28 45 38 Q50 28 55 38 Q60 28 65 38" stroke="#4A6FE3" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-      {/* Cuerpo / base */}
-      <rect x="36" y="72" width="28" height="22" rx="6" fill="url(#bodyGrad)" />
-      <ellipse cx="50" cy="93" rx="14" ry="3" fill="#2E4FBF" opacity="0.4" />
-      {/* Eyes */}
-      <circle cx="44" cy="82" r="2.2" fill="#FFFFFF" />
-      <circle cx="56" cy="82" r="2.2" fill="#FFFFFF" />
-      <circle cx="44.5" cy="82.5" r="0.9" fill="#1E293B" />
-      <circle cx="56.5" cy="82.5" r="0.9" fill="#1E293B" />
-      {/* Mouth */}
-      <path d="M46 88 Q50 91 54 88" stroke="#FFFFFF" strokeWidth="1.5" fill="none" strokeLinecap="round" />
-      {/* Legs */}
-      <rect x="40" y="94" width="6" height="14" rx="3" fill="url(#bodyGrad)" />
-      <rect x="54" y="94" width="6" height="14" rx="3" fill="url(#bodyGrad)" />
-    </svg>
+    <img
+      src="/mascota-transparente.png"
+      alt="Voltis"
+      width={size}
+      height={size}
+      style={{
+        width: size,
+        height: 'auto',
+        filter: 'drop-shadow(0 8px 24px rgba(0,0,0,0.15))',
+      }}
+    />
   )
 }
 

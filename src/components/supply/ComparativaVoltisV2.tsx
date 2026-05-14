@@ -461,31 +461,18 @@ function BuddyMascot() {
 
 function BuddySVGFallback() {
   return (
-    <svg width={200} height={230} viewBox="0 0 100 115" xmlns="http://www.w3.org/2000/svg"
-      style={{ filter: 'drop-shadow(0 12px 32px rgba(19, 59, 122, 0.25))', flexShrink: 0 }}>
-      <defs>
-        <radialGradient id="bulbGradV2" cx="0.4" cy="0.3">
-          <stop offset="0%" stopColor="#FFFFFF" />
-          <stop offset="40%" stopColor="#E0EFFF" />
-          <stop offset="100%" stopColor={C.blueHero} />
-        </radialGradient>
-        <linearGradient id="bodyGradV2" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={C.blue} />
-          <stop offset="100%" stopColor={C.blueDark} />
-        </linearGradient>
-      </defs>
-      <ellipse cx="50" cy="42" rx="34" ry="36" fill="url(#bulbGradV2)" stroke="#FFFFFF" strokeWidth="1.5" />
-      <path d="M35 38 Q40 28 45 38 Q50 28 55 38 Q60 28 65 38" stroke={C.blue} strokeWidth="2.5" fill="none" strokeLinecap="round" />
-      <rect x="36" y="72" width="28" height="22" rx="6" fill="url(#bodyGradV2)" />
-      <ellipse cx="50" cy="93" rx="14" ry="3" fill={C.blueDark} opacity="0.4" />
-      <circle cx="44" cy="82" r="2.2" fill="#FFFFFF" />
-      <circle cx="56" cy="82" r="2.2" fill="#FFFFFF" />
-      <circle cx="44.5" cy="82.5" r="0.9" fill="#1E293B" />
-      <circle cx="56.5" cy="82.5" r="0.9" fill="#1E293B" />
-      <path d="M46 88 Q50 91 54 88" stroke="#FFFFFF" strokeWidth="1.5" fill="none" strokeLinecap="round" />
-      <rect x="40" y="94" width="6" height="14" rx="3" fill="url(#bodyGradV2)" />
-      <rect x="54" y="94" width="6" height="14" rx="3" fill="url(#bodyGradV2)" />
-    </svg>
+    <img
+      src="/mascota-transparente.png"
+      alt="Voltis"
+      width={200}
+      height={230}
+      style={{
+        width: 200,
+        height: 'auto',
+        filter: 'drop-shadow(0 12px 32px rgba(19, 59, 122, 0.25))',
+        flexShrink: 0,
+      }}
+    />
   )
 }
 
