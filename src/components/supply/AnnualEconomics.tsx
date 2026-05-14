@@ -3248,6 +3248,55 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
     return total > 0 ? Math.round(total) : null
   }, [consumoPeriodos])
 
+  // ─── SIPS % por periodo (ESTÁTICO) ─────────────────────────────────────────
+  // % de consumo por periodo agregando los últimos 12 meses del SIPS.
+  // Aparece bajo "Precio medio por periodo". No depende de filtros.
+  const sipsLast12PctByPeriod = useMemo(() => {
+    if (!sipsHistory?.length) return null
+    const sorted = [...sipsHistory]
+      .filter((h: any) => h && (h.fechaFin || h.fecha))
+      .sort((a: any, b: any) =>
+        new Date(b.fechaFin || b.fecha).getTime() - new Date(a.fechaFin || a.fecha).getTime()
+      )
+      .slice(0, 12)
+    if (!sorted.length) return null
+    const totals: Record<string, number> = {}
+    for (const e of sorted) {
+      for (const p of PERIODS) totals[p] = (totals[p] || 0) + (Number((e as any)[p]) || 0)
+    }
+    const grand = PERIODS.reduce((s, p) => s + (totals[p] || 0), 0)
+    if (grand <= 0) return null
+    return Object.fromEntries(
+      PERIODS.map(p => [p, ((totals[p] || 0) / grand) * 100])
+    ) as Record<string, number>
+  }, [sipsHistory])
+
+  // ─── SIPS % por periodo (DINÁMICO) ─────────────────────────────────────────
+  // % de consumo por periodo filtrado por el año/meses seleccionados.
+  // Aparece bajo "TOTAL FACTURAS" en la matriz mensual.
+  const sipsSelectedPctByPeriod = useMemo(() => {
+    if (!sipsHistory?.length) return null
+    const filtered = sipsHistory.filter((h: any) => {
+      const raw = h?.fechaFin || h?.fecha
+      if (!raw) return false
+      const d = new Date(raw)
+      if (isNaN(d.getTime())) return false
+      if (selectedYear !== 'all' && d.getFullYear() !== selectedYear) return false
+      if (selectedMonths && !selectedMonths.has(d.getMonth())) return false
+      return true
+    })
+    if (!filtered.length) return null
+    const totals: Record<string, number> = {}
+    for (const e of filtered) {
+      for (const p of PERIODS) totals[p] = (totals[p] || 0) + (Number((e as any)[p]) || 0)
+    }
+    const grand = PERIODS.reduce((s, p) => s + (totals[p] || 0), 0)
+    if (grand <= 0) return null
+    return Object.fromEntries(
+      PERIODS.map(p => [p, ((totals[p] || 0) / grand) * 100])
+    ) as Record<string, number>
+  }, [sipsHistory, selectedYear, selectedMonths])
+
   const spendTotals = useMemo((): Record<string, number> => {
     const totals: Record<string, number> = {}
     activePeriods.forEach(p => { totals[p] = 0 })
@@ -3739,9 +3788,21 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
                   <div key={ps.period}>
                     <p className="text-xs font-bold" style={{ color: PERIOD_COLORS[ps.period] }}>{ps.period}</p>
                     <p className="text-[#5A6B5F] text-xs mt-0.5">{ps.totalKwh > 0 ? `${fmt(ps.avgPrice, 4)} €/kWh` : '—'}</p>
+                    {sipsLast12PctByPeriod && (
+                      <p className="text-[#8A9A8E] text-[10px] mt-1 font-semibold tracking-wider">
+                        {sipsLast12PctByPeriod[ps.period] > 0
+                          ? `${fmt(sipsLast12PctByPeriod[ps.period], 1)} %`
+                          : '—'}
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>
+              {sipsLast12PctByPeriod && (
+                <p className="text-[#8A9A8E] text-[10px] mt-3 text-center italic">
+                  % consumo por periodo · últimos 12 meses según SIPS
+                </p>
+              )}
             </div>
           )}
         </motion.div>
@@ -3850,15 +3911,35 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
               }}
               activePeriods={activePeriods}
               footerRow={
-                <div className="grid items-center py-4 px-4 border-t border-[#E5DCC9] bg-[#EDE8DC]"
-                  style={{ gridTemplateColumns: `220px repeat(${activePeriods.length}, 1fr) 180px` }}>
-                  <span className="text-[#6B8068] font-black text-sm tracking-wider">TOTAL FACTURAS</span>
-                  {activePeriods.map(p => {
-                    const total = tableData.reduce((s, r) => s + (r.kwhByPeriod[p] || 0), 0)
-                    return <span key={p} className="text-info font-bold text-sm">{total > 0 ? fmt(total, 0) : '—'}</span>
-                  })}
-                  <span className="text-info font-black text-sm">{fmt(summaryStats.kwh, 0)}</span>
-                </div>
+                <>
+                  <div className="grid items-center py-4 px-4 border-t border-[#E5DCC9] bg-[#EDE8DC]"
+                    style={{ gridTemplateColumns: `220px repeat(${activePeriods.length}, 1fr) 180px` }}>
+                    <span className="text-[#6B8068] font-black text-sm tracking-wider">TOTAL FACTURAS</span>
+                    {activePeriods.map(p => {
+                      const total = tableData.reduce((s, r) => s + (r.kwhByPeriod[p] || 0), 0)
+                      return <span key={p} className="text-info font-bold text-sm">{total > 0 ? fmt(total, 0) : '—'}</span>
+                    })}
+                    <span className="text-info font-black text-sm">{fmt(summaryStats.kwh, 0)}</span>
+                  </div>
+                  {sipsSelectedPctByPeriod && (
+                    <div className="grid items-center py-3 px-4 border-t border-[#E5DCC9] bg-[#F5F0E2]"
+                      style={{ gridTemplateColumns: `220px repeat(${activePeriods.length}, 1fr) 180px` }}>
+                      <span className="text-[#8A9A8E] text-xs font-bold tracking-wider">
+                        % CONSUMO SIPS<br />
+                        <span className="text-[10px] font-normal italic">
+                          {selectedYear === 'all' ? 'todo el histórico' : selectedYear}
+                          {selectedMonths.size < 12 ? ` · ${selectedMonths.size} meses` : ''}
+                        </span>
+                      </span>
+                      {activePeriods.map(p => (
+                        <span key={p} className="text-[#6B8068] font-semibold text-xs">
+                          {sipsSelectedPctByPeriod[p] > 0 ? `${fmt(sipsSelectedPctByPeriod[p], 1)} %` : '—'}
+                        </span>
+                      ))}
+                      <span className="text-[#6B8068] font-bold text-xs">100 %</span>
+                    </div>
+                  )}
+                </>
               }
             />
           </motion.div>

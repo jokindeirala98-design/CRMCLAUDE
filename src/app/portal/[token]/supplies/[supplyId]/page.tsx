@@ -125,6 +125,8 @@ export default function PortalSupplyPage() {
             supplyType={(data.supply.type as 'luz'|'gas') || (isGas ? 'gas' : 'luz')}
             potenciaContratada={(data.supply.consumption_data || {}).potenciaContratada}
             consumoPeriodos={(data.supply.consumption_data || {}).consumoPeriodos}
+            sipsHistory={(data.supply.consumption_data || {}).history}
+            maximetroHistory={(data.supply.consumption_data || {}).maximetroHistory}
             supplyName={data.supply.name || undefined}
             readOnly={true}
           />
