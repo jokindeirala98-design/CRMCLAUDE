@@ -38,47 +38,34 @@ export default function PortalSupplyPage() {
   const [loading, setLoading] = useState(true)
   const [downloading, setDownloading] = useState(false)
 
-  // 1. Validar sesión. Si no hay cookie aún (entrada directa al supply),
-  //    inicializamos con POST usando el token de la URL.
+  // ── One-shot init: auth + supply data en UNA SOLA request ───────────────
+  // Si hubo prefetch on hover, la respuesta viene del cache HTTP del navegador
+  // (Cache-Control: private, max-age=60) y la apertura es instantánea.
   useEffect(() => {
-    if (!token) return
+    if (!token || !supplyId) return
     let cancelled = false
+    setLoading(true); setError(null)
 
-    const init = async () => {
-      // Probar cookie existente
-      let r = await fetch('/api/portal/auth')
-      if (!r.ok) {
-        // Sesión nueva: validar token del URL
-        r = await fetch('/api/portal/auth', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token }),
-        })
-        if (!r.ok) throw new Error('Enlace inválido o caducado')
-      }
-      const d = await r.json()
-      if (!cancelled) setClientId(d.clientId)
-    }
-
-    init().catch(e => {
-      if (!cancelled) { setError(e.message); setLoading(false) }
+    fetch(`/api/portal/supply/${supplyId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
     })
+      .then(async r => {
+        const d = await r.json()
+        if (!r.ok) throw new Error(d?.error || 'No se pudo cargar el suministro')
+        return d
+      })
+      .then(d => {
+        if (cancelled) return
+        setClientId(d.clientId)
+        setData({ supply: d.supply, invoices: d.invoices })
+      })
+      .catch(e => { if (!cancelled) setError(e.message) })
+      .finally(() => { if (!cancelled) setLoading(false) })
 
     return () => { cancelled = true }
-  }, [token])
-
-  // 2. Cargar supply con sus invoices completas
-  useEffect(() => {
-    if (!clientId || !supplyId) return
-    setLoading(true)
-    fetch(`/api/public/v1/clients/${clientId}/supplies/${supplyId}/full`)
-      .then(async r => {
-        if (!r.ok) throw new Error('No se pudo cargar el suministro')
-        return r.json()
-      })
-      .then(d => { setData(d); setLoading(false) })
-      .catch(e => { setError(e.message); setLoading(false) })
-  }, [clientId, supplyId])
+  }, [token, supplyId])
 
   // Descargar Excel del suministro
   const downloadSupplyExcel = async () => {
@@ -113,11 +100,8 @@ export default function PortalSupplyPage() {
       </div>
     </div>
   )
-  if (loading || !data) return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: '#F7F7F7' }}>
-      <Loader2 className="w-8 h-8 animate-spin text-[#3B4FE4]" />
-    </div>
-  )
+  if (loading || !data) return <SupplyPageSkeleton />
+
 
   const isGas = data.supply.type === 'gas' || /^RL/i.test(data.supply.tariff || '')
   const Icon = isGas ? Flame : Zap
@@ -358,6 +342,48 @@ function SummaryCard({ label, value, subtitle, accent }: {
         {value}
       </div>
       {subtitle && <div className="text-[11px] text-slate-500 mt-1">{subtitle}</div>}
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Skeleton — placeholder durante carga del detalle.
+// Reduce drásticamente la sensación de espera frente a un spinner centrado.
+// ════════════════════════════════════════════════════════════════════════════
+
+function SupplyPageSkeleton() {
+  return (
+    <div className="min-h-screen" style={{ background: '#F7F7F7' }}>
+      <style jsx>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.55; }
+        }
+        .skel { animation: pulse 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite; background: rgba(255,255,255,0.85); border-radius: 12px; border: 1px solid #E2E8F0; }
+        .skel-d { animation: pulse 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite; background: rgba(255,255,255,0.35); border-radius: 12px; }
+      `}</style>
+      {/* Hero */}
+      <div className="px-6 md:px-10 py-6" style={{ background: '#88B9E7' }}>
+        <div className="skel-d mb-4" style={{ width: 130, height: 14 }} />
+        <div className="flex items-start gap-5">
+          <div className="skel-d" style={{ width: 84, height: 84, borderRadius: '50%' }} />
+          <div className="flex-1 min-w-0">
+            <div className="skel-d mb-2" style={{ width: 220, height: 12 }} />
+            <div className="skel-d mb-2" style={{ width: 320, height: 32 }} />
+            <div className="skel-d" style={{ width: 180, height: 12 }} />
+          </div>
+        </div>
+      </div>
+      {/* Resumen cards */}
+      <div className="max-w-7xl mx-auto px-3 md:px-6 py-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="skel" style={{ height: 90 }} />
+          ))}
+        </div>
+        {/* Body */}
+        <div className="skel" style={{ height: 500 }} />
+      </div>
     </div>
   )
 }

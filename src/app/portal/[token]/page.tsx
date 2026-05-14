@@ -101,7 +101,6 @@ export default function PortalGlobalPage() {
 
   // Estado completo declarado primero
   const [clientId, setClientId] = useState<string>('')
-  const [authChecked, setAuthChecked] = useState(false)
   const [mode, setMode] = useState<Mode>('last12')
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
   const [from, setFrom] = useState('')
@@ -112,45 +111,36 @@ export default function PortalGlobalPage() {
 
   const customReady = mode !== 'custom' || (from && to)
 
-  // Validar token y obtener clientId
+  // ── One-shot init: auth + dataset en UNA SOLA request ──
+  // Sustituye los dos useEffect anteriores (auth → data secuenciales).
+  // El endpoint /api/portal/init valida token, setea cookie y devuelve el
+  // raw dataset en la misma respuesta. Esto recorta ~1 round-trip
+  // (típicamente 300-500ms en móvil 4G).
   useEffect(() => {
     if (!token) return
-    fetch('/api/portal/auth', {
+    let cancelled = false
+    setLoading(true); setError(null)
+
+    fetch('/api/portal/init', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token }),
     })
       .then(async r => {
-        if (!r.ok) throw new Error('Enlace inválido o caducado')
         const d = await r.json()
-        setClientId(d.clientId)
-        setAuthChecked(true)
+        if (!r.ok) throw new Error(d?.error || 'Enlace inválido o caducado')
+        return d
       })
-      .catch(e => {
-        setError(e.message)
-        setAuthChecked(true)
-      })
-  }, [token])
-
-  // ── Carga ÚNICA del dataset crudo ──
-  // El endpoint con ?raw=1 devuelve supplies + facturas compactadas. A partir
-  // de ahí TODA la recomputación de filtros (modo, tipo, rango personalizado)
-  // se hace en cliente con useMemo → cambios instantáneos sin red.
-  useEffect(() => {
-    if (!clientId) return
-    let cancelled = false
-    setLoading(true); setError(null)
-    fetch(`/api/public/v1/clients/${clientId}/economic-overview?raw=1`)
-      .then(r => r.json())
-      .then(json => {
+      .then(d => {
         if (cancelled) return
-        if (json.error) throw new Error(json.error)
-        setRaw(json)
+        setClientId(d.clientId)
+        setRaw({ client: d.client, supplies: d.supplies, invoices: d.invoices })
       })
       .catch(e => { if (!cancelled) setError(e?.message || 'Error') })
       .finally(() => { if (!cancelled) setLoading(false) })
+
     return () => { cancelled = true }
-  }, [clientId])
+  }, [token])
 
   // ── Cómputo client-side ──
   // Se reejecuta cuando cambian los filtros pero NO hace fetch.
@@ -173,11 +163,7 @@ export default function PortalGlobalPage() {
   }, [raw, mode, typeFilter, from, to, customReady])
 
   if (loading && !data) {
-    return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: '#F0F6FF' }}>
-        <Loader2 className="w-8 h-8 animate-spin" style={{ color: '#4A6FE3' }} />
-      </div>
-    )
+    return <PortalSkeleton />
   }
 
   if (!customReady && !data) {
@@ -347,6 +333,84 @@ function Header({ data, mode, setMode, from, to, setFrom, setTo, typeFilter, set
       </div>
     </header>
   )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Skeleton UI — placeholder durante carga inicial.
+// Aparece INMEDIATAMENTE (sin spinner), reduciendo la sensación de espera.
+// Su layout imita la estructura final, así no hay "layout shift" al cargar.
+// ════════════════════════════════════════════════════════════════════════════
+
+function PortalSkeleton() {
+  return (
+    <div className="min-h-screen" style={{ background: '#F0F6FF' }}>
+      <style jsx>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+        .skel { animation: pulse 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite; background: rgba(255,255,255,0.65); border-radius: 12px; }
+        .skel-dark { animation: pulse 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite; background: rgba(255,255,255,0.3); border-radius: 12px; }
+      `}</style>
+      {/* Hero skeleton */}
+      <div className="pb-20" style={{ background: 'linear-gradient(135deg, #A8C8F0 0%, #6FA0E8 60%, #4A6FE3 100%)' }}>
+        <div className="px-6 md:px-12 pt-8">
+          <div className="skel-dark mb-8" style={{ width: 120, height: 14 }} />
+          <div className="flex items-center gap-8 flex-wrap">
+            <div className="skel-dark" style={{ width: 96, height: 96, borderRadius: '50%' }} />
+            <div className="flex-1 min-w-0">
+              <div className="skel-dark mb-3" style={{ width: 200, height: 12 }} />
+              <div className="skel-dark mb-3" style={{ width: 380, height: 40 }} />
+              <div className="skel-dark" style={{ width: 280, height: 14 }} />
+            </div>
+            <div className="skel-dark" style={{ width: 200, height: 42, borderRadius: 999 }} />
+          </div>
+          <div className="flex gap-2 mt-8">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="skel-dark" style={{ width: 110, height: 28, borderRadius: 999 }} />
+            ))}
+          </div>
+        </div>
+      </div>
+      {/* KPI cards skeleton */}
+      <div className="px-6 md:px-12 -mt-12 relative z-10">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="skel" style={{ height: 132 }} />
+          ))}
+        </div>
+      </div>
+      {/* Cuerpo */}
+      <div className="px-6 md:px-12 pt-8 space-y-5">
+        <div className="skel" style={{ height: 60 }} />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <div className="skel" style={{ height: 260 }} />
+          <div className="skel" style={{ height: 260 }} />
+        </div>
+        <div className="skel" style={{ height: 340 }} />
+      </div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Prefetch supply data en hover — recorta el tiempo de apertura del detalle.
+// Cuando el cliente pasa el ratón sobre una fila/card, ya iniciamos la
+// petición al endpoint del suministro. El navegador la cachea y cuando
+// hace click, los datos están listos.
+// ════════════════════════════════════════════════════════════════════════════
+
+const prefetchedSupplies = new Set<string>()
+function prefetchSupply(supplyId: string) {
+  if (prefetchedSupplies.has(supplyId)) return
+  prefetchedSupplies.add(supplyId)
+  // POST silent — el navegador cachea por Cache-Control: private, max-age=60.
+  fetch(`/api/portal/supply/${supplyId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+    keepalive: true,
+  }).catch(() => { prefetchedSupplies.delete(supplyId) })
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -660,6 +724,8 @@ function TopCard({ title, subtitle, icon, items, metric, router }: any) {
         {items.map((r: any, i: number) => (
           <button key={r.supply.id}
             onClick={() => router.push(`/portal/${token}/supplies/${r.supply.id}`)}
+            onMouseEnter={() => prefetchSupply(r.supply.id)}
+            onFocus={() => prefetchSupply(r.supply.id)}
             className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-blue-50 transition text-left">
             <div className="text-xs font-bold text-slate-400 w-6">#{i + 1}</div>
             <div className="flex-1 min-w-0">
@@ -700,7 +766,10 @@ function AnomaliasCard({ items, router }: { items: SupplyAggregate[]; router: an
       </p>
       <div className="space-y-2">
         {items.slice(0, 5).map(r => (
-          <button key={r.supply.id} onClick={() => router.push(`/portal/${token}/supplies/${r.supply.id}`)}
+          <button key={r.supply.id}
+            onClick={() => router.push(`/portal/${token}/supplies/${r.supply.id}`)}
+            onMouseEnter={() => prefetchSupply(r.supply.id)}
+            onFocus={() => prefetchSupply(r.supply.id)}
             className="w-full flex items-center gap-3 p-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 transition text-left">
             <div className="flex-1 min-w-0">
               <div className="text-sm font-semibold text-slate-800 truncate">{r.supply.name || r.supply.cups}</div>
@@ -768,6 +837,7 @@ function RankingTable({ items, totalGasto, router }: { items: SupplyAggregate[];
               return (
                 <tr key={r.supply.id}
                   onClick={() => router.push(`/portal/${token}/supplies/${r.supply.id}`)}
+                  onMouseEnter={() => prefetchSupply(r.supply.id)}
                   className={`border-b border-slate-50 cursor-pointer hover:bg-blue-50 transition ${r.sinFacturas ? 'opacity-60' : ''} ${r.esAnomalo ? 'bg-amber-50/40' : ''}`}>
                   <td className="py-3 px-4">
                     <div className="text-sm font-semibold text-slate-800 flex items-center gap-2">
