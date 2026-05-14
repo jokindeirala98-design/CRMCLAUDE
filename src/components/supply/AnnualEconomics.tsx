@@ -123,6 +123,8 @@ interface Props {
   maximetroHistory?: any[]
   /** SIPS monthly consumption history — used to fill kWh matrix for months without invoices */
   sipsHistory?: any[]
+  /** Modo read-only: oculta botones de admin (eliminar, re-extraer, marcar Voltis, etc.) */
+  readOnly?: boolean
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -4538,7 +4540,7 @@ function ReportView({ invoices, supplyName, onBack, onInvoicesUpdated, potenciaC
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated, supplyType: propSupplyType, potenciaContratada, consumoPeriodos, clientName, supplyName: supplyNameProp, gasHistory, initialView, maximetroHistory, sipsHistory }: Props) {
+export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated, supplyType: propSupplyType, potenciaContratada, consumoPeriodos, clientName, supplyName: supplyNameProp, gasHistory, initialView, maximetroHistory, sipsHistory, readOnly = false }: Props) {
   const [view, setView] = useState<'tabla' | 'informe'>(initialView ?? 'tabla')
   const [busyRescan, setBusyRescan] = useState<string | null>(null)
   const [busyDelete, setBusyDelete] = useState<string | null>(null)

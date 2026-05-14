@@ -12,8 +12,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { findOrCreatePortalLink } from '@/lib/portal-data'
 import { buildDossierHtml } from '@/lib/dossier-html'
+import { htmlToPdf } from '@/lib/pdf-renderer'
 
 export const runtime = 'nodejs'
+export const maxDuration = 60
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const sb = createServerSupabaseClient()
@@ -36,13 +38,38 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     token,
   })
 
-  const filename = `voltis-acceso-${(client.alias || client.name || 'cliente').toLowerCase().replace(/[^a-z0-9]+/g,'-')}.html`
-  return new NextResponse(html, {
-    headers: {
-      'Content-Type': 'text/html; charset=utf-8',
-      'Content-Disposition': `attachment; filename="${filename}"`,
-      'X-Link-Existed': existed ? 'true' : 'false',
-      'X-Portal-Link': `${process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'}/portal/${token}`,
-    },
-  })
+  const filenameBase = (client.alias || client.name || 'cliente').toLowerCase().replace(/[^a-z0-9]+/g, '-')
+
+  // Si la URL viene con ?format=html, devolver HTML (debug). Por defecto: PDF.
+  const wantHtml = new URL(req.url).searchParams.get('format') === 'html'
+  if (wantHtml) {
+    return new NextResponse(html, {
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Disposition': `attachment; filename="voltis-acceso-${filenameBase}.html"`,
+      },
+    })
+  }
+
+  try {
+    const pdf = await htmlToPdf(html)
+    return new NextResponse(new Uint8Array(pdf), {
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="voltis-acceso-${filenameBase}.pdf"`,
+        'X-Link-Existed': existed ? 'true' : 'false',
+        'X-Portal-Link': `${process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'}/portal/${token}`,
+      },
+    })
+  } catch (e: any) {
+    // Fallback a HTML si Puppeteer falla en este entorno
+    console.error('[dossier] PDF render failed, fallback to HTML:', e?.message)
+    return new NextResponse(html, {
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Disposition': `attachment; filename="voltis-acceso-${filenameBase}.html"`,
+        'X-PDF-Fallback': 'true',
+      },
+    })
+  }
 }

@@ -2584,10 +2584,12 @@ export default function SupplyDetailPage() {
                   try {
                     const res = await fetch(`/api/clients/${supply.client_id}/dossier`)
                     if (!res.ok) throw new Error('No se pudo generar el dossier')
+                    const isHtmlFallback = res.headers.get('X-PDF-Fallback') === 'true'
+                    const ext = isHtmlFallback ? 'html' : 'pdf'
                     const blob = await res.blob()
                     const a = document.createElement('a')
                     a.href = URL.createObjectURL(blob)
-                    a.download = `voltis-acceso-${(supply.client?.alias || supply.client?.name || 'cliente').toLowerCase().replace(/[^a-z0-9]+/g, '-')}.html`
+                    a.download = `voltis-acceso-${(supply.client?.alias || supply.client?.name || 'cliente').toLowerCase().replace(/[^a-z0-9]+/g, '-')}.${ext}`
                     document.body.appendChild(a); a.click(); a.remove()
                   } catch (e: any) {
                     alert('Error: ' + (e?.message ?? e))
