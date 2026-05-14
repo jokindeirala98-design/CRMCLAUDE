@@ -234,43 +234,15 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
   }, [recalcResult])
 
   async function downloadXlsx(scenario: ScenarioResult) {
-    if (!data || !editable) return
+    if (!data) return
     setDownloading(scenario.tipo)
     try {
-      const res = await fetch('/api/comparativa-2td', {
+      // Usa el endpoint específico que genera Excel con los MISMOS valores
+      // commer-style que muestra la UI (no recalcula con IVA 21%).
+      const res = await fetch(`/api/gana/comparativa/${supplyId}/excel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          titular: data.supply.client_name || data.supply.name || 'Cliente',
-          cups: data.supply.cups,
-          tariffKey: 'tramos',
-          customTariff: {
-            name: `Gana ${scenario.nombre}`,
-            shortName: scenario.tipo,
-            energy: {
-              P1: scenario.preciosNuevos.energiaP1,
-              P2: scenario.preciosNuevos.energiaP2,
-              P3: scenario.preciosNuevos.energiaP3,
-            },
-            power: {
-              P1: scenario.preciosNuevos.potenciaP1,
-              P2: scenario.preciosNuevos.potenciaP2,
-            },
-          },
-          consumoP1: editable.consumoP1,
-          consumoP2: editable.consumoP2,
-          consumoP3: editable.consumoP3,
-          potenciaP1: editable.potenciaP1,
-          potenciaP2: editable.potenciaP2,
-          potenciaP3: editable.potenciaP2,
-          currentEnergyPriceP1: editable.currentEnergyP1,
-          currentEnergyPriceP2: editable.currentEnergyP2,
-          currentEnergyPriceP3: editable.currentEnergyP3,
-          currentEnergyPrice: 0,
-          energyPricingFormat: 'por_periodo',
-          currentPowerP1: editable.currentPowerP1,
-          currentPowerP2: editable.currentPowerP2,
-        }),
+        body: JSON.stringify({ tipo: scenario.tipo }),
       })
       if (!res.ok) {
         const j = await res.json().catch(() => null)
