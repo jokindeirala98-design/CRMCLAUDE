@@ -123,6 +123,7 @@ export async function POST(req: NextRequest) {
       energyPricingFormat,
       isIndexed = false,
       currentPowerP1 = 0, currentPowerP2 = 0,
+      customTariff,            // override opcional para Gana
     } = body as {
       titular: string; cups: string; tariffKey: VoltisKey2TD
       consumoP1: number; consumoP2: number; consumoP3: number
@@ -132,9 +133,14 @@ export async function POST(req: NextRequest) {
       energyPricingFormat?: string
       isIndexed?: boolean
       currentPowerP1: number; currentPowerP2: number
+      customTariff?: {
+        name: string; shortName?: string
+        energy: { P1: number; P2: number; P3: number }
+        power:  { P1: number; P2: number }
+      }
     }
 
-    if (!VOLTIS_TARIFFS_2TD[tariffKey]) {
+    if (!customTariff && !VOLTIS_TARIFFS_2TD[tariffKey]) {
       return NextResponse.json({ error: 'Invalid tariffKey' }, { status: 400 })
     }
 
@@ -184,12 +190,23 @@ export async function POST(req: NextRequest) {
       ep = { P1: flatPrice, P2: flatPrice, P3: flatPrice }
     }
 
-    const tariff  = VOLTIS_TARIFFS_2TD[tariffKey]
+    const tariff = customTariff
+      ? {
+          name: customTariff.name,
+          shortName: customTariff.shortName ?? customTariff.name.replace(/\s+/g, '_'),
+          energy: customTariff.energy,
+          power:  customTariff.power,
+        }
+      : VOLTIS_TARIFFS_2TD[tariffKey]
     const consumo = { P1: consumoP1, P2: consumoP2, P3: consumoP3 }
     const potencia = { P1: potenciaP1, P2: valleKw }  // P2 = valle for compute2TDSavings
     const totalKwh = consumoP1 + consumoP2 + consumoP3
 
-    compute2TDSavings(consumo, potencia, ep, currentPowerP1, currentPowerP2, tariffKey)
+    // compute2TDSavings solo se llama para las tarifas Voltis predefinidas;
+    // cuando hay customTariff (Gana), saltamos la validación interna.
+    if (!customTariff) {
+      compute2TDSavings(consumo, potencia, ep, currentPowerP1, currentPowerP2, tariffKey)
+    }
 
     // ── Pre-compute formula result values ──────────────────────────────────────
     // POTENCIA section

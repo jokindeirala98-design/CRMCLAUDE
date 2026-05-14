@@ -4,31 +4,34 @@ import { createClient as createAdminClient } from '@supabase/supabase-js'
 
 /**
  * GET /api/google/callback
- * Handles the OAuth 2.0 redirect from Google.
- * Exchanges the code for tokens and stores the refresh_token in users_profile.
+ *
+ * Maneja el redirect OAuth de Google para dos flujos:
+ *   - state=shared  → guarda el token en app_settings (calendario compartido, solo admin)
+ *   - state ausente → guarda el token en users_profile (calendario personal, cualquier usuario)
  */
 export async function GET(req: NextRequest) {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
+  const appUrl      = process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
   const settingsUrl = `${appUrl}/configuracion`
-  const code = req.nextUrl.searchParams.get('code')
+  const code  = req.nextUrl.searchParams.get('code')
   const error = req.nextUrl.searchParams.get('error')
+  const state = req.nextUrl.searchParams.get('state') // 'shared' | null
 
   if (error || !code) {
     console.error('[gcal callback] error or missing code:', error)
     return NextResponse.redirect(`${settingsUrl}?gcal=error`)
   }
 
-  // Exchange authorization code for tokens
+  // Exchange code for tokens
   const redirectUri = `${appUrl}/api/google/callback`
   const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       code,
-      client_id: process.env.GOOGLE_CLIENT_ID!,
+      client_id:     process.env.GOOGLE_CLIENT_ID!,
       client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-      redirect_uri: redirectUri,
-      grant_type: 'authorization_code',
+      redirect_uri:  redirectUri,
+      grant_type:    'authorization_code',
     }),
   })
 
@@ -39,33 +42,48 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(`${settingsUrl}?gcal=error&reason=no_refresh_token`)
   }
 
-  // Get current logged-in user
-  const supabase = createServerSupabaseClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    return NextResponse.redirect(`${appUrl}/login`)
-  }
-
-  // Persist tokens in users_profile
   const admin = createAdminClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { persistSession: false } }
   )
 
+  // ── Calendario compartido (admin) ─────────────────────────────────────────
+  if (state === 'shared') {
+    const { error: dbError } = await admin
+      .from('app_settings')
+      .upsert({
+        key:        'shared_calendar_refresh_token',
+        value:      tokens.refresh_token,
+        updated_at: new Date().toISOString(),
+      })
+
+    if (dbError) {
+      console.error('[gcal callback] shared db error', dbError)
+      return NextResponse.redirect(`${settingsUrl}?gcal=error&reason=db`)
+    }
+
+    return NextResponse.redirect(`${settingsUrl}?gcal=shared_connected`)
+  }
+
+  // ── Calendario personal (cualquier usuario) ───────────────────────────────
+  const supabase = createServerSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
+    return NextResponse.redirect(`${appUrl}/login`)
+  }
+
   const { error: dbError } = await admin
     .from('users_profile')
     .update({
       google_refresh_token: tokens.refresh_token,
-      google_calendar_id: 'primary',
+      google_calendar_id:   'primary',
     })
     .eq('id', user.id)
 
   if (dbError) {
-    console.error('[gcal callback] db update error', dbError)
+    console.error('[gcal callback] personal db error', dbError)
     return NextResponse.redirect(`${settingsUrl}?gcal=error&reason=db`)
   }
 

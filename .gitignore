@@ -12,3 +12,4 @@ next-env.d.ts
 
 # Claude Code worktrees (temporary branches created by Claude)
 .claude/worktrees/
+.vercel

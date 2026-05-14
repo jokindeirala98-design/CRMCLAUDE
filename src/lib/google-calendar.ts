@@ -30,6 +30,41 @@ export async function refreshAccessToken(refreshToken: string): Promise<string> 
 }
 
 /**
+ * Returns a fresh access token for the SHARED "Voltis CRM" calendar.
+ * Uses the admin refresh token stored in app_settings.
+ */
+export async function getSharedCalendarToken(): Promise<{
+  accessToken: string
+  calendarId: string
+} | null> {
+  const admin = createAdminClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } }
+  )
+
+  const { data: rows } = await admin
+    .from('app_settings')
+    .select('key, value')
+    .in('key', ['shared_calendar_refresh_token', 'shared_calendar_id'])
+
+  if (!rows || rows.length === 0) return null
+
+  const map = Object.fromEntries(rows.map((r: any) => [r.key, r.value]))
+  const refreshToken = map['shared_calendar_refresh_token']
+  const calendarId   = map['shared_calendar_id']
+
+  if (!refreshToken || !calendarId) return null
+
+  try {
+    const accessToken = await refreshAccessToken(refreshToken)
+    return { accessToken, calendarId }
+  } catch {
+    return null
+  }
+}
+
+/**
  * Returns a fresh access token + calendarId for a given Supabase user ID.
  * Returns null if the user hasn't connected Google Calendar.
  */
@@ -66,7 +101,9 @@ export interface GCalEvent {
   location?: string
   colorId?: string // '1'–'11'
   start: { dateTime?: string; date?: string; timeZone?: string }
-  end: { dateTime?: string; date?: string; timeZone?: string }
+  end:   { dateTime?: string; date?: string; timeZone?: string }
+  attendees?: { email: string; displayName?: string }[]
+  organizer?:  { displayName?: string }
 }
 
 export async function createCalendarEvent(
@@ -127,14 +164,11 @@ export async function deleteCalendarEvent(
 // ── Task briefing helper ──────────────────────────────────────────────────────
 
 const PRIORITY_EMOJI: Record<string, string> = {
-  high: '🔴',
+  high:   '🔴',
   medium: '🟡',
-  low: '🟢',
+  low:    '🟢',
 }
 
-/**
- * Builds the description text for the daily tasks briefing event
- */
 export function buildTasksBriefingDescription(tasks: Array<{
   title: string
   priority: string
@@ -144,7 +178,7 @@ export function buildTasksBriefingDescription(tasks: Array<{
   if (tasks.length === 0) return '✅ No hay tareas pendientes para hoy.'
 
   const lines = tasks.map((t) => {
-    const emoji = PRIORITY_EMOJI[t.priority] || '⚪'
+    const emoji  = PRIORITY_EMOJI[t.priority] || '⚪'
     const client = t.client?.name ? ` [${t.client.name}]` : ''
     return `${emoji} ${t.title}${client}`
   })

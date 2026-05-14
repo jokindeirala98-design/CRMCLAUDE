@@ -9,7 +9,7 @@ import {
   Upload, ClipboardCheck, BarChart3, Presentation, PenTool,
   UserCheck, TrendingUp, AlertTriangle, Edit2, Trash2,
   RefreshCw, ChevronDown, ChevronUp, Loader2, Activity, ExternalLink, Download,
-  Plus, X, Pencil, Check, Flame, Phone as PhoneIcon, Copy, Mail, Scale
+  Plus, X, Pencil, Check, Flame, Phone as PhoneIcon, Copy, Mail, Scale, Sparkles
 } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
 import { ClientDetailModal } from '@/components/clients/ClientDetailModal'
@@ -39,6 +39,10 @@ const AnnualEconomics = dynamic(
 const ComparativaVoltisV2 = dynamic(
   () => import('@/components/supply/ComparativaVoltisV2'),
   { ssr: false, loading: () => <div className="flex items-center justify-center py-20 text-ink-3 text-sm">Cargando comparativa…</div> }
+)
+const ComparativaGana = dynamic(
+  () => import('@/components/supply/ComparativaGana'),
+  { ssr: false }
 )
 const PowerStudy = dynamic(
   () => import('@/components/supply/PowerStudy').then(m => m.PowerStudy),
@@ -143,7 +147,7 @@ export default function SupplyDetailPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   // Auto-open tab from ?tab= URL param (e.g. from Telegram bot deep links)
   const urlTab = searchParams.get('tab') as 'sips' | 'economics' | 'potencias' | 'comparativa-voltis' | null
-  const [activeTab, setActiveTab] = useState<'sips' | 'economics' | 'potencias' | 'comparativa-voltis' | null>(
+  const [activeTab, setActiveTab] = useState<'sips' | 'economics' | 'potencias' | 'comparativa-voltis' | 'comparativa-gana' | null>(
     ['sips', 'economics', 'potencias', 'comparativa-voltis'].includes(urlTab || '') ? urlTab : null
   )
   const [sipsLoading, setSipsLoading] = useState(false)
@@ -1875,11 +1879,25 @@ export default function SupplyDetailPage() {
               dot: supply.invoices?.some((inv: any) => inv.source === 'voltis')
                 ? 'bg-volt' : 'bg-gray-300',
             },
+            {
+              key: 'comparativa-gana' as const,
+              label: 'COMPARATIVA GANA 2.0',
+              icon: Sparkles,
+              activeClass: 'border-emerald-500/40 bg-emerald-100/40 text-emerald-700 shadow-md',
+              inactiveClass: 'border-line-2-variant/30 bg-white text-ink hover:border-emerald-500/40 hover:bg-emerald-100/30',
+              dot: 'bg-emerald-400',
+            },
           ]).filter(tab => {
             // Hide POTENCIAS Y CONSUMOS for gas supplies
             if (tab.key === 'potencias' && (supply.type === 'gas' || /^RL/i.test(supply.tariff || ''))) return false
             // Hide COMPARATIVA VOLTIS unless there's at least one Voltis invoice
             if (tab.key === 'comparativa-voltis' && !supply.invoices?.some((inv: any) => inv.source === 'voltis')) return false
+            // COMPARATIVA GANA solo aplica a 2.0TD eléctricas
+            if (tab.key === 'comparativa-gana') {
+              if (supply.type === 'gas' || /^RL/i.test(supply.tariff || '')) return false
+              const t = String(supply.tariff || '').toUpperCase().replace(/\s/g, '')
+              if (!t.startsWith('2.0') && !t.startsWith('20TD')) return false
+            }
             return true
           }).map(tab => {
             const Icon = tab.icon
@@ -2537,6 +2555,13 @@ export default function SupplyDetailPage() {
             cierran la vista y devuelven al usuario a la ficha del supply. */}
         {activeTab === 'comparativa-voltis' && supply.invoices?.some((inv: any) => inv.source === 'voltis') && (
           <ComparativaVoltisV2 supplyId={supply.id} onBack={() => setActiveTab(null)} />
+        )}
+
+        {/* ═══════ COMPARATIVA GANA 2.0TD (modal fullscreen) ════════════════
+            Modelo de cálculo basado en commer.es: IE+IVA, alquiler contador,
+            bono social, fee gestión, 3 escenarios (24H / Tramos / Mercado). */}
+        {activeTab === 'comparativa-gana' && (
+          <ComparativaGana supplyId={supply.id} onClose={() => setActiveTab(null)} />
         )}
 
         {/* ═══════ TIMESTAMPS ═══════ */}
