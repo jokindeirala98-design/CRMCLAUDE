@@ -77,15 +77,16 @@ export async function buildDossierPdf(args: DossierArgs): Promise<Buffer> {
   // ── Fondo página gris claro ─────────────────────────────────────────────
   page.drawRectangle({ x: 0, y: 0, width: A4_W, height: A4_H, color: PAGE_BG })
 
-  // ── Hero panel azul cielo (firma visual Voltis: bordes inferior redondeados) ─
-  const heroH = 290
-  // Sombra suave bajo el hero
+  // ── Hero panel azul cielo (plano, sin curvas para que el texto sea legible) ─
+  const heroH = 270
   page.drawRectangle({
-    x: 0, y: A4_H - heroH - 2, width: A4_W, height: heroH + 2, color: SKY,
+    x: 0, y: A4_H - heroH, width: A4_W, height: heroH, color: SKY,
   })
-  // "Border-radius: 0 0 80px 80px" — simulamos con rectángulos blancos
-  // (no podemos hacer máscaras, así que tapamos las esquinas inferiores)
-  drawRoundedBottomMask(page, A4_W, A4_H - heroH, 80, PAGE_BG)
+  // Banda decorativa fina azul electric en la base del hero, a modo de
+  // separador limpio (sustituye a la curva redondeada).
+  page.drawRectangle({
+    x: 0, y: A4_H - heroH - 3, width: A4_W, height: 3, color: ELECTRIC,
+  })
 
   const M = 56  // margen lateral
   const heroTop = A4_H - 56
@@ -109,31 +110,31 @@ export async function buildDossierPdf(args: DossierArgs): Promise<Buffer> {
   // Hero titular grande
   const heroEyebrow = 'TU PORTAL ENERGÉTICO'
   page.drawText(heroEyebrow, {
-    x: M, y: A4_H - 130, font: sansBold, size: 9, color: WHITE,
+    x: M, y: A4_H - 120, font: sansBold, size: 9, color: WHITE,
   })
   // Línea blanca decorativa
   page.drawLine({
-    start: { x: M, y: A4_H - 138 },
-    end:   { x: M + 28, y: A4_H - 138 },
+    start: { x: M, y: A4_H - 128 },
+    end:   { x: M + 28, y: A4_H - 128 },
     thickness: 2, color: WHITE,
   })
 
   page.drawText('Tu informe energético,', {
-    x: M, y: A4_H - 175, font: sansBold, size: 30, color: WHITE,
+    x: M, y: A4_H - 160, font: sansBold, size: 28, color: WHITE,
   })
   page.drawText('siempre disponible.', {
-    x: M, y: A4_H - 210, font: sansBold, size: 30, color: WHITE,
+    x: M, y: A4_H - 192, font: sansBold, size: 28, color: WHITE,
   })
 
   // Subtítulo
   const subLines = wrapText(
     'Consulta tu consumo, tu gasto y todas tus facturas desde un único enlace privado. Sin contraseña, sin app: sólo abrir y leer.',
-    sans, 11, A4_W - 2 * M - 130,
+    sans, 10.5, A4_W - 2 * M - 140,
   )
-  let subY = A4_H - 238
+  let subY = A4_H - 220
   for (const line of subLines) {
-    page.drawText(line, { x: M, y: subY, font: sans, size: 11, color: WHITE })
-    subY -= 15
+    page.drawText(line, { x: M, y: subY, font: sans, size: 10.5, color: WHITE })
+    subY -= 14
   }
 
   // Mascota a la derecha del subtítulo, sobre el hero
@@ -141,11 +142,11 @@ export async function buildDossierPdf(args: DossierArgs): Promise<Buffer> {
   if (mascotBytes) {
     try {
       const img = await pdf.embedPng(mascotBytes)
-      const imgW = 120
+      const imgW = 110
       const imgH = (img.height / img.width) * imgW
       page.drawImage(img, {
         x: A4_W - M - imgW + 14,
-        y: A4_H - heroH + 6,
+        y: A4_H - heroH + 18,
         width: imgW, height: imgH,
       })
     } catch {}
