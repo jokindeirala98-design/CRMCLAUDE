@@ -33,19 +33,26 @@ export function voltisFullAddress(): string {
 
 /**
  * Base URL del portal cliente.
- * Por defecto usa la app del CRM, pero se puede sobrescribir con
- * `NEXT_PUBLIC_PORTAL_URL` (ej. https://portal.voltisenergia.com) para que
- * el enlace que recibe el cliente no exponga el CRM interno.
  *
- * Configuración Vercel:
+ * Para que el cliente NUNCA vea voltis-crm-bueno.vercel.app:
+ *   • Por defecto se usa `https://portal.voltisenergia.com`.
+ *   • Se puede sobrescribir con `NEXT_PUBLIC_PORTAL_URL` (cualquier dominio).
+ *
+ * Configuración Vercel (una sola vez):
  *   1. Domain Settings → Add domain "portal.voltisenergia.com"
  *   2. DNS: CNAME portal → cname.vercel-dns.com
- *   3. Env Var: NEXT_PUBLIC_PORTAL_URL = "https://portal.voltisenergia.com"
+ *   3. (opcional) Env Var: NEXT_PUBLIC_PORTAL_URL = "https://portal.voltisenergia.com"
+ *
+ * Mientras el dominio no esté propagado, el enlace seguirá apuntando a
+ * portal.voltisenergia.com pero podría dar 404. Configurar dominio antes
+ * de enviar dossieres masivos.
  */
+const DEFAULT_PORTAL_URL = 'https://portal.voltisenergia.com'
+
 export function voltisPortalBaseUrl(): string {
   const env = process.env.NEXT_PUBLIC_PORTAL_URL
   if (env && /^https?:\/\//.test(env)) return env.replace(/\/$/, '')
-  return VOLTIS_INFO.app_url
+  return DEFAULT_PORTAL_URL
 }
 
 /** Construye URL del portal magic link */

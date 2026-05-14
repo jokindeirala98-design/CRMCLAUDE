@@ -4840,11 +4840,14 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
             )
           )}
         </div>
-        <button onClick={() => setView('informe')}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white transition hover:scale-105"
-          style={{ background: isGas ? 'linear-gradient(135deg, #ea580c, #f97316)' : 'linear-gradient(135deg, #6B8068, #5A6E58)', color: '#FBF7EE' }}>
-          {isGas ? <Flame className="w-4 h-4" /> : <TrendingUp className="w-4 h-4" />} Generar informe
-        </button>
+        {!readOnly && (
+          <button onClick={() => setView('informe')}
+            aria-label="Generar informe"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white transition hover:scale-105"
+            style={{ background: isGas ? 'linear-gradient(135deg, #ea580c, #f97316)' : 'linear-gradient(135deg, #6B8068, #5A6E58)', color: '#FBF7EE' }}>
+            {isGas ? <Flame className="w-4 h-4" /> : <TrendingUp className="w-4 h-4" />} Generar informe
+          </button>
+        )}
       </div>
       {withoutEco.length > 0 && <ReExtractBanner invoices={withoutEco} onDone={onInvoicesUpdated} />}
 

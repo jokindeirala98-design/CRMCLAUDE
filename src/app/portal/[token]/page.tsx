@@ -10,7 +10,7 @@ import { useParams, useRouter } from 'next/navigation'
 import {
   ArrowLeft, Loader2, AlertCircle, Zap, Flame, AlertTriangle,
   TrendingDown, TrendingUp, ChevronRight, Sparkles, Lightbulb,
-  Activity, BarChart3, Target, Award,
+  Activity, BarChart3, Target, Award, Download,
 } from 'lucide-react'
 import { computarOverview, type OverviewMode } from '@/lib/economic-overview'
 
@@ -322,6 +322,7 @@ function Header({ data, mode, setMode, from, to, setFrom, setTo, typeFilter, set
               {data.totals.invoicesCount} facturas analizadas
             </p>
           </div>
+          <DownloadGlobalExcelButton clientId={data.client.id} mode={mode} from={from} to={to} typeFilter={typeFilter} />
         </div>
 
         {/* Filtros */}
@@ -345,6 +346,52 @@ function Header({ data, mode, setMode, from, to, setFrom, setTo, typeFilter, set
         </div>
       </div>
     </header>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Botón Descargar Excel global
+// ════════════════════════════════════════════════════════════════════════════
+
+function DownloadGlobalExcelButton({ clientId, mode, from, to, typeFilter }: {
+  clientId: string; mode: string; from?: string; to?: string; typeFilter: string
+}) {
+  const [loading, setLoading] = useState(false)
+  const handle = async () => {
+    if (loading) return
+    setLoading(true)
+    try {
+      const qs = new URLSearchParams()
+      // Mapeo simple: si el modo es 'previous_year' enviamos year explícito,
+      // si es 'custom' delegamos en el endpoint a usar el rango via from/to.
+      if (mode === 'previous_year') qs.set('year', String(new Date().getFullYear() - 1))
+      if (typeFilter && typeFilter !== 'all') qs.set('type', typeFilter)
+      const res = await fetch(`/api/public/v1/clients/${clientId}/export/global?${qs.toString()}`)
+      if (!res.ok) throw new Error('No se pudo generar el Excel global')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `voltis-anual-economics-${mode === 'previous_year' ? new Date().getFullYear() - 1 : 'global'}.xlsx`
+      document.body.appendChild(a); a.click(); a.remove()
+      URL.revokeObjectURL(url)
+    } catch (e: any) {
+      alert(e.message || 'Error descargando Excel')
+    } finally {
+      setLoading(false)
+    }
+  }
+  return (
+    <button onClick={handle} disabled={loading}
+      className="inline-flex items-center gap-2 px-5 py-3 rounded-full text-sm font-semibold transition shadow-lg
+                 disabled:opacity-60 disabled:cursor-not-allowed"
+      style={{ background: '#FFFFFF', color: '#4A6FE3' }}>
+      {loading
+        ? <Loader2 className="w-4 h-4 animate-spin" />
+        : <Download className="w-4 h-4" />
+      }
+      {loading ? 'Generando…' : 'Descargar Excel global'}
+    </button>
   )
 }
 
