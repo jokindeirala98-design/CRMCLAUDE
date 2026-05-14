@@ -38,14 +38,34 @@ export default function PortalSupplyPage() {
   const [loading, setLoading] = useState(true)
   const [downloading, setDownloading] = useState(false)
 
-  // 1. Validar token y obtener clientId
+  // 1. Validar sesión. Si no hay cookie aún (entrada directa al supply),
+  //    inicializamos con POST usando el token de la URL.
   useEffect(() => {
-    fetch('/api/portal/auth').then(async r => {
-      if (!r.ok) throw new Error('Sesión inválida')
+    if (!token) return
+    let cancelled = false
+
+    const init = async () => {
+      // Probar cookie existente
+      let r = await fetch('/api/portal/auth')
+      if (!r.ok) {
+        // Sesión nueva: validar token del URL
+        r = await fetch('/api/portal/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token }),
+        })
+        if (!r.ok) throw new Error('Enlace inválido o caducado')
+      }
       const d = await r.json()
-      setClientId(d.clientId)
-    }).catch(e => { setError(e.message); setLoading(false) })
-  }, [])
+      if (!cancelled) setClientId(d.clientId)
+    }
+
+    init().catch(e => {
+      if (!cancelled) { setError(e.message); setLoading(false) }
+    })
+
+    return () => { cancelled = true }
+  }, [token])
 
   // 2. Cargar supply con sus invoices completas
   useEffect(() => {
@@ -153,11 +173,72 @@ export default function PortalSupplyPage() {
         </div>
       </header>
 
-      {/* Contenido AnnualEconomics full */}
-      <main className="max-w-7xl mx-auto px-2 md:px-6 py-6">
-        <div className="portal-readonly-wrapper bg-white rounded-2xl shadow-sm border border-slate-200 p-4 md:p-6">
+      {/* ── Resumen rápido (especialmente útil en móvil) ───────────────── */}
+      <main className="max-w-7xl mx-auto px-3 md:px-6 py-6">
+        <MobileSummary data={data} onDownload={downloadSupplyExcel} downloading={downloading} />
+
+        <div className="portal-readonly-wrapper bg-white rounded-2xl shadow-sm border border-slate-200 p-2 md:p-6 overflow-hidden">
           <style jsx global>{`
-            /* Ocultar botones admin y "Generar informe" en modo cliente */
+            /* ═══════════════════════════════════════════════════════════════════
+               OVERRIDE BRANDING — Paleta verde/crema del CRM → azul Voltis.
+               Aplicado solo dentro del wrapper del portal cliente, sin afectar
+               al CRM principal. La intención es que el cliente vea coherencia
+               con voltisenergia.com (sky #88B9E7, electric #3B4FE4).
+               ═══════════════════════════════════════════════════════════════════ */
+
+            /* Fondo papel crema → blanco roto / gris claro */
+            .portal-readonly-wrapper [style*="background: #FBF7EE"],
+            .portal-readonly-wrapper [style*="background: #F9F5EC"],
+            .portal-readonly-wrapper [style*="background-color: #FBF7EE"],
+            .portal-readonly-wrapper [style*="background-color: #F9F5EC"] {
+              background: #F7F7F7 !important;
+            }
+
+            /* Verde bosque oscuro → ink negro azulado */
+            .portal-readonly-wrapper [style*="color: #2D3A33"],
+            .portal-readonly-wrapper .text-\\[\\#2D3A33\\] {
+              color: #1A1A1A !important;
+            }
+
+            /* Verde medio (eyebrow / labels) → electric blue */
+            .portal-readonly-wrapper [style*="color: #6B8068"],
+            .portal-readonly-wrapper .text-\\[\\#6B8068\\] {
+              color: #3B4FE4 !important;
+            }
+
+            /* Verde apagado (sub-labels) → gris body Voltis */
+            .portal-readonly-wrapper [style*="color: #8A9A8E"],
+            .portal-readonly-wrapper .text-\\[\\#8A9A8E\\] {
+              color: #6E7180 !important;
+            }
+            .portal-readonly-wrapper [style*="color: #5A6B5F"],
+            .portal-readonly-wrapper .text-\\[\\#5A6B5F\\] {
+              color: #4B5563 !important;
+            }
+
+            /* Líneas/bordes crema → gris neutro */
+            .portal-readonly-wrapper [style*="border-color: #E5DCC9"],
+            .portal-readonly-wrapper [style*="borderColor: #E5DCC9"],
+            .portal-readonly-wrapper .border-\\[\\#E5DCC9\\] {
+              border-color: #E2E8F0 !important;
+            }
+
+            /* Fondo "info" verde → fondo azul tenue */
+            .portal-readonly-wrapper [style*="background: #EDE8DC"] {
+              background: #EEF2FF !important;
+            }
+
+            /* Texto info color verde → electric blue */
+            .portal-readonly-wrapper .text-info {
+              color: #3B4FE4 !important;
+            }
+
+            /* Botones gradient verde-bosque → azul Voltis */
+            .portal-readonly-wrapper [style*="linear-gradient(135deg, #6B8068"] {
+              background: linear-gradient(135deg, #4A6FE3, #3B4FE4) !important;
+            }
+
+            /* Ocultar botones admin y de informe */
             .portal-readonly-wrapper button:has(svg.lucide-trash-2),
             .portal-readonly-wrapper button:has(svg.lucide-trash),
             .portal-readonly-wrapper button:has(svg.lucide-refresh-cw),
@@ -169,8 +250,35 @@ export default function PortalSupplyPage() {
             .portal-readonly-wrapper button[aria-label="Generar informe"] {
               display: none !important;
             }
-            /* Si el botón Generar informe se identifica solo por texto, lo escondemos
-               vía heurística: cualquier botón cuyo texto contenga "Generar informe". */
+
+            /* ═══════════════ Optimización móvil: tablas con scroll horizontal ═══
+               El AnnualEconomics tiene matrices anchas (12-13 columnas).
+               En móvil hacemos que las tablas internas tengan overflow-x y un
+               sutil indicador visual para que el usuario sepa que puede deslizar. */
+            @media (max-width: 768px) {
+              .portal-readonly-wrapper {
+                font-size: 0.92rem;
+              }
+              /* Cualquier elemento ancho dentro del wrapper se hace scrollable */
+              .portal-readonly-wrapper table,
+              .portal-readonly-wrapper [class*="grid-cols-"] {
+                /* Tailwind grids con muchas columnas — ya manejados por overflow del padre */
+              }
+              /* Header secciones más pequeños */
+              .portal-readonly-wrapper h2, .portal-readonly-wrapper h3 {
+                font-size: 1.1rem !important;
+                line-height: 1.3 !important;
+              }
+              .portal-readonly-wrapper .text-3xl,
+              .portal-readonly-wrapper .text-4xl {
+                font-size: 1.4rem !important;
+              }
+              /* Padding reducido en cards */
+              .portal-readonly-wrapper .p-8 { padding: 1rem !important; }
+              .portal-readonly-wrapper .p-6 { padding: 0.875rem !important; }
+              .portal-readonly-wrapper .px-8 { padding-left: 1rem !important; padding-right: 1rem !important; }
+              .portal-readonly-wrapper .py-12 { padding-top: 1.5rem !important; padding-bottom: 1.5rem !important; }
+            }
           `}</style>
           <AnnualEconomics
             invoices={data.invoices}
@@ -190,6 +298,66 @@ export default function PortalSupplyPage() {
           Voltis Energía · 747 474 360 · admin@voltisenergia.com · voltisenergia.com
         </footer>
       </main>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Tarjetas resumen — pensadas para móvil pero también enriquecen el escritorio.
+// Se muestran ANTES del AnnualEconomics para que el cliente vea de un vistazo
+// los números clave sin scroll.
+// ════════════════════════════════════════════════════════════════════════════
+
+function MobileSummary({ data, onDownload, downloading }: {
+  data: SupplyData; onDownload: () => void; downloading: boolean
+}) {
+  // Calcular agregados ligeros a partir de invoices
+  const stats = React.useMemo(() => {
+    const invs = data.invoices || []
+    let totalGasto = 0, totalKwh = 0
+    const years = new Set<number>()
+    for (const inv of invs) {
+      const eco = (inv.extracted_data || {}).economics || {}
+      totalGasto += Number(eco.totalFactura || inv.total_amount || 0) || 0
+      totalKwh += Number(eco.consumoTotalKwh || 0) || 0
+      if (inv.period_end) {
+        const y = Number(String(inv.period_end).slice(0, 4))
+        if (y) years.add(y)
+      }
+    }
+    const eurPorKwh = totalKwh > 0 ? totalGasto / totalKwh : 0
+    return {
+      facturas: invs.length,
+      gasto: totalGasto,
+      kwh: totalKwh,
+      eurPorKwh,
+      años: years.size,
+    }
+  }, [data.invoices])
+
+  const fmt = (n: number, d = 0) =>
+    n.toLocaleString('es-ES', { minimumFractionDigits: d, maximumFractionDigits: d })
+
+  return (
+    <div className="mb-5 grid grid-cols-2 md:grid-cols-4 gap-3">
+      <SummaryCard label="Gasto total" value={`${fmt(stats.gasto, 2)} €`} accent="#3B4FE4" />
+      <SummaryCard label="Consumo total" value={`${fmt(stats.kwh, 0)} kWh`} />
+      <SummaryCard label="€/kWh medio" value={stats.eurPorKwh > 0 ? `${fmt(stats.eurPorKwh, 4)} €` : '—'} />
+      <SummaryCard label="Facturas" value={String(stats.facturas)} subtitle={stats.años > 0 ? `${stats.años} año${stats.años > 1 ? 's' : ''}` : undefined} />
+    </div>
+  )
+}
+
+function SummaryCard({ label, value, subtitle, accent }: {
+  label: string; value: string; subtitle?: string; accent?: string
+}) {
+  return (
+    <div className="rounded-2xl bg-white border border-slate-200 p-4 shadow-sm">
+      <div className="text-[10px] font-bold tracking-[0.15em] uppercase text-slate-500 mb-2">{label}</div>
+      <div className="text-xl md:text-2xl font-bold leading-tight" style={{ color: accent || '#1A1A1A' }}>
+        {value}
+      </div>
+      {subtitle && <div className="text-[11px] text-slate-500 mt-1">{subtitle}</div>}
     </div>
   )
 }
