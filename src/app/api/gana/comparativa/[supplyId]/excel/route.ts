@@ -156,13 +156,15 @@ export async function POST(req: NextRequest, { params }: { params: { supplyId: s
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const { tipo, attach } = await req.json() as {
+    const { tipo, comercializadora, attach } = await req.json() as {
       tipo: 'fija_24h' | 'tramos' | 'mercado'
-      attach?: boolean    // si true: adjunta el Excel al supply como informe económico
+      comercializadora?: string                // 'gana' | 'nordy' | …
+      attach?: boolean
     }
     if (!['fija_24h', 'tramos', 'mercado'].includes(tipo)) {
       return NextResponse.json({ error: 'tipo inválido' }, { status: 400 })
     }
+    const targetComerc = (comercializadora || 'gana').toLowerCase()
     const supplyId = params.supplyId
 
     // 1) Supply + cliente
@@ -230,10 +232,10 @@ export async function POST(req: NextRequest, { params }: { params: { supplyId: s
       Number(consData.maxDemandedKw ?? 0),
     )
 
-    // 4) Tarifas
+    // 4) Tarifas (todas las comercializadoras)
     const { data: tarifas } = await supabase
       .from('gana_tarifas')
-      .select('id, nombre, tipo, precio_p1, precio_p2, precio_p3, potencia_p1, potencia_p2, extras_anuales')
+      .select('id, comercializadora, nombre, tipo, precio_p1, precio_p2, precio_p3, potencia_p1, potencia_p2, extras_anuales')
       .eq('vigente', true)
       .eq('tarifa_atr', '2.0TD')
 
@@ -247,7 +249,10 @@ export async function POST(req: NextRequest, { params }: { params: { supplyId: s
       potenciaMaxDemandadaKw: potenciaMaxDemandadaKw || undefined,
     })
 
-    const scenario = result.scenarios.find(s => s.tipo === tipo)
+    // Filtrar por tipo + comercializadora (puede haber 2 de mismo tipo: Gana tramos + Nordy tramos)
+    const scenario = result.scenarios.find(
+      s => s.tipo === tipo && (s.comercializadora || 'gana').toLowerCase() === targetComerc,
+    )
     if (!scenario) return NextResponse.json({ error: 'Escenario no calculable' }, { status: 400 })
 
     // ── Generar Excel ──────────────────────────────────────────────────────
@@ -278,7 +283,8 @@ export async function POST(req: NextRequest, { params }: { params: { supplyId: s
     // ─── HEADER VOLTIS ─────────────────────────────────────────────────────
     mc(ws, 1, N, 1, P, 'VOLTIS', { bold: true, size: 20, color: CLR.white, bg: CLR.salviaDark, align: 'center' })
     mc(ws, 2, N, 2, P, 'energía', { italic: true, size: 14, color: CLR.salvia, bg: CLR.salviaSoft, align: 'center' })
-    mc(ws, 3, N, 3, P, `GANA ${tariffName.toUpperCase()}`, { bold: true, size: 9, color: CLR.ink3, bg: CLR.salviaSoft, align: 'center' })
+    mc(ws, 3, N, 3, P, `${(scenario.comercializadora || 'gana').toUpperCase()} ${tariffName.toUpperCase()}`,
+       { bold: true, size: 9, color: CLR.ink3, bg: CLR.salviaSoft, align: 'center' })
     mc(ws, 1, Q, 1, R, clientName.toUpperCase(), { bold: true, size: 12, color: CLR.white, bg: CLR.salviaDark, align: 'center', wrap: true })
     mc(ws, 2, Q, 2, R, cups, { italic: true, size: 9, color: CLR.ink4, bg: CLR.crema, align: 'center' })
 
@@ -450,7 +456,8 @@ export async function POST(req: NextRequest, { params }: { params: { supplyId: s
     Object.entries(heights).forEach(([r, h]) => { ws.getRow(Number(r)).height = h })
 
     const buffer = Buffer.from(await wb.xlsx.writeBuffer())
-    const filename = `Comparativa_Gana_${tariffName.replace(/\s+/g, '_')}_${clientName.replace(/\s+/g, '_')}.xlsx`
+    const comercLabel = (scenario.comercializadora || 'gana').toLowerCase() === 'nordy' ? 'Nordy' : 'Gana'
+    const filename = `Comparativa_${comercLabel}_${tariffName.replace(/\s+/g, '_')}_${clientName.replace(/\s+/g, '_')}.xlsx`
 
     // ── Si attach=true: subir a Storage y asociar al supply ────────────────
     if (attach) {

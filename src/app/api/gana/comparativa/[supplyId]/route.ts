@@ -282,10 +282,10 @@ export async function GET(
       Number(consData.maxDemandedKw ?? 0),
     )
 
-    // 4) Tarifas Gana
+    // 4) Tarifas Gana + Nordy (todas las vigentes 2.0TD)
     const { data: tarifas } = await supabase
       .from('gana_tarifas')
-      .select('id, nombre, tipo, precio_p1, precio_p2, precio_p3, potencia_p1, potencia_p2, extras_anuales')
+      .select('id, comercializadora, nombre, tipo, precio_p1, precio_p2, precio_p3, potencia_p1, potencia_p2, extras_anuales')
       .eq('vigente', true)
       .eq('tarifa_atr', '2.0TD')
 

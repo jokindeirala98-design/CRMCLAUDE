@@ -45,6 +45,8 @@ interface PriceAnalysis {
 interface ScenarioResult {
   tipo: 'fija_24h' | 'tramos' | 'mercado'
   nombre: string
+  comercializadora: string         // 'gana' | 'nordy' | …
+  tarifaId?: string
   preciosNuevos: {
     energiaP1: number; energiaP2: number; energiaP3: number
     potenciaP1: number; potenciaP2: number
@@ -164,7 +166,7 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
   const [data, setData] = useState<ApiResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [downloading, setDownloading] = useState<string | null>(null)
+  const [downloading, setDownloading] = useState<string | null>(null)   // formato "comerc:tipo"
   const [mounted, setMounted] = useState(false)
   const [stepIdx, setStepIdx] = useState(0)
   const minLoadingDone = useRef(false)
@@ -235,22 +237,25 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
 
   async function downloadXlsx(scenario: ScenarioResult) {
     if (!data) return
+    const comercLabel = (scenario.comercializadora || 'gana').toUpperCase()
 
-    // Preguntar si quiere adjuntar al supply como informe económico
     const wantAttach = window.confirm(
-      `¿Adjuntar esta comparativa (${scenario.nombre}) a la ficha del suministro como informe económico?\n\n` +
+      `¿Adjuntar esta comparativa (${comercLabel} · ${scenario.nombre}) a la ficha del suministro como informe económico?\n\n` +
       `· Sí → se guarda automáticamente en el supply (Informe Económico) Y se descarga.\n` +
       `· Cancelar → solo se descarga, podrás subirla manualmente después.`,
     )
 
-    setDownloading(scenario.tipo)
+    const dlKey = `${scenario.comercializadora}:${scenario.tipo}`
+    setDownloading(dlKey)
     try {
-      // Usa el endpoint específico que genera Excel con los MISMOS valores
-      // commer-style que muestra la UI (no recalcula con IVA 21%).
       const res = await fetch(`/api/gana/comparativa/${supplyId}/excel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tipo: scenario.tipo, attach: wantAttach }),
+        body: JSON.stringify({
+          tipo: scenario.tipo,
+          comercializadora: scenario.comercializadora,
+          attach: wantAttach,
+        }),
       })
       if (!res.ok) {
         const j = await res.json().catch(() => null)
@@ -261,7 +266,8 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `Comparativa_Gana_${scenario.nombre.replace(/\s+/g, '_')}_${(data.supply.client_name || 'cliente').replace(/\s+/g, '_')}.xlsx`
+      const comercFile = (scenario.comercializadora || 'gana') === 'nordy' ? 'Nordy' : 'Gana'
+      a.download = `Comparativa_${comercFile}_${scenario.nombre.replace(/\s+/g, '_')}_${(data.supply.client_name || 'cliente').replace(/\s+/g, '_')}.xlsx`
       document.body.appendChild(a); a.click(); a.remove()
       URL.revokeObjectURL(url)
 
@@ -543,14 +549,19 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
 
               {/* Scenario cards */}
               {result.scenarioGroup === 'full_2tdcalc' && sortedScenarios.length > 0 && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
                   {sortedScenarios.map((sc, idx) => {
                     const meta = SCENARIO_META[sc.tipo]
                     const isBest = idx === 0 && sc.ahorroAnual > 50
                     const ahorroPositivo = sc.ahorroAnual > 0
+                    const dlKey = `${sc.comercializadora}:${sc.tipo}`
+                    const comercLabel = (sc.comercializadora || 'gana').toUpperCase()
+                    const comercColor = sc.comercializadora === 'nordy'
+                      ? 'bg-indigo-100 text-indigo-700'
+                      : 'bg-emerald-100 text-emerald-700'
                     return (
                       <div
-                        key={sc.tipo}
+                        key={dlKey}
                         className={`relative rounded-3xl bg-gradient-to-br ${meta.bgFrom} ${meta.bgTo} border border-stone-200 p-5 flex flex-col shadow-sm ${
                           isBest ? `ring-2 ring-offset-2 ${meta.ring}` : ''
                         }`}
@@ -562,7 +573,12 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
                         )}
 
                         <div className="mb-4">
-                          <div className="text-2xl mb-1">{meta.emoji}</div>
+                          <div className="flex items-center justify-between mb-1">
+                            <div className="text-2xl">{meta.emoji}</div>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-wide ${comercColor}`}>
+                              {comercLabel}
+                            </span>
+                          </div>
                           <div className="font-bold text-lg text-stone-900">{meta.label}</div>
                           <div className="text-xs text-stone-600 mt-0.5">{meta.subtitle}</div>
                         </div>
@@ -585,9 +601,9 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
                         </div>
 
                         <div className="space-y-1.5 text-xs text-stone-700 pt-3">
-                          <Row label="Factura mensual Gana:" value={fmtEur(sc.costeMensualGana)} mono />
-                          <Row label="Coste anual actual:"  value={fmtEur(sc.costeActualAnual)} mono />
-                          <Row label="Coste anual Gana:"    value={fmtEur(sc.desglose.costeAnualConIva)} mono />
+                          <Row label={`Factura mensual ${comercLabel}:`} value={fmtEur(sc.costeMensualGana)} mono />
+                          <Row label="Coste anual actual:"               value={fmtEur(sc.costeActualAnual)} mono />
+                          <Row label={`Coste anual ${comercLabel}:`}     value={fmtEur(sc.desglose.costeAnualConIva)} mono />
                         </div>
 
                         <details className="mt-3 text-xs text-stone-600">
@@ -615,14 +631,14 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
 
                         <button
                           onClick={() => downloadXlsx(sc)}
-                          disabled={downloading === sc.tipo}
+                          disabled={downloading === dlKey}
                           className={`mt-4 w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all disabled:opacity-50 ${
                             isBest
                               ? 'bg-stone-900 text-white hover:bg-stone-800 shadow-md'
                               : 'bg-white text-stone-900 border border-stone-300 hover:bg-stone-50'
                           }`}
                         >
-                          {downloading === sc.tipo
+                          {downloading === dlKey
                             ? <Loader2 className="w-4 h-4 animate-spin" />
                             : <Download className="w-4 h-4" />}
                           Descargar Excel

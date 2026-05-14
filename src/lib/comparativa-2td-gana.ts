@@ -119,6 +119,8 @@ export interface PriceAnalysis {
 export interface ScenarioGanaInput {
   tipo: GanaTarifaTipo
   nombre: string
+  comercializadora: string         // 'gana' | 'nordy' | ...
+  tarifaId?: string                 // uuid en gana_tarifas (para identificar exacta)
   precioP1: number
   precioP2: number
   precioP3: number
@@ -130,6 +132,8 @@ export interface ScenarioGanaInput {
 export interface ScenarioResult {
   tipo: GanaTarifaTipo
   nombre: string
+  comercializadora: string
+  tarifaId?: string
   preciosNuevos: {
     energiaP1: number; energiaP2: number; energiaP3: number
     potenciaP1: number; potenciaP2: number
@@ -339,6 +343,8 @@ function calcularEscenarioCommer(
   return {
     tipo: scenario.tipo,
     nombre: scenario.nombre,
+    comercializadora: scenario.comercializadora,
+    tarifaId: scenario.tarifaId,
     preciosNuevos: {
       energiaP1: scenario.precioP1, energiaP2: scenario.precioP2, energiaP3: scenario.precioP3,
       potenciaP1: scenario.potenciaP1, potenciaP2: scenario.potenciaP2,
@@ -366,6 +372,7 @@ function calcularCosteActual(input: InputComparativa2td): number {
   // Vía 2: fórmula con precios actuales
   const scenario: ScenarioGanaInput = {
     tipo: 'tramos', nombre: 'Actual',
+    comercializadora: 'actual',
     precioP1: input.currentEnergyP1, precioP2: input.currentEnergyP2, precioP3: input.currentEnergyP3,
     potenciaP1: input.currentPowerP1, potenciaP2: input.currentPowerP2,
     managementFeeDay: 0,
@@ -602,6 +609,7 @@ export function computarComparativaGana(args: ComputarComparativaArgs): Comparat
 
 export interface GanaTarifaRow {
   id: string
+  comercializadora?: string         // 'gana' | 'nordy' | …
   nombre: string
   tipo: GanaTarifaTipo
   precio_p1: number | null
@@ -613,38 +621,67 @@ export interface GanaTarifaRow {
   management_fee_day?: number | null
 }
 
+/**
+ * Construye los ScenarioGanaInput agrupando por comercializadora.
+ * Acepta tarifas de múltiples comercializadoras (Gana, Nordy, …).
+ * Para cada comercializadora, 24H y Tramos comparten potencias.
+ * Devuelve todos los escenarios disponibles (5 = 3 Gana + 2 Nordy actualmente).
+ */
 export function buildScenariosFromTarifas(rows: GanaTarifaRow[]): ScenarioGanaInput[] {
-  const f24 = rows.find(r => r.tipo === 'fija_24h')
-  const tra = rows.find(r => r.tipo === 'tramos')
-  const mer = rows.find(r => r.tipo === 'mercado')
-
-  const sharedPotP1 = f24?.potencia_p1 ?? tra?.potencia_p1 ?? 0
-  const sharedPotP2 = f24?.potencia_p2 ?? tra?.potencia_p2 ?? 0
-
-  const mercadoFeeDay = mer?.extras_anuales
-    ? (mer.extras_anuales / 365)
-    : (mer?.management_fee_day ?? 0)
+  // Agrupar por comercializadora
+  const groups = new Map<string, GanaTarifaRow[]>()
+  for (const r of rows) {
+    const comerc = (r.comercializadora || 'gana').toLowerCase()
+    const arr = groups.get(comerc) || []
+    arr.push(r)
+    groups.set(comerc, arr)
+  }
 
   const scenarios: ScenarioGanaInput[] = []
-  if (f24) scenarios.push({
-    tipo: 'fija_24h', nombre: f24.nombre,
-    precioP1: f24.precio_p1 ?? 0,
-    precioP2: f24.precio_p2 ?? f24.precio_p1 ?? 0,
-    precioP3: f24.precio_p3 ?? f24.precio_p1 ?? 0,
-    potenciaP1: sharedPotP1, potenciaP2: sharedPotP2,
-    managementFeeDay: f24.management_fee_day ?? 0,
-  })
-  if (tra) scenarios.push({
-    tipo: 'tramos', nombre: tra.nombre,
-    precioP1: tra.precio_p1 ?? 0, precioP2: tra.precio_p2 ?? 0, precioP3: tra.precio_p3 ?? 0,
-    potenciaP1: sharedPotP1, potenciaP2: sharedPotP2,
-    managementFeeDay: tra.management_fee_day ?? 0,
-  })
-  if (mer) scenarios.push({
-    tipo: 'mercado', nombre: mer.nombre,
-    precioP1: mer.precio_p1 ?? 0, precioP2: mer.precio_p2 ?? 0, precioP3: mer.precio_p3 ?? 0,
-    potenciaP1: mer.potencia_p1 ?? 0, potenciaP2: mer.potencia_p2 ?? 0,
-    managementFeeDay: mercadoFeeDay,
-  })
+
+  for (const [comerc, list] of groups.entries()) {
+    const f24 = list.find(r => r.tipo === 'fija_24h')
+    const tra = list.find(r => r.tipo === 'tramos')
+    const mer = list.find(r => r.tipo === 'mercado')
+
+    // Dentro de cada comercializadora, 24H y Tramos comparten potencias
+    const sharedPotP1 = f24?.potencia_p1 ?? tra?.potencia_p1 ?? 0
+    const sharedPotP2 = f24?.potencia_p2 ?? tra?.potencia_p2 ?? 0
+
+    const mercadoFeeDay = mer?.extras_anuales
+      ? (mer.extras_anuales / 365)
+      : (mer?.management_fee_day ?? 0)
+
+    if (f24) scenarios.push({
+      tipo: 'fija_24h',
+      nombre: f24.nombre,
+      comercializadora: comerc,
+      tarifaId: f24.id,
+      precioP1: f24.precio_p1 ?? 0,
+      precioP2: f24.precio_p2 ?? f24.precio_p1 ?? 0,
+      precioP3: f24.precio_p3 ?? f24.precio_p1 ?? 0,
+      potenciaP1: sharedPotP1, potenciaP2: sharedPotP2,
+      managementFeeDay: f24.management_fee_day ?? 0,
+    })
+    if (tra) scenarios.push({
+      tipo: 'tramos',
+      nombre: tra.nombre,
+      comercializadora: comerc,
+      tarifaId: tra.id,
+      precioP1: tra.precio_p1 ?? 0, precioP2: tra.precio_p2 ?? 0, precioP3: tra.precio_p3 ?? 0,
+      potenciaP1: sharedPotP1, potenciaP2: sharedPotP2,
+      managementFeeDay: tra.management_fee_day ?? 0,
+    })
+    if (mer) scenarios.push({
+      tipo: 'mercado',
+      nombre: mer.nombre,
+      comercializadora: comerc,
+      tarifaId: mer.id,
+      precioP1: mer.precio_p1 ?? 0, precioP2: mer.precio_p2 ?? 0, precioP3: mer.precio_p3 ?? 0,
+      potenciaP1: mer.potencia_p1 ?? 0, potenciaP2: mer.potencia_p2 ?? 0,
+      managementFeeDay: mercadoFeeDay,
+    })
+  }
+
   return scenarios
 }
