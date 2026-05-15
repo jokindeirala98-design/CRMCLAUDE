@@ -3,16 +3,22 @@
  *
  * Convención del usuario:
  *   • Comparativa:        `comparativa_{cups4}_{tarifa}.{ext}`
- *                         ej. `comparativa_1910_2.0.xlsx`
+ *                         ej. `comparativa_10ST_2.0.xlsx`
  *   • Factura cliente:    `{cups4}_{periodo}_{cliente}.{ext}`
- *                         ej. `1910_Mayo2025_AyuntamientoOrcoyen.pdf`
- *   • Excel suministro:   `suministro_{cups4}.xlsx`
+ *                         ej. `10ST_Mayo2025_AyuntamientoOrcoyen.pdf`
+ *   • Excel suministro:   `suministro_{cups4}_{cliente}.xlsx`
  *   • Excel global:       `voltis_{cliente}_{año|global}.xlsx`
  *   • Dossier acceso:     `voltis_acceso_{cliente}.pdf`
  *
+ * Para descargas no especificadas explícitamente por el usuario, usar
+ * `genericFilename()` que aplica la misma filosofía:
+ *   • Empieza por contexto reconocible (ej. "estudio", "informe", "factura").
+ *   • Incluye cups4 si hay supply asociado.
+ *   • Termina con periodo (mes/año) si es temporal, o "Cliente" si es global.
+ *
  * Reglas comunes:
- *   - cups4 = los 4 ÚLTIMOS DÍGITOS del CUPS (excluye las 2 letras finales).
- *     Ej: ES0021000006851910ST → 1910;  ES0226060006587544JC → 7544
+ *   - cups4 = los 4 ÚLTIMOS caracteres del CUPS INCLUYENDO las 2 letras finales.
+ *     Ej: ES0021000006851910ST → 10ST;  ES0226060006587544JC → 44JC
  *   - tarifa = "2.0", "3.0", "6.1", "RL.4"… (mantiene formato original)
  *   - periodo = "Mayo2025" (mes en mayúscula primera, sin espacio, año)
  *   - cliente = PascalCase sin acentos ni espacios. Truncado a 30 chars.
@@ -50,18 +56,24 @@ export function clientNameForFile(name?: string | null, max = 30): string {
 }
 
 /**
- * Extrae los 4 últimos DÍGITOS del CUPS.
+ * Extrae los 4 últimos caracteres del CUPS, INCLUIDAS las 2 letras de
+ * verificación finales.
  *
  * Un CUPS español tiene formato `ES XXXX XXXX XXXX XXXX LL` (18 dígitos + 2
- * letras de verificación). Devolvemos los 4 últimos dígitos antes de las
- * letras, que es el identificador visual habitual en Voltis.
+ * letras de verificación). Devolvemos los 4 últimos chars del string limpio
+ * (sin espacios), que es el identificador que Voltis usa habitualmente.
  *
- * Si el CUPS está mal formado o ausente, devolvemos `0000`.
+ * Ejemplos:
+ *   • ES0021000006851910ST → "10ST"
+ *   • ES0226060006587544JC → "44JC"
+ *   • ES0021000013357495NN → "95NN"
+ *
+ * Si el CUPS está mal formado o ausente, devolvemos `XXXX`.
  */
 export function cupsLast4(cups?: string | null): string {
-  if (!cups) return '0000'
-  const onlyDigits = cups.replace(/[^0-9]/g, '')
-  return (onlyDigits.slice(-4) || '0000').padStart(4, '0')
+  if (!cups) return 'XXXX'
+  const clean = cups.toUpperCase().replace(/\s+/g, '')
+  return clean.slice(-4) || 'XXXX'
 }
 
 /**
@@ -167,4 +179,72 @@ export function clientExcelFilename(opts: {
 export function dossierFilename(opts: { clientName?: string | null }): string {
   const client = clientNameForFile(opts.clientName)
   return `voltis_acceso_${client}.pdf`
+}
+
+/**
+ * Nombre genérico Voltis para descargas no contempladas explícitamente.
+ *
+ * Filosofía:
+ *   `{tipo}_{cups4?}_{periodo?|cliente?}.{ext}`
+ *
+ * Todo es opcional menos `tipo`. Solo se incluyen los segmentos relevantes
+ * para el caso. Ejemplos:
+ *
+ *   • genericFilename({ tipo: 'informe-potencias', cups: '...', supplyName: '...' })
+ *     → `informe-potencias_10ST_AyuntamientoOrcoyen.pdf`
+ *
+ *   • genericFilename({ tipo: 'liquidacion', clientName: 'Voltis', date: '2026-05-14' })
+ *     → `liquidacion_Voltis_Mayo2026.pdf`
+ *
+ *   • genericFilename({ tipo: 'prescoring', cups: '...', ext: 'xlsx' })
+ *     → `prescoring_10ST.xlsx`
+ *
+ *   • genericFilename({ tipo: 'backup', date: '2026-05-14' })
+ *     → `backup_2026-05-14.zip`
+ *
+ * Si quieres usar una variante de nombre concreta (PascalCase, kebab),
+ * la pasas tal cual y se preserva en el filename.
+ */
+export function genericFilename(opts: {
+  /** Etiqueta del tipo de documento. Se preserva tal cual (ej. "informe-potencias"). */
+  tipo: string
+  /** Si pertenece a un supply concreto, añade los últimos 4 chars del CUPS. */
+  cups?: string | null
+  /** Para informes con fecha (mes/año). */
+  date?: string | Date | null
+  /** Cliente o nombre descriptivo. */
+  clientName?: string | null
+  supplyName?: string | null
+  /** Año o periodo explícito (alternativa a date). */
+  year?: number | string | null
+  /** Extensión (sin punto). Por defecto pdf. */
+  ext?: string
+  /** Si quieres añadir una etiqueta extra al final (ej. "v2", "borrador"). */
+  suffix?: string | null
+}): string {
+  const segments: string[] = [sanitizeForFilename(opts.tipo).replace(/\s+/g, '-')]
+
+  if (opts.cups) segments.push(cupsLast4(opts.cups))
+
+  if (opts.supplyName && !opts.cups) {
+    segments.push(sanitizeForFilename(opts.supplyName).replace(/\s+/g, ''))
+  }
+
+  if (opts.clientName) {
+    segments.push(clientNameForFile(opts.clientName))
+  }
+
+  if (opts.date) {
+    const p = periodForFile(opts.date)
+    if (p) segments.push(p)
+  } else if (opts.year != null) {
+    segments.push(String(opts.year))
+  }
+
+  if (opts.suffix) {
+    segments.push(sanitizeForFilename(opts.suffix).replace(/\s+/g, ''))
+  }
+
+  const ext = (opts.ext || 'pdf').replace(/^\.+/, '')
+  return segments.filter(Boolean).join('_') + '.' + ext
 }
