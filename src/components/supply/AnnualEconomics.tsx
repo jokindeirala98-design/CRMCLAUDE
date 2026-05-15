@@ -914,7 +914,7 @@ function ReExtractBanner({ invoices, onDone }: { invoices: InvoiceRow[]; onDone:
 
 // ─── FileTable View ──────────────────────────────────────────────────────────
 
-function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, authoritativeType, potenciaContratada, supplyCups, clientNameForFile }: {
+function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, authoritativeType, potenciaContratada, supplyCups, clientNameForFile, defaultTitular, defaultCif, defaultAddress }: {
   invoices: InvoiceRow[]
   onRescan?: (inv: InvoiceRow) => void
   onDelete?: (inv: InvoiceRow) => void
@@ -926,6 +926,13 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
   supplyCups?: string
   /** Nombre del cliente, para los nombres de archivo de facturas. */
   clientNameForFile?: string
+  /** Defaults a usar cuando la factura no trae el dato extraído.
+   *  El cliente y suministro son los mismos para todas las facturas, así
+   *  que cuando el extractor no haya pillado el titular/CIF/dirección,
+   *  mostramos los datos canónicos de la BD en su lugar. */
+  defaultTitular?: string | null
+  defaultCif?: string | null
+  defaultAddress?: string | null
 }) {
   type RowDef = {
     key: string
@@ -961,19 +968,19 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
     },
     {
       key: 'titular', label: 'TITULAR',
-      render: (eco) => <span className="text-[#4F5C53] text-sm">{eco?.titular || '—'}</span>,
+      render: (eco) => <span className="text-[#4F5C53] text-sm">{eco?.titular || defaultTitular || '—'}</span>,
     },
     {
       key: 'nifCif', label: 'NIF / CIF',
-      render: (eco, inv) => <span className="text-[#4F5C53] text-sm font-mono">{eco?.holder_cif_nif || (inv.extracted_data?.holder_cif_nif as string) || '—'}</span>,
+      render: (eco, inv) => <span className="text-[#4F5C53] text-sm font-mono">{eco?.holder_cif_nif || (inv.extracted_data?.holder_cif_nif as string) || defaultCif || '—'}</span>,
     },
     {
       key: 'cups', label: 'CUPS',
-      render: (eco, inv) => <span className="text-[#4F5C53] text-xs font-mono">{eco?.cups || inv.extracted_data?.cups || '—'}</span>,
+      render: (eco, inv) => <span className="text-[#4F5C53] text-xs font-mono">{eco?.cups || inv.extracted_data?.cups || supplyCups || '—'}</span>,
     },
     {
       key: 'supplyAddress', label: 'DIRECCIÓN SUMINISTRO',
-      render: (eco, inv) => <span className="text-[#4F5C53] text-xs">{eco?.supply_address || (inv.extracted_data?.supply_address as string) || '—'}</span>,
+      render: (eco, inv) => <span className="text-[#4F5C53] text-xs">{eco?.supply_address || (inv.extracted_data?.supply_address as string) || defaultAddress || '—'}</span>,
     },
     {
       key: 'tarifa', label: 'TARIFA',
@@ -4899,6 +4906,9 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
           potenciaContratada={potenciaContratada}
           supplyCups={invoices[0]?.extracted_data?.cups}
           clientNameForFile={clientName || supplyNameProp}
+          defaultTitular={clientName}
+          defaultCif={undefined}
+          defaultAddress={supplyNameProp}
         />
       ) : (
         <div className="flex flex-col items-center justify-center py-16 text-[#8A9A8E] gap-3">

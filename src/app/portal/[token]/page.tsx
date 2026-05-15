@@ -10,13 +10,15 @@ import { useParams, useRouter } from 'next/navigation'
 import {
   ArrowLeft, Loader2, AlertCircle, Zap, Flame, AlertTriangle,
   TrendingDown, TrendingUp, ChevronRight, Sparkles, Lightbulb,
-  Activity, BarChart3, Target, Award, Download,
+  Activity, BarChart3, Target, Award, Download, Info,
 } from 'lucide-react'
 import { computarOverview, type OverviewMode } from '@/lib/economic-overview'
 import { clientExcelFilename } from '@/lib/utils/download-names'
 
-type Mode = 'last12' | 'previous_year' | 'custom'
+type Mode = 'global' | 'year' | 'custom'
 type TypeFilter = 'all' | 'luz' | 'gas'
+// El motor `computarOverview` espera 'last12' | 'previous_year' | 'custom'.
+// Mapeamos nuestro Mode UI → ese tipo internamente.
 
 // Datos crudos que llegan del endpoint en modo ?raw=1
 interface RawDataset {
@@ -102,7 +104,8 @@ export default function PortalGlobalPage() {
 
   // Estado completo declarado primero
   const [clientId, setClientId] = useState<string>('')
-  const [mode, setMode] = useState<Mode>('last12')
+  const [mode, setMode] = useState<Mode>('global')
+  const [yearSelected, setYearSelected] = useState<number | null>(null)
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
@@ -111,6 +114,19 @@ export default function PortalGlobalPage() {
   const [error, setError] = useState<string | null>(null)
 
   const customReady = mode !== 'custom' || (from && to)
+
+  // Años disponibles a partir de las facturas (descendente, sin duplicados)
+  const availableYears = useMemo(() => {
+    if (!raw) return []
+    const ys = new Set<number>()
+    for (const inv of raw.invoices) {
+      const d = inv.period_end || inv.period_start
+      if (!d) continue
+      const y = new Date(d).getFullYear()
+      if (!isNaN(y) && y > 1990) ys.add(y)
+    }
+    return [...ys].sort((a, b) => b - a)
+  }, [raw])
 
   // ── One-shot init: auth + dataset en UNA SOLA request ──
   // Sustituye los dos useEffect anteriores (auth → data secuenciales).
@@ -145,15 +161,35 @@ export default function PortalGlobalPage() {
 
   // ── Cómputo client-side ──
   // Se reejecuta cuando cambian los filtros pero NO hace fetch.
+  // Mapping del Mode UI → OverviewMode del motor:
+  //   • 'global' → 'last12' (12 facturas más recientes por supply)
+  //   • 'year'   → 'custom' con from=YYYY-01-01, to=YYYY-12-31
+  //   • 'custom' → 'custom' con las fechas seleccionadas
   const data: Overview | null = useMemo(() => {
     if (!raw || !customReady) return null
     try {
+      let engineMode: OverviewMode = 'last12'
+      let engineFrom: string | undefined
+      let engineTo: string | undefined
+
+      if (mode === 'global') {
+        engineMode = 'last12'
+      } else if (mode === 'year' && yearSelected) {
+        engineMode = 'custom'
+        engineFrom = `${yearSelected}-01-01`
+        engineTo = `${yearSelected}-12-31`
+      } else if (mode === 'custom') {
+        engineMode = 'custom'
+        engineFrom = from
+        engineTo = to
+      }
+
       const result = computarOverview({
         supplies: raw.supplies,
         invoices: raw.invoices,
-        mode: mode as OverviewMode,
-        from: mode === 'custom' ? from : undefined,
-        to: mode === 'custom' ? to : undefined,
+        mode: engineMode,
+        from: engineFrom,
+        to: engineTo,
         typeFilter,
       })
       return { client: raw.client, ...result } as Overview
@@ -161,17 +197,13 @@ export default function PortalGlobalPage() {
       console.error('[overview compute]', e)
       return null
     }
-  }, [raw, mode, typeFilter, from, to, customReady])
+  }, [raw, mode, yearSelected, typeFilter, from, to, customReady])
 
-  if (loading && !data) {
+  if (loading && !raw) {
     return <PortalSkeleton />
   }
 
-  if (!customReady && !data) {
-    return <CustomEmptyState clientId={clientId} mode={mode} setMode={setMode} from={from} to={to} setFrom={setFrom} setTo={setTo} typeFilter={typeFilter} setTypeFilter={setTypeFilter} router={router} />
-  }
-
-  if (error || !data) {
+  if (!raw) {
     return (
       <div style={{ background: '#F0F6FF', minHeight: '100vh', padding: '3rem' }}>
         <div className="max-w-2xl mx-auto p-6 rounded-2xl bg-white border border-red-200 flex items-center gap-3 text-red-700">
@@ -181,6 +213,10 @@ export default function PortalGlobalPage() {
       </div>
     )
   }
+
+  // El Header se muestra SIEMPRE (incluso si todavía no hay data por filtros
+  // incompletos). Usa raw.client para no perder el nombre del cliente.
+  const headerClient = data?.client || raw.client
 
   return (
     <div className="voltis-overview font-sans" style={{ background: '#F0F6FF', minHeight: '100vh', color: '#1E293B' }}>
@@ -193,9 +229,31 @@ export default function PortalGlobalPage() {
         }
       `}</style>
 
-      <Header data={data} mode={mode} setMode={setMode} from={from} to={to} setFrom={setFrom} setTo={setTo}
-        typeFilter={typeFilter} setTypeFilter={setTypeFilter} router={router} />
+      <Header
+        client={headerClient}
+        totals={data?.totals}
+        windowDescription={data?.windowDescription}
+        mode={mode} setMode={setMode}
+        yearSelected={yearSelected} setYearSelected={setYearSelected}
+        availableYears={availableYears}
+        from={from} to={to} setFrom={setFrom} setTo={setTo}
+        typeFilter={typeFilter} setTypeFilter={setTypeFilter}
+        router={router}
+      />
 
+      {/* Mientras esperamos a que el modo Personalizado tenga fechas, mostramos
+          mensaje informativo en vez de pantalla en blanco. */}
+      {!customReady || !data ? (
+        <section className="px-6 md:px-12 -mt-12 relative z-10">
+          <div className="rounded-2xl bg-white p-8 text-center text-slate-600 shadow-lg">
+            {mode === 'custom' && !customReady
+              ? 'Selecciona la fecha de inicio y fin del rango personalizado.'
+              : 'Sin datos para los filtros seleccionados.'}
+          </div>
+        </section>
+      ) : null}
+
+      {data && customReady && (<>
       {/* KPIs principales */}
       <section className="px-6 md:px-12 -mt-12 pb-8 relative z-10">
         <KpiGrid totals={data.totals} />
@@ -259,16 +317,49 @@ export default function PortalGlobalPage() {
         </section>
       )}
 
-      <footer className="px-6 md:px-12 py-10 border-t border-blue-100 mt-8 text-xs text-slate-500 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <BuddyIcon size={20} />
-          <span>Voltis Energía · Estudio económico global</span>
-        </div>
-        <span className="num">
-          Generado {new Date().toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })}
-        </span>
-      </footer>
+      </>)}
+
+      <PortalFooter />
     </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// FOOTER — mascota Voltis + contacto destacado.
+// El cliente termina la página viendo el rostro Voltis y los datos para
+// contactar si tiene cualquier consulta. Es la "firma" del portal.
+// ════════════════════════════════════════════════════════════════════════════
+
+function PortalFooter() {
+  return (
+    <footer className="px-6 md:px-12 py-12 mt-8 border-t border-blue-100 bg-white">
+      <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center gap-6">
+        <BuddyIcon size={88} />
+        <div className="flex-1 text-center md:text-left">
+          <p className="text-base font-semibold text-slate-800 mb-1">
+            ¿Tienes alguna duda con tus datos?
+          </p>
+          <p className="text-sm text-slate-600 leading-relaxed">
+            Para cualquier consulta sobre tus suministros, facturas o este estudio energético,
+            escríbenos a{' '}
+            <a href="mailto:clientes@voltisenergia.com" className="font-semibold text-[#3B4FE4] hover:underline">
+              clientes@voltisenergia.com
+            </a>
+            {' '}o llámanos al{' '}
+            <a href="tel:+34747474360" className="font-semibold text-[#3B4FE4] hover:underline whitespace-nowrap">
+              747 474 360
+            </a>
+            . Te respondemos en menos de 24h.
+          </p>
+        </div>
+        <div className="text-right text-xs text-slate-500">
+          <div className="font-semibold text-slate-700">Voltis Energía</div>
+          <div className="num mt-1">
+            Generado {new Date().toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })}
+          </div>
+        </div>
+      </div>
+    </footer>
   )
 }
 
@@ -276,7 +367,14 @@ export default function PortalGlobalPage() {
 // HEADER (hero azul con Buddy)
 // ════════════════════════════════════════════════════════════════════════════
 
-function Header({ data, mode, setMode, from, to, setFrom, setTo, typeFilter, setTypeFilter, router }: any) {
+function Header({
+  client, totals, windowDescription,
+  mode, setMode, yearSelected, setYearSelected, availableYears,
+  from, to, setFrom, setTo, typeFilter, setTypeFilter, router,
+}: any) {
+  const suministros = totals?.suministrosCount
+  const facturas = totals?.invoicesCount
+
   return (
     <header className="relative overflow-hidden pb-20" style={{
       background: 'linear-gradient(135deg, #A8C8F0 0%, #6FA0E8 60%, #4A6FE3 100%)',
@@ -301,23 +399,41 @@ function Header({ data, mode, setMode, from, to, setFrom, setTo, typeFilter, set
               Estudio económico global
             </div>
             <h1 className="text-4xl md:text-5xl font-bold text-white leading-tight">
-              {data.client.name}
+              {client?.name || 'Cliente'}
             </h1>
             <p className="text-sm text-white/80 mt-2">
-              {data.windowDescription}{' · '}
-              {data.totals.suministrosCount} suministros{' · '}
-              {data.totals.invoicesCount} facturas analizadas
+              {windowDescription ? `${windowDescription} · ` : ''}
+              {suministros != null ? `${suministros} suministros · ` : ''}
+              {facturas != null ? `${facturas} facturas analizadas` : 'Cargando…'}
             </p>
           </div>
-          <DownloadGlobalExcelButton clientId={data.client.id} clientName={data.client.name} mode={mode} from={from} to={to} typeFilter={typeFilter} />
+          {client?.id && (
+            <DownloadGlobalExcelButton
+              clientId={client.id} clientName={client.name}
+              mode={mode} from={from} to={to} typeFilter={typeFilter}
+              yearSelected={yearSelected}
+            />
+          )}
         </div>
 
-        {/* Filtros */}
+        {/* Filtros — Periodo */}
         <div className="flex flex-wrap items-center gap-2 mt-8">
           <span className="text-[10px] font-bold tracking-wider text-white/70 uppercase mr-2">Periodo</span>
-          <Chip active={mode === 'last12'} onClick={() => setMode('last12')}>Últimas 12 facturas</Chip>
-          <Chip active={mode === 'previous_year'} onClick={() => setMode('previous_year')}>Año pasado ({new Date().getFullYear() - 1})</Chip>
-          <Chip active={mode === 'custom'} onClick={() => setMode('custom')}>Personalizado</Chip>
+          <Chip active={mode === 'global'} onClick={() => { setMode('global'); setYearSelected(null) }}>
+            Global
+          </Chip>
+          {availableYears.map((yr: number) => (
+            <Chip
+              key={yr}
+              active={mode === 'year' && yearSelected === yr}
+              onClick={() => { setMode('year'); setYearSelected(yr) }}
+            >
+              {yr}
+            </Chip>
+          ))}
+          <Chip active={mode === 'custom'} onClick={() => setMode('custom')}>
+            Personalizado
+          </Chip>
           {mode === 'custom' && (
             <div className="flex items-center gap-2 ml-2">
               <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="px-3 py-1.5 text-xs rounded-xl bg-white/95 text-slate-700 num" />
@@ -418,8 +534,9 @@ function prefetchSupply(supplyId: string) {
 // Botón Descargar Excel global
 // ════════════════════════════════════════════════════════════════════════════
 
-function DownloadGlobalExcelButton({ clientId, clientName, mode, from, to, typeFilter }: {
+function DownloadGlobalExcelButton({ clientId, clientName, mode, from, to, typeFilter, yearSelected }: {
   clientId: string; clientName?: string; mode: string; from?: string; to?: string; typeFilter: string
+  yearSelected?: number | null
 }) {
   const [loading, setLoading] = useState(false)
   const handle = async () => {
@@ -427,9 +544,9 @@ function DownloadGlobalExcelButton({ clientId, clientName, mode, from, to, typeF
     setLoading(true)
     try {
       const qs = new URLSearchParams()
-      // Mapeo simple: si el modo es 'previous_year' enviamos year explícito,
-      // si es 'custom' delegamos en el endpoint a usar el rango via from/to.
-      if (mode === 'previous_year') qs.set('year', String(new Date().getFullYear() - 1))
+      // Cuando el modo es 'year' enviamos el año explícito.
+      // 'global' y 'custom' delegan en el endpoint (rango por defecto).
+      if (mode === 'year' && yearSelected) qs.set('year', String(yearSelected))
       if (typeFilter && typeFilter !== 'all') qs.set('type', typeFilter)
       const res = await fetch(`/api/public/v1/clients/${clientId}/export/global?${qs.toString()}`)
       if (!res.ok) throw new Error('No se pudo generar el Excel global')
@@ -439,7 +556,7 @@ function DownloadGlobalExcelButton({ clientId, clientName, mode, from, to, typeF
       a.href = url
       a.download = clientExcelFilename({
         clientName,
-        year: mode === 'previous_year' ? new Date().getFullYear() - 1 : null,
+        year: mode === 'year' && yearSelected ? yearSelected : null,
       })
       document.body.appendChild(a); a.click(); a.remove()
       URL.revokeObjectURL(url)
@@ -543,23 +660,21 @@ function Kpi({ icon, label, value, unit, hint, big = false }: any) {
 // ════════════════════════════════════════════════════════════════════════════
 
 function CoberturaBanner({ totals, fechaSips }: { totals: Overview['totals']; fechaSips: string | null }) {
+  // Banner INFORMATIVO en tono neutro. No es una alerta: la cobertura puede
+  // ser <100% porque el cliente ha facturado solo parte del año (ej. activación
+  // a mitad de año), no porque algo esté "mal" en el estudio.
   const cobertura = totals.coberturaFacturasPct
-  const baja = cobertura < 75
-  const muyBaja = cobertura < 40
-  const color = muyBaja ? '#FEE2E2' : baja ? '#FEF3C7' : '#DCFCE7'
-  const colorBorder = muyBaja ? '#FCA5A5' : baja ? '#FCD34D' : '#86EFAC'
-  const colorText = muyBaja ? '#991B1B' : baja ? '#92400E' : '#166534'
+  const sinFacturas = totals.suministrosSinConsumo > 0
 
   return (
-    <div className="rounded-2xl p-4 flex items-center gap-3 border" style={{ background: color, borderColor: colorBorder }}>
-      <AlertTriangle className="w-5 h-5 flex-shrink-0" style={{ color: colorText }} />
-      <div className="flex-1 text-sm" style={{ color: colorText }}>
-        <span className="font-bold">{fmtPct(cobertura)} de cobertura.</span>{' '}
-        Las facturas analizadas cubren {fmt(totals.consumoFacturadoTotalKwh, 0)} kWh de los {fmt(totals.consumoTotalKwh, 0)} kWh anuales del cliente (SIPS/Excel).
-        {fechaSips && <span> Datos SIPS actualizados: {new Date(fechaSips).toLocaleDateString('es-ES')}.</span>}
-        {totals.suministrosSinConsumo > 0 && (
-          <span> {totals.suministrosSinConsumo} suministros sin consumo SIPS registrado.</span>
-        )}
+    <div className="rounded-2xl px-4 py-3 flex items-start gap-3 border bg-blue-50/60 border-blue-200">
+      <Info className="w-4 h-4 flex-shrink-0 text-blue-600 mt-0.5" />
+      <div className="flex-1 text-xs text-slate-600 leading-relaxed">
+        <span className="font-semibold text-slate-800">Cobertura {fmtPct(cobertura)}.</span>{' '}
+        Las facturas analizadas cubren <span className="num">{fmt(totals.consumoFacturadoTotalKwh, 0)}</span> kWh
+        de los <span className="num">{fmt(totals.consumoTotalKwh, 0)}</span> kWh anuales totales según SIPS/distribuidora.
+        {fechaSips && <span> Datos oficiales actualizados a {new Date(fechaSips).toLocaleDateString('es-ES')}.</span>}
+        {sinFacturas && <span> {totals.suministrosSinConsumo} suministros aún sin consumo SIPS registrado.</span>}
       </div>
     </div>
   )
@@ -913,20 +1028,54 @@ function TarifaTable({ items, totalGasto }: any) {
   )
 }
 
+// Mapping de códigos de distribuidora a nombres reconocibles.
+// Los códigos vienen del SIPS — el cliente final no los entiende.
+const DISTRIBUIDORA_NAMES: Record<string, string> = {
+  '0021': 'Iberdrola Distribución',
+  '0022': 'Endesa Distribución',
+  '0023': 'Naturgy Distribución (Unión Fenosa)',
+  '0024': 'EDP Distribución (HC Energía)',
+  '0026': 'Viesgo Distribución',
+  '0029': 'E·redes (Iberdrola)',
+  '0288': 'i-DE Redes Eléctricas',
+  '0226': 'Nedgia Navarra (gas)',
+  '0225': 'Nedgia (gas)',
+  '0234': 'Madrileña Red de Gas',
+  '0235': 'Redexis Gas',
+  '0236': 'Nortegas',
+}
+
+function prettyDistribuidora(raw: string): string {
+  if (!raw || raw === 'Sin distribuidora' || raw === '—') return 'Distribuidora no identificada'
+  // Si es un código de 4 dígitos
+  if (/^\d{4}$/.test(raw)) {
+    return DISTRIBUIDORA_NAMES[raw] || `Distribuidora código ${raw}`
+  }
+  // Caso explícito por substring
+  for (const [code, name] of Object.entries(DISTRIBUIDORA_NAMES)) {
+    if (raw.includes(code)) return name
+  }
+  // Si ya es nombre legible, lo capitalizamos correctamente
+  return raw.replace(/\b\w/g, c => c.toUpperCase())
+}
+
 function DistribuidoraTable({ items }: any) {
   return (
     <div className="rounded-2xl bg-white p-5" style={{ boxShadow: '0 10px 40px -10px rgba(74,111,227,0.15)' }}>
       <div className="space-y-2">
-        {items.map((d: any) => (
-          <div key={d.distribuidora} className="flex items-center justify-between p-3 rounded-xl bg-slate-50">
-            <div className="text-sm font-semibold text-slate-800">{d.distribuidora}</div>
-            <div className="flex items-center gap-6 text-xs text-slate-600">
-              <span><strong>{d.suministros}</strong> suministros</span>
-              <span className="num">{fmtKwh(d.consumoAnualKwh)}</span>
-              <span className="num font-bold text-[#4A6FE3]">{fmtEur(d.gasto)}</span>
+        {items.map((d: any) => {
+          const name = prettyDistribuidora(d.distribuidora)
+          return (
+            <div key={d.distribuidora} className="flex items-center justify-between p-3 rounded-xl bg-slate-50">
+              <div className="text-sm font-semibold text-slate-800">{name}</div>
+              <div className="flex items-center gap-6 text-xs text-slate-600">
+                <span><strong>{d.suministros}</strong> suministros</span>
+                <span className="num">{fmtKwh(d.consumoAnualKwh)}</span>
+                <span className="num font-bold text-[#4A6FE3]">{fmtEur(d.gasto)}</span>
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
