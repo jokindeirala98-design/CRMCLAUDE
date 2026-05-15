@@ -24,6 +24,7 @@ import { getViewUrl } from '@/lib/utils/storage'
 import { normalizeCups } from '@/lib/utils/cups'
 import { ensurePendingPrescoring } from '@/lib/ensurePrescoring'
 import { downloadClientInvoicesZip, type DownloadProgress } from '@/lib/utils/download-invoices-zip'
+import { useModalShortcuts } from '@/lib/hooks/useBodyScrollLock'
 import { advanceSupplyPipeline } from '@/lib/supply-pipeline'
 import { useAuthStore } from '@/stores/auth'
 import type { SupplyStatus } from '@/types/database'
@@ -166,6 +167,10 @@ export default function SupplyDetailPage() {
   const [clientModalOpen, setClientModalOpen] = useState(false)
   const [supplyOverlayOpen, setSupplyOverlayOpen] = useState(false)
   const [docsOverlayOpen, setDocsOverlayOpen] = useState(false)
+  // Cuando el Gestor de documentos esté abierto: bloquea scroll del body
+  // y cierra con ESC. El click fuera ya está manejado en el JSX (onClick
+  // del backdrop + stopPropagation del contenido).
+  useModalShortcuts(docsOverlayOpen, useCallback(() => setDocsOverlayOpen(false), []))
   const [technicalModalOpen, setTechnicalModalOpen] = useState(false)
   const [economicStudyOpen, setEconomicStudyOpen] = useState(false)
   const [powerAdjustForStudyOpen, setPowerAdjustForStudyOpen] = useState(false)
@@ -2564,44 +2569,9 @@ export default function SupplyDetailPage() {
           <ComparativaGana supplyId={supply.id} onClose={() => setActiveTab(null)} />
         )}
 
-        {/* ═══════ ACCESO PORTAL CLIENTE ═══════════════════════════════════
-            Botón para generar el dossier de bienvenida que el comercial
-            envía al cliente. El link es único por cliente y reutilizable. */}
-        {supply.client_id && (
-          <div className="rounded-2xl border border-stone-200 bg-white p-4">
-            <div className="flex items-start justify-between gap-3 flex-wrap">
-              <div className="min-w-0">
-                <div className="text-xs uppercase tracking-wide font-semibold text-stone-500">
-                  Acceso portal del cliente
-                </div>
-                <div className="text-sm text-stone-700 mt-1">
-                  Genera el dossier de bienvenida con el enlace privado para que el cliente
-                  acceda a su informe energético anual desde cualquier navegador.
-                </div>
-              </div>
-              <button
-                onClick={async () => {
-                  try {
-                    const res = await fetch(`/api/clients/${supply.client_id}/dossier`)
-                    if (!res.ok) throw new Error('No se pudo generar el dossier')
-                    const isHtmlFallback = res.headers.get('X-PDF-Fallback') === 'true'
-                    const ext = isHtmlFallback ? 'html' : 'pdf'
-                    const blob = await res.blob()
-                    const a = document.createElement('a')
-                    a.href = URL.createObjectURL(blob)
-                    a.download = `voltis-acceso-${(supply.client?.alias || supply.client?.name || 'cliente').toLowerCase().replace(/[^a-z0-9]+/g, '-')}.${ext}`
-                    document.body.appendChild(a); a.click(); a.remove()
-                  } catch (e: any) {
-                    alert('Error: ' + (e?.message ?? e))
-                  }
-                }}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-brand text-white text-sm font-semibold hover:opacity-90"
-              >
-                Generar dossier de acceso
-              </button>
-            </div>
-          </div>
-        )}
+        {/* El botón "Generar dossier de acceso" ahora vive ÚNICAMENTE dentro
+            del modal "Gestor de documentos" (al final, sección "Acceso del
+            cliente al portal"). Aquí lo eliminamos para evitar duplicidad. */}
 
         {/* ═══════ TIMESTAMPS ═══════ */}
         <div className="flex gap-4 text-xs text-ink-3">
@@ -2875,16 +2845,29 @@ export default function SupplyDetailPage() {
         </div>
       )}
 
-      {/* ═══════ DOCUMENTS OVERLAY ═══════ */}
+      {/* ═══════ DOCUMENTS OVERLAY ═══════
+          Comportamiento: click en el backdrop cierra, ESC también, el scroll
+          interno solo afecta al modal (body bloqueado vía useModalShortcuts).
+          La rueda/touch dentro del modal hace scroll del contenido, fuera ya
+          no porque body tiene overflow:hidden. */}
       {docsOverlayOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setDocsOverlayOpen(false)}>
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto py-6 px-4"
+          onClick={() => setDocsOverlayOpen(false)}
+          // touchmove/wheel containment para móvil — el navegador respeta
+          // overflow del modal interno y el body bloqueado para el resto.
+          onWheel={(e) => e.stopPropagation()}
+        >
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm pointer-events-none" />
           <div
-            className="relative bg-bg rounded-3xl shadow-ambient-lg w-full max-w-4xl mx-4 max-h-[85vh] overflow-y-auto"
+            className="relative bg-bg rounded-3xl shadow-ambient-lg w-full max-w-4xl my-auto max-h-[calc(100vh-3rem)] flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Gestor de documentos"
           >
-            {/* Header */}
-            <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 bg-surface/95 backdrop-blur border-b border-line-2-variant/10 rounded-t-3xl">
+            {/* Header sticky dentro del modal */}
+            <div className="flex-shrink-0 flex items-center justify-between px-6 py-4 bg-surface/95 backdrop-blur border-b border-line-2-variant/10">
               <h2 className="font-sans font-semibold text-lg text-ink flex items-center gap-2">
                 <FileText className="w-5 h-5" />
                 Gestor de documentos
@@ -2893,6 +2876,9 @@ export default function SupplyDetailPage() {
                 <X className="w-5 h-5 text-ink-3" />
               </button>
             </div>
+
+            {/* Contenido scrolleable (lo que antes era el contenedor entero) */}
+            <div className="flex-1 overflow-y-auto overscroll-contain">
 
             <div className="p-6 space-y-6">
 
@@ -3394,6 +3380,51 @@ export default function SupplyDetailPage() {
                   </div>
                 </div>
               </div>
+
+              {/* Divider */}
+              <div className="border-t border-line-2-variant/10" />
+
+              {/* ── 5. ACCESO PORTAL CLIENTE (dossier PDF) ── */}
+              {supply.client_id && (
+                <div>
+                  <h3 className="text-sm font-bold text-ink uppercase tracking-wider flex items-center gap-2 mb-3">
+                    <div className="w-2 h-2 rounded-full bg-brand" />
+                    Acceso del cliente al portal
+                  </h3>
+                  <div className="rounded-xl border border-line-2-variant/10 bg-bg-2/30 p-4 flex items-start justify-between gap-3 flex-wrap">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm text-ink font-medium mb-1">Dossier de bienvenida</p>
+                      <p className="text-xs text-ink-3 leading-relaxed">
+                        Genera un PDF con el enlace privado para que el cliente acceda a su informe energético desde cualquier navegador. El enlace es permanente y reutilizable.
+                      </p>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        try {
+                          const res = await fetch(`/api/clients/${supply.client_id}/dossier`)
+                          if (!res.ok) throw new Error('No se pudo generar el dossier')
+                          const blob = await res.blob()
+                          const a = document.createElement('a')
+                          a.href = URL.createObjectURL(blob)
+                          const safeName = (supply.client?.alias || supply.client?.name || 'cliente').toLowerCase()
+                            .normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-')
+                          a.download = `voltis_acceso_${safeName}.pdf`
+                          document.body.appendChild(a); a.click(); a.remove()
+                          URL.revokeObjectURL(a.href)
+                        } catch (e: any) {
+                          showNotification('Error generando dossier: ' + (e?.message ?? e), 'error')
+                        }
+                      }}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-brand text-white text-sm font-semibold hover:opacity-90 transition flex-shrink-0"
+                    >
+                      <Download className="w-4 h-4" />
+                      Generar dossier de acceso
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+            {/* cierre del contenedor scrolleable flex-1 */}
             </div>
           </div>
         </div>

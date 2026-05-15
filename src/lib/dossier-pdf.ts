@@ -322,10 +322,13 @@ export async function buildDossierPdf(args: DossierArgs): Promise<Buffer> {
   cursorY -= 18
 
   // ── 3 feature cards (glass) ──────────────────────────────────────────────
-  const features = [
-    { title: 'Tu resumen anual',         desc: 'Cuánto pagas en luz y gas, dónde se concentra el gasto y cómo evoluciona mes a mes.', glyph: '📊' },
-    { title: 'Detalle por suministro',   desc: 'Consumo, potencias, precios y conceptos exactos de cada una de tus facturas.',         glyph: '📄' },
-    { title: 'Descargas en Excel',       desc: 'Datos listos para tu contabilidad o cualquier auditoría que necesites hacer.',          glyph: '⬇' },
+  // Los iconos los dibujamos como rectángulos/líneas simples — pdf-lib no
+  // soporta emojis (WinAnsi encoding) ni SVG paths complejos.
+  type FeatureGlyph = 'chart' | 'doc' | 'download'
+  const features: Array<{ title: string; desc: string; glyph: FeatureGlyph }> = [
+    { title: 'Tu resumen anual',         desc: 'Cuánto pagas en luz y gas, dónde se concentra el gasto y cómo evoluciona mes a mes.', glyph: 'chart' },
+    { title: 'Detalle por suministro',   desc: 'Consumo, potencias, precios y conceptos exactos de cada una de tus facturas.',         glyph: 'doc' },
+    { title: 'Descargas en Excel',       desc: 'Datos listos para tu contabilidad o cualquier auditoría que necesites hacer.',          glyph: 'download' },
   ]
   const gap = 10
   const fW = (cardW - gap * 2) / 3
@@ -343,20 +346,21 @@ export async function buildDossierPdf(args: DossierArgs): Promise<Buffer> {
       color: WHITE, opacity: 0.13,
       borderColor: WHITE, borderWidth: 0.5, borderOpacity: 0.35,
     })
-    // Glyph background
+    // Glyph background (caja)
+    const gx = x + 14, gy = cursorY - 28
     page.drawRectangle({
-      x: x + 14, y: cursorY - 26,
-      width: 22, height: 18,
+      x: gx, y: gy, width: 22, height: 18,
       color: WHITE, opacity: 0.20,
     })
-    page.drawText(f.glyph, { x: x + 19, y: cursorY - 22, font: sans, size: 11, color: WHITE })
+    // Glyph dibujado a mano dentro de la caja
+    drawFeatureGlyph(page, f.glyph, gx, gy)
     // Título
     page.drawText(f.title, {
-      x: x + 14, y: cursorY - 42, font: sansBold, size: 11, color: WHITE,
+      x: x + 14, y: cursorY - 44, font: sansBold, size: 11, color: WHITE,
     })
     // Descripción
     const descLines = wrapText(f.desc, sans, 8.5, fW - 28)
-    let dy = cursorY - 56
+    let dy = cursorY - 58
     for (const line of descLines.slice(0, 3)) {
       page.drawText(line, { x: x + 14, y: dy, font: sans, size: 8.5, color: WHITE_85 })
       dy -= 11
@@ -467,4 +471,32 @@ function chunkUrl(url: string, maxChars: number): string[] {
     out.push(url.slice(i, i + maxChars))
   }
   return out
+}
+
+/**
+ * Dibuja un icono simple (chart/doc/download) dentro de un cuadro 22×18.
+ * Usado en las feature cards. Mejor que un emoji porque las fuentes estándar
+ * de pdf-lib (Helvetica/Times/Courier) usan WinAnsi y no soportan Unicode > 256.
+ */
+function drawFeatureGlyph(page: any, kind: 'chart' | 'doc' | 'download', x: number, y: number) {
+  const w = 22, h = 18
+  const white = rgb(1, 1, 1)
+  if (kind === 'chart') {
+    // 3 barras ascendentes
+    page.drawRectangle({ x: x + 4,  y: y + 3, width: 3, height: 6,  color: white })
+    page.drawRectangle({ x: x + 9,  y: y + 3, width: 3, height: 9,  color: white })
+    page.drawRectangle({ x: x + 14, y: y + 3, width: 3, height: 12, color: white })
+  } else if (kind === 'doc') {
+    // Folio con líneas de texto
+    page.drawRectangle({ x: x + 5, y: y + 3, width: 12, height: 13, borderColor: white, borderWidth: 1 })
+    page.drawLine({ start: { x: x + 7, y: y + 13 }, end: { x: x + 15, y: y + 13 }, thickness: 1, color: white })
+    page.drawLine({ start: { x: x + 7, y: y + 10 }, end: { x: x + 13, y: y + 10 }, thickness: 1, color: white })
+    page.drawLine({ start: { x: x + 7, y: y + 7  }, end: { x: x + 14, y: y + 7  }, thickness: 1, color: white })
+  } else if (kind === 'download') {
+    // Flecha hacia abajo + base
+    page.drawLine({ start: { x: x + 11, y: y + 14 }, end: { x: x + 11, y: y + 5 }, thickness: 1.2, color: white })
+    page.drawLine({ start: { x: x + 7,  y: y + 9  }, end: { x: x + 11, y: y + 5 }, thickness: 1.2, color: white })
+    page.drawLine({ start: { x: x + 15, y: y + 9  }, end: { x: x + 11, y: y + 5 }, thickness: 1.2, color: white })
+    page.drawLine({ start: { x: x + 5,  y: y + 3  }, end: { x: x + 17, y: y + 3 }, thickness: 1.2, color: white })
+  }
 }
