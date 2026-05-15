@@ -155,33 +155,37 @@ const LAYOUT_LUZ: Array<[number, string, string|null, string|null]> = [
 ]
 
 // ─── Layout GAS ────────────────────────────────────────────────────────────────
+// Mismas filas y orden que la tabla que ve el cliente en el navegador
+// (componente AnnualEconomics, sección gas). Mantener sincronizado.
 
 const LAYOUT_GAS: Array<[number, string, string|null, string|null]> = [
   [3, 'FACTURA →', null, 'header_gas'],
-  [4, 'Fecha Inicio', 'fecha_inicio', null],
-  [5, 'Fecha Fin', 'fecha_fin', null],
-  [6, 'Días facturados', 'dias', null],
-  [7, 'Comercializadora', 'comercializadora', null],
-  [8, 'Distribuidora', 'distribuidora', null],
-  [9, 'Titular', 'titular', null],
-  [10, 'NIF / CIF', 'cif', null],
-  [11, 'Dirección suministro', 'direccion', null],
-  [12, 'CUPS completo', 'cups_full', null],
-  [13, 'CONSUMO', null, 'section_gas'],
-  [14, '  Consumo (kWh)', 'kwh_total', 'bold'],
-  [15, '  Consumo (m³)', 'm3', null],
-  [16, '  Factor conversión', 'factor_conv', null],
-  [17, 'PRECIOS', null, 'section_gas'],
-  [18, '  Precio kWh (€/kWh)', 'gas_precio_kwh', null],
-  [19, '  Término fijo (€/día)', 'gas_termino_fijo', null],
-  [20, 'TOTALES (€)', null, 'section_gas'],
-  [21, '  Coste energía', 'tot_e', null],
-  [22, '  Término fijo facturado', 'tot_termino', null],
-  [23, '  Impuesto hidrocarburos', 'imp_hidro', null],
-  [24, '  Alquiler contador', 'alq', null],
-  [25, '  IVA', 'iva', null],
-  [26, '  TOTAL FACTURA', 'total', 'bold'],
-  [27, 'Coste medio (€/kWh)', 'coste_medio', null],
+  [4, 'Comercializadora', 'comercializadora', null],
+  [5, 'Distribuidora', 'distribuidora', null],
+  [6, 'Titular', 'titular', null],
+  [7, 'NIF / CIF', 'cif', null],
+  [8, 'CUPS', 'cups_full', null],
+  [9, 'Dirección suministro', 'direccion', null],
+  [10, 'Tarifa', 'tarifa', null],
+  [11, 'Fecha inicio', 'fecha_inicio', null],
+  [12, 'Fecha fin', 'fecha_fin', null],
+  [13, 'Mes liquidación', 'mes_liquidacion', null],
+  [14, 'Días facturados', 'dias', null],
+  [15, 'CONSUMO', null, 'section_gas'],
+  [16, '  Consumo (kWh)', 'kwh_total', 'bold'],
+  [17, '  Coste bruto energía (€)', 'coste_bruto_energia', null],
+  [18, '  Descuento energía (€)', 'descuento_energia', null],
+  [19, '  Coste neto energía (€)', 'tot_e', 'bold'],
+  [20, '  €/kWh', 'gas_precio_kwh', null],
+  [21, 'TÉRMINO FIJO', null, 'section_gas'],
+  [22, '  Total término fijo (€)', 'termino_fijo_total', 'bold'],
+  [23, '  Cuota diaria (€/día)', 'gas_termino_fijo', null],
+  [24, '  Descuento t. fijo (€)', 'descuento_termino', null],
+  [25, 'OTROS', null, 'section_gas'],
+  [26, '  Impuesto s/ gas natural (€)', 'imp_hidro', null],
+  [27, '  Alquiler contador (€)', 'alq', null],
+  [28, '  IVA (€)', 'iva', null],
+  [29, 'TOTAL FACTURA (€)', 'total', 'bold'],
 ]
 
 // ─── Render genérico ──────────────────────────────────────────────────────────
@@ -230,15 +234,28 @@ function fillSheet(ws: ExcelJS.Worksheet, supply: SupplyData) {
       if (k === 'coste_medio') return eco.costeMedioKwh ?? eco.costeMedioKwhNeto
       if (k === 'imp_e') return (eco.otrosConceptos || []).find((o:any)=>String(o.concepto).toLowerCase().includes('impuesto el'))?.total ?? eco.impuestoElectricidad
       if (k === 'bono') return (eco.otrosConceptos || []).find((o:any)=>String(o.concepto).toLowerCase().includes('bono'))?.total ?? eco.bonoSocialFijo
-      if (k === 'alq') return (eco.otrosConceptos || []).find((o:any)=>String(o.concepto).toLowerCase().includes('alquiler'))?.total ?? eco.alquilerContador
-      if (k === 'iva') return eco.ivaTotal
-      // Gas específico
-      if (k === 'gas_precio_kwh') return gp.precioKwh
+      if (k === 'alq') return (eco.otrosConceptos || []).find((o:any)=>String(o.concepto).toLowerCase().includes('alquiler'))?.total ?? eco.alquilerContador ?? gp.alquilerTotal
+      if (k === 'iva') return eco.ivaTotal ?? gp.ivaTotal
+      // Mes liquidación: derivado del fechaFin
+      if (k === 'mes_liquidacion') {
+        const ff = eco.fechaFin ?? inv.period_end
+        if (!ff) return null
+        const d = new Date(ff)
+        if (isNaN(d.getTime())) return null
+        const meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+        return `${meses[d.getMonth()]} ${d.getFullYear()}`
+      }
+      // Gas específico — alineado con la tabla del portal
+      if (k === 'coste_bruto_energia') return eco.costeBrutoConsumo
+      if (k === 'descuento_energia') return eco.descuentoEnergia
+      if (k === 'gas_precio_kwh') return eco.costeMedioKwhNeto ?? eco.costeMedioKwh ?? gp.precioKwh
+      if (k === 'termino_fijo_total') return gp.terminoFijoTotal ?? gp.totalTerminoFijo ?? gp.costeTerminoFijo
       if (k === 'gas_termino_fijo') return gp.terminoFijoDiario
+      if (k === 'descuento_termino') return gp.descuentoTerminoFijo
+      if (k === 'imp_hidro') return gp.impuestoHidrocarbTotal ?? gp.impuestoHidrocarb ?? gp.impuestoHidrocarburos
       if (k === 'm3') return gp.consumoM3
       if (k === 'factor_conv') return gp.factorConversion
-      if (k === 'tot_termino') return gp.totalTerminoFijo ?? gp.costeTerminoFijo
-      if (k === 'imp_hidro') return gp.impuestoHidrocarb ?? gp.impuestoHidrocarburos
+      if (k === 'tot_termino') return gp.totalTerminoFijo ?? gp.costeTerminoFijo ?? gp.terminoFijoTotal
       // Por periodo (solo luz)
       if (k && k.startsWith('kw_P')) {
         const p = k.replace('kw_','')

@@ -354,9 +354,7 @@ function PortalFooter() {
         </div>
         <div className="text-right text-xs text-slate-500">
           <div className="font-semibold text-slate-700">Voltis Energía</div>
-          <div className="num mt-1">
-            Generado {new Date().toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })}
-          </div>
+          <div className="text-slate-500 mt-1">voltisenergia.com</div>
         </div>
       </div>
     </footer>
