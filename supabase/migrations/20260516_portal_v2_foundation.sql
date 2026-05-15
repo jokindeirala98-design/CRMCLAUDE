@@ -204,7 +204,7 @@ ALTER TABLE public.voltis_contracts ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "voltis_contracts_admin" ON public.voltis_contracts;
 CREATE POLICY "voltis_contracts_admin" ON public.voltis_contracts
   FOR ALL TO authenticated USING (
-    EXISTS (SELECT 1 FROM public.users_profile up WHERE up.id = auth.uid() AND up.role IN ('admin', 'comercial'))
+    EXISTS (SELECT 1 FROM public.users_profile up WHERE up.id = auth.uid() AND up.role IN ('admin', 'commercial'))
   );
 
 -- ─────────────────────────────────────────────────────────────────────────
@@ -222,7 +222,7 @@ SELECT
   pu.last_login_at,
   pu.created_at,
   c.name        AS client_name,
-  c.cif         AS client_cif,
+  c.cif_nif     AS client_cif,
   c.type        AS client_type
 FROM public.portal_users pu
 JOIN public.clients c ON c.id = pu.client_id;
