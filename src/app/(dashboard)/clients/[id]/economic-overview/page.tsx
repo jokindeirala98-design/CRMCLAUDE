@@ -611,30 +611,30 @@ function TopCard({ title, subtitle, icon, items, metric, router }: any) {
 
 function AnomaliasCard({ items, router }: { items: SupplyAggregate[]; router: any }) {
   return (
-    <div className="rounded-2xl bg-white p-6 border-l-4 border-amber-400" style={{ boxShadow: '0 10px 40px -10px rgba(245,158,11,0.2)' }}>
+    <div className="rounded-2xl bg-white p-6 border-l-4 border-sky-300" style={{ boxShadow: '0 10px 40px -10px rgba(74,111,227,0.15)' }}>
       <div className="flex items-center gap-3 mb-3">
-        <div className="rounded-xl p-2 bg-amber-100 text-amber-700"><AlertTriangle className="w-5 h-5" /></div>
+        <div className="rounded-xl p-2 bg-sky-50 text-[#4A6FE3]"><AlertTriangle className="w-5 h-5" /></div>
         <div className="flex-1">
-          <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-amber-700">Anomalías detectadas</div>
-          <h3 className="text-base font-bold text-slate-800">{items.length} suministros con €/kWh fuera de rango</h3>
+          <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#4A6FE3]">Suministros a revisar</div>
+          <h3 className="text-base font-bold text-slate-800">{items.length} con €/kWh fuera de la media</h3>
         </div>
       </div>
       <p className="text-xs text-slate-600 mb-3">
-        Suministros con €/kWh fuera de la banda media del cliente. Se listan únicamente como lectura para inspección.
+        Estos suministros tienen un precio medio por kWh estadísticamente alejado del resto del cliente. Suele apuntar a tarifas mejorables, contratos antiguos o consumos atípicos. No es un error de extracción: revísalos para identificar posibles ahorros.
       </p>
       <div className="space-y-2">
         {items.slice(0, 5).map(r => (
           <button key={r.supply.id} onClick={() => router.push(`/supplies/${r.supply.id}?tab=economics`)}
-            className="w-full flex items-center gap-3 p-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 transition text-left">
+            className="w-full flex items-center gap-3 p-2.5 rounded-xl bg-sky-50/60 hover:bg-sky-100/70 transition text-left">
             <div className="flex-1 min-w-0">
               <div className="text-sm font-semibold text-slate-800 truncate">{r.supply.name || r.supply.cups}</div>
               <div className="text-[10px] num text-slate-500">{r.supply.tariff}</div>
             </div>
             <div className="text-right">
-              <div className="text-[10px] uppercase tracking-wider text-amber-700 font-bold">€/kWh</div>
-              <div className="text-sm font-bold num text-amber-900">{fmt(r.eurPorKwh, 4)}</div>
+              <div className="text-[10px] uppercase tracking-wider text-[#4A6FE3] font-bold">€/kWh</div>
+              <div className="text-sm font-bold num text-slate-800">{fmt(r.eurPorKwh, 4)}</div>
             </div>
-            <ChevronRight className="w-4 h-4 text-amber-700" />
+            <ChevronRight className="w-4 h-4 text-[#4A6FE3]" />
           </button>
         ))}
       </div>
@@ -690,11 +690,15 @@ function RankingTable({ items, totalGasto, router }: { items: SupplyAggregate[];
               return (
                 <tr key={r.supply.id}
                   onClick={() => router.push(`/supplies/${r.supply.id}?tab=economics`)}
-                  className={`border-b border-slate-50 cursor-pointer hover:bg-blue-50 transition ${r.sinFacturas ? 'opacity-60' : ''} ${r.esAnomalo ? 'bg-amber-50/40' : ''}`}>
+                  className={`border-b border-slate-50 cursor-pointer hover:bg-blue-50 transition ${r.sinFacturas ? 'opacity-60' : ''} ${r.esAnomalo ? 'bg-sky-50/50' : ''}`}>
                   <td className="py-3 px-4">
                     <div className="text-sm font-semibold text-slate-800 flex items-center gap-2">
                       {r.supply.name || r.supply.cups}
-                      {r.esAnomalo && <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />}
+                      {r.esAnomalo && (
+                        <span title="€/kWh fuera de la media del cliente" className="inline-flex">
+                          <AlertTriangle className="w-3.5 h-3.5 text-[#4A6FE3]" />
+                        </span>
+                      )}
                     </div>
                     <div className="text-[10px] num text-slate-400">{r.supply.cups}</div>
                   </td>

@@ -404,8 +404,19 @@ function aggregateSupply(sup: OverviewSupply, invs: OverviewInvoiceLite[]): Supp
 function marcarAnomalias(supplies: SupplyAggregate[]): void {
   // Por tipo: calcular media y desviación estándar de €/kWh, marcar las
   // que estén a más de 1.5 desviaciones (cualquier dirección).
+  //
+  // IMPORTANTE: excluimos suministros de baja utilización (consumo anual
+  // por debajo de un umbral mínimo) porque en ellos los costes fijos
+  // (potencia + alquiler + IVA) distorsionan el €/kWh y generan falsos
+  // positivos (típico de alumbrado provisional, festejos, etc.).
+  const MIN_KWH_PARA_ANOMALIA = 500  // anual mínimo para que el €/kWh sea fiable
+
   for (const tipo of ['luz', 'gas'] as const) {
-    const conPrecio = supplies.filter(s => s.supply.type === tipo && s.eurPorKwh > 0)
+    const conPrecio = supplies.filter(s =>
+      s.supply.type === tipo &&
+      s.eurPorKwh > 0 &&
+      s.consumoAnualKwh >= MIN_KWH_PARA_ANOMALIA,
+    )
     if (conPrecio.length < 3) continue  // muy pocos para hacer estadística
     const precios = conPrecio.map(s => s.eurPorKwh)
     const media = precios.reduce((a, b) => a + b, 0) / precios.length
