@@ -531,6 +531,21 @@ export async function POST(req: NextRequest, { params }: { params: { supplyId: s
         })
         .eq('id', supplyId)
 
+      // Insertar también en la tabla `studies` para que aparezca en el
+      // "Gestor de documentos" del supply, que lee de esa tabla.
+      // (El campo supplies.economic_study_url se mantiene por compat,
+      // pero la UI del CRM lista las comparativas desde `studies`.)
+      const nowIso = new Date().toISOString()
+      await adminSupabase.from('studies').insert({
+        supply_id: supplyId,
+        type: 'economico',
+        report_url: urlData?.publicUrl ?? null,
+        status: 'completed',
+        created_by: profile?.id ?? user.id,
+        created_at: nowIso,
+        completed_at: nowIso,
+      })
+
       // Cerrar admin_task si existía pendiente
       await adminSupabase
         .from('admin_tasks')

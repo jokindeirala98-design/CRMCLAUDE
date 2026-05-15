@@ -130,6 +130,19 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: `Storage OK pero supply update falló: ${supErr.message}` }, { status: 500 })
     }
 
+    // 4b. Insertar en `studies` para que aparezca en el "Gestor de documentos"
+    // del supply (la UI del CRM lista los informes desde esa tabla).
+    const nowIso = new Date().toISOString()
+    await supabase.from('studies').insert({
+      supply_id: task.supply_id,
+      type: 'economico',
+      report_url: publicUrl,
+      status: 'completed',
+      created_by: profile.id,
+      created_at: nowIso,
+      completed_at: nowIso,
+    })
+
     // 5. Marcar tarea completada
     const { error: taskErr } = await supabase
       .from('admin_tasks')
