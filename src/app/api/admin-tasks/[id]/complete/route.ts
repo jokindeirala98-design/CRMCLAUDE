@@ -80,20 +80,34 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const storagePath = `${task.supply_id}/${Date.now()}_${filename}`
     const bytes = new Uint8Array(await file.arrayBuffer())
 
-    const { error: upErr } = await supabase.storage
+    const doUpload = async () => supabase.storage
       .from('estudios-economicos')
       .upload(storagePath, bytes, {
         contentType: file.type || 'application/octet-stream',
         upsert: false,
       })
+
+    let { error: upErr } = await doUpload()
+
+    // Auto-crear bucket si no existe (idempotente)
+    if (upErr && /Bucket not found|bucket/i.test(upErr.message)) {
+      await supabase.storage.createBucket('estudios-economicos', {
+        public: true,
+        fileSizeLimit: 10 * 1024 * 1024,    // 10 MB
+        allowedMimeTypes: [
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'application/vnd.ms-excel',
+          'application/pdf',
+          'text/csv',
+          'application/octet-stream',
+        ],
+      }).catch(() => null)
+      const retry = await doUpload()
+      upErr = retry.error
+    }
+
     if (upErr) {
-      // Si el bucket no existe, devolvemos un error claro
-      if (/Bucket not found|bucket/i.test(upErr.message)) {
-        return NextResponse.json({
-          error: 'El bucket "estudios-economicos" no existe en Supabase Storage. Créalo en Storage → Buckets.',
-        }, { status: 500 })
-      }
-      return NextResponse.json({ error: upErr.message }, { status: 500 })
+      return NextResponse.json({ error: `Error subiendo a Storage: ${upErr.message}` }, { status: 500 })
     }
 
     const { data: urlData } = supabase.storage

@@ -467,19 +467,47 @@ export async function POST(req: NextRequest, { params }: { params: { supplyId: s
         { auth: { persistSession: false } },
       )
       const storagePath = `${supplyId}/${Date.now()}_${filename}`
-      const { error: upErr } = await adminSupabase.storage
+
+      // Helper: subir, y si el bucket no existe → crearlo y reintentar.
+      const tryUpload = async () => adminSupabase.storage
         .from('estudios-economicos')
         .upload(storagePath, buffer, {
           contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
           upsert: false,
         })
+
+      let { error: upErr } = await tryUpload()
+
+      if (upErr && /Bucket not found|bucket/i.test(upErr.message)) {
+        // Auto-crear bucket público (idempotente: si ya existe en concurrencia, no falla)
+        await adminSupabase.storage.createBucket('estudios-economicos', {
+          public: true,
+          fileSizeLimit: 10 * 1024 * 1024,    // 10 MB
+          allowedMimeTypes: [
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-excel',
+            'application/pdf',
+          ],
+        }).catch(() => null)
+        // Reintentar subida
+        const retry = await tryUpload()
+        upErr = retry.error
+      }
+
       if (upErr) {
-        if (/Bucket not found|bucket/i.test(upErr.message)) {
-          return NextResponse.json({
-            error: 'El bucket "estudios-economicos" no existe en Supabase Storage.',
-          }, { status: 500 })
-        }
-        return NextResponse.json({ error: `Error subiendo: ${upErr.message}` }, { status: 500 })
+        // Subida sigue fallando — devolvemos el archivo igualmente al usuario
+        // (download funciona) y avisamos en header para que el admin lo vea.
+        console.error('[gana excel] storage upload failed:', upErr)
+        return new NextResponse(buffer, {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition': `attachment; filename="${filename}"`,
+            'Cache-Control': 'no-cache',
+            'X-Attach-Failed': 'true',
+            'X-Attach-Error': upErr.message.slice(0, 200),
+          },
+        })
       }
       const { data: urlData } = adminSupabase.storage
         .from('estudios-economicos')
