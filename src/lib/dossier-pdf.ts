@@ -126,82 +126,91 @@ export async function buildDossierPdf(args: DossierArgs): Promise<Buffer> {
   page.drawText('Voltis', { x: M, y: cursorY, font: sansBold, size: 13, color: WHITE })
   page.drawText('Energía', { x: M + sansBold.widthOfTextAtSize('Voltis', 13) + 6, y: cursorY, font: sans, size: 13, color: WHITE_70 })
 
-  // En lugar de fecha, mostramos la web Voltis a la derecha del header
-  const metaR = `www.${VOLTIS_INFO.website}`
+  // Derecha del header: "ACCESO · {fecha en español}"
+  const metaR = `ACCESO · ${formatSpanishDate(new Date())}`
   page.drawText(metaR, {
-    x: A4_W - M - sans.widthOfTextAtSize(metaR, 9),
-    y: cursorY, font: sans, size: 9, color: WHITE_70,
+    x: A4_W - M - sansBold.widthOfTextAtSize(metaR, 8),
+    y: cursorY + 2, font: sansBold, size: 8, color: WHITE_70,
   })
+
+  // ── Mascota a la derecha, alineada con el hero (más compacta) ───────────
+  // Posicionada para no solaparse con el título: ancho 130, ocupando la
+  // columna derecha. El título tiene maxWidth limitado por su X.
+  const mascotBytes = loadMascotBytes()
+  const MASCOT_W = 130
+  const MASCOT_RIGHT_GUTTER = 24
+  let mascotBlock = { left: A4_W, right: A4_W }
+  if (mascotBytes) {
+    try {
+      const img = await pdf.embedPng(mascotBytes)
+      const imgW = MASCOT_W
+      const imgH = (img.height / img.width) * imgW
+      const mascotX = A4_W - M - imgW + MASCOT_RIGHT_GUTTER
+      const mascotY = A4_H - 110 - imgH
+      page.drawCircle({
+        x: mascotX + imgW / 2, y: mascotY + imgH / 2 + 6,
+        size: 78, color: VOLTIS_SKY, opacity: 0.28,
+      })
+      page.drawImage(img, {
+        x: mascotX, y: mascotY,
+        width: imgW, height: imgH,
+      })
+      mascotBlock = { left: mascotX, right: mascotX + imgW }
+    } catch {}
+  }
+
+  // El ancho útil del titular debe acabar antes de la mascota para que el
+  // texto NUNCA se solape con la bombilla, sin importar la longitud del
+  // nombre del cliente.
+  const heroMaxW = (mascotBlock.left - M) - 14
 
   cursorY -= 38
 
   // ── Eyebrow píldora ──────────────────────────────────────────────────────
-  // pdf-lib no tiene radios redondeados nativos; dibujamos rectángulo simple.
   const eyebrowText = 'TU PORTAL ESTÁ LISTO'
   const eyebrowW = sansBold.widthOfTextAtSize(eyebrowText, 7.5) + 38
   page.drawRectangle({
     x: M, y: cursorY - 6, width: eyebrowW, height: 18,
     color: WHITE, opacity: 0.14,
   })
-  // dot verde
   page.drawCircle({ x: M + 11, y: cursorY + 3, size: 2.4, color: GREEN_LIVE })
   page.drawText(eyebrowText, {
     x: M + 20, y: cursorY, font: sansBold, size: 7.5, color: WHITE,
   })
 
-  cursorY -= 26
+  cursorY -= 28
 
-  // ── Titular grande: "Querido {nombre}," + "bienvenido al club Voltis." ───
+  // ── Titular: "Querido {nombre}, bienvenido al club Voltis." ─────────────
+  // Una sola frase fluida, que envuelve dinámicamente respetando el ancho
+  // disponible (heroMaxW). Reducimos tamaño automáticamente si el nombre es
+  // muy largo para que nunca se rompa de forma fea.
   const greetingName = formatGreetingName(args.clientName)
-  // Línea 1: "Querido X,"
-  page.drawText(`Querido ${greetingName},`, {
-    x: M, y: cursorY, font: sansBold, size: 26, color: WHITE,
-  })
-  cursorY -= 30
-  // Línea 2: "bienvenido al club Voltis."
-  page.drawText('bienvenido al club Voltis.', {
-    x: M, y: cursorY, font: sansBold, size: 26, color: WHITE,
-  })
+  const fullHeading = `Querido ${greetingName}, bienvenido al club Voltis.`
+  let headingSize = 26
+  let headingLines = wrapText(fullHeading, sansBold, headingSize, heroMaxW)
+  while (headingLines.length > 3 && headingSize > 18) {
+    headingSize -= 1
+    headingLines = wrapText(fullHeading, sansBold, headingSize, heroMaxW)
+  }
+  const headingLineH = Math.round(headingSize * 1.12)
+  for (const line of headingLines) {
+    page.drawText(line, { x: M, y: cursorY, font: sansBold, size: headingSize, color: WHITE })
+    cursorY -= headingLineH
+  }
 
-  cursorY -= 26
+  cursorY -= 6
 
   // ── Subtítulo (lede) ────────────────────────────────────────────────────
   const subLines = wrapText(
     'Hemos preparado un espacio privado donde puedes ver, en cualquier momento, todo lo que pasa con tu energía: consumo, gasto y facturas. Sin contraseñas, sin apps, sin papeleo. Sólo abrir y leer.',
-    sans, 10.5, A4_W - 2 * M - 180,
+    sans, 10.5, heroMaxW,
   )
   let subY = cursorY
   for (const line of subLines) {
     page.drawText(line, { x: M, y: subY, font: sans, size: 10.5, color: WHITE_85 })
     subY -= 14
   }
-
-  // ── Mascota a la derecha (sobre el hero, sin solaparse con el card) ─────
-  // Tamaño más compacto (110 px) y posicionada arriba para que no entre
-  // visualmente en el área del card glass que va debajo.
-  const mascotBytes = loadMascotBytes()
-  if (mascotBytes) {
-    try {
-      const img = await pdf.embedPng(mascotBytes)
-      const imgW = 110
-      const imgH = (img.height / img.width) * imgW
-      const mascotX = A4_W - M - imgW + 4
-      // Posicionamos la mascota ARRIBA del hero, no abajo,
-      // así no choca con el card que vendrá después.
-      const mascotY = A4_H - 40 - imgH
-      // Aura azul claro detrás
-      page.drawCircle({
-        x: mascotX + imgW / 2, y: mascotY + imgH / 2 + 4,
-        size: 70, color: VOLTIS_SKY, opacity: 0.30,
-      })
-      page.drawImage(img, {
-        x: mascotX, y: mascotY,
-        width: imgW, height: imgH,
-      })
-    } catch {}
-  }
-
-  cursorY -= 70
+  cursorY = subY - 18
 
   // ── Card del portal (glassmorphic blanca translúcida) ────────────────────
   const cardH = 168
@@ -463,6 +472,18 @@ function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): 
   }
   if (current) lines.push(current)
   return lines
+}
+
+/**
+ * Devuelve la fecha en formato "DD DE MES DE YYYY" en mayúsculas:
+ *   new Date('2026-05-15') → "15 DE MAYO DE 2026"
+ */
+function formatSpanishDate(d: Date): string {
+  const meses = [
+    'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
+    'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE',
+  ]
+  return `${d.getDate()} DE ${meses[d.getMonth()]} DE ${d.getFullYear()}`
 }
 
 function chunkUrl(url: string, maxChars: number): string[] {

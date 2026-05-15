@@ -233,7 +233,10 @@ export default function PortalGlobalPage() {
 
   return (
     <div className="voltis-overview font-sans" style={{
-      background: 'linear-gradient(180deg, #f0f5ff 0%, #e9efff 50%, #eaf1fc 100%)',
+      // Fondo cobalto continuo: el hero, KPIs y bloques viven sobre la misma
+      // superficie. Las secciones de abajo (ranking, evolución, etc.) usan
+      // cards blancos que flotan sobre este fondo.
+      background: 'linear-gradient(180deg, #0A205F 0%, #0D1C4B 60%, #0A1740 100%)',
       minHeight: '100vh', color: '#1E293B',
     }}>
       <style jsx global>{`
@@ -270,24 +273,24 @@ export default function PortalGlobalPage() {
       ) : null}
 
       {data && customReady && (<>
-      {/* KPIs principales */}
-      <section className="px-6 md:px-12 -mt-12 pb-8 relative z-10">
+      {/* KPIs principales — viven sobre el cobalto */}
+      <section className="px-6 md:px-12 pb-6 relative z-10">
         <KpiGrid totals={data.totals} />
       </section>
 
-      {/* Banner cobertura */}
-      <section className="px-6 md:px-12 pb-6">
-        <CoberturaBanner totals={data.totals} fechaSips={data.fechaSipsMasReciente} />
+      {/* Banner cobertura — sobre cobalto */}
+      <section className="px-6 md:px-12 pb-6 relative z-10">
+        <CoberturaBannerDark totals={data.totals} fechaSips={data.fechaSipsMasReciente} />
       </section>
 
-      {/* Por tipo: Luz y Gas en detalle */}
-      <section className="px-6 md:px-12 pb-8 grid grid-cols-1 lg:grid-cols-2 gap-5">
+      {/* Por tipo: Luz y Gas en detalle — sobre cobalto */}
+      <section className="px-6 md:px-12 pb-8 relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-5">
         <BloqueLuz luz={data.totals.porTipo.luz} concentracion={data.concentracionPeriodos} />
         <BloqueGas gas={data.totals.porTipo.gas} />
       </section>
 
-      {/* Top consumidores + Top gastadores */}
-      <section className="px-6 md:px-12 pb-8 grid grid-cols-1 lg:grid-cols-2 gap-5">
+      {/* Top consumidores + Top gastadores — sobre cobalto */}
+      <section className="px-6 md:px-12 pb-8 relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-5">
         <TopCard title="Top consumidores" subtitle="Mayor consumo anual" icon={<Zap className="w-4 h-4" />} items={data.topConsumidores} metric="consumo" router={router} />
         <TopCard title="Top gastadores" subtitle="Mayor gasto en el periodo" icon={<TrendingUp className="w-4 h-4" />} items={data.topGastadores} metric="gasto" router={router} />
       </section>
@@ -404,22 +407,20 @@ function Header({
 }: any) {
   const suministros = totals?.suministrosCount
   const facturas = totals?.invoicesCount
-
-  // Saludo personalizado tipo template: "Hola, Ayuntamiento de Orcoyen."
-  // Si el cliente tiene nombre largo, mantenemos el "Hola." separado para
-  // dar la sensación cálida del template.
   const friendlyName = formatGreetingName(client?.name || '')
 
+  // Fecha de actualización: hoy con formato dd/mm/aaaa
+  const hoy = new Date()
+  const fechaUpdate = `${String(hoy.getDate()).padStart(2,'0')}/${String(hoy.getMonth()+1).padStart(2,'0')}/${hoy.getFullYear()}`
+
   return (
-    <header className="relative overflow-hidden pb-24" style={{
-      // Gradient cobalto idéntico al PDF: sky → cobalt → deep
+    <header className="relative overflow-hidden pb-12" style={{
       background: `
         radial-gradient(80% 60% at 15% 5%, rgba(180,210,255,0.32) 0%, transparent 55%),
         radial-gradient(70% 50% at 85% 95%, rgba(5,20,70,0.45) 0%, transparent 60%),
         linear-gradient(160deg, #2E5BD9 0%, #1F47B5 35%, #11308C 70%, #0A205F 100%)
       `,
     }}>
-      {/* Halos translúcidos como el template */}
       <div className="absolute pointer-events-none" style={{
         top: '12%', right: '8%', width: 280, height: 280,
         background: 'radial-gradient(closest-side, rgba(255,255,255,0.30), transparent 70%)',
@@ -433,7 +434,7 @@ function Header({
 
       <div className="relative px-6 md:px-12 pt-7">
         {/* Top bar: marca + cerrar sesión */}
-        <div className="flex items-center justify-between mb-10">
+        <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-2.5 text-white">
             <span className="text-base font-semibold tracking-wide">Voltis</span>
             <span className="text-base font-light text-white/65">Energía</span>
@@ -447,97 +448,57 @@ function Header({
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] items-center gap-4 md:gap-8">
+        {/* Hero principal: mascota a la IZQUIERDA + título + botón a la derecha */}
+        <div className="grid grid-cols-1 md:grid-cols-[auto_1fr_auto] items-center gap-6 md:gap-8">
+          {/* Mascota con halo (izquierda) */}
+          <div className="relative" style={{ width: 120, height: 120 }}>
+            <div className="absolute inset-0 m-auto" style={{
+              width: 110, height: 110, borderRadius: '50%',
+              background: 'radial-gradient(closest-side, rgba(125,180,255,0.55), transparent 70%)',
+              filter: 'blur(10px)',
+            }} />
+            <BuddyIcon size={120} />
+          </div>
+
+          {/* Bloque del titular */}
           <div className="min-w-0">
-            {/* Eyebrow píldora glass con dot verde */}
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-medium uppercase tracking-[0.18em] text-white"
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-medium uppercase tracking-[0.18em] text-white"
               style={{
                 background: 'rgba(255,255,255,0.14)',
                 boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.35)',
                 backdropFilter: 'blur(12px)',
               }}>
               <span className="w-1.5 h-1.5 rounded-full" style={{ background: '#7fffb9', boxShadow: '0 0 8px #7fffb9' }} />
-              Tu portal está listo
+              Tu portal energético · en vivo
             </div>
 
-            {/* Saludo cálido grande */}
-            <h1 className="mt-4 text-[40px] md:text-[56px] font-semibold leading-[1.04] text-white"
+            <h1 className="mt-3 text-[34px] md:text-[44px] font-semibold leading-[1.06] text-white"
               style={{ letterSpacing: '-0.02em' }}>
-              Hola,{' '}
-              <span style={{
-                background: 'linear-gradient(180deg, #ffffff 0%, #c9dcff 100%)',
-                WebkitBackgroundClip: 'text',
-                backgroundClip: 'text',
-                color: 'transparent',
-              }}>
-                {friendlyName}.
-              </span>
+              {friendlyName}
             </h1>
 
-            {/* Subtítulo cálido */}
-            <p className="mt-3 text-sm md:text-[14.5px] text-white/85 leading-relaxed max-w-xl">
-              Este es tu espacio privado para ver, en cualquier momento, todo lo que pasa
-              con tu energía: consumo, gasto y facturas. Se actualiza solo con cada nueva
-              factura — sólo abrir y leer.
-            </p>
-
-            {/* Meta info pequeña */}
-            <p className="mt-3 text-[11px] uppercase tracking-[0.14em] text-white/55 font-medium">
-              {windowDescription || '—'} {suministros != null ? `· ${suministros} suministros` : ''} {facturas != null ? `· ${facturas} facturas` : ''}
+            <p className="mt-2 text-[12px] md:text-[13px] text-white/75">
+              Estudio económico global ·{' '}
+              <span className="text-white font-semibold">{suministros ?? '—'} suministros</span> ·{' '}
+              <span className="text-white font-semibold">{facturas ?? '—'} facturas</span> analizadas ·
+              datos actualizados al {fechaUpdate}
             </p>
           </div>
 
-          {/* Mascota con halo */}
-          <div className="relative justify-self-center md:justify-self-end" style={{ width: 168, height: 200 }}>
-            <div className="absolute inset-0 m-auto" style={{
-              width: 150, height: 150, borderRadius: '50%',
-              background: 'radial-gradient(closest-side, rgba(125,180,255,0.55), transparent 70%)',
-              filter: 'blur(10px)',
-            }} />
-            <BuddyIcon size={168} />
+          {/* Botón Descargar Excel global (derecha) */}
+          <div className="justify-self-end self-start md:self-center">
+            {client?.id && (
+              <DownloadGlobalExcelButton
+                clientId={client.id} clientName={client.name}
+                mode={mode} from={from} to={to} typeFilter={typeFilter}
+                yearSelected={yearSelected}
+              />
+            )}
           </div>
         </div>
 
-        {/* Card "PORTAL PRIVADO DE" glass — destacando el nombre del cliente */}
-        <div className="mt-10 relative rounded-2xl px-6 py-5 overflow-hidden"
-          style={{
-            background: 'linear-gradient(180deg, rgba(255,255,255,0.20) 0%, rgba(255,255,255,0.07) 100%)',
-            boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.32), inset 0 1px 0 rgba(255,255,255,0.5), 0 20px 50px -20px rgba(10,30,80,0.5)',
-            backdropFilter: 'blur(18px)',
-          }}>
-          <div className="absolute inset-x-0 top-0 h-2/5 pointer-events-none"
-            style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.22), transparent)' }} />
-          <div className="relative flex items-center justify-between flex-wrap gap-3">
-            <div className="min-w-0">
-              <div className="text-[10px] uppercase tracking-[0.20em] text-white/65 font-semibold mb-1">
-                Portal privado de
-              </div>
-              <div className="text-lg md:text-xl font-semibold text-white truncate">
-                {client?.name || 'Cliente'}
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] uppercase tracking-[0.14em] text-white font-medium"
-                style={{
-                  background: 'rgba(255,255,255,0.18)',
-                  boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.4)',
-                }}>
-                <span className="w-1.5 h-1.5 rounded-full" style={{ background: '#7fffb9', boxShadow: '0 0 10px #7fffb9' }} />
-                Datos en vivo
-              </div>
-              {client?.id && (
-                <DownloadGlobalExcelButton
-                  clientId={client.id} clientName={client.name}
-                  mode={mode} from={from} to={to} typeFilter={typeFilter}
-                  yearSelected={yearSelected}
-                />
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Filtros — chips glass */}
-        <div className="flex flex-wrap items-center gap-2 mt-6">
+        {/* Filtros — chips glass — en una línea bajo el hero */}
+        <div className="flex flex-wrap items-center gap-2 mt-7">
           <span className="text-[10px] font-bold tracking-[0.18em] text-white/65 uppercase mr-2">Periodo</span>
           <Chip active={mode === 'global'} onClick={() => { setMode('global'); setYearSelected(null) }}>
             Global
@@ -753,41 +714,45 @@ function BuddyIcon({ size = 64 }: { size?: number }) {
 function KpiGrid({ totals }: { totals: Overview['totals'] }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <Kpi big icon={<TrendingUp className="w-5 h-5" />} label="Gasto total del periodo"
+      <Kpi highlight icon={<TrendingUp className="w-4 h-4" />} label="Gasto total del periodo"
         value={fmt(totals.gastoTotal, 2)} unit="€"
         hint={totals.gastoAnualizado > totals.gastoTotal * 1.05
           ? `Anualizado: ${fmt(totals.gastoAnualizado, 0)} €/año`
           : undefined} />
-      <Kpi icon={<Activity className="w-5 h-5" />} label="Consumo anual (oficial)"
+      <Kpi icon={<Activity className="w-4 h-4" />} label="Consumo anual oficial"
         value={fmt(totals.consumoTotalKwh, 0)} unit="kWh"
         hint={`Cobertura facturas: ${fmtPct(totals.coberturaFacturasPct)}`} />
-      <Kpi icon={<BarChart3 className="w-5 h-5" />} label="Suministros"
+      <Kpi icon={<BarChart3 className="w-4 h-4" />} label="Suministros activos"
         value={String(totals.suministrosCount)} unit="totales"
         hint={`${totals.suministrosConFacturas} con facturas en el periodo`} />
     </div>
   )
 }
 
-function Kpi({ icon, label, value, unit, hint, big = false }: any) {
+function Kpi({ icon, label, value, unit, hint, highlight = false }: any) {
+  // Estilo cobalto glass: todos los KPI cards son del mismo material, el
+  // primero (Gasto) tiene un acento dorado para destacarlo sin romper la
+  // armonía cobalto.
   return (
-    <div className={`rounded-2xl p-6 ${big ? 'md:col-span-1' : ''}`} style={{
-      background: big
-        ? 'linear-gradient(135deg, #1F47B5 0%, #11308C 60%, #0A205F 100%)'
-        : '#FFFFFF',
-      color: big ? '#FFFFFF' : '#1E293B',
-      boxShadow: big
-        ? '0 22px 50px -20px rgba(10,30,80,0.45), 0 8px 20px -8px rgba(10,30,80,0.25)'
-        : '0 10px 40px -10px rgba(74,111,227,0.18)',
+    <div className="rounded-2xl p-5 relative overflow-hidden" style={{
+      background: 'linear-gradient(180deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.04) 100%)',
+      boxShadow: highlight
+        ? 'inset 0 0 0 1px rgba(218,180,90,0.55), inset 0 1px 0 rgba(255,255,255,0.30), 0 18px 40px -18px rgba(10,20,60,0.55)'
+        : 'inset 0 0 0 1px rgba(255,255,255,0.22), inset 0 1px 0 rgba(255,255,255,0.30), 0 18px 40px -18px rgba(10,20,60,0.55)',
+      backdropFilter: 'blur(14px)',
+      color: '#FFFFFF',
     }}>
-      <div className="flex items-center gap-2 mb-3" style={{ color: big ? '#B9D1FF' : '#1F47B5' }}>
+      <div className="absolute inset-x-0 top-0 h-2/5 pointer-events-none"
+        style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.10), transparent)' }} />
+      <div className="relative flex items-center gap-2 mb-3 text-[#B9D1FF]">
         {icon}
         <div className="text-[10px] font-bold tracking-[0.18em] uppercase">{label}</div>
       </div>
-      <div className="flex items-baseline gap-2">
-        <span className="text-4xl font-bold num">{value}</span>
-        {unit && <span className="text-base font-medium" style={{ color: big ? '#B9D1FF' : '#64748B' }}>{unit}</span>}
+      <div className="relative flex items-baseline gap-2">
+        <span className="text-[34px] font-bold num leading-none">{value}</span>
+        {unit && <span className="text-sm font-medium text-[#B9D1FF]">{unit}</span>}
       </div>
-      {hint && <div className="text-xs mt-3" style={{ color: big ? '#B9D1FF' : '#64748B' }}>{hint}</div>}
+      {hint && <div className="relative text-[11px] mt-2 text-white/70">{hint}</div>}
     </div>
   )
 }
@@ -817,6 +782,28 @@ function CoberturaBanner({ totals, fechaSips }: { totals: Overview['totals']; fe
   )
 }
 
+/** Versión sobre fondo cobalto: glass blanco translúcido sutil. */
+function CoberturaBannerDark({ totals, fechaSips }: { totals: Overview['totals']; fechaSips: string | null }) {
+  const cobertura = totals.coberturaFacturasPct
+  const sinFacturas = totals.suministrosSinConsumo > 0
+  return (
+    <div className="rounded-2xl px-4 py-3 flex items-start gap-3" style={{
+      background: 'rgba(255,255,255,0.06)',
+      boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.18)',
+      backdropFilter: 'blur(10px)',
+    }}>
+      <Info className="w-4 h-4 flex-shrink-0 text-[#B9D1FF] mt-0.5" />
+      <div className="flex-1 text-xs text-white/80 leading-relaxed">
+        <span className="font-semibold text-white">Cobertura {fmtPct(cobertura)}.</span>{' '}
+        Las facturas analizadas cubren <span className="num">{fmt(totals.consumoFacturadoTotalKwh, 0)}</span> kWh
+        de los <span className="num">{fmt(totals.consumoTotalKwh, 0)}</span> kWh anuales totales según SIPS/distribuidora.
+        {fechaSips && <span> Datos oficiales actualizados a {new Date(fechaSips).toLocaleDateString('es-ES')}.</span>}
+        {sinFacturas && <span> {totals.suministrosSinConsumo} suministros aún sin consumo SIPS registrado.</span>}
+      </div>
+    </div>
+  )
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // BloqueLuz — todo el detalle eléctrico
 // ════════════════════════════════════════════════════════════════════════════
@@ -834,31 +821,38 @@ function BloqueLuz({ luz, concentracion }: { luz: Overview['totals']['porTipo'][
   const totalP = Object.values(luz.consumoPorPeriodo).reduce((s, v) => s + v, 0) || 1
 
   return (
-    <div className="rounded-2xl bg-white p-6 space-y-5" style={{ boxShadow: '0 10px 40px -10px rgba(74,111,227,0.15)' }}>
-      <div className="flex items-center gap-3">
-        <div className="rounded-xl p-2.5" style={{ background: '#FEF3C7', color: '#B45309' }}><Zap className="w-5 h-5" /></div>
+    <div className="rounded-2xl p-6 space-y-5 relative overflow-hidden" style={{
+      background: 'linear-gradient(180deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.04) 100%)',
+      boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.22), inset 0 1px 0 rgba(255,255,255,0.30), 0 18px 40px -18px rgba(10,20,60,0.55)',
+      backdropFilter: 'blur(14px)',
+    }}>
+      <div className="absolute inset-x-0 top-0 h-1/3 pointer-events-none"
+        style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.08), transparent)' }} />
+      <div className="relative flex items-center gap-3">
+        <div className="rounded-xl p-2.5" style={{ background: 'rgba(254,243,199,0.18)', color: '#FBBF24' }}><Zap className="w-5 h-5" /></div>
         <div className="flex-1">
-          <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-slate-500">Electricidad</div>
-          <h3 className="text-xl font-bold text-slate-800">{luz.suministros} suministros</h3>
+          <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#B9D1FF]">Electricidad</div>
+          <h3 className="text-xl font-bold text-white">{luz.suministros} suministros</h3>
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="relative grid grid-cols-3 gap-3">
         <MiniKpi label="Gasto" value={fmtEur(luz.gasto)} />
         <MiniKpi label="Consumo anual" value={fmtKwh(luz.consumoAnualKwh)} />
         <MiniKpi label="€/kWh medio" value={fmt(luz.eurPorKwhMedio, 4)} unit="€/kWh" />
       </div>
 
       {(luz.excesos > 0 || luz.reactiva > 0) && (
-        <div className="rounded-xl p-3 bg-slate-50 text-xs space-y-1">
+        <div className="relative rounded-xl p-3 text-xs space-y-1 text-white/80"
+          style={{ background: 'rgba(255,255,255,0.06)', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.14)' }}>
           {luz.excesos > 0 && (
-            <div className="text-slate-700">
-              <strong className="num">{fmtEur(luz.excesos)}</strong> facturados en <strong>excesos de potencia</strong>.
+            <div>
+              <strong className="num text-white">{fmtEur(luz.excesos)}</strong> facturados en <strong className="text-white">excesos de potencia</strong>.
             </div>
           )}
           {luz.reactiva > 0 && (
-            <div className="text-slate-700">
-              <strong className="num">{fmtEur(luz.reactiva)}</strong> facturados en <strong>energía reactiva</strong>.
+            <div>
+              <strong className="num text-white">{fmtEur(luz.reactiva)}</strong> facturados en <strong className="text-white">energía reactiva</strong>.
             </div>
           )}
         </div>
@@ -866,14 +860,14 @@ function BloqueLuz({ luz, concentracion }: { luz: Overview['totals']['porTipo'][
 
       {/* Concentración periodos */}
       {totalP > 1 && (
-        <div>
+        <div className="relative">
           <div className="flex items-center justify-between mb-2">
-            <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-slate-500">Concentración por periodo</div>
-            <div className="text-xs text-slate-600">
-              Dominante: <strong className="text-slate-800">{concentracion.dominante}</strong> · {fmtPct(concentracion.dominantePct)}
+            <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#B9D1FF]">Concentración por periodo</div>
+            <div className="text-xs text-white/75">
+              Dominante: <strong className="text-white">{concentracion.dominante}</strong> · {fmtPct(concentracion.dominantePct)}
             </div>
           </div>
-          <div className="flex h-7 rounded-lg overflow-hidden" style={{ boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.05)' }}>
+          <div className="flex h-7 rounded-lg overflow-hidden" style={{ boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.18)' }}>
             {periodos.map(p => {
               const pct = (luz.consumoPorPeriodo[p.k] / totalP) * 100
               if (pct < 0.5) return null
@@ -890,7 +884,7 @@ function BloqueLuz({ luz, concentracion }: { luz: Overview['totals']['porTipo'][
             {periodos.map(p => (
               <div key={p.k} className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-sm" style={{ background: p.color }} />
-                <span className="text-slate-600">{p.k}: {fmt(luz.consumoPorPeriodo[p.k], 0)} kWh</span>
+                <span className="text-white/75">{p.k}: {fmt(luz.consumoPorPeriodo[p.k], 0)} kWh</span>
               </div>
             ))}
           </div>
@@ -899,16 +893,17 @@ function BloqueLuz({ luz, concentracion }: { luz: Overview['totals']['porTipo'][
 
       {/* Precio medio por periodo */}
       {Object.values(luz.precioMedioPorPeriodo).some(v => v > 0) && (
-        <div>
-          <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-slate-500 mb-2">Precio medio €/kWh por periodo</div>
+        <div className="relative">
+          <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#B9D1FF] mb-2">Precio medio €/kWh por periodo</div>
           <div className="grid grid-cols-3 md:grid-cols-6 gap-2 text-xs">
             {periodos.map(p => {
               const v = luz.precioMedioPorPeriodo[p.k] || 0
               if (v === 0) return null
               return (
-                <div key={p.k} className="rounded-lg bg-slate-50 p-2 text-center">
-                  <div className="text-[10px] text-slate-500 font-bold">{p.k}</div>
-                  <div className="text-sm font-semibold text-slate-800 num">{fmt(v, 4)}</div>
+                <div key={p.k} className="rounded-lg p-2 text-center"
+                  style={{ background: 'rgba(255,255,255,0.06)', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.14)' }}>
+                  <div className="text-[10px] text-[#B9D1FF] font-bold">{p.k}</div>
+                  <div className="text-sm font-semibold text-white num">{fmt(v, 4)}</div>
                 </div>
               )
             })}
@@ -926,23 +921,30 @@ function BloqueLuz({ luz, concentracion }: { luz: Overview['totals']['porTipo'][
 function BloqueGas({ gas }: { gas: Overview['totals']['porTipo']['gas'] }) {
   if (gas.suministros === 0) return null
   return (
-    <div className="rounded-2xl bg-white p-6 space-y-5" style={{ boxShadow: '0 10px 40px -10px rgba(74,111,227,0.15)' }}>
-      <div className="flex items-center gap-3">
-        <div className="rounded-xl p-2.5" style={{ background: '#FFEDD5', color: '#C2410C' }}><Flame className="w-5 h-5" /></div>
+    <div className="rounded-2xl p-6 space-y-5 relative overflow-hidden" style={{
+      background: 'linear-gradient(180deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.04) 100%)',
+      boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.22), inset 0 1px 0 rgba(255,255,255,0.30), 0 18px 40px -18px rgba(10,20,60,0.55)',
+      backdropFilter: 'blur(14px)',
+    }}>
+      <div className="absolute inset-x-0 top-0 h-1/3 pointer-events-none"
+        style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.08), transparent)' }} />
+      <div className="relative flex items-center gap-3">
+        <div className="rounded-xl p-2.5" style={{ background: 'rgba(255,237,213,0.18)', color: '#FB923C' }}><Flame className="w-5 h-5" /></div>
         <div className="flex-1">
-          <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-slate-500">Gas natural</div>
-          <h3 className="text-xl font-bold text-slate-800">{gas.suministros} suministros</h3>
+          <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#B9D1FF]">Gas natural</div>
+          <h3 className="text-xl font-bold text-white">{gas.suministros} suministros</h3>
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="relative grid grid-cols-3 gap-3">
         <MiniKpi label="Gasto" value={fmtEur(gas.gasto)} />
         <MiniKpi label="Consumo anual" value={fmtKwh(gas.consumoAnualKwh)} />
         <MiniKpi label="€/kWh medio" value={fmt(gas.eurPorKwhMedio, 4)} unit="€/kWh" />
       </div>
 
-      <div className="rounded-xl p-3 bg-slate-50 text-xs text-slate-600 leading-relaxed">
-        Consumo anual oficial del Excel ConsumoAnual de la distribuidora. En gas el único concepto competitivo es el TV Precio Fijo (€/kWh) — término fijo, peaje, IEH y alquileres son regulados.
+      <div className="relative rounded-xl p-3 text-xs text-white/80 leading-relaxed"
+        style={{ background: 'rgba(255,255,255,0.06)', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.14)' }}>
+        Consumo anual oficial del Excel ConsumoAnual de la distribuidora. En gas el único concepto competitivo es el <strong className="text-white">TV Precio Fijo (€/kWh)</strong> — término fijo, peaje, IEH y alquileres son regulados.
       </div>
     </div>
   )
@@ -950,10 +952,11 @@ function BloqueGas({ gas }: { gas: Overview['totals']['porTipo']['gas'] }) {
 
 function MiniKpi({ label, value, unit }: { label: string; value: string; unit?: string }) {
   return (
-    <div className="rounded-xl bg-slate-50 p-3">
-      <div className="text-[10px] font-bold tracking-wider uppercase text-slate-500 mb-1">{label}</div>
-      <div className="text-base font-bold num text-slate-800">
-        {value} {unit && <span className="text-xs font-medium text-slate-500">{unit}</span>}
+    <div className="rounded-xl p-3"
+      style={{ background: 'rgba(255,255,255,0.06)', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.14)' }}>
+      <div className="text-[10px] font-bold tracking-wider uppercase text-[#B9D1FF] mb-1">{label}</div>
+      <div className="text-base font-bold num text-white">
+        {value} {unit && <span className="text-xs font-medium text-[#B9D1FF]">{unit}</span>}
       </div>
     </div>
   )
@@ -968,32 +971,39 @@ function TopCard({ title, subtitle, icon, items, metric, router }: any) {
   const token = String(params?.token || '')
   if (!items?.length) return null
   return (
-    <div className="rounded-2xl bg-white p-6" style={{ boxShadow: '0 10px 40px -10px rgba(74,111,227,0.15)' }}>
-      <div className="flex items-center gap-3 mb-5">
-        <div className="rounded-xl p-2 text-[#4A6FE3] bg-blue-50">{icon}</div>
+    <div className="rounded-2xl p-6 relative overflow-hidden" style={{
+      background: 'linear-gradient(180deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.04) 100%)',
+      boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.22), inset 0 1px 0 rgba(255,255,255,0.30), 0 18px 40px -18px rgba(10,20,60,0.55)',
+      backdropFilter: 'blur(14px)',
+    }}>
+      <div className="absolute inset-x-0 top-0 h-1/3 pointer-events-none"
+        style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.08), transparent)' }} />
+      <div className="relative flex items-center gap-3 mb-5">
+        <div className="rounded-xl p-2 text-[#B9D1FF]" style={{ background: 'rgba(185,209,255,0.15)' }}>{icon}</div>
         <div>
-          <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-slate-500">{title}</div>
-          <div className="text-xs text-slate-500">{subtitle}</div>
+          <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#B9D1FF]">{title}</div>
+          <div className="text-sm font-semibold text-white">{subtitle}</div>
         </div>
       </div>
-      <div className="space-y-2">
+      <div className="relative space-y-1">
         {items.map((r: any, i: number) => (
           <button key={r.supply.id}
             onClick={() => router.push(`/portal/${token}/supplies/${r.supply.id}`)}
             onMouseEnter={() => prefetchSupply(r.supply.id)}
             onFocus={() => prefetchSupply(r.supply.id)}
-            className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-blue-50 transition text-left">
-            <div className="text-xs font-bold text-slate-400 w-6">#{i + 1}</div>
+            className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-white/10 transition text-left">
+            <div className="text-xs font-bold text-[#B9D1FF] w-6">#{i + 1}</div>
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-semibold text-slate-800 truncate">{r.supply.name || r.supply.cups}</div>
-              <div className="text-[10px] num text-slate-500">{r.supply.cups} · {r.supply.tariff}</div>
+              <div className="text-sm font-semibold text-white truncate">{r.supply.name || r.supply.cups}</div>
+              <div className="text-[10px] num text-white/65">{r.supply.cups} · {r.supply.tariff}</div>
             </div>
             <div className="text-right">
-              <div className="text-sm font-bold num text-slate-800">
+              <div className="text-sm font-bold num text-white">
                 {metric === 'consumo' ? fmtKwh(r.consumoAnualKwh) : fmtEur(r.totalGasto)}
               </div>
+              <div className="text-[10px] text-[#B9D1FF]">{metric === 'consumo' ? 'kWh/año' : ''}</div>
             </div>
-            <ChevronRight className="w-4 h-4 text-slate-400" />
+            <ChevronRight className="w-4 h-4 text-[#B9D1FF]" />
           </button>
         ))}
       </div>
@@ -1048,13 +1058,14 @@ function AnomaliasCard({ items, router }: { items: SupplyAggregate[]; router: an
 // ════════════════════════════════════════════════════════════════════════════
 
 function SectionBlock({ num, title, subtitle, children }: any) {
+  // Sobre fondo cobalto: títulos blancos, subtítulo azul cielo.
   return (
     <div>
       <div className="flex items-baseline gap-3 mb-4">
-        <span className="text-[10px] font-bold tracking-[0.18em] uppercase num text-[#4A6FE3]">{num}</span>
+        <span className="text-[10px] font-bold tracking-[0.18em] uppercase num text-[#B9D1FF]">{num}</span>
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">{title}</h2>
-          {subtitle && <p className="text-sm text-slate-500">{subtitle}</p>}
+          <h2 className="text-2xl font-bold text-white">{title}</h2>
+          {subtitle && <p className="text-sm text-white/70">{subtitle}</p>}
         </div>
       </div>
       {children}
