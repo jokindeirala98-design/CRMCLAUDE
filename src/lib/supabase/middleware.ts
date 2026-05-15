@@ -25,24 +25,38 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const pathname = request.nextUrl.pathname
 
-  // Redirect to login if not authenticated (except login page)
-  if (
-    !user &&
-    !request.nextUrl.pathname.startsWith('/login') &&
-    !request.nextUrl.pathname.startsWith('/auth') &&
-    !request.nextUrl.pathname.startsWith('/api')
-  ) {
+  // ⚠️ Rutas PÚBLICAS — no requieren sesión Supabase del CRM y no deben
+  // redirigirse a /login. El portal del cliente usa su propio sistema
+  // de magic link basado en cookie de portal (independiente de Supabase Auth).
+  const PUBLIC_PREFIXES = [
+    '/login',
+    '/auth',
+    '/api',          // API routes manejan su propia auth (Supabase Auth o portal token)
+    '/portal',       // Portal cliente (magic link, sin login)
+    '/p',            // Alias corto opcional para acceso público
+    '/share',        // Cualquier compartido futuro (informe público, etc.)
+  ]
+  const isPublic = PUBLIC_PREFIXES.some(p => pathname.startsWith(p))
+
+  // Sólo consultamos al usuario Supabase para rutas privadas: evita una
+  // ida innecesaria al servicio de auth cuando el visitante no es admin.
+  let user: { id: string } | null = null
+  if (!isPublic || pathname.startsWith('/login')) {
+    const { data } = await supabase.auth.getUser()
+    user = data.user as any
+  }
+
+  // Redirige a login si: ruta privada y sin sesión.
+  if (!user && !isPublic) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
   }
 
-  // Redirect to dashboard if authenticated and on login page
-  if (user && request.nextUrl.pathname.startsWith('/login')) {
+  // Si ya hay sesión y el usuario pisa /login → al panel.
+  if (user && pathname.startsWith('/login')) {
     const url = request.nextUrl.clone()
     url.pathname = '/panel'
     return NextResponse.redirect(url)

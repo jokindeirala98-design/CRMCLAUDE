@@ -30,7 +30,11 @@ export async function POST(req: NextRequest) {
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     path: '/',
-    maxAge: 60 * 60 * 24 * 30,    // 30 días
+    // Cookie efectivamente permanente. El enlace (token) en BD ya es
+    // indefinido (no tiene expires_at), así que tampoco caduca la sesión
+    // del navegador. Si se quiere cortar el acceso a un cliente, se revoca
+    // el token en el CRM (campo revoked_at) y deja de funcionar al instante.
+    maxAge: 60 * 60 * 24 * 365 * 10,    // 10 años
   })
   return res
 }
