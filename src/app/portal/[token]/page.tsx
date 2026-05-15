@@ -232,14 +232,29 @@ export default function PortalGlobalPage() {
   const headerClient = data?.client || raw.client
 
   return (
-    <div className="voltis-overview font-sans" style={{
-      // Fondo cobalto continuo: el hero, KPIs y bloques viven sobre la misma
-      // superficie. Las secciones de abajo (ranking, evolución, etc.) usan
-      // cards blancos que flotan sobre este fondo.
-      background: 'linear-gradient(180deg, #0A205F 0%, #0D1C4B 60%, #0A1740 100%)',
+    <div className="voltis-overview voltis-portal-bg font-sans" style={{
       minHeight: '100vh', color: '#1E293B',
     }}>
       <style jsx global>{`
+        /* ── FONDO COBALTO FIJO ESTILO APPLE GLASS ───────────────────────
+         * Una única superficie cobalto que NO se mueve con el scroll.
+         * Los paneles flotan sobre ella con efecto vidrio esmerilado.
+         * Implementado con un ::before fixed para evitar la costura entre
+         * header y body que aparecía con dos gradients distintos.
+         */
+        .voltis-portal-bg { position: relative; isolation: isolate; }
+        .voltis-portal-bg::before {
+          content: '';
+          position: fixed;
+          inset: 0;
+          z-index: -1;
+          background:
+            radial-gradient(60% 45% at 12% 8%, rgba(120,160,255,0.22), transparent 65%),
+            radial-gradient(50% 40% at 88% 4%, rgba(160,200,255,0.18), transparent 70%),
+            radial-gradient(70% 60% at 8% 92%, rgba(70,110,220,0.20), transparent 65%),
+            radial-gradient(55% 45% at 92% 88%, rgba(50,90,180,0.18), transparent 70%),
+            linear-gradient(180deg, #0A2061 0%, #0B1E55 50%, #0A1A48 100%);
+        }
         .voltis-overview, .voltis-overview * {
           font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Inter', system-ui, sans-serif;
         }
@@ -263,8 +278,12 @@ export default function PortalGlobalPage() {
       {/* Mientras esperamos a que el modo Personalizado tenga fechas, mostramos
           mensaje informativo en vez de pantalla en blanco. */}
       {!customReady || !data ? (
-        <section className="px-6 md:px-12 -mt-12 relative z-10">
-          <div className="rounded-2xl bg-white p-8 text-center text-slate-600 shadow-lg">
+        <section className="px-6 md:px-12 relative z-10">
+          <div className="rounded-2xl p-8 text-center text-white/80" style={{
+            background: 'linear-gradient(180deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.04) 100%)',
+            boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.22), inset 0 1px 0 rgba(255,255,255,0.30)',
+            backdropFilter: 'blur(14px)',
+          }}>
             {mode === 'custom' && !customReady
               ? 'Selecciona la fecha de inicio y fin del rango personalizado.'
               : 'Sin datos para los filtros seleccionados.'}
@@ -414,23 +433,9 @@ function Header({
   const fechaUpdate = `${String(hoy.getDate()).padStart(2,'0')}/${String(hoy.getMonth()+1).padStart(2,'0')}/${hoy.getFullYear()}`
 
   return (
-    <header className="relative overflow-hidden pb-12" style={{
-      background: `
-        radial-gradient(80% 60% at 15% 5%, rgba(180,210,255,0.32) 0%, transparent 55%),
-        radial-gradient(70% 50% at 85% 95%, rgba(5,20,70,0.45) 0%, transparent 60%),
-        linear-gradient(160deg, #2E5BD9 0%, #1F47B5 35%, #11308C 70%, #0A205F 100%)
-      `,
-    }}>
-      <div className="absolute pointer-events-none" style={{
-        top: '12%', right: '8%', width: 280, height: 280,
-        background: 'radial-gradient(closest-side, rgba(255,255,255,0.30), transparent 70%)',
-        filter: 'blur(8px)',
-      }} />
-      <div className="absolute pointer-events-none" style={{
-        top: '60%', left: '6%', width: 360, height: 360,
-        background: 'radial-gradient(closest-side, rgba(255,255,255,0.16), transparent 70%)',
-        filter: 'blur(12px)',
-      }} />
+    <header className="relative overflow-visible pb-12">
+      {/* El fondo cobalto vive en el contenedor padre (.voltis-portal-bg::before
+          fixed) — el header NO tiene gradient propio para evitar la costura. */}
 
       <div className="relative px-6 md:px-12 pt-7">
         {/* Top bar: marca + cerrar sesión */}
@@ -554,17 +559,19 @@ function formatGreetingName(name: string): string {
 
 function PortalSkeleton() {
   return (
-    <div className="min-h-screen" style={{ background: '#F0F6FF' }}>
+    <div className="min-h-screen" style={{
+      background: 'radial-gradient(60% 45% at 12% 8%, rgba(120,160,255,0.22), transparent 65%), linear-gradient(180deg, #0A2061 0%, #0B1E55 50%, #0A1A48 100%)',
+    }}>
       <style jsx>{`
         @keyframes pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.5; }
         }
-        .skel { animation: pulse 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite; background: rgba(255,255,255,0.65); border-radius: 12px; }
-        .skel-dark { animation: pulse 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite; background: rgba(255,255,255,0.3); border-radius: 12px; }
+        .skel { animation: pulse 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite; background: rgba(255,255,255,0.10); border-radius: 12px; }
+        .skel-dark { animation: pulse 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite; background: rgba(255,255,255,0.12); border-radius: 12px; }
       `}</style>
       {/* Hero skeleton */}
-      <div className="pb-20" style={{ background: 'linear-gradient(135deg, #A8C8F0 0%, #6FA0E8 60%, #4A6FE3 100%)' }}>
+      <div className="pb-20">
         <div className="px-6 md:px-12 pt-8">
           <div className="skel-dark mb-8" style={{ width: 120, height: 14 }} />
           <div className="flex items-center gap-8 flex-wrap">
