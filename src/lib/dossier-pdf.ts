@@ -1,34 +1,41 @@
 /**
  * Dossier PDF nativo Voltis — generado con pdf-lib (pure JS, sin Chromium).
  *
- * Paleta brand verificada en voltisenergia.com:
- *   • Sky blue       #88B9E7  (hero)
- *   • Electric blue  #3B4FE4  (mascota, CTA, acentos)
- *   • Page grey      #F7F7F7
- *   • Ink            #1A1A1A
- *   • Body           #6E7180
- *   • White          #FFFFFF
+ * Diseño basado en el template "Voltis Acceso PDF.html" — paleta azul
+ * cobalto profundo, saludo personalizado, QR funcional al portal, mascota
+ * y footer cálido. El QR enlaza directamente al portal del cliente y se
+ * puede escanear desde móvil.
  *
- * Tipografía Inter (sans-serif). Diseño "approachable SaaS":
- * cards blancas con sombra, esquinas redondeadas, mascota azul.
+ * Paleta cobalto:
+ *   • Voltis Deep    #0A2A6B
+ *   • Voltis Blue    #1F5BFF
+ *   • Voltis Sky     #B9D1FF
+ *   • Voltis Ice     #EAF1FF
+ *   • Ink            #0B1B3E
+ *   • Ink Soft       #4A5A82
  *
- * Sin QR (el enlace se muestra grande y copiable).
+ * Saludo personalizado: "Querido {nombre}, bienvenido al club Voltis."
  */
-import { PDFDocument, StandardFonts, rgb, PDFFont, PDFPage } from 'pdf-lib'
+import { PDFDocument, StandardFonts, rgb, PDFFont } from 'pdf-lib'
+import QRCode from 'qrcode'
 import fs from 'fs'
 import path from 'path'
-import { VOLTIS_INFO, voltisPortalUrl, voltisFullAddress } from './voltis-info'
+import { VOLTIS_INFO, voltisPortalUrl } from './voltis-info'
 
-// ── Paleta Voltis (verificada en voltisenergia.com) ─────────────────────────
-const SKY        = rgb(0.533, 0.725, 0.906)  // #88B9E7 hero
-const ELECTRIC   = rgb(0.231, 0.310, 0.894)  // #3B4FE4 acento
-const ELEC_DARK  = rgb(0.160, 0.220, 0.690)  // versión oscura para hover/title
-const PAGE_BG    = rgb(0.969, 0.969, 0.969)  // #F7F7F7
-const INK        = rgb(0.102, 0.102, 0.102)  // #1A1A1A titulares
-const BODY       = rgb(0.431, 0.443, 0.502)  // #6E7180 body
-const WHITE      = rgb(1, 1, 1)
-const LINE       = rgb(0.890, 0.898, 0.918)  // muy claro
-const SKY_TINT   = rgb(0.910, 0.945, 0.984)  // #E8F1FB para badges
+// ── Paleta Voltis cobalto ────────────────────────────────────────────────────
+const COBALT_BG     = rgb(0.067, 0.165, 0.392)   // #11308C centro hero
+const COBALT_DARK   = rgb(0.039, 0.125, 0.373)   // #0A205F esquina
+const COBALT_MID    = rgb(0.122, 0.278, 0.710)   // #1F47B5
+const SKY_TINT      = rgb(0.180, 0.357, 0.851)   // #2E5BD9 arriba
+const VOLTIS_BLUE   = rgb(0.122, 0.357, 1.0)     // #1F5BFF
+const VOLTIS_SKY    = rgb(0.725, 0.820, 1.0)     // #B9D1FF
+const VOLTIS_ICE    = rgb(0.918, 0.945, 1.0)     // #EAF1FF
+const WHITE         = rgb(1, 1, 1)
+const WHITE_85      = rgb(0.95, 0.95, 0.95)
+const WHITE_70      = rgb(0.85, 0.85, 0.92)
+const WHITE_60      = rgb(0.75, 0.80, 0.90)
+const INK_DEEP      = rgb(0.043, 0.106, 0.243)   // #0B1B3E
+const GREEN_LIVE    = rgb(0.498, 1.0, 0.725)     // #7fffb9
 
 let MASCOT_PNG_BYTES_CACHE: Uint8Array | null = null
 function loadMascotBytes(): Uint8Array | null {
@@ -50,257 +57,362 @@ interface DossierArgs {
 /** Genera el PDF del dossier Voltis (pure JS). */
 export async function buildDossierPdf(args: DossierArgs): Promise<Buffer> {
   const url = voltisPortalUrl(args.token)
-  const today = new Date().toLocaleDateString('es-ES', {
-    day: '2-digit', month: 'long', year: 'numeric',
-  })
 
   const pdf = await PDFDocument.create()
-  pdf.setTitle(`Voltis · ${args.clientName}`)
+  pdf.setTitle(`Voltis · Acceso al portal — ${args.clientName}`)
   pdf.setAuthor('Voltis Energía')
   pdf.setSubject('Acceso al portal energético del cliente')
   pdf.setKeywords(['Voltis', 'portal', 'energía', 'cliente'])
   pdf.setProducer('Voltis CRM')
   pdf.setCreator('Voltis CRM')
 
-  // Fuentes — Inter no está como StandardFont; usamos Helvetica como sans
-  // cercano (proporciones similares) y la diferenciamos por peso.
+  // Fuentes — Helvetica (sustitutivo de SF Pro Display)
   const sans      = await pdf.embedFont(StandardFonts.Helvetica)
-  const sansMed   = await pdf.embedFont(StandardFonts.Helvetica)         // 500 alias
   const sansBold  = await pdf.embedFont(StandardFonts.HelveticaBold)
   const mono      = await pdf.embedFont(StandardFonts.Courier)
+  const monoBold  = await pdf.embedFont(StandardFonts.CourierBold)
 
   // Página A4
   const A4_W = 595.28
   const A4_H = 841.89
   const page = pdf.addPage([A4_W, A4_H])
 
-  // ── Fondo página gris claro ─────────────────────────────────────────────
-  page.drawRectangle({ x: 0, y: 0, width: A4_W, height: A4_H, color: PAGE_BG })
+  // ── Fondo cobalto degradado (simulado con bandas) ────────────────────────
+  // pdf-lib no soporta gradients reales; aproximamos con varias franjas
+  // verticales que cambian del cobalto medio (arriba) al profundo (abajo).
+  const bands = 60
+  for (let i = 0; i < bands; i++) {
+    const t = i / (bands - 1)
+    // interpolación: SKY_TINT → COBALT_BG → COBALT_DARK
+    let r: number, g: number, b: number
+    if (t < 0.4) {
+      const u = t / 0.4
+      r = 0.180 + (0.067 - 0.180) * u
+      g = 0.357 + (0.165 - 0.357) * u
+      b = 0.851 + (0.392 - 0.851) * u
+    } else {
+      const u = (t - 0.4) / 0.6
+      r = 0.067 + (0.039 - 0.067) * u
+      g = 0.165 + (0.125 - 0.165) * u
+      b = 0.392 + (0.373 - 0.392) * u
+    }
+    page.drawRectangle({
+      x: 0, y: A4_H - ((i + 1) * A4_H / bands),
+      width: A4_W, height: Math.ceil(A4_H / bands) + 1,
+      color: rgb(r, g, b),
+    })
+  }
 
-  // ── Hero panel azul cielo (plano, sin curvas para que el texto sea legible) ─
-  const heroH = 270
+  // Halo blanco sutil arriba-derecha (simulado con círculos translúcidos)
+  for (let i = 0; i < 6; i++) {
+    page.drawCircle({
+      x: A4_W * 0.85, y: A4_H - 100,
+      size: 150 - i * 12,
+      color: rgb(1, 1, 1), opacity: 0.04,
+    })
+  }
+  for (let i = 0; i < 6; i++) {
+    page.drawCircle({
+      x: A4_W * 0.10, y: 200,
+      size: 200 - i * 14,
+      color: rgb(1, 1, 1), opacity: 0.025,
+    })
+  }
+
+  const M = 48   // margen lateral
+  let cursorY = A4_H - 46
+
+  // ── Top bar: marca + meta ────────────────────────────────────────────────
+  page.drawText('Voltis', { x: M, y: cursorY, font: sansBold, size: 13, color: WHITE })
+  page.drawText('Energía', { x: M + sansBold.widthOfTextAtSize('Voltis', 13) + 6, y: cursorY, font: sans, size: 13, color: WHITE_70 })
+
+  // En lugar de fecha, mostramos la web Voltis a la derecha del header
+  const metaR = `www.${VOLTIS_INFO.website}`
+  page.drawText(metaR, {
+    x: A4_W - M - sans.widthOfTextAtSize(metaR, 9),
+    y: cursorY, font: sans, size: 9, color: WHITE_70,
+  })
+
+  cursorY -= 38
+
+  // ── Eyebrow píldora ──────────────────────────────────────────────────────
+  // pdf-lib no tiene radios redondeados nativos; dibujamos rectángulo simple.
+  const eyebrowText = 'TU PORTAL ESTÁ LISTO'
+  const eyebrowW = sansBold.widthOfTextAtSize(eyebrowText, 7.5) + 38
   page.drawRectangle({
-    x: 0, y: A4_H - heroH, width: A4_W, height: heroH, color: SKY,
+    x: M, y: cursorY - 6, width: eyebrowW, height: 18,
+    color: WHITE, opacity: 0.14,
   })
-  // Banda decorativa fina azul electric en la base del hero, a modo de
-  // separador limpio (sustituye a la curva redondeada).
-  page.drawRectangle({
-    x: 0, y: A4_H - heroH - 3, width: A4_W, height: 3, color: ELECTRIC,
-  })
-
-  const M = 56  // margen lateral
-  const heroTop = A4_H - 56
-
-  // Marca arriba a la izquierda
-  page.drawText('VOLTIS', { x: M, y: heroTop, font: sansBold, size: 14, color: WHITE })
-  page.drawText('energía', { x: M + sansBold.widthOfTextAtSize('VOLTIS', 14) + 8, y: heroTop, font: sans, size: 11, color: rgb(1, 1, 1) })
-
-  // Etiqueta documento arriba derecha
-  const tag = 'ACCESO AL PORTAL DEL CLIENTE'
-  page.drawText(tag, {
-    x: A4_W - M - sansBold.widthOfTextAtSize(tag, 8),
-    y: heroTop, font: sansBold, size: 8, color: rgb(1, 1, 1),
-  })
-  const dateText = today
-  page.drawText(dateText, {
-    x: A4_W - M - sans.widthOfTextAtSize(dateText, 9),
-    y: heroTop - 14, font: sans, size: 9, color: rgb(1, 1, 1),
+  // dot verde
+  page.drawCircle({ x: M + 11, y: cursorY + 3, size: 2.4, color: GREEN_LIVE })
+  page.drawText(eyebrowText, {
+    x: M + 20, y: cursorY, font: sansBold, size: 7.5, color: WHITE,
   })
 
-  // Hero titular grande
-  const heroEyebrow = 'TU PORTAL ENERGÉTICO'
-  page.drawText(heroEyebrow, {
-    x: M, y: A4_H - 120, font: sansBold, size: 9, color: WHITE,
+  cursorY -= 26
+
+  // ── Titular grande: "Querido {nombre}," + "bienvenido al club Voltis." ───
+  const greetingName = formatGreetingName(args.clientName)
+  // Línea 1: "Querido X,"
+  page.drawText(`Querido ${greetingName},`, {
+    x: M, y: cursorY, font: sansBold, size: 26, color: WHITE,
   })
-  // Línea blanca decorativa
-  page.drawLine({
-    start: { x: M, y: A4_H - 128 },
-    end:   { x: M + 28, y: A4_H - 128 },
-    thickness: 2, color: WHITE,
+  cursorY -= 30
+  // Línea 2: "bienvenido al club Voltis."
+  page.drawText('bienvenido al club Voltis.', {
+    x: M, y: cursorY, font: sansBold, size: 26, color: WHITE,
   })
 
-  page.drawText('Tu informe energético,', {
-    x: M, y: A4_H - 160, font: sansBold, size: 28, color: WHITE,
-  })
-  page.drawText('siempre disponible.', {
-    x: M, y: A4_H - 192, font: sansBold, size: 28, color: WHITE,
-  })
+  cursorY -= 26
 
-  // Subtítulo
+  // ── Subtítulo (lede) ────────────────────────────────────────────────────
   const subLines = wrapText(
-    'Consulta tu consumo, tu gasto y todas tus facturas desde un único enlace privado. Sin contraseña, sin app: sólo abrir y leer.',
-    sans, 10.5, A4_W - 2 * M - 140,
+    'Hemos preparado un espacio privado donde puedes ver, en cualquier momento, todo lo que pasa con tu energía: consumo, gasto y facturas. Sin contraseñas, sin apps, sin papeleo. Sólo abrir y leer.',
+    sans, 10.5, A4_W - 2 * M - 180,
   )
-  let subY = A4_H - 220
+  let subY = cursorY
   for (const line of subLines) {
-    page.drawText(line, { x: M, y: subY, font: sans, size: 10.5, color: WHITE })
+    page.drawText(line, { x: M, y: subY, font: sans, size: 10.5, color: WHITE_85 })
     subY -= 14
   }
 
-  // Mascota a la derecha del subtítulo, sobre el hero
+  // ── Mascota a la derecha (sobre el hero, sin solaparse con el card) ─────
+  // Tamaño más compacto (110 px) y posicionada arriba para que no entre
+  // visualmente en el área del card glass que va debajo.
   const mascotBytes = loadMascotBytes()
   if (mascotBytes) {
     try {
       const img = await pdf.embedPng(mascotBytes)
       const imgW = 110
       const imgH = (img.height / img.width) * imgW
+      const mascotX = A4_W - M - imgW + 4
+      // Posicionamos la mascota ARRIBA del hero, no abajo,
+      // así no choca con el card que vendrá después.
+      const mascotY = A4_H - 40 - imgH
+      // Aura azul claro detrás
+      page.drawCircle({
+        x: mascotX + imgW / 2, y: mascotY + imgH / 2 + 4,
+        size: 70, color: VOLTIS_SKY, opacity: 0.30,
+      })
       page.drawImage(img, {
-        x: A4_W - M - imgW + 14,
-        y: A4_H - heroH + 18,
+        x: mascotX, y: mascotY,
         width: imgW, height: imgH,
       })
     } catch {}
   }
 
-  // ── Card cliente: blanco con borde redondeado y sombra ──────────────────
-  let cursorY = A4_H - heroH - 36
-  const cardH = 132
+  cursorY -= 70
+
+  // ── Card del portal (glassmorphic blanca translúcida) ────────────────────
+  const cardH = 168
   const cardW = A4_W - 2 * M
   // Sombra
-  drawShadowedCard(page, M, cursorY - cardH, cardW, cardH, 20, WHITE, LINE)
-
-  // Badge azul "TU PORTAL PRIVADO"
-  const badgeText = 'TU PORTAL PRIVADO'
-  const badgeW = sansBold.widthOfTextAtSize(badgeText, 8) + 24
   page.drawRectangle({
-    x: M + 26, y: cursorY - 28, width: badgeW, height: 22,
-    color: SKY_TINT,
+    x: M + 2, y: cursorY - cardH - 2, width: cardW, height: cardH,
+    color: rgb(0, 0, 0), opacity: 0.18,
   })
-  page.drawText(badgeText, {
-    x: M + 26 + 12, y: cursorY - 22,
-    font: sansBold, size: 8, color: ELECTRIC,
+  // Fondo glass
+  page.drawRectangle({
+    x: M, y: cursorY - cardH, width: cardW, height: cardH,
+    color: WHITE, opacity: 0.15,
+    borderColor: WHITE, borderWidth: 0.6, borderOpacity: 0.4,
+  })
+  // Brillo superior
+  page.drawRectangle({
+    x: M, y: cursorY - cardH * 0.4, width: cardW, height: cardH * 0.4,
+    color: WHITE, opacity: 0.08,
   })
 
-  // Nombre del cliente — sans bold negro (estilo headings voltisenergia)
-  const clientName = args.clientName
-  const clientLines = wrapText(clientName, sansBold, 22, cardW - 80)
-  let cnY = cursorY - 58
-  for (const line of clientLines.slice(0, 2)) {
-    page.drawText(line, { x: M + 26, y: cnY, font: sansBold, size: 22, color: INK })
-    cnY -= 26
+  // Card head: "Portal privado de" + nombre cliente + pill "Datos en vivo"
+  const labelY = cursorY - 26
+  page.drawText('PORTAL PRIVADO DE', {
+    x: M + 22, y: labelY, font: sansBold, size: 8, color: WHITE_70,
+  })
+
+  // Nombre cliente (puede ocupar 1-2 líneas)
+  const nameLines = wrapText(args.clientName.toUpperCase(), sansBold, 18, cardW - 220)
+  let nameY = labelY - 18
+  for (const line of nameLines.slice(0, 2)) {
+    page.drawText(line, { x: M + 22, y: nameY, font: sansBold, size: 18, color: WHITE })
+    nameY -= 22
   }
 
-  page.drawText('Datos actualizados con cada nueva factura.', {
-    x: M + 26, y: cursorY - cardH + 22, font: sans, size: 10, color: BODY,
-  })
-
-  cursorY -= cardH + 22
-
-  // ── Card enlace: azul electric, prominente, sin QR ─────────────────────────
-  const linkCardH = 110
-  // Card azul electric con esquinas (simuladas)
+  // Pill "Datos en vivo" arriba derecha
+  const pillText = 'DATOS EN VIVO'
+  const pillW = sansBold.widthOfTextAtSize(pillText, 7.5) + 30
   page.drawRectangle({
-    x: M, y: cursorY - linkCardH, width: cardW, height: linkCardH,
-    color: ELECTRIC,
+    x: M + cardW - pillW - 22, y: labelY - 2,
+    width: pillW, height: 17,
+    color: WHITE, opacity: 0.20,
+  })
+  page.drawCircle({
+    x: M + cardW - pillW - 22 + 10, y: labelY + 7, size: 2.4, color: GREEN_LIVE,
+  })
+  page.drawText(pillText, {
+    x: M + cardW - pillW - 22 + 18, y: labelY + 4, font: sansBold, size: 7.5, color: WHITE,
   })
 
-  page.drawText('ABRE TU PORTAL EN TU NAVEGADOR', {
-    x: M + 26, y: cursorY - 26, font: sansBold, size: 9, color: WHITE,
+  // URL caption
+  const urlCaptionY = cursorY - cardH + 92
+  page.drawText('ÁBRELO DESDE TU NAVEGADOR', {
+    x: M + 22, y: urlCaptionY, font: sansBold, size: 7.5, color: WHITE_70,
   })
 
-  // Enlace en mono blanco, dos líneas si hace falta
-  const urlLines = chunkUrl(url, 64)
-  let urlY = cursorY - 52
+  // URL block (mono, fondo oscuro translúcido)
+  const urlBlockY = urlCaptionY - 36
+  const urlBlockW = cardW - 44 - 130   // dejar espacio para el QR a la derecha
+  page.drawRectangle({
+    x: M + 22, y: urlBlockY - 4,
+    width: urlBlockW, height: 30,
+    color: COBALT_DARK, opacity: 0.5,
+  })
+
+  // Render URL — wrap si es muy largo
+  const urlLines = chunkUrl(url, 56)
+  let urlY = urlBlockY + 14
   for (const ul of urlLines.slice(0, 2)) {
-    page.drawText(ul, { x: M + 26, y: urlY, font: mono, size: 11, color: WHITE })
-    urlY -= 16
+    page.drawText(ul, { x: M + 30, y: urlY, font: mono, size: 9, color: WHITE })
+    urlY -= 12
   }
 
-  page.drawText('Copia y pega este enlace, o guárdalo como marcador para acceder cuando quieras.', {
-    x: M + 26, y: cursorY - linkCardH + 18, font: sans, size: 8.5, color: rgb(0.85, 0.88, 0.98),
+  // Help text bajo URL
+  page.drawText('Copia y pega el enlace, guárdalo como marcador o escanea el QR.', {
+    x: M + 22, y: urlBlockY - 18,
+    font: sans, size: 8.5, color: WHITE_70,
+  })
+  page.drawText('Es tuyo y sólo tuyo.', {
+    x: M + 22, y: urlBlockY - 30,
+    font: sans, size: 8.5, color: WHITE_70,
   })
 
-  cursorY -= linkCardH + 28
-
-  // ── Sección "Qué encontrarás" — 3 cards blancas con iconos azules ───────
-  page.drawText('¿QUÉ ENCONTRARÁS DENTRO?', {
-    x: M, y: cursorY, font: sansBold, size: 9, color: ELECTRIC,
+  // QR real funcional a la derecha
+  const qrDataUrl = await QRCode.toDataURL(url, {
+    margin: 0,
+    scale: 10,
+    color: { dark: '#0A2A6B', light: '#FFFFFF' },
+    errorCorrectionLevel: 'M',
   })
+  const qrPngBytes = Buffer.from(qrDataUrl.split(',')[1], 'base64')
+  const qrImg = await pdf.embedPng(qrPngBytes)
+  const qrSize = 110
+  const qrX = M + cardW - qrSize - 26
+  const qrY = cursorY - cardH + 32
+
+  // Fondo blanco con padding tras el QR (para mejor escaneo)
+  page.drawRectangle({
+    x: qrX - 8, y: qrY - 8,
+    width: qrSize + 16, height: qrSize + 16,
+    color: WHITE,
+    borderColor: rgb(0.122, 0.357, 1.0), borderWidth: 0.5, borderOpacity: 0.15,
+  })
+  page.drawImage(qrImg, { x: qrX, y: qrY, width: qrSize, height: qrSize })
+
+  cursorY -= cardH + 28
+
+  // ── Inside head: "Lo que encontrarás dentro" ─────────────────────────────
+  page.drawText('LO QUE ENCONTRARÁS DENTRO', {
+    x: M, y: cursorY, font: sansBold, size: 9, color: WHITE,
+  })
+  const subRight = 'Se actualiza solo con cada nueva factura'
+  page.drawText(subRight, {
+    x: A4_W - M - sans.widthOfTextAtSize(subRight, 8.5),
+    y: cursorY, font: sans, size: 8.5, color: WHITE_70,
+  })
+
   cursorY -= 18
 
+  // ── 3 feature cards (glass) ──────────────────────────────────────────────
   const features = [
-    { title: 'Resumen anual',          desc: 'Cuánto pagas en luz y gas, dónde se concentra el gasto y evolución mes a mes.' },
-    { title: 'Detalle por suministro', desc: 'Consumo, potencias, precios y conceptos exactos de cada factura.' },
-    { title: 'Descargas Excel',        desc: 'Datos listos para tu contabilidad o auditoría interna.' },
+    { title: 'Tu resumen anual',         desc: 'Cuánto pagas en luz y gas, dónde se concentra el gasto y cómo evoluciona mes a mes.', glyph: '📊' },
+    { title: 'Detalle por suministro',   desc: 'Consumo, potencias, precios y conceptos exactos de cada una de tus facturas.',         glyph: '📄' },
+    { title: 'Descargas en Excel',       desc: 'Datos listos para tu contabilidad o cualquier auditoría que necesites hacer.',          glyph: '⬇' },
   ]
-  const gap = 12
-  const featCardW = (cardW - gap * 2) / 3
-  const featCardH = 96
+  const gap = 10
+  const fW = (cardW - gap * 2) / 3
+  const fH = 86
   features.forEach((f, i) => {
-    const x = M + i * (featCardW + gap)
-    // Card blanca
+    const x = M + i * (fW + gap)
+    // Sombra
     page.drawRectangle({
-      x, y: cursorY - featCardH, width: featCardW, height: featCardH,
-      color: WHITE, borderColor: LINE, borderWidth: 0.6,
+      x: x + 1, y: cursorY - fH - 1, width: fW, height: fH,
+      color: rgb(0, 0, 0), opacity: 0.12,
     })
-    // Bullet azul electric arriba a la izquierda
-    page.drawCircle({ x: x + 18, y: cursorY - 18, size: 4, color: ELECTRIC })
+    // Card glass
+    page.drawRectangle({
+      x, y: cursorY - fH, width: fW, height: fH,
+      color: WHITE, opacity: 0.13,
+      borderColor: WHITE, borderWidth: 0.5, borderOpacity: 0.35,
+    })
+    // Glyph background
+    page.drawRectangle({
+      x: x + 14, y: cursorY - 26,
+      width: 22, height: 18,
+      color: WHITE, opacity: 0.20,
+    })
+    page.drawText(f.glyph, { x: x + 19, y: cursorY - 22, font: sans, size: 11, color: WHITE })
     // Título
     page.drawText(f.title, {
-      x: x + 32, y: cursorY - 22, font: sansBold, size: 10.5, color: INK,
+      x: x + 14, y: cursorY - 42, font: sansBold, size: 11, color: WHITE,
     })
     // Descripción
-    const descLines = wrapText(f.desc, sans, 9, featCardW - 36)
-    let dy = cursorY - 42
-    for (const line of descLines.slice(0, 4)) {
-      page.drawText(line, { x: x + 32, y: dy, font: sans, size: 9, color: BODY })
-      dy -= 12
+    const descLines = wrapText(f.desc, sans, 8.5, fW - 28)
+    let dy = cursorY - 56
+    for (const line of descLines.slice(0, 3)) {
+      page.drawText(line, { x: x + 14, y: dy, font: sans, size: 8.5, color: WHITE_85 })
+      dy -= 11
     }
   })
 
-  cursorY -= featCardH + 28
+  cursorY -= fH + 36
 
-  // ── Footer ────────────────────────────────────────────────────────────────
+  // ── Footer cálido ──────────────────────────────────────────────────────
   const footY = 56
-  // Línea separadora muy fina
-  page.drawLine({
-    start: { x: M, y: footY + 56 }, end: { x: A4_W - M, y: footY + 56 },
-    thickness: 0.5, color: LINE,
+
+  // Signoff izquierda — primera línea bold + resto en regular
+  // Layout vertical fijo con suficiente separación entre líneas y firma.
+  const signoffMaxW = A4_W - 2 * M - 180
+
+  // Línea 1: "Estamos aquí para ti." + " Si tienes cualquier duda..."
+  let sY = footY + 50
+  const boldFirst = 'Estamos aquí para ti.'
+  page.drawText(boldFirst, { x: M, y: sY, font: sansBold, size: 10.5, color: WHITE })
+  const rest = ' Si tienes cualquier duda, una llamada o un correo basta —'
+  page.drawText(rest, {
+    x: M + sansBold.widthOfTextAtSize(boldFirst, 10.5),
+    y: sY, font: sans, size: 10, color: WHITE_85,
   })
 
-  // Columna izquierda — asesor
-  page.drawText('TU ASESOR ENERGÉTICO', {
-    x: M, y: footY + 38, font: sansBold, size: 7, color: BODY,
+  // Líneas 2 y 3
+  sY -= 14
+  page.drawText('somos personas reales al otro lado, y nos encanta poner las cosas', {
+    x: M, y: sY, font: sans, size: 10, color: WHITE_85,
   })
-  page.drawText(VOLTIS_INFO.name, {
-    x: M, y: footY + 22, font: sansBold, size: 11, color: INK,
-  })
-  // Dirección — partida en dos líneas para que no choque con email
-  const addrLines = wrapText(voltisFullAddress(), sans, 8.5, cardW / 2 - 10)
-  let aY = footY + 8
-  for (const line of addrLines.slice(0, 2)) {
-    page.drawText(line, { x: M, y: aY, font: sans, size: 8.5, color: BODY })
-    aY -= 11
-  }
-
-  // Columna derecha — contacto
-  const contactT = 'CONTACTO'
-  page.drawText(contactT, {
-    x: A4_W - M - sansBold.widthOfTextAtSize(contactT, 7),
-    y: footY + 38, font: sansBold, size: 7, color: BODY,
-  })
-  const phoneT = VOLTIS_INFO.phone
-  page.drawText(phoneT, {
-    x: A4_W - M - sansBold.widthOfTextAtSize(phoneT, 11),
-    y: footY + 22, font: sansBold, size: 11, color: ELECTRIC,
-  })
-  // Email y web en líneas separadas para evitar solapes
-  const emailT = VOLTIS_INFO.email
-  page.drawText(emailT, {
-    x: A4_W - M - sans.widthOfTextAtSize(emailT, 8.5),
-    y: footY + 8, font: sans, size: 8.5, color: BODY,
-  })
-  const webT = VOLTIS_INFO.website
-  page.drawText(webT, {
-    x: A4_W - M - sans.widthOfTextAtSize(webT, 8.5),
-    y: footY - 3, font: sans, size: 8.5, color: ELECTRIC,
+  sY -= 14
+  page.drawText('fáciles.', {
+    x: M, y: sY, font: sans, size: 10, color: WHITE_85,
   })
 
-  // Watermark inferior muy sutil
-  const wm = 'voltisenergia.com · acceso privado y personal'
-  page.drawText(wm, {
-    x: (A4_W - sans.widthOfTextAtSize(wm, 7)) / 2,
-    y: 22, font: sans, size: 7, color: rgb(0.65, 0.66, 0.71),
+  // Firma con espacio respiro
+  page.drawText('— El equipo de Voltis', {
+    x: M, y: footY - 8, font: sans, size: 9.5, color: WHITE_70,
+  })
+
+  // Contacto derecha — alineado verticalmente con el signoff
+  page.drawText('CONTACTO', {
+    x: A4_W - M - sansBold.widthOfTextAtSize('CONTACTO', 7.5),
+    y: footY + 50, font: sansBold, size: 7.5, color: WHITE_70,
+  })
+  page.drawText(VOLTIS_INFO.phone, {
+    x: A4_W - M - sansBold.widthOfTextAtSize(VOLTIS_INFO.phone, 13),
+    y: footY + 32, font: sansBold, size: 13, color: WHITE,
+  })
+  page.drawText(VOLTIS_INFO.email, {
+    x: A4_W - M - sans.widthOfTextAtSize(VOLTIS_INFO.email, 9.5),
+    y: footY + 16, font: sans, size: 9.5, color: WHITE_85,
+  })
+  page.drawText(`www.${VOLTIS_INFO.website}`, {
+    x: A4_W - M - sans.widthOfTextAtSize(`www.${VOLTIS_INFO.website}`, 9.5),
+    y: footY + 2, font: sans, size: 9.5, color: WHITE_70,
   })
 
   const bytes = await pdf.save()
@@ -310,46 +422,26 @@ export async function buildDossierPdf(args: DossierArgs): Promise<Buffer> {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
- * Dibuja la "máscara" para simular bordes inferiores redondeados del hero.
- * pdf-lib no soporta clipping, así que tapamos las esquinas con el color de
- * fondo para crear la curva visual.
+ * Formatea el nombre del cliente para el saludo:
+ *   "AYUNTAMIENTO DE ORCOYEN" → "Ayuntamiento de Orcoyen"
+ *   "Voltis Energía SL"       → "Voltis Energía"
+ * Capitaliza solo la primera letra de cada palabra (excepto preposiciones).
  */
-function drawRoundedBottomMask(page: PDFPage, w: number, baseY: number, radius: number, bgColor: any) {
-  // Esquina inferior-izquierda: cuadrado mascarado + cuarto de círculo
-  page.drawRectangle({ x: 0, y: baseY, width: radius, height: radius, color: bgColor })
-  page.drawCircle({ x: radius, y: baseY + radius, size: radius, color: bgColor })
-  // Esquina inferior-derecha
-  page.drawRectangle({ x: w - radius, y: baseY, width: radius, height: radius, color: bgColor })
-  page.drawCircle({ x: w - radius, y: baseY + radius, size: radius, color: bgColor })
-  // Re-tapar interior central: los dos círculos extienden sus mitades internas hacia
-  // el centro, lo que crearía un "valle" entre las dos curvas. Tapamos la banda
-  // central con el color del hero para que el resultado visual sea limpio.
-  // NB: usamos rgb(0.533, 0.725, 0.906) que coincide con SKY.
-  page.drawRectangle({
-    x: radius, y: baseY, width: w - 2 * radius, height: radius,
-    color: rgb(0.533, 0.725, 0.906),
-  })
-}
-
-/**
- * Dibuja una card blanca con borde claro simulando sombra suave.
- * pdf-lib no soporta sombras nativas; usamos un rectángulo levemente desplazado
- * con borde gris muy claro.
- */
-function drawShadowedCard(
-  page: PDFPage, x: number, y: number, w: number, h: number,
-  _radius: number, fillColor: any, borderColor: any,
-) {
-  // "Sombra": rectángulo gris muy claro debajo
-  page.drawRectangle({
-    x: x + 1, y: y - 1, width: w, height: h,
-    color: rgb(0.94, 0.94, 0.95),
-  })
-  // Card principal
-  page.drawRectangle({
-    x, y, width: w, height: h,
-    color: fillColor, borderColor, borderWidth: 0.5,
-  })
+function formatGreetingName(name: string): string {
+  if (!name) return 'cliente'
+  const lower = ['de', 'del', 'la', 'el', 'los', 'las', 'y', 'en', 'para', 'por', 'a', 'al']
+  return name
+    .trim()
+    .toLowerCase()
+    // quitar "S.L.", "S.A.", "S.L.U.", "SLU" al final
+    .replace(/[,.]?\s*(s\.?l\.?u\.?|s\.?a\.?u?\.?|c\.?b\.?|s\.?coop|sociedad limitada|sociedad anónima)$/i, '')
+    .split(/\s+/)
+    .map((w, i) =>
+      i === 0 || !lower.includes(w)
+        ? w.charAt(0).toUpperCase() + w.slice(1)
+        : w
+    )
+    .join(' ')
 }
 
 function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
