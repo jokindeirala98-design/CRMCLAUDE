@@ -71,9 +71,9 @@ export async function POST(req: NextRequest, { params }: { params: { supplyId: s
       maxAge: 60 * 60 * 24 * 365 * 10,
     })
 
-    // Caché privada del navegador: 60s. Si el cliente navega entre suministros
-    // y vuelve, evita re-pedir al servidor.
-    res.headers.set('Cache-Control', 'private, max-age=60')
+    // Caché privada con stale-while-revalidate: navegar entre suministros y
+    // volver al mismo es instantáneo aunque el cache esté ligeramente rancio.
+    res.headers.set('Cache-Control', 'private, max-age=60, stale-while-revalidate=300')
     return res
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || 'Internal error' }, { status: 500 })

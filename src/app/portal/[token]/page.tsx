@@ -232,13 +232,16 @@ export default function PortalGlobalPage() {
   const headerClient = data?.client || raw.client
 
   return (
-    <div className="voltis-overview font-sans" style={{ background: '#F0F6FF', minHeight: '100vh', color: '#1E293B' }}>
+    <div className="voltis-overview font-sans" style={{
+      background: 'linear-gradient(180deg, #f0f5ff 0%, #e9efff 50%, #eaf1fc 100%)',
+      minHeight: '100vh', color: '#1E293B',
+    }}>
       <style jsx global>{`
         .voltis-overview, .voltis-overview * {
-          font-family: 'Inter', -apple-system, system-ui, sans-serif;
+          font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Inter', system-ui, sans-serif;
         }
         .voltis-overview .num {
-          font-family: 'Geist Mono', 'SF Mono', monospace;
+          font-family: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
         }
       `}</style>
 
@@ -345,29 +348,45 @@ export default function PortalGlobalPage() {
 
 function PortalFooter() {
   return (
-    <footer className="px-6 md:px-12 py-12 mt-8 border-t border-blue-100 bg-white">
-      <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center gap-6">
-        <BuddyIcon size={88} />
-        <div className="flex-1 text-center md:text-left">
-          <p className="text-base font-semibold text-slate-800 mb-1">
-            ¿Tienes alguna duda con tus datos?
+    <footer className="relative overflow-hidden px-6 md:px-12 py-14 mt-12 text-white"
+      style={{
+        background: `
+          radial-gradient(70% 60% at 15% 5%, rgba(180,210,255,0.20) 0%, transparent 60%),
+          radial-gradient(60% 50% at 95% 100%, rgba(5,20,70,0.40) 0%, transparent 65%),
+          linear-gradient(160deg, #1F47B5 0%, #11308C 60%, #0A205F 100%)
+        `,
+      }}>
+      <div className="absolute pointer-events-none" style={{
+        top: '20%', left: '5%', width: 300, height: 300,
+        background: 'radial-gradient(closest-side, rgba(255,255,255,0.10), transparent 70%)',
+        filter: 'blur(12px)',
+      }} />
+
+      <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-[auto_1fr_auto] gap-8 items-center relative">
+        <BuddyIcon size={96} />
+        <div className="text-center md:text-left max-w-xl">
+          <p className="text-[15px] leading-relaxed text-white/95">
+            <span className="font-semibold">Estamos aquí para ti.</span>{' '}
+            Si tienes cualquier duda, una llamada o un correo basta — somos
+            personas reales al otro lado, y nos encanta poner las cosas fáciles.
           </p>
-          <p className="text-sm text-slate-600 leading-relaxed">
-            Para cualquier consulta sobre tus suministros, facturas o este estudio energético,
-            escríbenos a{' '}
-            <a href="mailto:clientes@voltisenergia.com" className="font-semibold text-[#3B4FE4] hover:underline">
-              clientes@voltisenergia.com
-            </a>
-            {' '}o llámanos al{' '}
-            <a href="tel:+34747474360" className="font-semibold text-[#3B4FE4] hover:underline whitespace-nowrap">
+          <p className="mt-3 text-xs text-white/65">— El equipo de Voltis</p>
+        </div>
+        <div className="text-center md:text-right">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-white/55 font-semibold mb-2">
+            Contacto
+          </div>
+          <div>
+            <a href="tel:+34747474360" className="text-xl font-semibold text-white hover:underline">
               747 474 360
             </a>
-            . Te respondemos en menos de 24h.
-          </p>
-        </div>
-        <div className="text-right text-xs text-slate-500">
-          <div className="font-semibold text-slate-700">Voltis Energía</div>
-          <div className="text-slate-500 mt-1">voltisenergia.com</div>
+          </div>
+          <div className="mt-1">
+            <a href="mailto:clientes@voltisenergia.com" className="text-sm text-white/85 hover:underline">
+              clientes@voltisenergia.com
+            </a>
+          </div>
+          <div className="text-xs text-white/60 mt-1">voltisenergia.com</div>
         </div>
       </div>
     </footer>
@@ -386,50 +405,140 @@ function Header({
   const suministros = totals?.suministrosCount
   const facturas = totals?.invoicesCount
 
+  // Saludo personalizado tipo template: "Hola, Ayuntamiento de Orcoyen."
+  // Si el cliente tiene nombre largo, mantenemos el "Hola." separado para
+  // dar la sensación cálida del template.
+  const friendlyName = formatGreetingName(client?.name || '')
+
   return (
-    <header className="relative overflow-hidden pb-20" style={{
-      background: 'linear-gradient(135deg, #A8C8F0 0%, #6FA0E8 60%, #4A6FE3 100%)',
+    <header className="relative overflow-hidden pb-24" style={{
+      // Gradient cobalto idéntico al PDF: sky → cobalt → deep
+      background: `
+        radial-gradient(80% 60% at 15% 5%, rgba(180,210,255,0.32) 0%, transparent 55%),
+        radial-gradient(70% 50% at 85% 95%, rgba(5,20,70,0.45) 0%, transparent 60%),
+        linear-gradient(160deg, #2E5BD9 0%, #1F47B5 35%, #11308C 70%, #0A205F 100%)
+      `,
     }}>
-      <div className="absolute inset-0 opacity-30 pointer-events-none">
-        <div className="absolute top-10 right-10 w-96 h-96 rounded-full" style={{ background: 'radial-gradient(circle, #FFFFFF 0%, transparent 70%)' }} />
-      </div>
+      {/* Halos translúcidos como el template */}
+      <div className="absolute pointer-events-none" style={{
+        top: '12%', right: '8%', width: 280, height: 280,
+        background: 'radial-gradient(closest-side, rgba(255,255,255,0.30), transparent 70%)',
+        filter: 'blur(8px)',
+      }} />
+      <div className="absolute pointer-events-none" style={{
+        top: '60%', left: '6%', width: 360, height: 360,
+        background: 'radial-gradient(closest-side, rgba(255,255,255,0.16), transparent 70%)',
+        filter: 'blur(12px)',
+      }} />
 
-      <div className="relative px-6 md:px-12 pt-8">
-        <button onClick={() => {
-                fetch('/api/portal/auth', { method: 'DELETE' }).finally(() => router.push('/'))
-              }}
-          className="flex items-center gap-2 text-xs font-medium text-white/80 hover:text-white transition mb-8">
-          <ArrowLeft className="w-4 h-4" />
-          Cerrar sesión
-        </button>
-
-        <div className="flex items-center gap-8 flex-wrap">
-          <BuddyIcon size={96} />
-          <div className="flex-1 min-w-0">
-            <div className="text-[10px] font-bold tracking-[0.22em] text-white/70 uppercase mb-2">
-              Estudio económico global
-            </div>
-            <h1 className="text-4xl md:text-5xl font-bold text-white leading-tight">
-              {client?.name || 'Cliente'}
-            </h1>
-            <p className="text-sm text-white/80 mt-2">
-              {windowDescription ? `${windowDescription} · ` : ''}
-              {suministros != null ? `${suministros} suministros · ` : ''}
-              {facturas != null ? `${facturas} facturas analizadas` : 'Cargando…'}
-            </p>
+      <div className="relative px-6 md:px-12 pt-7">
+        {/* Top bar: marca + cerrar sesión */}
+        <div className="flex items-center justify-between mb-10">
+          <div className="flex items-center gap-2.5 text-white">
+            <span className="text-base font-semibold tracking-wide">Voltis</span>
+            <span className="text-base font-light text-white/65">Energía</span>
           </div>
-          {client?.id && (
-            <DownloadGlobalExcelButton
-              clientId={client.id} clientName={client.name}
-              mode={mode} from={from} to={to} typeFilter={typeFilter}
-              yearSelected={yearSelected}
-            />
-          )}
+          <button onClick={() => {
+                  fetch('/api/portal/auth', { method: 'DELETE' }).finally(() => router.push('/'))
+                }}
+            className="flex items-center gap-2 text-xs font-medium text-white/75 hover:text-white transition">
+            <ArrowLeft className="w-4 h-4" />
+            Cerrar sesión
+          </button>
         </div>
 
-        {/* Filtros — Periodo */}
-        <div className="flex flex-wrap items-center gap-2 mt-8">
-          <span className="text-[10px] font-bold tracking-wider text-white/70 uppercase mr-2">Periodo</span>
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] items-center gap-4 md:gap-8">
+          <div className="min-w-0">
+            {/* Eyebrow píldora glass con dot verde */}
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-medium uppercase tracking-[0.18em] text-white"
+              style={{
+                background: 'rgba(255,255,255,0.14)',
+                boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.35)',
+                backdropFilter: 'blur(12px)',
+              }}>
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: '#7fffb9', boxShadow: '0 0 8px #7fffb9' }} />
+              Tu portal está listo
+            </div>
+
+            {/* Saludo cálido grande */}
+            <h1 className="mt-4 text-[40px] md:text-[56px] font-semibold leading-[1.04] text-white"
+              style={{ letterSpacing: '-0.02em' }}>
+              Hola,{' '}
+              <span style={{
+                background: 'linear-gradient(180deg, #ffffff 0%, #c9dcff 100%)',
+                WebkitBackgroundClip: 'text',
+                backgroundClip: 'text',
+                color: 'transparent',
+              }}>
+                {friendlyName}.
+              </span>
+            </h1>
+
+            {/* Subtítulo cálido */}
+            <p className="mt-3 text-sm md:text-[14.5px] text-white/85 leading-relaxed max-w-xl">
+              Este es tu espacio privado para ver, en cualquier momento, todo lo que pasa
+              con tu energía: consumo, gasto y facturas. Se actualiza solo con cada nueva
+              factura — sólo abrir y leer.
+            </p>
+
+            {/* Meta info pequeña */}
+            <p className="mt-3 text-[11px] uppercase tracking-[0.14em] text-white/55 font-medium">
+              {windowDescription || '—'} {suministros != null ? `· ${suministros} suministros` : ''} {facturas != null ? `· ${facturas} facturas` : ''}
+            </p>
+          </div>
+
+          {/* Mascota con halo */}
+          <div className="relative justify-self-center md:justify-self-end" style={{ width: 168, height: 200 }}>
+            <div className="absolute inset-0 m-auto" style={{
+              width: 150, height: 150, borderRadius: '50%',
+              background: 'radial-gradient(closest-side, rgba(125,180,255,0.55), transparent 70%)',
+              filter: 'blur(10px)',
+            }} />
+            <BuddyIcon size={168} />
+          </div>
+        </div>
+
+        {/* Card "PORTAL PRIVADO DE" glass — destacando el nombre del cliente */}
+        <div className="mt-10 relative rounded-2xl px-6 py-5 overflow-hidden"
+          style={{
+            background: 'linear-gradient(180deg, rgba(255,255,255,0.20) 0%, rgba(255,255,255,0.07) 100%)',
+            boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.32), inset 0 1px 0 rgba(255,255,255,0.5), 0 20px 50px -20px rgba(10,30,80,0.5)',
+            backdropFilter: 'blur(18px)',
+          }}>
+          <div className="absolute inset-x-0 top-0 h-2/5 pointer-events-none"
+            style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.22), transparent)' }} />
+          <div className="relative flex items-center justify-between flex-wrap gap-3">
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-[0.20em] text-white/65 font-semibold mb-1">
+                Portal privado de
+              </div>
+              <div className="text-lg md:text-xl font-semibold text-white truncate">
+                {client?.name || 'Cliente'}
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] uppercase tracking-[0.14em] text-white font-medium"
+                style={{
+                  background: 'rgba(255,255,255,0.18)',
+                  boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.4)',
+                }}>
+                <span className="w-1.5 h-1.5 rounded-full" style={{ background: '#7fffb9', boxShadow: '0 0 10px #7fffb9' }} />
+                Datos en vivo
+              </div>
+              {client?.id && (
+                <DownloadGlobalExcelButton
+                  clientId={client.id} clientName={client.name}
+                  mode={mode} from={from} to={to} typeFilter={typeFilter}
+                  yearSelected={yearSelected}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Filtros — chips glass */}
+        <div className="flex flex-wrap items-center gap-2 mt-6">
+          <span className="text-[10px] font-bold tracking-[0.18em] text-white/65 uppercase mr-2">Periodo</span>
           <Chip active={mode === 'global'} onClick={() => { setMode('global'); setYearSelected(null) }}>
             Global
           </Chip>
@@ -453,7 +562,7 @@ function Header({
             </div>
           )}
 
-          <span className="text-[10px] font-bold tracking-wider text-white/70 uppercase ml-6 mr-2">Tipo</span>
+          <span className="text-[10px] font-bold tracking-[0.18em] text-white/65 uppercase ml-4 mr-2">Tipo</span>
           <Chip active={typeFilter === 'all'} onClick={() => setTypeFilter('all')}>Todos</Chip>
           <Chip active={typeFilter === 'luz'} onClick={() => setTypeFilter('luz')}><Zap className="w-3 h-3 inline mr-1" />Luz</Chip>
           <Chip active={typeFilter === 'gas'} onClick={() => setTypeFilter('gas')}><Flame className="w-3 h-3 inline mr-1" />Gas</Chip>
@@ -461,6 +570,19 @@ function Header({
       </div>
     </header>
   )
+}
+
+// Formatea nombre del cliente al estilo cálido: "AYUNTAMIENTO DE ORCOYEN" → "Ayuntamiento de Orcoyen".
+function formatGreetingName(name: string): string {
+  if (!name) return 'cliente'
+  const lower = ['de', 'del', 'la', 'el', 'los', 'las', 'y', 'en', 'para', 'por', 'a', 'al']
+  return name.trim().toLowerCase()
+    .replace(/[,.]?\s*(s\.?l\.?u\.?|s\.?a\.?u?\.?|c\.?b\.?|s\.?coop)$/i, '')
+    .split(/\s+/)
+    .map((w, i) => (i === 0 || !lower.includes(w))
+      ? w.charAt(0).toUpperCase() + w.slice(1)
+      : w)
+    .join(' ')
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -649,19 +771,23 @@ function KpiGrid({ totals }: { totals: Overview['totals'] }) {
 function Kpi({ icon, label, value, unit, hint, big = false }: any) {
   return (
     <div className={`rounded-2xl p-6 ${big ? 'md:col-span-1' : ''}`} style={{
-      background: big ? 'linear-gradient(135deg, #4A6FE3 0%, #2E4FBF 100%)' : '#FFFFFF',
+      background: big
+        ? 'linear-gradient(135deg, #1F47B5 0%, #11308C 60%, #0A205F 100%)'
+        : '#FFFFFF',
       color: big ? '#FFFFFF' : '#1E293B',
-      boxShadow: '0 10px 40px -10px rgba(74,111,227,0.25)',
+      boxShadow: big
+        ? '0 22px 50px -20px rgba(10,30,80,0.45), 0 8px 20px -8px rgba(10,30,80,0.25)'
+        : '0 10px 40px -10px rgba(74,111,227,0.18)',
     }}>
-      <div className="flex items-center gap-2 mb-3" style={{ color: big ? '#C7DBFF' : '#4A6FE3' }}>
+      <div className="flex items-center gap-2 mb-3" style={{ color: big ? '#B9D1FF' : '#1F47B5' }}>
         {icon}
         <div className="text-[10px] font-bold tracking-[0.18em] uppercase">{label}</div>
       </div>
       <div className="flex items-baseline gap-2">
         <span className="text-4xl font-bold num">{value}</span>
-        {unit && <span className="text-base font-medium" style={{ color: big ? '#C7DBFF' : '#64748B' }}>{unit}</span>}
+        {unit && <span className="text-base font-medium" style={{ color: big ? '#B9D1FF' : '#64748B' }}>{unit}</span>}
       </div>
-      {hint && <div className="text-xs mt-3" style={{ color: big ? '#C7DBFF' : '#64748B' }}>{hint}</div>}
+      {hint && <div className="text-xs mt-3" style={{ color: big ? '#B9D1FF' : '#64748B' }}>{hint}</div>}
     </div>
   )
 }
@@ -1176,21 +1302,5 @@ function MonthlyChart({ monthly }: { monthly: Monthly[] }) {
   )
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// Empty state custom
-// ════════════════════════════════════════════════════════════════════════════
-
-function CustomEmptyState({ clientId, mode, setMode, from, to, setFrom, setTo, typeFilter, setTypeFilter, router }: any) {
-  return (
-    <div className="min-h-screen" style={{ background: '#F0F6FF' }}>
-      <Header data={{ client: { id: clientId, name: '—' }, totals: { suministrosCount: 0, invoicesCount: 0 }, windowDescription: '' }}
-        mode={mode} setMode={setMode} from={from} to={to} setFrom={setFrom} setTo={setTo}
-        typeFilter={typeFilter} setTypeFilter={setTypeFilter} router={router} />
-      <section className="px-6 md:px-12 -mt-12 relative z-10">
-        <div className="rounded-2xl bg-white p-8 text-center text-slate-600" style={{ boxShadow: '0 10px 40px -10px rgba(74,111,227,0.15)' }}>
-          Selecciona una fecha de inicio y otra de fin para ver el estudio personalizado.
-        </div>
-      </section>
-    </div>
-  )
-}
+// (CustomEmptyState eliminado — el portal ahora renderiza Header siempre
+//  y muestra un mensaje inline cuando faltan fechas en modo Personalizado.)

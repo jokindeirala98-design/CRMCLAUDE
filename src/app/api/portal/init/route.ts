@@ -128,9 +128,12 @@ export async function POST(req: NextRequest) {
       maxAge: 60 * 60 * 24 * 365 * 10,    // 10 años
     })
 
-    // Cache-Control: respuesta privada cacheable 60s por el navegador del cliente.
-    // Útil cuando navega entre suministros y vuelve al global.
-    res.headers.set('Cache-Control', 'private, max-age=60')
+    // Cache-Control con stale-while-revalidate:
+    //   • Frescura 60s → el navegador muestra el cache sin tocar red.
+    //   • SWR 5 min  → si el cache está rancio pero <5 min, lo muestra
+    //                  INSTANTÁNEAMENTE y revalida en background.
+    // Resultado: visitas repetidas del cliente son virtualmente sin latencia.
+    res.headers.set('Cache-Control', 'private, max-age=60, stale-while-revalidate=300')
     return res
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || 'Internal error' }, { status: 500 })
