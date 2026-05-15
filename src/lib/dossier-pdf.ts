@@ -134,22 +134,29 @@ export async function buildDossierPdf(args: DossierArgs): Promise<Buffer> {
   })
 
   // ── Mascota arriba a la derecha (compacta, NUNCA invade el card) ───────
-  // Tamaño 96 y posicionada en la esquina superior derecha del hero. Su
-  // bottom queda muy por encima del card glass para que no haya solape
-  // visual con la URL ni el QR.
+  // El PNG real tiene aspecto 1.5 (832×1248) — la bombilla ocupa la mitad
+  // superior y el cuerpo+pies la mitad inferior. Para que el conjunto
+  // entero quede CLARAMENTE por encima del card glass, posicionamos su
+  // bottom suficientemente arriba y ampliamos el halo para que ocupe
+  // visualmente el hueco como en la maqueta.
   const mascotBytes = loadMascotBytes()
-  const MASCOT_W = 96
+  const MASCOT_W = 110
   let mascotBlock = { left: A4_W, right: A4_W, bottomY: A4_H }
   if (mascotBytes) {
     try {
       const img = await pdf.embedPng(mascotBytes)
       const imgW = MASCOT_W
-      const imgH = (img.height / img.width) * imgW
-      const mascotX = A4_W - M - imgW + 6   // ligeramente sangrado del margen
-      const mascotY = A4_H - 60 - imgH      // top a 60pt del borde superior
+      const imgH = (img.height / img.width) * imgW       // ≈ 165
+      const mascotX = A4_W - M - imgW + 4
+      const mascotY = A4_H - 86 - imgH                    // arriba pero con aire
+      // Halo grande translúcido como en la maqueta
       page.drawCircle({
-        x: mascotX + imgW / 2, y: mascotY + imgH / 2 + 4,
-        size: 62, color: VOLTIS_SKY, opacity: 0.26,
+        x: mascotX + imgW / 2 + 2, y: mascotY + imgH * 0.55,
+        size: 95, color: VOLTIS_SKY, opacity: 0.22,
+      })
+      page.drawCircle({
+        x: mascotX + imgW / 2 + 2, y: mascotY + imgH * 0.55,
+        size: 70, color: VOLTIS_SKY, opacity: 0.18,
       })
       page.drawImage(img, {
         x: mascotX, y: mascotY,
@@ -158,7 +165,7 @@ export async function buildDossierPdf(args: DossierArgs): Promise<Buffer> {
       mascotBlock = {
         left: mascotX,
         right: mascotX + imgW,
-        bottomY: mascotY,    // por debajo de este Y la mascota ya no existe
+        bottomY: mascotY,
       }
     } catch {}
   }
@@ -218,10 +225,10 @@ export async function buildDossierPdf(args: DossierArgs): Promise<Buffer> {
   cursorY = subY - 18
 
   // GUARDA DEFINITIVA: el card NUNCA puede empezar por encima del fondo de
-  // la mascota. Si el subtítulo es más corto de lo previsto, bajamos el
-  // cursor hasta que esté por debajo del bottom de la bombilla.
-  if (cursorY > mascotBlock.bottomY - 16) {
-    cursorY = mascotBlock.bottomY - 16
+  // la mascota. Dejamos 32pt de aire entre la mascota y el card para que
+  // no haya solape visual con los pies/base del personaje.
+  if (cursorY > mascotBlock.bottomY - 32) {
+    cursorY = mascotBlock.bottomY - 32
   }
 
   // ── Card del portal (glassmorphic blanca translúcida) ────────────────────
