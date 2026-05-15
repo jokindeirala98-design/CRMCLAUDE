@@ -13,6 +13,7 @@ import {
   Activity, BarChart3, Target, Award, Download,
 } from 'lucide-react'
 import { computarOverview, type OverviewMode } from '@/lib/economic-overview'
+import { clientExcelFilename } from '@/lib/utils/download-names'
 
 type Mode = 'last12' | 'previous_year' | 'custom'
 type TypeFilter = 'all' | 'luz' | 'gas'
@@ -308,7 +309,7 @@ function Header({ data, mode, setMode, from, to, setFrom, setTo, typeFilter, set
               {data.totals.invoicesCount} facturas analizadas
             </p>
           </div>
-          <DownloadGlobalExcelButton clientId={data.client.id} mode={mode} from={from} to={to} typeFilter={typeFilter} />
+          <DownloadGlobalExcelButton clientId={data.client.id} clientName={data.client.name} mode={mode} from={from} to={to} typeFilter={typeFilter} />
         </div>
 
         {/* Filtros */}
@@ -417,8 +418,8 @@ function prefetchSupply(supplyId: string) {
 // Botón Descargar Excel global
 // ════════════════════════════════════════════════════════════════════════════
 
-function DownloadGlobalExcelButton({ clientId, mode, from, to, typeFilter }: {
-  clientId: string; mode: string; from?: string; to?: string; typeFilter: string
+function DownloadGlobalExcelButton({ clientId, clientName, mode, from, to, typeFilter }: {
+  clientId: string; clientName?: string; mode: string; from?: string; to?: string; typeFilter: string
 }) {
   const [loading, setLoading] = useState(false)
   const handle = async () => {
@@ -436,7 +437,10 @@ function DownloadGlobalExcelButton({ clientId, mode, from, to, typeFilter }: {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `voltis-anual-economics-${mode === 'previous_year' ? new Date().getFullYear() - 1 : 'global'}.xlsx`
+      a.download = clientExcelFilename({
+        clientName,
+        year: mode === 'previous_year' ? new Date().getFullYear() - 1 : null,
+      })
       document.body.appendChild(a); a.click(); a.remove()
       URL.revokeObjectURL(url)
     } catch (e: any) {

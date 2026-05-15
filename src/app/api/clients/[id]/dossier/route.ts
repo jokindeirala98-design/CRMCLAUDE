@@ -18,6 +18,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { findOrCreatePortalLink } from '@/lib/portal-data'
 import { buildDossierPdf } from '@/lib/dossier-pdf'
 import { voltisPortalUrl } from '@/lib/voltis-info'
+import { dossierFilename } from '@/lib/utils/download-names'
 
 export const runtime = 'nodejs'
 export const maxDuration = 30
@@ -39,14 +40,14 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
   const { token, existed } = await findOrCreatePortalLink(params.id, prof.id)
   const clientName = client.alias || client.name
-  const filenameBase = (clientName || 'cliente').toLowerCase().replace(/[^a-z0-9]+/g, '-')
+  const filename = dossierFilename({ clientName })
 
   try {
     const pdf = await buildDossierPdf({ clientName, token })
     return new NextResponse(new Uint8Array(pdf), {
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="voltis-acceso-${filenameBase}.pdf"`,
+        'Content-Disposition': `attachment; filename="${filename}"`,
         'X-Link-Existed': existed ? 'true' : 'false',
         'X-Portal-Link': voltisPortalUrl(token),
       },

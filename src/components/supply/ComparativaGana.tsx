@@ -20,6 +20,7 @@ import {
   Receipt, Gauge, Activity, Award, ShieldCheck, AlertOctagon,
   Building2, BadgePercent, ChevronDown,
 } from 'lucide-react'
+import { comparativaFilename } from '@/lib/utils/download-names'
 
 interface Props {
   supplyId: string
@@ -267,7 +268,13 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
       const a = document.createElement('a')
       a.href = url
       const comercFile = (scenario.comercializadora || 'gana') === 'nordy' ? 'Nordy' : 'Gana'
-      a.download = `Comparativa_${comercFile}_${scenario.nombre.replace(/\s+/g, '_')}_${(data.supply.client_name || 'cliente').replace(/\s+/g, '_')}.xlsx`
+      // Nombre estándar: comparativa_{cups4}_{tarifa}_{Comercializadora}.xlsx
+      a.download = comparativaFilename({
+        cups: data.supply.cups,
+        tariff: data.supply.tariff || '2.0TD',
+        variant: comercFile,
+        ext: 'xlsx',
+      })
       document.body.appendChild(a); a.click(); a.remove()
       URL.revokeObjectURL(url)
 

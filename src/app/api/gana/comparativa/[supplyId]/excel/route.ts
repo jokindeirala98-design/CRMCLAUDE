@@ -18,6 +18,7 @@ import {
   type GanaTarifaRow,
   type BillSample,
 } from '@/lib/comparativa-2td-gana'
+import { comparativaFilename } from '@/lib/utils/download-names'
 
 export const runtime = 'nodejs'
 
@@ -457,7 +458,14 @@ export async function POST(req: NextRequest, { params }: { params: { supplyId: s
 
     const buffer = Buffer.from(await wb.xlsx.writeBuffer())
     const comercLabel = (scenario.comercializadora || 'gana').toLowerCase() === 'nordy' ? 'Nordy' : 'Gana'
-    const filename = `Comparativa_${comercLabel}_${tariffName.replace(/\s+/g, '_')}_${clientName.replace(/\s+/g, '_')}.xlsx`
+    // Nombre estándar: comparativa_{cups4}_{tarifa}_{Comercializadora}.xlsx
+    // ej. comparativa_1910_2.0_Nordy.xlsx
+    const filename = comparativaFilename({
+      cups: supply.cups,
+      tariff: supply.tariff || '2.0TD',
+      variant: comercLabel,
+      ext: 'xlsx',
+    })
 
     // ── Si attach=true: subir a Storage y asociar al supply ────────────────
     if (attach) {

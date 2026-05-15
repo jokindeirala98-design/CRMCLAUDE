@@ -10,6 +10,7 @@ import {
   DollarSign, Activity, X, Trash2, Flame, Sparkles, ChevronDown,
 } from 'lucide-react'
 import { VOLTIS_TARIFFS_2TD, compute2TDSavings, type VoltisKey2TD } from '@/lib/voltis-tariffs-2td'
+import { invoiceFilename } from '@/lib/utils/download-names'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -913,7 +914,7 @@ function ReExtractBanner({ invoices, onDone }: { invoices: InvoiceRow[]; onDone:
 
 // ─── FileTable View ──────────────────────────────────────────────────────────
 
-function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, authoritativeType, potenciaContratada }: {
+function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, authoritativeType, potenciaContratada, supplyCups, clientNameForFile }: {
   invoices: InvoiceRow[]
   onRescan?: (inv: InvoiceRow) => void
   onDelete?: (inv: InvoiceRow) => void
@@ -921,6 +922,10 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
   busyDelete?: string | null
   authoritativeType?: string
   potenciaContratada?: Record<string, number>
+  /** CUPS del suministro, para construir nombres de descarga estándar. */
+  supplyCups?: string
+  /** Nombre del cliente, para los nombres de archivo de facturas. */
+  clientNameForFile?: string
 }) {
   type RowDef = {
     key: string
@@ -1236,15 +1241,24 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
                   }}
                 >
                   <div className="text-xs text-[#5A6B5F] font-normal mb-1">FACT {i + 1}</div>
-                  {/* Filename — clickable to open/download the source file */}
+                  {/* Filename — clickable to open/download the source file.
+                      Nombre de descarga estándar Voltis: {cups4}_{periodo}_{cliente}.{ext} */}
                   {hasFile ? (
                     <a
                       href={inv.file_url!}
                       target="_blank"
                       rel="noopener noreferrer"
-                      download={isExcelFile ? displayName : undefined}
+                      download={invoiceFilename({
+                        cups: eco?.cups || inv.extracted_data?.cups || supplyCups,
+                        periodEnd: inv.period_end || eco?.fechaFin,
+                        periodStart: inv.period_start || eco?.fechaInicio,
+                        clientName: clientNameForFile,
+                        ext: isExcelFile ? 'xlsx' : 'pdf',
+                      })}
                       onClick={e => e.stopPropagation()}
-                      title={isExcelFile ? `Descargar Excel: ${displayName}` : `Abrir factura PDF`}
+                      title={isExcelFile
+                        ? `Descargar Excel: ${invoiceFilename({ cups: eco?.cups || inv.extracted_data?.cups || supplyCups, periodEnd: inv.period_end || eco?.fechaFin, periodStart: inv.period_start || eco?.fechaInicio, clientName: clientNameForFile, ext: 'xlsx' })}`
+                        : `Abrir factura PDF`}
                       className="flex items-center gap-1 text-[#2D3A33] text-xs font-medium truncate max-w-[230px] hover:text-[#6B8068] hover:underline transition-colors cursor-pointer"
                     >
                       {isExcelFile && <span className="flex-shrink-0 text-[10px]">📊</span>}
@@ -4883,6 +4897,8 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
           busyDelete={busyDelete}
           authoritativeType={propSupplyType}
           potenciaContratada={potenciaContratada}
+          supplyCups={invoices[0]?.extracted_data?.cups}
+          clientNameForFile={clientName || supplyNameProp}
         />
       ) : (
         <div className="flex flex-col items-center justify-center py-16 text-[#8A9A8E] gap-3">

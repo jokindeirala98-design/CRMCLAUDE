@@ -14,6 +14,7 @@ import React, { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { ArrowLeft, Loader2, AlertCircle, Zap, Flame, Download } from 'lucide-react'
+import { supplyExcelFilename } from '@/lib/utils/download-names'
 
 const AnnualEconomics = dynamic(
   () => import('@/components/supply/AnnualEconomics'),
@@ -78,8 +79,10 @@ export default function PortalSupplyPage() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      const safeName = (data?.supply.name || data?.supply.cups || 'suministro').toLowerCase().replace(/[^a-z0-9]+/g, '-')
-      a.download = `voltis-${safeName}.xlsx`
+      a.download = supplyExcelFilename({
+        cups: data?.supply.cups,
+        clientName: data?.supply.name || undefined,
+      })
       document.body.appendChild(a); a.click(); a.remove()
       URL.revokeObjectURL(url)
     } catch (e: any) {
