@@ -994,14 +994,14 @@ function TopCard({ title, subtitle, icon, items, metric, router }: any) {
             className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-white/10 transition text-left">
             <div className="text-xs font-bold text-[#B9D1FF] w-6">#{i + 1}</div>
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-semibold text-white truncate">{r.supply.name || r.supply.cups}</div>
-              <div className="text-[10px] num text-white/65">{r.supply.cups} · {r.supply.tariff}</div>
+              <div className="text-sm font-semibold text-white truncate">{supplyDisplayName(r.supply)}</div>
+              <div className="text-[10px] num text-white/65">{r.supply.cups} · {r.supply.tariff} {r.supply.type ? `(${r.supply.type})` : ''}</div>
             </div>
             <div className="text-right">
               <div className="text-sm font-bold num text-white">
-                {metric === 'consumo' ? fmtKwh(r.consumoAnualKwh) : fmtEur(r.totalGasto)}
+                {metric === 'consumo' ? fmt(r.consumoAnualKwh, 0) : fmt(r.totalGasto, 2)}
               </div>
-              <div className="text-[10px] text-[#B9D1FF]">{metric === 'consumo' ? 'kWh/año' : ''}</div>
+              <div className="text-[10px] text-[#B9D1FF]">{metric === 'consumo' ? 'kWh/año' : '€'}</div>
             </div>
             <ChevronRight className="w-4 h-4 text-[#B9D1FF]" />
           </button>
@@ -1019,38 +1019,61 @@ function AnomaliasCard({ items, router }: { items: SupplyAggregate[]; router: an
   const params = useParams()
   const token = String(params?.token || '')
   return (
-    <div className="rounded-2xl bg-white p-6 border-l-4 border-sky-300" style={{ boxShadow: '0 10px 40px -10px rgba(74,111,227,0.15)' }}>
-      <div className="flex items-center gap-3 mb-3">
-        <div className="rounded-xl p-2 bg-sky-50 text-[#4A6FE3]"><AlertTriangle className="w-5 h-5" /></div>
+    <div className="rounded-2xl p-6 relative overflow-hidden" style={{
+      background: 'linear-gradient(180deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.04) 100%)',
+      boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.22), inset 0 1px 0 rgba(255,255,255,0.30), 0 18px 40px -18px rgba(10,20,60,0.55)',
+      backdropFilter: 'blur(14px)',
+    }}>
+      <div className="absolute inset-x-0 top-0 h-1/3 pointer-events-none"
+        style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.08), transparent)' }} />
+      <div className="relative flex items-center gap-3 mb-3">
+        <div className="rounded-xl p-2 text-[#B9D1FF]" style={{ background: 'rgba(185,209,255,0.15)' }}><AlertTriangle className="w-5 h-5" /></div>
         <div className="flex-1">
-          <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#4A6FE3]">Suministros a revisar</div>
-          <h3 className="text-base font-bold text-slate-800">{items.length} con €/kWh fuera de la media</h3>
+          <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#B9D1FF]">Suministros a revisar</div>
+          <h3 className="text-base font-bold text-white">{items.length} con €/kWh fuera de la media</h3>
         </div>
       </div>
-      <p className="text-xs text-slate-600 mb-3">
+      <p className="relative text-xs text-white/75 mb-3">
         Estos suministros tienen un precio medio por kWh estadísticamente alejado del resto. Suele indicar tarifas mejorables, contratos antiguos o consumos atípicos. No es un error de datos: revísalos con calma para detectar posibles ahorros.
       </p>
-      <div className="space-y-2">
+      <div className="relative space-y-1">
         {items.slice(0, 5).map(r => (
           <button key={r.supply.id}
             onClick={() => router.push(`/portal/${token}/supplies/${r.supply.id}`)}
             onMouseEnter={() => prefetchSupply(r.supply.id)}
             onFocus={() => prefetchSupply(r.supply.id)}
-            className="w-full flex items-center gap-3 p-2.5 rounded-xl bg-sky-50/60 hover:bg-sky-100/70 transition text-left">
+            className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-white/10 transition text-left">
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-semibold text-slate-800 truncate">{r.supply.name || r.supply.cups}</div>
-              <div className="text-[10px] num text-slate-500">{r.supply.tariff}</div>
+              <div className="text-sm font-semibold text-white truncate">{supplyDisplayName(r.supply)}</div>
+              <div className="text-[10px] num text-white/65">{r.supply.cups} · {r.supply.tariff}</div>
             </div>
             <div className="text-right">
-              <div className="text-[10px] uppercase tracking-wider text-[#4A6FE3] font-bold">€/kWh</div>
-              <div className="text-sm font-bold num text-slate-800">{fmt(r.eurPorKwh, 4)}</div>
+              <div className="text-[10px] uppercase tracking-wider text-[#B9D1FF] font-bold">€/kWh</div>
+              <div className="text-sm font-bold num text-white">{fmt(r.eurPorKwh, 4)}</div>
             </div>
-            <ChevronRight className="w-4 h-4 text-[#4A6FE3]" />
+            <ChevronRight className="w-4 h-4 text-[#B9D1FF]" />
           </button>
         ))}
       </div>
     </div>
   )
+}
+
+/**
+ * Devuelve un nombre legible para un suministro:
+ *  - Si tiene `name`, lo devuelve tal cual ("M. GAZTELU").
+ *  - Si no, intenta extraer los 4 últimos caracteres del CUPS como
+ *    identificador corto y legible ("21QQ" en vez del CUPS completo, que
+ *    también aparece en el subtítulo).
+ */
+function supplyDisplayName(sup: { name?: string | null; cups?: string | null; tariff?: string | null; type?: 'luz' | 'gas' | null }): string {
+  if (sup.name && sup.name.trim().length > 0) return sup.name
+  const cups = sup.cups || ''
+  // CUPS español: 20 caracteres, últimos 4 (incluyendo 2 letras de
+  // verificación) son únicos del punto de suministro.
+  const tail = cups.length >= 4 ? cups.slice(-4) : cups
+  const tipo = sup.type === 'gas' ? 'Gas' : 'Suministro'
+  return tail ? `${tipo} ${tail}` : (cups || 'Suministro')
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1108,7 +1131,7 @@ function RankingTable({ items, totalGasto, router }: { items: SupplyAggregate[];
                   className={`border-b border-slate-50 cursor-pointer hover:bg-blue-50 transition ${r.sinFacturas ? 'opacity-60' : ''} ${r.esAnomalo ? 'bg-sky-50/50' : ''}`}>
                   <td className="py-3 px-4">
                     <div className="text-sm font-semibold text-slate-800 flex items-center gap-2">
-                      {r.supply.name || r.supply.cups}
+                      {supplyDisplayName(r.supply)}
                       {r.esAnomalo && <AlertTriangle className="w-3.5 h-3.5 text-[#4A6FE3]" />}
                     </div>
                     <div className="text-[10px] num text-slate-400">{r.supply.cups}</div>

@@ -133,36 +133,41 @@ export async function buildDossierPdf(args: DossierArgs): Promise<Buffer> {
     y: cursorY + 2, font: sansBold, size: 8, color: WHITE_70,
   })
 
-  // ── Mascota a la derecha, alineada con el hero (más compacta) ───────────
-  // Posicionada para no solaparse con el título: ancho 130, ocupando la
-  // columna derecha. El título tiene maxWidth limitado por su X.
+  // ── Mascota arriba a la derecha (compacta, NUNCA invade el card) ───────
+  // Tamaño 96 y posicionada en la esquina superior derecha del hero. Su
+  // bottom queda muy por encima del card glass para que no haya solape
+  // visual con la URL ni el QR.
   const mascotBytes = loadMascotBytes()
-  const MASCOT_W = 130
-  const MASCOT_RIGHT_GUTTER = 24
-  let mascotBlock = { left: A4_W, right: A4_W }
+  const MASCOT_W = 96
+  let mascotBlock = { left: A4_W, right: A4_W, bottomY: A4_H }
   if (mascotBytes) {
     try {
       const img = await pdf.embedPng(mascotBytes)
       const imgW = MASCOT_W
       const imgH = (img.height / img.width) * imgW
-      const mascotX = A4_W - M - imgW + MASCOT_RIGHT_GUTTER
-      const mascotY = A4_H - 110 - imgH
+      const mascotX = A4_W - M - imgW + 6   // ligeramente sangrado del margen
+      const mascotY = A4_H - 60 - imgH      // top a 60pt del borde superior
       page.drawCircle({
-        x: mascotX + imgW / 2, y: mascotY + imgH / 2 + 6,
-        size: 78, color: VOLTIS_SKY, opacity: 0.28,
+        x: mascotX + imgW / 2, y: mascotY + imgH / 2 + 4,
+        size: 62, color: VOLTIS_SKY, opacity: 0.26,
       })
       page.drawImage(img, {
         x: mascotX, y: mascotY,
         width: imgW, height: imgH,
       })
-      mascotBlock = { left: mascotX, right: mascotX + imgW }
+      mascotBlock = {
+        left: mascotX,
+        right: mascotX + imgW,
+        bottomY: mascotY,    // por debajo de este Y la mascota ya no existe
+      }
     } catch {}
   }
 
-  // El ancho útil del titular debe acabar antes de la mascota para que el
-  // texto NUNCA se solape con la bombilla, sin importar la longitud del
-  // nombre del cliente.
-  const heroMaxW = (mascotBlock.left - M) - 14
+  // El ancho útil del titular debe acabar antes de la mascota, pero SOLO
+  // mientras estemos pintando líneas que comparten vertical con ella. Para
+  // mantener el código simple y robusto, restringimos heroMaxW durante todo
+  // el hero (el título cabe perfectamente con este ancho).
+  const heroMaxW = (mascotBlock.left - M) - 18
 
   cursorY -= 38
 
@@ -211,6 +216,13 @@ export async function buildDossierPdf(args: DossierArgs): Promise<Buffer> {
     subY -= 14
   }
   cursorY = subY - 18
+
+  // GUARDA DEFINITIVA: el card NUNCA puede empezar por encima del fondo de
+  // la mascota. Si el subtítulo es más corto de lo previsto, bajamos el
+  // cursor hasta que esté por debajo del bottom de la bombilla.
+  if (cursorY > mascotBlock.bottomY - 16) {
+    cursorY = mascotBlock.bottomY - 16
+  }
 
   // ── Card del portal (glassmorphic blanca translúcida) ────────────────────
   const cardH = 168
