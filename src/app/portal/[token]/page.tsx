@@ -160,20 +160,26 @@ export default function PortalGlobalPage() {
   }, [token])
 
   // ── Cómputo client-side ──
-  // Se reejecuta cuando cambian los filtros pero NO hace fetch.
   // Mapping del Mode UI → OverviewMode del motor:
-  //   • 'global' → 'last12' (12 facturas más recientes por supply)
+  //   • 'global' → 'custom' con rango infinito (TODAS las facturas).
+  //     IMPORTANTE: antes usábamos 'last12' (12 facturas más recientes por supply)
+  //     pero eso descarta facturas antiguas en supplies con >12 facturas → el
+  //     total Global no coincidía con la suma de los años. Cambiado para que
+  //     Global = todas las facturas y por tanto cuadre con Σ años.
   //   • 'year'   → 'custom' con from=YYYY-01-01, to=YYYY-12-31
   //   • 'custom' → 'custom' con las fechas seleccionadas
   const data: Overview | null = useMemo(() => {
     if (!raw || !customReady) return null
     try {
-      let engineMode: OverviewMode = 'last12'
+      let engineMode: OverviewMode = 'custom'
       let engineFrom: string | undefined
       let engineTo: string | undefined
 
       if (mode === 'global') {
-        engineMode = 'last12'
+        // Rango muy amplio para garantizar que entran TODAS las facturas
+        engineMode = 'custom'
+        engineFrom = '2000-01-01'
+        engineTo = '2099-12-31'
       } else if (mode === 'year' && yearSelected) {
         engineMode = 'custom'
         engineFrom = `${yearSelected}-01-01`
@@ -192,7 +198,14 @@ export default function PortalGlobalPage() {
         to: engineTo,
         typeFilter,
       })
-      return { client: raw.client, ...result } as Overview
+      const overview = { client: raw.client, ...result } as Overview
+      // Override del windowDescription para que se lea natural:
+      if (mode === 'global') {
+        overview.windowDescription = 'Todas las facturas históricas'
+      } else if (mode === 'year' && yearSelected) {
+        overview.windowDescription = `Año ${yearSelected}`
+      }
+      return overview
     } catch (e: any) {
       console.error('[overview compute]', e)
       return null
