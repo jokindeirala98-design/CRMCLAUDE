@@ -73,10 +73,92 @@ const { chunks, formattedContext } = await ragSearchAandC(
 ## Roadmap (fases)
 
 - **Fase 1 — Cimientos DB** ✅ pgvector + tablas + tipos + RAG helpers
-- **Fase 2 — Ingesta corpus A&C** Script Node que descarga, transcribe, chunkea e indexa
-- **Fase 3 — Endpoint /chat con tool calling** rag_search + crm_buscar_cliente + crm_historial
-- **Fase 4 — Bot Telegram con whitelist** Webhook diferenciado del actual
-- **Fase 5 — Gmail OAuth + envío con preview** Solo con confirmación explícita "Sí"
+- **Fase 2 — Ingesta corpus A&C** ✅ Scripts Node de ingesta markdown + YouTube
+- **Fase 3 — Endpoint /chat con tool calling** ✅ rag_search + crm_buscar + crm_historial + gmail_preview
+- **Fase 4 — Bot Telegram con whitelist** ✅ Webhook diferenciado + procesado de voz
+- **Fase 5 — Gmail OAuth + envío con preview** ✅ Solo con confirmación explícita "Sí"
+
+## Endpoints HTTP
+
+| Endpoint | Método | Propósito |
+|---|---|---|
+| `/api/agent/chat` | POST | Conversación principal con tool calling |
+| `/api/agent/telegram` | POST | Webhook del bot (mensajes + callbacks) |
+| `/api/agent/telegram/setup` | GET | Registrar webhook con Telegram (una vez) |
+| `/api/agent/gmail/connect?u={uid}` | GET | Inicia OAuth flow Gmail |
+| `/api/agent/gmail/callback` | GET | Recibe el código de Google y guarda tokens |
+| `/api/agent/gmail/send` | POST | Envía correo (solo desde el handler de Telegram) |
+
+## Cómo poner en marcha (paso a paso)
+
+### 1. Aplicar migration en Supabase (ya hecho ✓)
+
+### 2. Ingestar conocimiento inicial
+
+```bash
+cd "/Users/jokindeirala/Desktop/VOLTIS CRM/voltis-crm"
+npm run agent:ingest-voltis
+npm run agent:ingest-tarjetas
+```
+
+### 3. Crear el bot de Telegram dedicado al agente
+
+1. En Telegram, escribe a `@BotFather`.
+2. `/newbot` → nombre: `Voltis Agente Comercial` → username: `voltis_agente_bot` (o el que esté libre).
+3. Guarda el token que te da.
+
+### 4. Configurar variables de entorno en Vercel
+
+```
+TELEGRAM_AGENT_BOT_TOKEN=el_token_del_bot_nuevo
+TELEGRAM_AGENT_WEBHOOK_SECRET=<aleatorio, 32 chars>
+TELEGRAM_AGENT_AUTHORIZED_IDS=<tu_telegram_id,...>  # fallback opcional
+AGENT_INTERNAL_TOKEN=<aleatorio, 32 chars>          # protege /chat de uso externo
+AGENT_ENCRYPTION_KEY=<32 bytes hex>                 # para cifrar refresh_token Gmail
+GMAIL_OAUTH_CLIENT_ID=...                           # Google Cloud Console
+GMAIL_OAUTH_CLIENT_SECRET=...
+AGENT_API_BASE_URL=https://voltis-crm-bueno.vercel.app  # opcional, autodetecta si no
+```
+
+Para generar `AGENT_ENCRYPTION_KEY`: `openssl rand -hex 32`
+Para `AGENT_INTERNAL_TOKEN` y `TELEGRAM_AGENT_WEBHOOK_SECRET`: `openssl rand -hex 16`
+
+### 5. Configurar OAuth de Google
+
+1. Entra en https://console.cloud.google.com/apis/credentials
+2. Crea un proyecto si no tienes, o usa el de Voltis.
+3. Habilita "Gmail API".
+4. Crea OAuth client ID tipo "Web application".
+5. Redirect URI: `https://voltis-crm-bueno.vercel.app/api/agent/gmail/callback`
+6. Copia Client ID y Client Secret a las vars de Vercel.
+7. En "OAuth consent screen": modo Internal o Testing con los emails del piloto añadidos.
+
+### 6. Registrar webhook Telegram
+
+Una vez deployado:
+
+```
+GET https://voltis-crm-bueno.vercel.app/api/agent/telegram/setup?token=<AGENT_INTERNAL_TOKEN>
+```
+
+Deberías ver `{"setWebhook":{"ok":true,...}}`.
+
+### 7. Añadirte a la whitelist
+
+En Supabase SQL Editor:
+
+```sql
+insert into agent_authorized_users (telegram_user_id, name, role)
+values (<TU_TELEGRAM_ID>, 'Nicolás', 'admin');
+```
+
+### 8. Probar
+
+1. Escribe `/start` al bot nuevo.
+2. Pregunta: "Cómo manejo objeción de precio".
+3. Conecta Gmail con `/conectar_gmail`.
+4. Pídele redactar un correo: "Redacta correo a juan@ejemplo.com para hacer follow-up del estudio que le pasé la semana pasada".
+5. El bot mostrará preview con botones [Enviar] [Editar] [Cancelar].
 
 ## Reglas inquebrantables del agente
 
