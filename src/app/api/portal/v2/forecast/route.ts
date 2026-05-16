@@ -146,6 +146,36 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // ── COMPLETAR HISTÓRICO CON SIPS ───────────────────────────────────
+  // Para los meses del año anterior que NO tienen factura histórica,
+  // usamos el consumo SIPS del mismo mes. Es exactamente la metodología
+  // del doc oficial Unice: "Consumos abril-diciembre 2026: consumos del
+  // mismo mes del año anterior según el SIPS oficial del distribuidor."
+  for (let m = 1; m <= 12; m++) {
+    const monthIso = `${yearPrev}-${String(m).padStart(2, '0')}-01`
+    let h = histByMonth.get(m)
+    if (!h) {
+      const lastDay = new Date(yearPrev, m, 0).getUTCDate()
+      h = { month: monthIso, dias: lastDay }
+      histByMonth.set(m, h)
+    }
+    // Completar luz desde SIPS si falta o está vacía
+    if (luzSupply && (!h.consumoLuz || sumPeriodos(h.consumoLuz) === 0)) {
+      const sipsLuz = findSipsLuzForMonth(luzSupply.consumption_data?.history, yearPrev, m)
+      if (sipsLuz) {
+        h.consumoLuz = sipsLuz
+        h.potenciaLuz = h.potenciaLuz || (luzSupply.consumption_data?.potenciaContratada || {})
+      }
+    }
+    // Completar gas desde SIPS si falta
+    if (gasSupply && (h.consumoGas == null || h.consumoGas === 0)) {
+      const sipsGas = findSipsGasForMonth(gasSupply.consumption_data?.gasHistory, yearPrev, m)
+      if (sipsGas != null) {
+        h.consumoGas = sipsGas
+      }
+    }
+  }
+
   const historical = Array.from(histByMonth.values())
   const realCurrent = Array.from(realByMonth.values())
   const potenciaMaxKw = inferPotenciaMaxKw(luzSupply, invoices)
@@ -185,6 +215,56 @@ function computeDias(start: string | null, end: string | null): number {
   if (!start || !end) return 30
   const d1 = new Date(start), d2 = new Date(end)
   return Math.max(1, Math.round((d2.getTime() - d1.getTime()) / 86400000) + 1)
+}
+
+function sumPeriodos(p?: Partial<Record<string, number>>): number {
+  if (!p) return 0
+  return Object.values(p).reduce((a, b) => (a || 0) + (b || 0), 0) || 0
+}
+
+/**
+ * Busca el consumo SIPS de gas para un mes/año concreto.
+ * El historial gas viene mensual con fechaInicio/fechaFin.
+ */
+function findSipsGasForMonth(history: any[] | undefined, year: number, month: number): number | null {
+  if (!Array.isArray(history)) return null
+  for (const entry of history) {
+    const fi = entry?.fechaInicio
+    if (!fi) continue
+    const d = new Date(fi)
+    if (d.getUTCFullYear() === year && d.getUTCMonth() + 1 === month) {
+      const kwh = Number(entry.kwh) || 0
+      return kwh > 0 ? kwh : null
+    }
+  }
+  return null
+}
+
+/**
+ * Busca el consumo SIPS de luz para un mes/año concreto.
+ * El historial luz viene por periodo de facturación con fechaFin
+ * y desglose P1..P6. Imputamos cada entrada al mes de su fechaFin.
+ */
+function findSipsLuzForMonth(history: any[] | undefined, year: number, month: number): Record<string, number> | null {
+  if (!Array.isArray(history)) return null
+  for (const entry of history) {
+    const ff = entry?.fecha || entry?.fechaFin
+    if (!ff) continue
+    const d = new Date(ff)
+    if (d.getUTCFullYear() === year && d.getUTCMonth() + 1 === month) {
+      const total = Number(entry.total) || 0
+      if (total <= 0) continue
+      return {
+        P1: Number(entry.P1) || 0,
+        P2: Number(entry.P2) || 0,
+        P3: Number(entry.P3) || 0,
+        P4: Number(entry.P4) || 0,
+        P5: Number(entry.P5) || 0,
+        P6: Number(entry.P6) || 0,
+      }
+    }
+  }
+  return null
 }
 
 function inferPotenciaMaxKw(supply: any, invs: any[]): number {
