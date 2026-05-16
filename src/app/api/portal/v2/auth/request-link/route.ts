@@ -33,12 +33,17 @@ export async function POST(req: NextRequest) {
 
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || null
 
+  // Construimos el baseURL a partir del HOST de la petición entrante.
+  // Esto garantiza que el cliente reciba un enlace que lleva al mismo
+  // dominio desde el que pidió el acceso (preview o producción).
+  const baseUrl = getPortalBaseUrl(req.headers.get('host'))
+
   try {
     // Genera UN magic link por cada portal_user activo asociado a este email.
     // Si pertenece a varios clientes, mandamos un correo por cada uno con
     // el nombre del cliente en el subject para que el destinatario sepa
     // cuál abre.
-    const results = await createMagicLinksForEmail(email, getPortalBaseUrl(), { ip: ip || undefined })
+    const results = await createMagicLinksForEmail(email, baseUrl, { ip: ip || undefined })
     if (results.length === 0) {
       console.log('[portal:request-link] no portal_user activo para email', email)
     } else {

@@ -39,10 +39,24 @@ export function isPortalHost(host: string | null | undefined): boolean {
   return false
 }
 
-/** Devuelve la base URL pública del portal — útil para construir magic links. */
-export function getPortalBaseUrl(): string {
+/** Devuelve la base URL pública del portal — útil para construir magic links.
+ *  Si recibimos el host de la petición entrante y ese host es un preview
+ *  permitido o el host del portal, lo usamos. Si no, fallback al host
+ *  configurado en PORTAL_V2_HOST.
+ *
+ *  ¿Por qué? Si el cliente entra desde `voltis-crm-bueno.vercel.app`
+ *  (preview), el enlace que recibe en su email debe llevar a ese mismo
+ *  host. Si lo mandamos al host de producción y el DNS aún no está
+ *  resuelto, le sale DNS_PROBE_FINISHED_NXDOMAIN.
+ */
+export function getPortalBaseUrl(requestHost?: string | null): string {
+  if (requestHost) {
+    const lower = requestHost.toLowerCase().replace(/:\d+$/, '')
+    if (isPortalHost(lower) || getPortalPreviewHosts().includes(lower)) {
+      return `https://${lower}`
+    }
+  }
   const host = getPortalHost()
   if (host) return `https://${host}`
-  // Fallback al dominio principal del CRM (compatibilidad con desarrollo).
   return process.env.NEXT_PUBLIC_APP_URL || 'https://voltis-crm-bueno.vercel.app'
 }
