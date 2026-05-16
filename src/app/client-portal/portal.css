@@ -1,0 +1,62 @@
+/* ────────────────────────────────────────────────────────────────────
+ * Portal Cliente v2 — Estilos globales
+ *
+ * Se carga solo en /client-portal/* via import en el layout. NO
+ * contamina las páginas del CRM porque todos los selectores tienen
+ * scope `.voltis-portal-v2`.
+ * ──────────────────────────────────────────────────────────────────── */
+
+/* ── Override del body raíz del CRM cuando estamos en el portal ──── */
+body:has(.voltis-portal-v2) {
+  background: transparent !important;
+}
+
+/* ── Tipografías ─────────────────────────────────────────────────── */
+.voltis-portal-v2,
+.voltis-portal-v2 * {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text',
+               'Inter', system-ui, sans-serif;
+}
+.voltis-portal-v2 .num {
+  font-family: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Fondo cobalto FIJO (parallax estilo Apple) ─────────────────── */
+.voltis-portal-bg-fixed {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(60% 45% at 12% 8%, rgba(120, 160, 255, 0.22), transparent 65%),
+    radial-gradient(50% 40% at 88% 4%, rgba(160, 200, 255, 0.18), transparent 70%),
+    radial-gradient(70% 60% at 8% 92%, rgba(70, 110, 220, 0.20), transparent 65%),
+    radial-gradient(55% 45% at 92% 88%, rgba(50, 90, 180, 0.18), transparent 70%),
+    linear-gradient(180deg, #0A2061 0%, #0B1E55 50%, #0A1A48 100%);
+}
+
+/* Todo el contenido directo del portal vive por encima del fondo */
+.voltis-portal-v2 > *:not(.voltis-portal-bg-fixed) {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Card glass cobalto reutilizable ─────────────────────────────── */
+.voltis-glass {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.04) 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.30),
+    0 18px 40px -18px rgba(10, 20, 60, 0.55);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-radius: 1rem;
+}
+.voltis-glass-soft {
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: 0.75rem;
+}
