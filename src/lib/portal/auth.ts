@@ -101,47 +101,67 @@ export async function createMagicLink(
   baseUrl: string,
   options: { ip?: string } = {},
 ): Promise<CreateMagicLinkResult | null> {
+  const results = await createMagicLinksForEmail(emailRaw, baseUrl, options)
+  return results.length > 0 ? results[0] : null
+}
+
+/**
+ * Versión que SOPORTA multi-tenant: si el email pertenece a varios
+ * portal_users activos (cliente con acceso a varios suministros), genera
+ * un magic link POR CADA uno y devuelve la lista. El llamador puede
+ * mandar un email con todos, o un email por cada uno indicando el
+ * cliente al que pertenece.
+ */
+export async function createMagicLinksForEmail(
+  emailRaw: string,
+  baseUrl: string,
+  options: { ip?: string } = {},
+): Promise<Array<CreateMagicLinkResult & { clientName?: string | null }>> {
   const email = emailRaw.trim().toLowerCase()
-  if (!email || !email.includes('@')) return null
+  if (!email || !email.includes('@')) return []
 
   const sb = adminClient()
 
-  const { data: user, error: userErr } = await sb
+  const { data: users, error: userErr } = await sb
     .from('portal_users')
-    .select('id, client_id, email, display_name, role, active')
+    .select('id, client_id, email, display_name, role, active, client:clients(name)')
     .eq('email', email)
     .eq('active', true)
-    .maybeSingle()
 
-  if (userErr || !user) return null
+  if (userErr || !users || users.length === 0) return []
 
-  const token = generateToken()
-  const expiresAt = new Date(Date.now() + MAGIC_LINK_EXPIRY_MIN * 60 * 1000)
+  const out: Array<CreateMagicLinkResult & { clientName?: string | null }> = []
+  for (const user of users) {
+    const token = generateToken()
+    const expiresAt = new Date(Date.now() + MAGIC_LINK_EXPIRY_MIN * 60 * 1000)
 
-  const { error: insertErr } = await sb.from('portal_magic_links').insert({
-    token,
-    portal_user_id: user.id,
-    email_lower: email,
-    expires_at: expiresAt.toISOString(),
-    request_ip: options.ip || null,
-  })
-  if (insertErr) return null
+    const { error: insertErr } = await sb.from('portal_magic_links').insert({
+      token,
+      portal_user_id: user.id,
+      email_lower: email,
+      expires_at: expiresAt.toISOString(),
+      request_ip: options.ip || null,
+    })
+    if (insertErr) continue
 
-  // Audit log (no bloquea el flujo si falla)
-  await sb.from('portal_audit_log').insert({
-    portal_user_id: user.id,
-    client_id: user.client_id,
-    action: 'request_magic_link',
-    ip: options.ip || null,
-  }).then(() => {}, () => {})
+    await sb.from('portal_audit_log').insert({
+      portal_user_id: user.id,
+      client_id: user.client_id,
+      action: 'request_magic_link',
+      ip: options.ip || null,
+    }).then(() => {}, () => {})
 
-  return {
-    token,
-    url: `${baseUrl.replace(/\/$/, '')}/client-portal/auth/callback?token=${encodeURIComponent(token)}`,
-    email,
-    portalUserId: user.id,
-    expiresAt,
+    const cli = Array.isArray((user as any).client) ? (user as any).client[0] : (user as any).client
+    out.push({
+      token,
+      url: `${baseUrl.replace(/\/$/, '')}/client-portal/auth/callback?token=${encodeURIComponent(token)}`,
+      email,
+      portalUserId: user.id,
+      expiresAt,
+      clientName: cli?.name || null,
+    })
   }
+  return out
 }
 
 // ── Canjeo de magic link → sesión persistente ────────────────────────────

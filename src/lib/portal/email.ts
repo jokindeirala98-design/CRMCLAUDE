@@ -22,6 +22,10 @@ export interface MagicLinkEmail {
   to: string
   url: string
   expiresAt: Date
+  /** Nombre del cliente al que da acceso este link. Si el usuario tiene
+   *  acceso a varios clientes, mandamos un email por cada uno con el
+   *  nombre del cliente en el subject para que sepa cuál abrir. */
+  clientName?: string
 }
 
 export async function sendPortalMagicLinkEmail(args: MagicLinkEmail): Promise<void> {
@@ -41,11 +45,15 @@ export async function sendPortalMagicLinkEmail(args: MagicLinkEmail): Promise<vo
   const html = renderMagicLinkHtml(args.url, minutes)
   const text = renderMagicLinkText(args.url, minutes)
 
-  console.log('[portal-email] enviando a', args.to, 'via Resend (from=' + FROM + ')')
+  const subject = args.clientName
+    ? `Tu acceso a Voltis — ${args.clientName}`
+    : 'Tu acceso a Voltis · enlace de un solo uso'
+
+  console.log('[portal-email] enviando a', args.to, 'via Resend (from=' + FROM + ')', 'subject:', subject)
   const res = await resend.emails.send({
     from: FROM,
     to: [args.to],
-    subject: 'Tu acceso a Voltis · enlace de un solo uso',
+    subject,
     html,
     text,
   })

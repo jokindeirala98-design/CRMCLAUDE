@@ -10,7 +10,7 @@
  * por email (anti-spam y anti-enumeración).
  */
 import { NextRequest, NextResponse } from 'next/server'
-import { createMagicLink } from '@/lib/portal/auth'
+import { createMagicLinksForEmail } from '@/lib/portal/auth'
 import { getPortalBaseUrl, isPortalHost } from '@/lib/portal/host'
 import { sendPortalMagicLinkEmail } from '@/lib/portal/email'
 
@@ -33,24 +33,28 @@ export async function POST(req: NextRequest) {
 
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || null
 
-  // Logging técnico (no se expone al cliente, solo a Vercel logs).
-  // En producción real lo bajamos a debug; ahora lo dejamos verboso para
-  // diagnosticar el flujo de envío.
   try {
-    const result = await createMagicLink(email, getPortalBaseUrl(), { ip: ip || undefined })
-    if (!result) {
+    // Genera UN magic link por cada portal_user activo asociado a este email.
+    // Si pertenece a varios clientes, mandamos un correo por cada uno con
+    // el nombre del cliente en el subject para que el destinatario sepa
+    // cuál abre.
+    const results = await createMagicLinksForEmail(email, getPortalBaseUrl(), { ip: ip || undefined })
+    if (results.length === 0) {
       console.log('[portal:request-link] no portal_user activo para email', email)
     } else {
-      console.log('[portal:request-link] magic link creado', { email: result.email, url: result.url })
-      try {
-        await sendPortalMagicLinkEmail({
-          to: result.email,
-          url: result.url,
-          expiresAt: result.expiresAt,
-        })
-        console.log('[portal:request-link] email enviado a', result.email)
-      } catch (err: any) {
-        console.error('[portal:request-link] ERROR enviando email:', err?.message || err, err?.name)
+      console.log('[portal:request-link] magic links creados', results.length, 'para', email)
+      for (const r of results) {
+        try {
+          await sendPortalMagicLinkEmail({
+            to: r.email,
+            url: r.url,
+            expiresAt: r.expiresAt,
+            clientName: r.clientName || undefined,
+          })
+          console.log('[portal:request-link] email enviado a', r.email, 'para cliente', r.clientName || 'sin nombre')
+        } catch (err: any) {
+          console.error('[portal:request-link] ERROR enviando email:', err?.message || err, err?.name)
+        }
       }
     }
   } catch (err: any) {
