@@ -102,6 +102,21 @@ export async function GET(req: NextRequest) {
   // Inferimos los contratos Voltis automáticamente
   const inferred = inferContractsFromInvoices({ invoices })
 
+  // Diagnóstico
+  const sourceCounts: Record<string, number> = {}
+  let withEco = 0
+  for (const inv of invoices) {
+    const s = String(inv.source || 'null')
+    sourceCounts[s] = (sourceCounts[s] || 0) + 1
+    if (inv.extracted_data?.economics) withEco++
+  }
+  console.log('[portal:savings] client=' + clientId,
+    'supplies=' + supplies.length,
+    'invoices=' + invoices.length,
+    'with_economics=' + withEco,
+    'sources=' + JSON.stringify(sourceCounts),
+    'contracts_inferred=' + inferred.size)
+
   if (inferred.size === 0) {
     auditLog({ ctx, action: 'view_savings_empty' }).catch(() => {})
     return NextResponse.json({
