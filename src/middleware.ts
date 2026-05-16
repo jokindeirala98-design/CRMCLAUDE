@@ -27,7 +27,7 @@
  */
 import { NextResponse, type NextRequest } from 'next/server'
 import { updateSession } from '@/lib/supabase/middleware'
-import { isPortalHost } from '@/lib/portal/host'
+import { getPortalHost, isPortalHost } from '@/lib/portal/host'
 
 // Rutas que SOLO se sirven en el host del portal v2.
 const PORTAL_V2_ONLY_PREFIXES = [
@@ -80,7 +80,14 @@ const PUBLIC_COMMON_PREFIXES = [
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   const host = request.headers.get('host')
+  const portalHostConfigured = !!getPortalHost()
   const isPortal = isPortalHost(host)
+
+  // MODO PREVIEW: si todavía no hay subdominio configurado, permitimos
+  // /client-portal/* desde el dominio principal del CRM para poder probar.
+  // Solo entra en juego cuando PORTAL_V2_HOST está vacío. En producción
+  // real, cuando configures la env var, el aislamiento estricto kicks in.
+  const previewMode = !portalHostConfigured
 
   // Activos públicos: dejamos pasar tal cual.
   if (PUBLIC_COMMON_PREFIXES.some(p => pathname.startsWith(p))) {
@@ -122,8 +129,17 @@ export async function middleware(request: NextRequest) {
   // ═══════════════════════════════════════════════════════════════════
   // PETICIONES AL HOST DEL CRM
   // ═══════════════════════════════════════════════════════════════════
-  // Bloqueo: las rutas del portal v2 no se exponen desde el dominio CRM.
-  if (PORTAL_V2_ONLY_PREFIXES.some(p => pathname === p || pathname.startsWith(p + '/'))) {
+  // Bloqueo estricto: las rutas del portal v2 no se exponen desde el CRM
+  // CUANDO ya hay subdominio configurado. En preview, dejamos pasar
+  // /client-portal/* para que puedas probarlo en la URL de Vercel.
+  const isPortalRoute = PORTAL_V2_ONLY_PREFIXES.some(
+    p => pathname === p || pathname.startsWith(p + '/')
+  )
+  if (isPortalRoute) {
+    if (previewMode) {
+      // Modo preview: portal accesible desde el host del CRM.
+      return NextResponse.next()
+    }
     return new NextResponse('Not Found', { status: 404 })
   }
 
