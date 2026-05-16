@@ -130,7 +130,7 @@ create table if not exists public.agent_authorized_users (
   -- Rol: 'piloto' inicialmente, luego 'comercial', 'admin'
   role            text default 'piloto' check (role in ('piloto','comercial','admin')),
   -- Vinculado a un comercial del CRM si aplica
-  commercial_id   uuid references public.users(id) on delete set null,
+  commercial_id   uuid references public.users_profile(id) on delete set null,
   active          boolean default true,
   added_at        timestamptz default now()
 );
@@ -199,15 +199,15 @@ create policy "service_role_all_authorized" on public.agent_authorized_users
 -- Admins del CRM pueden ver los logs del agente (no datos sensibles del Gmail)
 create policy "admin_read_agent_conv" on public.agent_conversations
   for select to authenticated using (
-    exists (select 1 from public.users u where u.id = auth.uid() and u.role = 'admin')
+    exists (select 1 from public.users_profile u where u.id = auth.uid() and u.role = 'admin')
   );
 create policy "admin_read_agent_msg" on public.agent_messages
   for select to authenticated using (
-    exists (select 1 from public.users u where u.id = auth.uid() and u.role = 'admin')
+    exists (select 1 from public.users_profile u where u.id = auth.uid() and u.role = 'admin')
   );
 create policy "admin_read_authorized" on public.agent_authorized_users
   for select to authenticated using (
-    exists (select 1 from public.users u where u.id = auth.uid() and u.role = 'admin')
+    exists (select 1 from public.users_profile u where u.id = auth.uid() and u.role = 'admin')
   );
 
 -- ════════════════════════════════════════════════════════════════════════════

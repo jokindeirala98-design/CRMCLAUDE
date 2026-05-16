@@ -86,6 +86,64 @@ const { chunks, formattedContext } = await ragSearchAandC(
 4. Tono profesional y directo. Tuteo. Sin emojis salvo informales.
 5. Solo responde a Telegram IDs en `agent_authorized_users`.
 
+## Cómo ingestar el corpus (Fase 2)
+
+Los scripts de ingesta corren **desde tu Mac** (no desde el sandbox), porque acceden a Supabase y a binarios del sistema (yt-dlp/ffmpeg).
+
+### 1) Voltis Knowledge Base — ICP, pricing, objeciones, casos
+
+```bash
+cd "/Users/jokindeirala/Desktop/VOLTIS CRM/voltis-crm"
+npm run agent:ingest-voltis
+```
+
+Lee `content/agent-kb/voltis-kb.md`, lo trocea por secciones `##`, calcula embeddings con Gemini y lo indexa en colección `voltis_kb`.
+
+### 2) Tarjetas técnicas A&C — frameworks de venta consultiva
+
+```bash
+npm run agent:ingest-tarjetas
+```
+
+Lee `content/agent-kb/tarjetas-tecnicas.md`, lo indexa en colección `voltis_tarjetas_tecnicas`. Estas tarjetas se inyectan con prioridad en el system prompt.
+
+> **IMPORTANTE**: edita primero ambos ficheros con tu contenido real (los esqueletos actuales tienen placeholders `[completar]`). Los scripts son **idempotentes**: borran los chunks anteriores del mismo fichero antes de re-indexar.
+
+### 3) Vídeos de YouTube A&C
+
+Requiere `yt-dlp` y `ffmpeg` instalados:
+
+```bash
+brew install yt-dlp ffmpeg
+```
+
+Ejecutar con URLs:
+
+```bash
+npm run agent:ingest-youtube -- https://youtu.be/JpW4RxLvWX4 https://youtu.be/XXXX
+```
+
+Por cada vídeo: descarga audio → transcribe con Gemini multimodal → chunkea → embeddings → indexa en `a&c_youtube` con cita `{título} · min {mm:ss}`. La transcripción se cachea en `/tmp/voltis-yt-ingest/{id}.txt` para no re-transcribir si vuelves a ejecutar.
+
+### Verificar lo indexado
+
+En Supabase SQL Editor:
+
+```sql
+select collection, count(*) as chunks, count(distinct source) as fuentes
+from kb_chunks
+group by collection
+order by collection;
+```
+
+### Probar el RAG manualmente (desde el CRM o Node REPL)
+
+```ts
+import { ragSearchAandC } from '@/lib/agent/rag'
+const r = await ragSearchAandC('cómo manejo objeción de precio')
+console.log(r.formattedContext)
+```
+
 ## Cómo aplicar la migration
 
 Desde Supabase Dashboard → SQL Editor:

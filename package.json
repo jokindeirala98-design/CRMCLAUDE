@@ -7,7 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "postinstall": "node scripts/patch-exceljs.js"
+    "postinstall": "node scripts/patch-exceljs.js",
+    "agent:ingest-voltis": "node --env-file=.env.local scripts/agent/ingest-markdown.mjs voltis_kb content/agent-kb/voltis-kb.md",
+    "agent:ingest-tarjetas": "node --env-file=.env.local scripts/agent/ingest-markdown.mjs voltis_tarjetas_tecnicas content/agent-kb/tarjetas-tecnicas.md",
+    "agent:ingest-youtube": "node --env-file=.env.local scripts/agent/ingest-youtube.mjs"
   },
   "dependencies": {
     "@sparticuz/chromium-min": "^131.0.1",
