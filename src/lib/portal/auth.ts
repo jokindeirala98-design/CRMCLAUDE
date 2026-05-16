@@ -137,7 +137,7 @@ export async function createMagicLink(
 
   return {
     token,
-    url: `${baseUrl.replace(/\/$/, '')}/auth/callback?token=${encodeURIComponent(token)}`,
+    url: `${baseUrl.replace(/\/$/, '')}/client-portal/auth/callback?token=${encodeURIComponent(token)}`,
     email,
     portalUserId: user.id,
     expiresAt,
