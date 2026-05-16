@@ -27,12 +27,12 @@ export interface MagicLinkEmail {
 export async function sendPortalMagicLinkEmail(args: MagicLinkEmail): Promise<void> {
   const resend = client()
   if (!resend) {
-    // En desarrollo sin Resend configurado, log a stdout para que el
-    // desarrollador pueda copiar el link.
-    if (process.env.NODE_ENV !== 'production') {
-      // eslint-disable-next-line no-console
-      console.log('[portal-magic-link]', args.to, '→', args.url)
-    }
+    // En cualquier entorno SIN Resend, log a stdout (Vercel logs) y
+    // marcamos como skipped. Permite copiar el link a mano mientras se
+    // configura.
+    console.warn('[portal-email] RESEND_API_KEY no configurada — magic link a stdout:')
+    console.warn('[portal-email]   to=' + args.to)
+    console.warn('[portal-email]   url=' + args.url)
     return
   }
 
@@ -41,13 +41,20 @@ export async function sendPortalMagicLinkEmail(args: MagicLinkEmail): Promise<vo
   const html = renderMagicLinkHtml(args.url, minutes)
   const text = renderMagicLinkText(args.url, minutes)
 
-  await resend.emails.send({
+  console.log('[portal-email] enviando a', args.to, 'via Resend (from=' + FROM + ')')
+  const res = await resend.emails.send({
     from: FROM,
     to: [args.to],
     subject: 'Tu acceso a Voltis · enlace de un solo uso',
     html,
     text,
   })
+  // El SDK de Resend devuelve { data, error } en vez de tirar
+  if ((res as any)?.error) {
+    const e = (res as any).error
+    throw new Error(`Resend error: ${e.name || ''} — ${e.message || JSON.stringify(e)}`)
+  }
+  console.log('[portal-email] OK id=', (res as any)?.data?.id)
 }
 
 // ── Plantillas HTML / texto ──────────────────────────────────────────────

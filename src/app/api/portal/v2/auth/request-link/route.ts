@@ -33,18 +33,28 @@ export async function POST(req: NextRequest) {
 
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || null
 
+  // Logging técnico (no se expone al cliente, solo a Vercel logs).
+  // En producción real lo bajamos a debug; ahora lo dejamos verboso para
+  // diagnosticar el flujo de envío.
   try {
     const result = await createMagicLink(email, getPortalBaseUrl(), { ip: ip || undefined })
-    if (result) {
-      // Enviamos email — fail silent para no exponer si existe el usuario.
-      sendPortalMagicLinkEmail({
-        to: result.email,
-        url: result.url,
-        expiresAt: result.expiresAt,
-      }).catch(() => {})
+    if (!result) {
+      console.log('[portal:request-link] no portal_user activo para email', email)
+    } else {
+      console.log('[portal:request-link] magic link creado', { email: result.email, url: result.url })
+      try {
+        await sendPortalMagicLinkEmail({
+          to: result.email,
+          url: result.url,
+          expiresAt: result.expiresAt,
+        })
+        console.log('[portal:request-link] email enviado a', result.email)
+      } catch (err: any) {
+        console.error('[portal:request-link] ERROR enviando email:', err?.message || err, err?.name)
+      }
     }
-  } catch {
-    // Tragado intencionadamente — no revelamos errores internos.
+  } catch (err: any) {
+    console.error('[portal:request-link] error creando magic link:', err?.message || err)
   }
 
   return NextResponse.json({ ok: true })

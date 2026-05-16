@@ -60,3 +60,27 @@ body:has(.voltis-portal-v2) {
   -webkit-backdrop-filter: blur(10px);
   border-radius: 0.75rem;
 }
+
+/* ── Inputs sobre fondo cobalto ──────────────────────────────────── */
+/* Aseguramos contraste: texto blanco sobre fondo oscuro translúcido,
+   y override del autofill del navegador (que normalmente pinta fondo
+   blanco y haría el texto blanco invisible). */
+.voltis-portal-v2 input[type="email"],
+.voltis-portal-v2 input[type="text"],
+.voltis-portal-v2 input[type="password"] {
+  color: #ffffff !important;
+  caret-color: #ffffff;
+  background-color: rgba(255, 255, 255, 0.10) !important;
+}
+
+/* Override del background y color que Chrome/Safari aplican al autofill */
+.voltis-portal-v2 input:-webkit-autofill,
+.voltis-portal-v2 input:-webkit-autofill:hover,
+.voltis-portal-v2 input:-webkit-autofill:focus,
+.voltis-portal-v2 input:-webkit-autofill:active {
+  -webkit-text-fill-color: #ffffff !important;
+  -webkit-box-shadow: 0 0 0 1000px rgba(20, 40, 100, 0.45) inset !important;
+  box-shadow: 0 0 0 1000px rgba(20, 40, 100, 0.45) inset !important;
+  caret-color: #ffffff !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
