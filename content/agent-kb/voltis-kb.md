@@ -139,16 +139,62 @@ Cuando el cliente entrega facturas:
 
 ---
 
-## Casos reales (prueba social)
+## Prueba social
 
-**Más de 300.000€ ahorrados a la administración pública** hasta la fecha (ayuntamientos diversos, datos agregados).
+**Más de 300.000€ ahorrados a la administración pública** hasta la fecha (cifra agregada, sin identificar clientes concretos).
 
-Algunos casos del CRM que el bot puede mencionar por nombre si vienen al caso:
-- **Ayuntamiento de Estella** (13 suministros de gas, Naturgy/Nedgia).
-- **Ayuntamiento de Orcoyen** (suministros de gas).
-- **Unice Toys** (industria, luz + gas mixto).
+> **Importante para el bot**: nunca des cifras concretas por cliente, nombres de personas ni datos identificativos sin confirmación expresa del comercial. La cifra global de 300k a administración pública sí es utilizable como prueba.
 
-> **Importante para el bot**: nunca des cifras concretas por cliente sin confirmación del comercial. La cifra global (300k a administración pública) sí es pública y se puede usar.
+## Servicios y procesos que ofrece Voltis
+
+### Servicios principales
+
+- **Optimización del contrato eléctrico** (luz): análisis de tarifa actual, peajes, potencias contratadas por periodo, detección de excesos de potencia y maxímetros, búsqueda de la tarifa óptima del mercado en cada momento.
+- **Optimización del contrato de gas**: incluida la posibilidad de **fórmula indexada** cuando el perfil del cliente lo justifica (precio variable ligado al mercado mayorista, suele ser ventajoso para grandes consumos).
+- **Autoconsumo colectivo**: tramitación de instalaciones fotovoltaicas que dan servicio a varios puntos de suministro (típico en ayuntamientos: paneles en polideportivo o colegio que alimentan varios edificios municipales). Voltis colabora con ingenierías externas para la parte técnica.
+- **CAE (Certificados de Ahorro Energético)**: tramitación cuanto antes para que el cliente pueda beneficiarse económicamente dentro de los plazos legales vigentes. Aplica a todos los clientes con potencial de ahorro certificable.
+- **Gestión energética integral**: el cliente delega en Voltis toda la operativa energética. Voltis se ocupa de todo, el cliente no dedica tiempo.
+
+### Procesos clave
+
+**Antes de la firma**:
+1. Análisis SIPS y/o recepción de facturas.
+2. Estudio energético (máximo 1 semana desde primer contacto al estudio presentado).
+3. Presentación de la propuesta al cliente.
+
+**Justo después de la firma — primeras semanas**:
+1. **Tramitación de gases** con la fórmula correspondiente (fija o indexada).
+2. **Tramitación de los CAE** cuanto antes.
+3. Cambio de comercializadora (Voltis gestiona altas y bajas con las comercializadoras anterior y nueva).
+4. Alta del cliente en la plataforma de gestión energética.
+
+**Mantenimiento mensual**:
+1. Revisión automática de cada factura emitida.
+2. Comparación con la mejor oferta del mercado.
+3. Predicción de precios mediante IA propia.
+4. Detección de desviaciones de consumo y anomalías.
+5. Liquidaciones trimestrales o anuales según contrato.
+6. Atención personalizada del asesor asignado.
+
+### Tipos de documentos que entrega Voltis al cliente
+
+- **Estudio energético inicial** (resumen anual de suministros con consumo, gasto y oportunidades de mejora detectadas).
+- **Comparativa por trimestre**: panel comparativo del periodo contratado con Voltis frente a la comercializadora anterior, ajustado a consumos reales.
+- **Previsión energética anual**: gasto previsto del ejercicio combinando importes reales facturados con una estimación basada en consumos SIPS del año anterior × precios fijos contractuales firmados con Voltis, incorporando la fiscalidad vigente.
+- **Contrato de prestación de servicios profesionales** (Voltis ↔ cliente) — firmado primero por Voltis y enviado al cliente para que firme.
+- **Propuesta económica del cliente** con el detalle del ahorro calculado.
+- **Liquidaciones** trimestrales/anuales que detallan el ahorro real generado y, si aplica, la facturación de Voltis (25% sobre ahorro o suscripción).
+- **Autofacturas** cuando aplica el régimen fiscal correspondiente.
+
+### Colaboradores externos
+
+Voltis trabaja con **ingenierías colaboradoras** para la parte técnica de proyectos especiales (instalaciones de autoconsumo, paneles fotovoltaicos, estudios eléctricos avanzados). Voltis lidera la relación con el cliente; la ingeniería aporta el aval técnico cuando hace falta.
+
+### Reglas internas de relación con clientes
+
+- Si el cliente pide aclaración sobre la metodología de un estudio, el comercial puede explicar a nivel general; para detalle técnico fino se deriva al equipo técnico.
+- Cuando un cliente corrige un dato (ej. ortografía de su nombre o municipio), se asume la corrección sin reproches, se rectifica el documento y se reenvía con disculpa breve y sin excusas largas.
+- Toda comunicación post-firma sigue el principio: **el cliente no debe hacer trabajo administrativo**. Voltis prepara, firma primero, y solo pide al cliente que revise y firme.
 
 ---
 
