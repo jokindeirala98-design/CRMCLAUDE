@@ -82,6 +82,21 @@ export async function GET(req: NextRequest) {
   }
   const supplies = suppliesRes.data || []
 
+  // Diagnóstico para Vercel logs: cuántos supplies + facturas estamos
+  // sirviendo al cliente. Si está vacío sabemos que el problema es la
+  // query, no la UI.
+  let totalInvoices = 0
+  for (const s of supplies as any[]) {
+    if (Array.isArray(s.invoices)) totalInvoices += s.invoices.length
+  }
+  console.log('[portal:overview] client=' + clientId,
+    'name=' + (clientRes.data.name || '?'),
+    'supplies=' + supplies.length,
+    'invoices=' + totalInvoices)
+  if (suppliesRes.error) {
+    console.error('[portal:overview] suppliesRes error:', suppliesRes.error.message)
+  }
+
   const flatSupplies = supplies.map((s: any) => {
     const com = Array.isArray(s.comercializadora) ? s.comercializadora[0] : s.comercializadora
     const cd = (s.consumption_data || {}) as any
