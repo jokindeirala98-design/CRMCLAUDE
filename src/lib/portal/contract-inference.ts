@@ -28,6 +28,11 @@ export interface InferenceInput {
     period_end: string | null
     extracted_data: any
   }>
+  /** Tipo de cada supply (luz/gas). Si no se proporciona, intentamos
+   *  detectar por la presencia de gasPricing en las facturas, pero
+   *  esto es menos fiable (algunos extractores ponen gasPricing en
+   *  facturas de luz por error). */
+  supplyTypes?: Map<string, 'luz' | 'gas'>
 }
 
 export interface InferredContract {
@@ -60,8 +65,15 @@ export function inferContractsFromInvoices(input: InferenceInput): Map<string, I
   }
 
   for (const [supplyId, invs] of bySupply.entries()) {
-    const isGas = !!invs[0].extracted_data?.economics?.gasPricing
-    if (isGas) {
+    // Preferimos el tipo del supply en BD (más fiable). Si no se proporciona,
+    // detectamos por gasPricing presente Y no-null (algunos extractores
+    // ponen la clave a null incluso para luz).
+    let type: 'luz' | 'gas' | undefined = input.supplyTypes?.get(supplyId)
+    if (!type) {
+      const gp = invs[0].extracted_data?.economics?.gasPricing
+      type = gp && typeof gp === 'object' ? 'gas' : 'luz'
+    }
+    if (type === 'gas') {
       result.set(supplyId, inferGasContract(supplyId, invs))
     } else {
       result.set(supplyId, inferLuzContract(supplyId, invs))
@@ -88,7 +100,8 @@ function inferLuzContract(supplyId: string, invs: any[]): InferredContract {
       if (!PERIODS.includes(p)) continue
       const kwh = Number(c.kwh) || 0
       const total = Number(c.total) || 0
-      const precio = Number(c.precio) || (kwh > 0 ? total / kwh : 0)
+      // El extractor escribe `precioKwh` (más reciente) o `precio` (legacy).
+      const precio = Number(c.precioKwh) || Number(c.precio) || (kwh > 0 ? total / kwh : 0)
       if (precio > 0) {
         kwhSums[p] = kwhSums[p] || { sum: 0, n: 0 }
         kwhSums[p].sum += precio; kwhSums[p].n += 1
@@ -100,7 +113,7 @@ function inferLuzContract(supplyId: string, invs: any[]): InferredContract {
       const kw = Number(pot.kw) || 0
       const dias = Number(pot.dias) || 1
       const total = Number(pot.total) || 0
-      const precio = Number(pot.precio) || (kw > 0 && dias > 0 ? total / (kw * dias) : 0)
+      const precio = Number(pot.precioKwDia) || Number(pot.precio) || (kw > 0 && dias > 0 ? total / (kw * dias) : 0)
       if (precio > 0) {
         kwSums[p] = kwSums[p] || { sum: 0, n: 0 }
         kwSums[p].sum += precio; kwSums[p].n += 1

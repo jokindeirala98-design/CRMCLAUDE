@@ -48,18 +48,30 @@ export async function GET(req: NextRequest) {
   const sb = admin()
   const clientId = ctx.clientId
 
-  const [supRes, invRes, clientRes] = await Promise.all([
+  const [supRes, clientRes] = await Promise.all([
     sb.from('supplies').select('id, type, cups, name, consumption_data').eq('client_id', clientId),
-    sb.from('invoices').select('id, supply_id, source, period_start, period_end, total_amount, extracted_data').order('period_end', { ascending: true }),
     sb.from('clients').select('id, name, cif_nif, nif').eq('id', clientId).maybeSingle(),
   ])
-
   const supplies = supRes.data || []
-  const supplyIds = new Set(supplies.map(s => s.id))
-  const invoices = (invRes.data || []).filter(i => supplyIds.has(i.supply_id))
+  const supplyIds = supplies.map(s => s.id)
+
+  const invRes = supplyIds.length > 0
+    ? await sb.from('invoices')
+        .select('id, supply_id, source, period_start, period_end, total_amount, extracted_data')
+        .in('supply_id', supplyIds)
+        .order('period_end', { ascending: true })
+    : { data: [] as any[], error: null }
+
+  const invoices = (invRes.data || [])
+
+  // Tipos de supply para inferencia robusta
+  const supplyTypes = new Map<string, 'luz' | 'gas'>()
+  for (const s of supplies) {
+    supplyTypes.set(s.id, s.type === 'gas' ? 'gas' : 'luz')
+  }
 
   // Inferimos contratos Voltis (uno por supply)
-  const inferred = inferContractsFromInvoices({ invoices })
+  const inferred = inferContractsFromInvoices({ invoices, supplyTypes })
 
   if (inferred.size === 0) {
     auditLog({ ctx, action: 'view_forecast_empty' }).catch(() => {})

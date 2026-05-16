@@ -88,19 +88,35 @@ export async function GET(req: NextRequest) {
   const sb = admin()
   const clientId = ctx.clientId
 
-  const [supRes, invRes, clientRes] = await Promise.all([
+  // Primero cargamos los supplies del cliente; luego las invoices SOLO
+  // de esos supplies (filtro en la query, no en memoria — así nunca
+  // chocamos con el límite de 1000 rows de Supabase).
+  const [supRes, clientRes] = await Promise.all([
     sb.from('supplies').select('id, type, cups, name, consumption_data').eq('client_id', clientId),
-    sb.from('invoices').select('id, supply_id, source, period_start, period_end, total_amount, extracted_data').order('period_end', { ascending: true }),
     sb.from('clients').select('id, name').eq('id', clientId).maybeSingle(),
   ])
-
   const supplies = supRes.data || []
-  const supplyIds = new Set(supplies.map(s => s.id))
-  const invoices = (invRes.data || []).filter(i => supplyIds.has(i.supply_id))
+  const supplyIds = supplies.map(s => s.id)
   const supplyById = new Map(supplies.map(s => [s.id, s]))
 
+  const invRes = supplyIds.length > 0
+    ? await sb.from('invoices')
+        .select('id, supply_id, source, period_start, period_end, total_amount, extracted_data')
+        .in('supply_id', supplyIds)
+        .order('period_end', { ascending: true })
+    : { data: [] as any[], error: null }
+
+  const invoices = (invRes.data || [])
+
+  // Tipos de supply (luz/gas) — para que el inferidor no se confunda con
+  // facturas que tienen gasPricing puesto a null pero realmente son luz.
+  const supplyTypes = new Map<string, 'luz' | 'gas'>()
+  for (const s of supplies) {
+    supplyTypes.set(s.id, s.type === 'gas' ? 'gas' : 'luz')
+  }
+
   // Inferimos los contratos Voltis automáticamente
-  const inferred = inferContractsFromInvoices({ invoices })
+  const inferred = inferContractsFromInvoices({ invoices, supplyTypes })
 
   // Diagnóstico
   const sourceCounts: Record<string, number> = {}
