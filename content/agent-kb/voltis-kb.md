@@ -1,194 +1,201 @@
-# Conocimiento interno Voltis Energía
+# Voltis Energía — Modelo de negocio y proceso comercial
 
-> **Edita este fichero** con la información real de Voltis. Lo que hay debajo
-> es un esqueleto basado en lo que el agente puede deducir del CRM. Cuando
-> esté completo ejecuta:
->
-> ```bash
-> node scripts/agent/ingest-markdown.mjs voltis_kb content/agent-kb/voltis-kb.md
-> ```
+> Este es el knowledge base interno que el bot usa para hablar de Voltis con
+> los comerciales. **Información validada, no inventada.** Si algo falta o
+> está obsoleto, edítalo aquí y re-ingesta con `npm run agent:ingest-voltis`.
 
 ---
 
 ## Qué es Voltis
 
-Voltis Energía es una comercializadora y consultoría energética española con sede en Navarra. Combina:
+Voltis Energía es una **asesoría energética independiente** que ayuda a empresas, industria, ayuntamientos, hoteles, comunidades y particulares a pagar menos por la luz y el gas, sin papeleo, sin permanencia y sin sorpresas.
 
-- **Comercialización directa** de luz y gas a clientes B2B.
-- **Consultoría energética**: auditoría, optimización de potencia, comparativas de tarifas.
-- **Tecnología propia**: CRM con extracción automática de facturas, modelo de previsión de gasto, portal del cliente.
+Combina tres cosas:
+- **IA propia** (algoritmos predictivos sobre el mercado mayorista y análisis masivo de suministros).
+- **Ingeniería energética** (análisis técnico de consumos, potencias, peajes, excesos).
+- **Trato humano cercano** (cada cliente tiene un asesor asignado).
 
-Ofrecemos ahorro medible y demostrable, no promesas vagas. Cada cliente tiene su propio portal donde ve su estudio económico, ahorros pre/post Voltis y previsión mensual.
+No es comercializadora. **Voltis no vende energía**, asesora y gestiona el contrato con la mejor comercializadora del mercado para cada caso.
 
----
-
-## ICP — Cliente ideal de Voltis
-
-**Segmento principal**: Ayuntamientos y PyMEs medianas (10-200 empleados) en Navarra y norte de España.
-
-### Ayuntamientos
-- Características: presupuesto público, decisor político (alcalde/concejal) + técnico (interventor o responsable de obras).
-- Pain points: subidas de tarifas en los últimos años, falta de tiempo para auditar facturas, miedo a cambiar de comercializadora por trámites.
-- Casos vivos en el CRM: **Ayuntamiento de Estella** (13 supplies de gas), **Ayuntamiento de Orcoyen**.
-- Ciclo de decisión: 2-6 meses, requiere aprobación en pleno o de junta de gobierno.
-
-### PyMEs
-- Características: empresa familiar o profesionalizada, decisor único (gerente, CFO).
-- Pain points: factura energética 5-15% del coste operativo, falta de visibilidad de a dónde va el gasto.
-- Casos vivos en el CRM: **Unice Toys** (juguetes industriales, suministros mixtos luz + gas).
-- Ciclo de decisión: 1-3 meses.
-
-### Cliente NO ideal (filtrar)
-- Particulares con tarifa doméstica 2.0TD baja (poco volumen, poco ahorro absoluto).
-- Empresas con facturación energética <2.000€/mes (no compensa el esfuerzo comercial).
-- Empresas con contratos activos a largo plazo sin penalización de salida razonable.
+Web: [voltisenergia.com](https://voltisenergia.com) · Teléfono: 747 474 360 · Email: admin@voltisenergia.com · Oficina: Parque Empresarial Ansoain (Calle Berriobide 38, Of. 209, 31013 Ansoáin, Navarra).
 
 ---
 
-## Propuesta de valor
+## La diferencia real frente a otros asesores energéticos
 
-### Para ayuntamientos
-1. **Auditoría energética gratuita** del último año.
-2. **Estudio personalizado** mostrando ahorro previsto en €/año.
-3. **Portal del cliente** (cliente.voltisenergia.com) para que el interventor y el secretario vean en tiempo real las facturas, consumos y ahorros.
-4. **Gestión completa de cambios de tarifa y comercializadora** sin papeleo para el ayuntamiento.
-5. **Reporting trimestral** automatizado.
+Esto es lo que el comercial tiene que tener clavado. No es un argumento de venta; es la verdad.
 
-### Para PyMEs
-1. **Análisis SIPS** (datos oficiales del distribuidor) en 5 minutos.
-2. **Comparativa con 4 escenarios**: comercializadora actual fiscal anterior, Voltis fiscal anterior, Voltis fiscal actual, Voltis tarifa real.
-3. **Previsión anual mensualizada** con simulación basada en consumos reales del año anterior.
-4. **Portal cliente** con facturas + dossier + comparativas descargables.
+**Otros asesores ganan dinero con fees ocultos y tasas.** Cobran al cliente y también cobran del lado de la comercializadora una comisión que el cliente no ve. Resultado: el "asesor" recomienda a quien le paga más, no a quien ofrece la mejor tarifa al cliente.
+
+**Voltis limpia el precio al máximo.** Solo cobra al cliente, y solo si hay ahorro. No tiene comisiones ocultas con comercializadoras. Trabaja con muchas (más de veinte) **sin casarse con ninguna**.
+
+Y hace algo que un asesor tradicional no puede hacer: **agrupa paquetes de consumo de gran industria y ayuntamientos** para presentarlos juntos a las comercializadoras. Eso da volumen, y el volumen da precio. Una PyME sola no consigue ese descuento. Voltis sí, porque la mete en el paquete.
 
 ---
 
-## Pricing y política de descuentos
+## Modelo económico
 
-### Estructura básica
-- **Tarifa indexada al mercado mayorista (OMIE)** con margen comercial fijo.
-- **Componente fija mensual** por punto de suministro.
-- **Servicio premium** opcional: análisis trimestral + alertas anomalías.
+Dos modelos. **No conviven**, son **alternativos** según el volumen del ahorro anual estimado del cliente:
 
-### Cuándo se puede negociar
-- **Volumen alto** (>100k kWh/año en luz o >50.000 m³/año en gas) → descuento progresivo.
-- **Cliente referido por otro cliente actual** → 1 mes gratis a ambas partes.
-- **Compromiso 12+ meses** vs 6 meses → mejora 3-5% del precio.
+### Modelo A — Solo a éxito (25% sobre el ahorro)
 
-### Cuándo NO se baja el precio
-- Primera objeción de un prospect sin haber descubierto sus consumos reales.
-- A cambio de "voy a pensármelo".
-- Sin contrapartida (volumen, plazo, referencia).
+- Voltis cobra **el 25% del ahorro total que le genera al cliente** respecto al año anterior.
+- **Se activa cuando el ahorro anual estimado es ≥ 1.000 €/año.**
+- Si no hay ahorro, no hay factura. Cero.
+- Estudio inicial gratuito y sin permanencia.
+- Habitual en industria, ayuntamientos, comercios con factura alta, comunidades grandes.
 
----
+**Modalidades de pago del 25%:**
+- **Pago único** a la firma del contrato.
+- **Entrada 50% + 4 cuotas trimestrales de 12,5%** (cuando el cliente prefiere repartirlo).
 
-## Objeciones típicas y respuestas validadas
+### Modelo B — Suscripción trimestral
 
-### "Ya estoy con otra comercializadora"
-- Respuesta: "perfecto, ¿con cuál?".
-- Si conocemos la comercializadora, mencionar 1 dato específico (subida de precios reciente, etc.).
-- Pedir factura para analizar sin compromiso ("regalo el estudio aunque al final te quedes con ellos").
-- Cierre: "te paso el estudio, si no aporta nada nos olvidamos; si aporta ahorro tú decides".
+Cuando el ahorro anual estimado es **inferior a 1.000 €/año**. Tabla real (sin IVA):
 
-### "Cambiar es un follón"
-- Respuesta: "lo único que hacéis vosotros es firmar un papel; del resto nos encargamos nosotros".
-- Estadística: cero corte de suministro en el cambio. La transición es automática.
-- Plazo: 21 días naturales para el cambio efectivo.
+| Ahorro anual estimado | Cuota trimestral |
+|---|---|
+| ≤ 200 € | **0 €** (Voltis no cobra; cliente entra para tenerlo gestionado) |
+| 201 € – 350 € | **20 €/trimestre** |
+| 351 € – 750 € | **45 €/trimestre** |
+| 751 € – 999 € | **90 €/trimestre** |
+| ≥ 1.000 € | pasa al **Modelo A — 25% éxito** |
 
-### "Sois muy nuevos / no os conozco"
-- Respuesta: somos una consultora con clientes referenciables.
-- Mencionar 2-3 casos similares (sin nombres confidenciales) por sector.
-- Ofrecer prueba acotada (3 meses) si la objeción persiste.
+Equivalencias anuales (sin IVA): 80 €, 180 €, 360 €.
 
-### "Está fuera de presupuesto"
-- Reframe a inversión: "no es un gasto adicional, es el mismo gasto a menor precio".
-- Cuantificar: "ahora pagas X €/mes; con nosotros pagarías X−Y. La diferencia es Y x 12 = ahorro/año".
-- Si el ahorro es <2.000€/año, reconocer que quizás Voltis no es la prioridad y agendar revisión en 6 meses.
-
-### "Tengo que consultarlo con mi gestor / asesor / hijo"
-- Aceptar y enriquecer: "perfecto, le paso material para que vea los números directamente".
-- Agendar reunión a 3 con el asesor.
-- Nunca dejarlo pendiente sin siguiente paso.
+**Reglas clave que el comercial debe tener claras:**
+- La cuota se calcula **una vez al firmar**, en base al ahorro proyectado del estudio.
+- Si el ahorro real luego sube o baja, no se reajusta al alza para el primer ciclo.
+- En renovaciones, los tramos vigentes en el CRM hoy son: 19,99 €, 45 €, 90 € y 180 €/trimestre según el plan del cliente.
+- Si un cliente pequeño no tiene apenas ahorro pero quiere acceso al software de gestión y soporte, hay un plan **Básico de 19,99€/trimestre** como puerta de entrada.
 
 ---
 
-## Casos de éxito (rellenar con datos reales)
+## La puerta de entrada: software de gestión energética
 
-### Ayuntamiento de Estella
-- Suministros: 13 puntos de gas distribuidos en colegios, polideportivo, ayuntamiento.
-- Comercializadora previa: [añadir]
-- Ahorro anual logrado: [añadir cifra real cuando esté disponible]
-- Tiempo desde primer contacto hasta firma: [añadir]
-- Testimonio: [añadir si lo tienes]
+La optimización del contrato es **el primer paso**. Lo que viene después, y lo que diferencia a Voltis a medio plazo, es el **software de gestión energética** al que entra el cliente.
 
-### Unice Toys
-- Suministros: luz (3.0TD) + gas.
-- Comercializadora previa: [añadir]
-- Ahorro estimado año 2026: 302.711€ según documento oficial.
-- Modelo aplicado: 4 escenarios (S0/S1/S2/S3) basado en Unice.
-- Testimonio: [añadir si lo tienes]
+En el portal del cliente:
+- Sus facturas centralizadas.
+- Predicciones de gasto.
+- Comparativas pre-Voltis vs Voltis con cifras reales.
+- Informes anuales y por suministro.
+- **Próximamente**: mediciones en directo de consumos.
+- Atención personalizada del asesor asignado.
 
-### Ayuntamiento de Orcoyen
-- Suministros: 5 supplies de gas.
-- Estado: [añadir estado actual]
+Esto es importante para el discurso: Voltis no es solo "te cambio el contrato y adiós". Es una **relación continua de gestión energética**.
 
 ---
 
-## Procesos comerciales
+## La IA propia — qué hace concretamente
 
-### Etapas del pipeline (CRM)
-1. **primer_contacto**: prospect entra (Telegram, web, referido).
-2. **estudio_en_curso**: análisis SIPS + auditoría de facturas.
-3. **estudio_completado**: estudio listo para presentar.
-4. **presentado**: reunión presencial o videocall hecha.
-5. **pendiente_firma**: cliente conforme, esperando firma.
-6. **firmado**: contrato firmado.
-7. **suscrito**: alta en distribuidora completada.
-8. **seguimiento_activo**: cliente activo, factura mensualmente.
+Cuando un cliente técnico (jefe de mantenimiento, gerente de industria, interventor de ayuntamiento) pregunte por la IA, esto es lo que hace:
 
-### Criterios de avance
-- Solo se avanza, nunca se retrocede.
-- Si un prospect se enfría, no se mueve hacia atrás — se marca como "perdido temporal" con fecha de revisión.
+- **Algoritmos predictivos** sobre compras de paquetes de energía y gas en el mercado mayorista.
+- **Análisis masivo de suministros**: cruza cientos de CUPS a la vez para detectar patrones.
+- **Detección de excesos de potencia y maxímetros** (penalizaciones que el cliente está pagando sin saberlo).
+- **Búsqueda de agrupaciones óptimas** según el perfil de consumo del cliente.
+- Detección de **variaciones anómalas** de consumo y de precios.
+
+No es un "GPT que escribe correos". Es ingeniería energética automatizada.
 
 ---
 
-## Voltis vs competencia (tener claro)
+## Proceso comercial real
 
-### Cuándo gana Voltis
-- Cliente quiere transparencia y reporting visual claro.
-- Cliente valora consultoría, no solo precio.
-- Cliente quiere portal de seguimiento con sus datos.
+**Plazos reales (no los del workflow oficial que están inflados):**
 
-### Cuándo gana la competencia
-- Cliente solo mira el céntimo por kWh.
-- Cliente quiere contrato a precio fijo plurianual (Voltis trabaja con indexado).
-- Cliente busca grandes generadores integrados (Iberdrola, Endesa).
+- Del primer contacto al estudio presentado: **máximo 1 semana**.
+- Del estudio al OK del cliente: depende del cliente.
+- Del OK a la firma y alta: 1-4 semanas (la baja con la anterior la gestionamos nosotros).
 
-### Respuesta cuando el cliente menciona competidor concreto
-- Reconocer que es un buen competidor.
-- Diferenciar en lo que somos mejores (transparencia, consultoría, portal).
-- Nunca criticar al competidor — eso resta credibilidad.
+### Cómo prospectan los comerciales
+
+El equipo comercial **entra físicamente en zonas industriales y empresariales** ofreciendo el servicio puerta a puerta. Habla con quien está disponible en ese momento (recepción, encargado, dueño si está).
+
+**Resultado más habitual de esa primera visita**: el interlocutor da una tarjeta y pide que se le llame o se le escriba más tarde. No suele soltar factura en el momento.
+
+**Aquí es donde el comercial necesita más ayuda del bot**: en el follow-up tras la tarjeta, en convertir un "llámame la semana que viene" en un cliente que manda la factura.
+
+### Cómo se hace el estudio (interno)
+
+Cuando el cliente entrega facturas:
+
+1. Análisis del consumo por periodos (cuartos horarios si aplica).
+2. Detección de **excesos de potencia** y de maxímetros.
+3. Análisis de tarifa actual: peajes, energía, término fijo.
+4. Búsqueda de la **agrupación más óptima** según el perfil del cliente.
+5. Cruce con las comercializadoras del momento.
+6. Cálculo del ahorro anual respecto al año anterior.
+7. Validación final del ingeniero responsable.
+8. Preparación del documento de propuesta.
+
+### Presentación al cliente y cierre
+
+- Se presenta el estudio (presencial, videollamada o llamada según cliente).
+- Se enseña ahorro estimado anual, comparativa antes/después, condiciones.
+- Si el cliente da el OK → se activan los contratos con la nueva comercializadora.
+- Voltis gestiona la baja con la anterior y el alta con la nueva. Cliente no firma nada con la antigua.
 
 ---
 
-## Tono y guía de estilo Voltis
+## Casos reales (prueba social)
 
-- **Profesional y directo**. Cero adornos vacíos.
-- **Tuteo siempre** (incluso con ayuntamientos, mantenemos cercanía).
-- **Específico antes que genérico**. "Ahorraréis 23.450€/año" > "ahorraréis mucho".
-- **Honesto antes que comercial**. Si la solución no encaja, decirlo.
-- **Sin emojis** en comunicación formal con clientes.
-- **Cero promesas que no podamos cumplir**.
-- **Datos > opiniones**. Siempre que se pueda, citar SIPS, factura, BOE o histórico.
+**Más de 300.000€ ahorrados a la administración pública** hasta la fecha (ayuntamientos diversos, datos agregados).
+
+Algunos casos del CRM que el bot puede mencionar por nombre si vienen al caso:
+- **Ayuntamiento de Estella** (13 suministros de gas, Naturgy/Nedgia).
+- **Ayuntamiento de Orcoyen** (suministros de gas).
+- **Unice Toys** (industria, luz + gas mixto).
+
+> **Importante para el bot**: nunca des cifras concretas por cliente sin confirmación del comercial. La cifra global (300k a administración pública) sí es pública y se puede usar.
 
 ---
 
-## Identidad legal y operativa
+## Cobertura geográfica
 
-- **Razón social**: Voltis Energía [completar].
-- **CIF**: [completar].
+**Operamos en toda España.** Las ciudades destacadas en la web (Madrid, Barcelona, Bilbao, Valencia, Málaga, Pamplona, Las Palmas) son donde hay más actividad de SEO y prospección directa, pero **se atiende a cualquier cliente del territorio nacional**. La oficina física está en Ansoáin (Navarra).
+
+---
+
+## Segmentos prioritarios
+
+- Industria y fábricas (alto consumo, mucho ahorro).
+- Ayuntamientos (segmento clave, casos referenciables).
+- Hoteles, restaurantes, bares.
+- PyMEs de 10-200 empleados.
+- Comunidades de vecinos y residencias.
+- Colegios.
+- Particulares (más por suscripción).
+
+---
+
+## Objeciones más frecuentes y respuesta
+
+**"No quiero líos con el cambio de compañía."**
+Voltis gestiona todos los trámites. El cliente solo envía documentación y firma. La baja con la anterior la hacemos nosotros.
+
+**"¿Y si luego no es cierto el ahorro?"**
+Solo se cobra a éxito (25% del ahorro real). Si no hay ahorro, no hay factura. Y la IA sigue revisando precios cada semana después de la firma; si aparece algo mejor, se cambia.
+
+**"¿Tengo que pagar permanencia con vosotros?"**
+No. Cero permanencia. Cero letra pequeña.
+
+**"¿Cuánto cuesta vuestro servicio?"**
+Depende del modelo. Si el ahorro es grande: 25% del ahorro generado, solo si ahorras. Si vamos por suscripción: desde 19,99€/trimestre según tramo. El estudio inicial es gratis y sin compromiso.
+
+**"Tengo que hablarlo con mi socio/asesor/gestor."**
+Perfecto. Te dejo la propuesta por escrito y la ven juntos. ¿Cuándo os va bien que me pase a explicársela también a él/ella?
+
+---
+
+## Identidad
+
+- **Razón social**: Voltis Energía.
 - **Web**: https://voltisenergia.com
-- **CRM interno**: voltis-crm-bueno.vercel.app
-- **Portal cliente**: cliente.voltisenergia.com
-- **Email comercial**: nicolasvoltis@gmail.com (Nicolás, fundador)
-- **Atención cliente**: [completar]
-- **Ubicación**: Navarra, España.
+- **Email**: admin@voltisenergia.com
+- **Teléfono**: 747 474 360
+- **Oficina**: Calle Berriobide 38, Of. 209, 31013 Ansoáin, Navarra (Parque Empresarial Ansoain).
+- **Fundador / email principal**: nicolasvoltis@gmail.com.
+- **CRM interno**: voltis-crm-bueno.vercel.app (también accesible próximamente vía crm.voltisenergia.com).
+- **Portal cliente**: cliente.voltisenergia.com.
