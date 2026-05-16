@@ -24,6 +24,8 @@ import { calcularFacturaLuz, calcularFacturaGas, type LuzInputs, type GasInputs 
 import { fiscalAt } from '@/lib/portal/fiscal'
 
 export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
 function admin() {
   return createAdmin(

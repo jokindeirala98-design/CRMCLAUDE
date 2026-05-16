@@ -27,6 +27,10 @@ import { buildForecast, type HistoricalMonth, type RealVoltisMonth } from '@/lib
 import { FISCAL_PERIODS } from '@/lib/portal/fiscal'
 
 export const runtime = 'nodejs'
+// Endpoint siempre dinámico: si el admin actualiza el SIPS en el CRM,
+// la próxima petición del cliente devuelve los datos nuevos.
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
 function admin() {
   return createAdmin(
@@ -151,6 +155,13 @@ export async function GET(req: NextRequest) {
   // usamos el consumo SIPS del mismo mes. Es exactamente la metodología
   // del doc oficial Unice: "Consumos abril-diciembre 2026: consumos del
   // mismo mes del año anterior según el SIPS oficial del distribuidor."
+  //
+  // El SIPS gas a veces viene en m³ (10x menos que kWh). inferGasScale()
+  // detecta ese caso comparando la suma anual con el totalKwh declarado.
+  const gasScale = gasSupply ? inferGasScale(gasSupply) : 1
+  if (gasSupply && gasScale !== 1) {
+    console.log('[portal:forecast] gas SIPS factor de corrección detectado:', gasScale)
+  }
   for (let m = 1; m <= 12; m++) {
     const monthIso = `${yearPrev}-${String(m).padStart(2, '0')}-01`
     let h = histByMonth.get(m)
@@ -169,7 +180,7 @@ export async function GET(req: NextRequest) {
     }
     // Completar gas desde SIPS si falta
     if (gasSupply && (h.consumoGas == null || h.consumoGas === 0)) {
-      const sipsGas = findSipsGasForMonth(gasSupply.consumption_data?.gasHistory, yearPrev, m)
+      const sipsGas = findSipsGasForMonth(gasSupply.consumption_data?.gasHistory, yearPrev, m, gasScale)
       if (sipsGas != null) {
         h.consumoGas = sipsGas
       }
@@ -225,8 +236,12 @@ function sumPeriodos(p?: Partial<Record<string, number>>): number {
 /**
  * Busca el consumo SIPS de gas para un mes/año concreto.
  * El historial gas viene mensual con fechaInicio/fechaFin.
+ *
+ * `scale` aplica un factor de corrección si los datos vienen en m³
+ * (típicamente ~10x menos que kWh). La función `inferGasScale` lo calcula
+ * comparando suma anual del history con el `totalKwh` declarado en SIPS.
  */
-function findSipsGasForMonth(history: any[] | undefined, year: number, month: number): number | null {
+function findSipsGasForMonth(history: any[] | undefined, year: number, month: number, scale = 1): number | null {
   if (!Array.isArray(history)) return null
   for (const entry of history) {
     const fi = entry?.fechaInicio
@@ -234,10 +249,49 @@ function findSipsGasForMonth(history: any[] | undefined, year: number, month: nu
     const d = new Date(fi)
     if (d.getUTCFullYear() === year && d.getUTCMonth() + 1 === month) {
       const kwh = Number(entry.kwh) || 0
-      return kwh > 0 ? kwh : null
+      if (kwh <= 0) return null
+      return kwh * scale
     }
   }
   return null
+}
+
+/**
+ * Calcula el factor de escala para corregir el gasHistory si está en m³
+ * o decenas de kWh. Compara la suma anual del año más reciente completo
+ * con el totalKwh declarado en SIPS.
+ *
+ * Si la diferencia es >50%, asumimos que el factor de conversión es
+ * Math.round(totalKwh / sum). Si está dentro del 50%, no aplicamos
+ * factor (datos ya en kWh correctos).
+ */
+function inferGasScale(gasSupply: any): number {
+  const annual = Number(gasSupply?.consumption_data?.totalKwh) || 0
+  const history: any[] = gasSupply?.consumption_data?.gasHistory || []
+  if (annual <= 0 || !Array.isArray(history) || history.length === 0) return 1
+
+  // Tomamos el año completo más reciente (máximo 12 meses)
+  const byYear = new Map<number, number>()
+  for (const entry of history) {
+    const fi = entry?.fechaInicio
+    const k = Number(entry?.kwh) || 0
+    if (!fi || k <= 0) continue
+    const yr = new Date(fi).getUTCFullYear()
+    byYear.set(yr, (byYear.get(yr) || 0) + k)
+  }
+  let bestYear = 0, bestSum = 0
+  for (const [yr, sum] of byYear.entries()) {
+    if (sum > bestSum) { bestSum = sum; bestYear = yr }
+  }
+  if (bestSum <= 0) return 1
+  const ratio = annual / bestSum
+  // Si está cerca de 1 (±50%), datos ya están en kWh
+  if (ratio >= 0.5 && ratio <= 1.5) return 1
+  // Si no, redondear al múltiplo de 10 más cercano (10x para m³, 1000x para MWh, etc.)
+  if (ratio >= 5 && ratio <= 15) return 10
+  if (ratio >= 90 && ratio <= 110) return 100
+  if (ratio >= 900 && ratio <= 1100) return 1000
+  return ratio   // factor exacto si no se ajusta a múltiplo conocido
 }
 
 /**

@@ -18,6 +18,8 @@ import { createClient as createAdmin } from '@supabase/supabase-js'
 import { PORTAL_SESSION_COOKIE, resolveSession, auditLog } from '@/lib/portal/auth'
 
 export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
 function admin() {
   return createAdmin(
