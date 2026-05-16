@@ -23,6 +23,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createAdmin } from '@supabase/supabase-js'
 import { PORTAL_SESSION_COOKIE, resolveSession, auditLog } from '@/lib/portal/auth'
 import { inferContractsFromInvoices } from '@/lib/portal/contract-inference'
+import type { LuzContract, GasContract } from '@/lib/portal/billing-engine'
 import { buildForecast, type HistoricalMonth, type RealVoltisMonth } from '@/lib/portal/forecast-engine'
 import { FISCAL_PERIODS } from '@/lib/portal/fiscal'
 
@@ -59,6 +60,20 @@ export async function GET(req: NextRequest) {
   const supplies = supRes.data || []
   const supplyIds = supplies.map(s => s.id)
 
+  // Cargamos contratos Voltis manuales (con todos los precios contractuales
+  // por periodo) — tienen prioridad sobre la inferencia desde facturas
+  // porque la inferencia falla cuando ciertos periodos no han facturado.
+  const contractsRes = supplyIds.length > 0
+    ? await sb.from('voltis_contracts')
+        .select('*')
+        .in('supply_id', supplyIds)
+        .order('start_date', { ascending: false })
+    : { data: [] as any[], error: null }
+  const manualContracts = new Map<string, any>()
+  for (const c of (contractsRes.data || [])) {
+    if (!manualContracts.has(c.supply_id)) manualContracts.set(c.supply_id, c)
+  }
+
   const invRes = supplyIds.length > 0
     ? await sb.from('invoices')
         .select('id, supply_id, source, period_start, period_end, total_amount, extracted_data')
@@ -87,11 +102,54 @@ export async function GET(req: NextRequest) {
 
   // Para mantener la lógica del engine actual, identificamos un supply luz y otro gas.
   // En siguientes iteraciones, soportaremos múltiples supplies sumando bloques.
-  const luzSupply = supplies.find(s => s.type !== 'gas' && inferred.has(s.id))
-  const gasSupply = supplies.find(s => s.type === 'gas' && inferred.has(s.id))
+  // Identificamos supplies con contrato manual O inferencia. Manual gana.
+  const hasContract = (sid: string) => manualContracts.has(sid) || inferred.has(sid)
+  const luzSupply = supplies.find(s => s.type !== 'gas' && hasContract(s.id))
+  const gasSupply = supplies.find(s => s.type === 'gas' && hasContract(s.id))
 
-  const luzContract = luzSupply ? inferred.get(luzSupply.id)?.luz || null : null
-  const gasContract = gasSupply ? inferred.get(gasSupply.id)?.gas || null : null
+  // Para cada supply construimos el contrato final: si hay registro manual
+  // y tiene precios, lo usamos; si falta algún periodo, completamos con
+  // el inferido. Así garantizamos cobertura completa P1-P6 incluso si no
+  // se han facturado todos los periodos.
+  function buildLuzContract(supplyId: string): LuzContract | null {
+    const m = manualContracts.get(supplyId)
+    const inf = inferred.get(supplyId)?.luz || null
+    if (!m && !inf) return null
+    const pick = (key: string, fallback: number = 0): number => {
+      const mv = m ? Number((m as any)[key]) : 0
+      if (mv > 0) return mv
+      const camel = camelKey(key)
+      const iv = inf ? Number((inf as any)[camel]) : 0
+      return iv > 0 ? iv : fallback
+    }
+    return {
+      precioKwhP1: pick('precio_kwh_p1'),
+      precioKwhP2: pick('precio_kwh_p2'),
+      precioKwhP3: pick('precio_kwh_p3'),
+      precioKwhP4: pick('precio_kwh_p4'),
+      precioKwhP5: pick('precio_kwh_p5'),
+      precioKwhP6: pick('precio_kwh_p6'),
+      precioKwDiaP1: pick('precio_kw_dia_p1'),
+      precioKwDiaP2: pick('precio_kw_dia_p2'),
+      precioKwDiaP3: pick('precio_kw_dia_p3'),
+      precioKwDiaP4: pick('precio_kw_dia_p4'),
+      precioKwDiaP5: pick('precio_kw_dia_p5'),
+      precioKwDiaP6: pick('precio_kw_dia_p6'),
+    }
+  }
+  function buildGasContract(supplyId: string): GasContract | null {
+    const m = manualContracts.get(supplyId)
+    const inf = inferred.get(supplyId)?.gas || null
+    if (!m && !inf) return null
+    return {
+      precioKwhGas: Number(m?.precio_kwh_gas) || Number(inf?.precioKwhGas) || 0,
+      peajeKwhGas: Number(m?.peaje_kwh_gas) || Number(inf?.peajeKwhGas) || 0,
+      terminoFijoDiarioGas: Number(m?.termino_fijo_diario_gas) || Number(inf?.terminoFijoDiarioGas) || 0,
+    }
+  }
+
+  const luzContract = luzSupply ? buildLuzContract(luzSupply.id) : null
+  const gasContract = gasSupply ? buildGasContract(gasSupply.id) : null
 
   // Histórico (año anterior) + Real Voltis (año actual)
   const histByMonth = new Map<number, HistoricalMonth>()
@@ -246,6 +304,11 @@ function computeDias(start: string | null, end: string | null): number {
 function sumPeriodos(p?: Partial<Record<string, number>>): number {
   if (!p) return 0
   return Object.values(p).reduce((a, b) => (a || 0) + (b || 0), 0) || 0
+}
+
+/** snake_case → camelCase para columnas de voltis_contracts */
+function camelKey(snake: string): string {
+  return snake.replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase())
 }
 
 /**

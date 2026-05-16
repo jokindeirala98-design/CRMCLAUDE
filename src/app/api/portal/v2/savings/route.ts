@@ -117,8 +117,52 @@ export async function GET(req: NextRequest) {
     supplyTypes.set(s.id, s.type === 'gas' ? 'gas' : 'luz')
   }
 
+  // Cargamos contratos Voltis manuales (prioridad sobre la inferencia)
+  const contractsRes = supplyIds.length > 0
+    ? await sb.from('voltis_contracts')
+        .select('*')
+        .in('supply_id', supplyIds)
+        .order('start_date', { ascending: false })
+    : { data: [] as any[], error: null }
+  const manualContracts = new Map<string, any>()
+  for (const c of (contractsRes.data || [])) {
+    if (!manualContracts.has(c.supply_id)) manualContracts.set(c.supply_id, c)
+  }
+
   // Inferimos los contratos Voltis automáticamente
   const inferred = inferContractsFromInvoices({ invoices, supplyTypes })
+
+  // Combinar contratos manuales con los inferidos. Si hay un contrato
+  // manual lo añadimos al map de inferidos sobrescribiendo periodos
+  // faltantes con datos del contrato firmado.
+  for (const [supplyId, manual] of manualContracts.entries()) {
+    const supType = supplyTypes.get(supplyId) || 'luz'
+    const inf = inferred.get(supplyId)
+    if (supType === 'gas') {
+      const gas = inf?.gas || { precioKwhGas: 0, peajeKwhGas: 0, terminoFijoDiarioGas: 0 }
+      gas.precioKwhGas = Number(manual.precio_kwh_gas) || gas.precioKwhGas
+      gas.peajeKwhGas = Number(manual.peaje_kwh_gas) || gas.peajeKwhGas
+      gas.terminoFijoDiarioGas = Number(manual.termino_fijo_diario_gas) || gas.terminoFijoDiarioGas
+      inferred.set(supplyId, { supplyId, type: 'gas', gas, samples: inf?.samples || 0, confidence: 'high' })
+    } else {
+      const luz = inf?.luz || {
+        precioKwhP1: 0, precioKwhP2: 0, precioKwhP3: 0, precioKwhP4: 0, precioKwhP5: 0, precioKwhP6: 0,
+        precioKwDiaP1: 0, precioKwDiaP2: 0, precioKwDiaP3: 0, precioKwDiaP4: 0, precioKwDiaP5: 0, precioKwDiaP6: 0,
+      }
+      // El manual gana cuando tiene valor
+      const overrideIfSet = (key: string, manualKey: string) => {
+        const v = Number(manual[manualKey])
+        if (v > 0) (luz as any)[key] = v
+      }
+      overrideIfSet('precioKwhP1', 'precio_kwh_p1'); overrideIfSet('precioKwhP2', 'precio_kwh_p2')
+      overrideIfSet('precioKwhP3', 'precio_kwh_p3'); overrideIfSet('precioKwhP4', 'precio_kwh_p4')
+      overrideIfSet('precioKwhP5', 'precio_kwh_p5'); overrideIfSet('precioKwhP6', 'precio_kwh_p6')
+      overrideIfSet('precioKwDiaP1', 'precio_kw_dia_p1'); overrideIfSet('precioKwDiaP2', 'precio_kw_dia_p2')
+      overrideIfSet('precioKwDiaP3', 'precio_kw_dia_p3'); overrideIfSet('precioKwDiaP4', 'precio_kw_dia_p4')
+      overrideIfSet('precioKwDiaP5', 'precio_kw_dia_p5'); overrideIfSet('precioKwDiaP6', 'precio_kw_dia_p6')
+      inferred.set(supplyId, { supplyId, type: 'luz', luz, samples: inf?.samples || 0, confidence: 'high' })
+    }
+  }
 
   // Diagnóstico
   const sourceCounts: Record<string, number> = {}
