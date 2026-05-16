@@ -44,12 +44,6 @@ export interface ChatRequest {
 export interface ChatResponse {
   conversationId: string
   text: string
-  emailPreview?: {
-    to: string
-    subject: string
-    body: string
-    clienteId?: string | null
-  } | null
   toolsUsed: string[]
   totalTokens: number
   totalCostUsd: number
@@ -218,7 +212,6 @@ export async function runChat(req: ChatRequest): Promise<ChatResponse> {
   let totalCostUsd = 0
   let totalLatencyMs = 0
   let modelUsed = ''
-  let emailPreview: ChatResponse['emailPreview'] = null
   let assistantText = ''
 
   for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
@@ -265,18 +258,6 @@ export async function runChat(req: ChatRequest): Promise<ChatResponse> {
       llmRes.toolCalls.map(async tc => {
         const result = await executeTool(tc.name, tc.args)
         toolsUsed.push(tc.name)
-
-        // Caso especial: gmail_preview_correo no se reinyecta como contexto
-        // adicional — el front (Telegram) lo presenta como preview con botones.
-        if (tc.name === 'gmail_preview_correo' && result.ok) {
-          emailPreview = {
-            to: result.result.to,
-            subject: result.result.subject,
-            body: result.result.body,
-            clienteId: result.result.cliente_id,
-          }
-        }
-
         await logMessage(conv.id, {
           role: 'tool',
           toolName: tc.name,
@@ -302,7 +283,6 @@ export async function runChat(req: ChatRequest): Promise<ChatResponse> {
   return {
     conversationId: conv.id,
     text: assistantText,
-    emailPreview,
     toolsUsed,
     totalTokens,
     totalCostUsd,

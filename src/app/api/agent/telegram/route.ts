@@ -1,21 +1,21 @@
 /**
  * Webhook del bot Telegram del Agente IA Comercial.
  *
- * Diferente del bot de facturas existente (/api/telegram). Este SOLO atiende
- * a comerciales autorizados (whitelist en agent_authorized_users) y orquesta
- * el agente comercial.
+ * v2 (mayo 2026): puro asistente de consulta. El bot NO envía correos.
+ * Solo responde dudas de comerciales con estilo Alfonso & Christian:
+ * técnicas de venta, redacción de correos cortos, manejo de objeciones,
+ * preparación de reuniones, etc.
  *
  * Flujo:
  *  1) Verifica X-Telegram-Bot-Api-Secret-Token contra TELEGRAM_AGENT_WEBHOOK_SECRET.
- *  2) Si llega `callback_query` (botón inline) → procesa acción (enviar/editar/cancelar correo).
- *  3) Si llega `message` con voz → descarga audio → transcribe → llama a /chat.
- *  4) Si llega `message` con texto → llama a /chat.
- *  5) Responde al usuario por Telegram. Si hay emailPreview → muestra preview con botones.
+ *  2) Si llega `message` con voz → descarga audio → transcribe → llama a /chat.
+ *  3) Si llega `message` con texto → llama a /chat.
+ *  4) Responde al usuario por Telegram con la respuesta del agente.
  *
  * Para configurar:
- *   1) Crear segundo bot en BotFather → guardar token en TELEGRAM_AGENT_BOT_TOKEN.
+ *   1) Crear bot en BotFather → guardar token en TELEGRAM_AGENT_BOT_TOKEN.
  *   2) Generar secret aleatorio → TELEGRAM_AGENT_WEBHOOK_SECRET.
- *   3) POST a /api/agent/telegram/setup (creado aparte) para registrar webhook.
+ *   3) GET /api/agent/telegram/setup para registrar webhook.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -60,20 +60,6 @@ async function sendMessage(chatId: number, text: string, replyMarkup?: any) {
 
 async function sendChatAction(chatId: number, action = 'typing') {
   return tg('sendChatAction', { chat_id: chatId, action })
-}
-
-async function answerCallback(callbackQueryId: string, text?: string) {
-  return tg('answerCallbackQuery', { callback_query_id: callbackQueryId, text })
-}
-
-async function editMessage(chatId: number, messageId: number, text: string, replyMarkup?: any) {
-  return tg('editMessageText', {
-    chat_id: chatId,
-    message_id: messageId,
-    text,
-    parse_mode: 'HTML',
-    reply_markup: replyMarkup,
-  })
 }
 
 async function downloadVoice(fileId: string): Promise<Buffer> {
@@ -144,107 +130,6 @@ async function callAgent(payload: {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// CALLBACK HANDLERS — botones inline del preview de email
-// ───────────────────────────────────────────────────────────────────────────
-
-interface PendingEmailRow {
-  id: string
-  to_email: string
-  subject: string
-  body: string
-  cliente_id: string | null
-  conversation_id: string
-  telegram_user_id: number
-}
-
-async function loadPendingEmail(conversationId: string): Promise<PendingEmailRow | null> {
-  // Buscamos el último tool_result de gmail_preview_correo en esa conversación
-  const sb = admin()
-  const { data } = await sb
-    .from('agent_messages')
-    .select('id, tool_result, conversation_id')
-    .eq('conversation_id', conversationId)
-    .eq('role', 'tool')
-    .eq('tool_name', 'gmail_preview_correo')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-  if (!data || !data.tool_result?.ok) return null
-  const r = data.tool_result.result || data.tool_result
-  return {
-    id: data.id,
-    to_email: r.to,
-    subject: r.subject,
-    body: r.body,
-    cliente_id: r.cliente_id,
-    conversation_id: data.conversation_id,
-    telegram_user_id: 0,
-  }
-}
-
-async function handleCallback(cb: any) {
-  const data: string = cb.data || ''
-  const chatId = cb.message?.chat?.id
-  const messageId = cb.message?.message_id
-  const userId = cb.from?.id
-  if (!chatId || !userId) return
-
-  const [action, conversationId] = data.split(':')
-
-  if (action === 'email_send') {
-    await answerCallback(cb.id, 'Enviando…')
-    try {
-      const pending = await loadPendingEmail(conversationId)
-      if (!pending) {
-        await editMessage(chatId, messageId, '⚠️ No hay borrador pendiente.')
-        return
-      }
-      const baseUrl =
-        process.env.AGENT_API_BASE_URL ||
-        `https://${process.env.VERCEL_URL || 'voltis-crm-bueno.vercel.app'}`
-      const sendRes = await fetch(`${baseUrl}/api/agent/gmail/send`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(process.env.AGENT_INTERNAL_TOKEN ? { 'x-internal-token': process.env.AGENT_INTERNAL_TOKEN } : {}),
-        },
-        body: JSON.stringify({
-          telegramUserId: userId,
-          to: pending.to_email,
-          subject: pending.subject,
-          body: pending.body,
-          clienteId: pending.cliente_id,
-          conversationId,
-        }),
-      })
-      if (sendRes.ok) {
-        await editMessage(chatId, messageId, `✅ Correo enviado a <code>${pending.to_email}</code>`)
-      } else {
-        const err = await sendRes.text()
-        await editMessage(chatId, messageId, `❌ Error al enviar:\n<code>${err.slice(0, 300)}</code>\n\nVerifica que has conectado Gmail con /conectar_gmail`)
-      }
-    } catch (e: any) {
-      await editMessage(chatId, messageId, `❌ Error: ${e?.message || 'desconocido'}`)
-    }
-    return
-  }
-
-  if (action === 'email_cancel') {
-    await answerCallback(cb.id, 'Cancelado')
-    await editMessage(chatId, messageId, '🚫 Borrador descartado.')
-    return
-  }
-
-  if (action === 'email_edit') {
-    await answerCallback(cb.id, 'Vale, dime los cambios')
-    await sendMessage(chatId, 'Dime qué cambios hacer al borrador y te lo reescribo.')
-    return
-  }
-
-  await answerCallback(cb.id)
-}
-
-// ───────────────────────────────────────────────────────────────────────────
 // MESSAGE HANDLER
 // ───────────────────────────────────────────────────────────────────────────
 
@@ -265,17 +150,9 @@ async function handleMessage(msg: any) {
 
   // Comandos básicos
   const text: string = msg.text || ''
-  if (text.startsWith('/start')) {
+  if (text.startsWith('/start') || text.startsWith('/help') || text.startsWith('/ayuda')) {
     await sendMessage(chatId,
-      `Hola ${commercialName} 👋\n\nSoy tu asistente comercial. Pregúntame cualquier cosa sobre venta consultiva, redacta correos a clientes, o pide preparación de reunión.\n\n<b>Ejemplos:</b>\n• <i>Tengo un CFO que dice que somos caros, ¿cómo respondo?</i>\n• <i>Redacta un correo a juan@empresa.com para hacer follow-up</i>\n• <i>Prepárame la reunión de mañana con Unice Toys</i>\n\nTambién puedes mandarme notas de voz.`)
-    return
-  }
-  if (text.startsWith('/conectar_gmail')) {
-    const baseUrl =
-      process.env.AGENT_API_BASE_URL ||
-      `https://${process.env.VERCEL_URL || 'voltis-crm-bueno.vercel.app'}`
-    await sendMessage(chatId,
-      `Para conectar tu Gmail, abre este enlace:\n${baseUrl}/api/agent/gmail/connect?u=${userId}\n\nAutoriza el acceso y vuelve aquí.`)
+      `Hola ${commercialName}. Soy tu asistente comercial entrenado en la metodología de Alfonso &amp; Christian aplicada a Voltis.\n\nPregúntame cualquier cosa sobre venta consultiva, manejo de objeciones, redacción de correos, preparación de reuniones. Te respondo con técnicas concretas.\n\n<b>Ejemplos:</b>\n• <i>Tengo un CFO que dice que somos caros, ¿cómo respondo?</i>\n• <i>Redáctame un correo corto a Antonio del ayuntamiento para retomar la propuesta</i>\n• <i>Prepárame la reunión de mañana con Unice Toys</i>\n• <i>¿Cómo abro una llamada en frío?</i>\n\nTambién puedes mandarme notas de voz.\n\n<i>Los correos que te dé son borradores cortos para que copies y envíes tú desde tu Gmail. Yo no envío nada.</i>`)
     return
   }
   if (text.startsWith('/whoami') || text.startsWith('/id')) {
@@ -317,22 +194,6 @@ async function handleMessage(msg: any) {
       transcript,
     })
 
-    // Si hay preview de email → mostrarlo con botones inline
-    if (result.emailPreview) {
-      const p = result.emailPreview
-      const preview = `📧 <b>Borrador de correo</b>\n\n<b>Para:</b> <code>${p.to}</code>\n<b>Asunto:</b> ${p.subject}\n\n<b>Cuerpo:</b>\n${p.body.slice(0, 2500)}`
-      await sendMessage(chatId, preview, {
-        inline_keyboard: [
-          [
-            { text: '✅ Enviar', callback_data: `email_send:${result.conversationId}` },
-            { text: '✏️ Editar', callback_data: `email_edit:${result.conversationId}` },
-            { text: '🚫 Cancelar', callback_data: `email_cancel:${result.conversationId}` },
-          ],
-        ],
-      })
-      return
-    }
-
     // Respuesta normal
     const reply = result.text || '…'
     // Telegram limita a 4096 chars
@@ -367,9 +228,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    if (update.callback_query) {
-      await handleCallback(update.callback_query)
-    } else if (update.message) {
+    if (update.message) {
       await handleMessage(update.message)
     }
   } catch (e: any) {

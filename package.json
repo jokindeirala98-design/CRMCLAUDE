@@ -10,6 +10,8 @@
     "postinstall": "node scripts/patch-exceljs.js",
     "agent:ingest-voltis": "node --env-file=.env.local scripts/agent/ingest-markdown.mjs voltis_kb content/agent-kb/voltis-kb.md",
     "agent:ingest-tarjetas": "node --env-file=.env.local scripts/agent/ingest-markdown.mjs voltis_tarjetas_tecnicas content/agent-kb/tarjetas-tecnicas.md",
+    "agent:ingest-aandc": "node --env-file=.env.local scripts/agent/ingest-markdown.mjs a&c_youtube content/agent-kb/alfonso-y-christian.md",
+    "agent:ingest-all": "npm run agent:ingest-voltis && npm run agent:ingest-tarjetas && npm run agent:ingest-aandc",
     "agent:ingest-youtube": "node --env-file=.env.local scripts/agent/ingest-youtube.mjs"
   },
   "dependencies": {

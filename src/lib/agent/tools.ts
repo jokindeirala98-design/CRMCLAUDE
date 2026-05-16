@@ -89,21 +89,6 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       required: ['client_id'],
     },
   },
-  {
-    name: 'gmail_preview_correo',
-    description:
-      'Prepara un borrador de correo para enviar desde Gmail del comercial. NO envía nada; solo devuelve el borrador para que el comercial lo revise y confirme. El envío real lo hace el flujo de Telegram con un botón explícito [Enviar].',
-    parameters: {
-      type: 'object',
-      properties: {
-        to: { type: 'string', description: 'Email del destinatario' },
-        subject: { type: 'string', description: 'Asunto del correo, breve y específico' },
-        body: { type: 'string', description: 'Cuerpo del correo en HTML simple o texto plano con saltos de línea' },
-        cliente_id: { type: 'string', description: 'UUID del cliente referido (opcional, para registro en CRM)' },
-      },
-      required: ['to', 'subject', 'body'],
-    },
-  },
 ]
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -245,22 +230,6 @@ export async function executeTool(
               fuente: inv.source,
             })),
             resumen: `${supplies.length} suministros · ${invoices.length} facturas recientes`,
-          },
-        }
-      }
-
-      case 'gmail_preview_correo': {
-        // El preview NO envía. Devuelve el borrador para que el endpoint
-        // de Telegram lo muestre con botones [Enviar] [Editar] [Cancelar].
-        return {
-          ok: true,
-          result: {
-            preview: true,
-            to: args.to,
-            subject: args.subject,
-            body: args.body,
-            cliente_id: args.cliente_id || null,
-            mensaje: 'Borrador listo. Muestra el preview al comercial y espera confirmación explícita antes de enviar.',
           },
         }
       }
