@@ -40,7 +40,8 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
   auth: { persistSession: false },
 })
 
-const EMBED_MODEL = 'text-embedding-004'
+const EMBED_MODEL = 'gemini-embedding-001'
+const EMBED_DIMS = 768
 const EMBED_API = `https://generativelanguage.googleapis.com/v1beta/models/${EMBED_MODEL}:embedContent?key=${GEMINI_API_KEY}`
 const BATCH_API = `https://generativelanguage.googleapis.com/v1beta/models/${EMBED_MODEL}:batchEmbedContents?key=${GEMINI_API_KEY}`
 
@@ -59,6 +60,7 @@ async function embedBatch(texts) {
       model: `models/${EMBED_MODEL}`,
       content: { parts: [{ text }] },
       taskType: 'RETRIEVAL_DOCUMENT',
+      outputDimensionality: EMBED_DIMS,
     })),
   }
   const res = await fetch(BATCH_API, {

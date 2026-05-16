@@ -10,7 +10,8 @@
  *  - SEMANTIC_SIMILARITY  → comparar dos textos sin asimetría
  */
 
-const MODEL = 'text-embedding-004'
+const MODEL = 'gemini-embedding-001'
+const OUTPUT_DIMS = 768  // Reducido de los 3072 nativos para mantener compatibilidad con vector(768) en pgvector
 const API = 'https://generativelanguage.googleapis.com/v1beta'
 
 export type EmbeddingTaskType =
@@ -38,6 +39,7 @@ export async function embedText(
   const body: any = {
     content: { parts: [{ text }] },
     taskType,
+    outputDimensionality: OUTPUT_DIMS,
   }
   if (title && taskType === 'RETRIEVAL_DOCUMENT') body.title = title
 
@@ -52,8 +54,8 @@ export async function embedText(
   }
   const data = await res.json()
   const vec = data?.embedding?.values
-  if (!Array.isArray(vec) || vec.length !== 768) {
-    throw new Error(`Embedding inválido (length=${vec?.length})`)
+  if (!Array.isArray(vec) || vec.length !== OUTPUT_DIMS) {
+    throw new Error(`Embedding inválido (length=${vec?.length}, esperado=${OUTPUT_DIMS})`)
   }
   return vec
 }
@@ -84,6 +86,7 @@ export async function embedBatch(
       model: `models/${MODEL}`,
       content: { parts: [{ text }] },
       taskType,
+      outputDimensionality: OUTPUT_DIMS,
     })),
   }
 
