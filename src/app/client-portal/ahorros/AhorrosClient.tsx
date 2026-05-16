@@ -1,40 +1,51 @@
 'use client'
 
 /**
- * Portal v2 — Ahorros (comparación directa Voltis vs comercializadora anterior).
+ * Portal v2 — Ahorros, calcado del PDF "Ahorro luz/gas 1er Trimestre" Unice.
  *
- * Para cada mes en el que existe factura Voltis, comparamos contra la
- * factura del MISMO mes del año anterior (cuando existe). UX estilo
- * AnualEconomics: lista de meses con checkbox, total acumulado se
- * recalcula al vuelo.
+ * Estructura:
+ *  1) Hero con título + mascota + tabs Luz/Gas
+ *  2) Pregunta destacada + título "Estimación: precios Voltis × consumo año anterior"
+ *  3) 4 KPIs principales
+ *  4) Descomposición del ahorro total (barra apilada)
+ *  5) Tabla "Precios Voltis aplicados"
+ *  6) Tabla "Estimación mes a mes"
+ *  7) Gráfico "Comparativa mes a mes" (3 barras por mes)
+ *  8) Para gas: tabla "Comparativa de los 4 escenarios" + atribución
+ *  9) Metodología
  */
 import { useEffect, useMemo, useState } from 'react'
 import Image from 'next/image'
-import { AlertCircle, TrendingDown, Zap, Flame, CheckSquare, Square, MinusSquare } from 'lucide-react'
+import { AlertCircle, TrendingDown, Zap, Flame, Info } from 'lucide-react'
 
-interface MatchPrior {
-  id: string; total: number; consumoKwh: number
-  periodStart: string | null; periodEnd: string | null; sourceLabel: string
-}
-interface MonthlyMatch {
+interface MonthlyEntry {
   month: string; monthLabel: string; year: number; monthIdx: number
-  supplyId: string
-  supplyName: string | null
-  supplyCups: string | null
+  supplyId: string; supplyName: string | null; supplyCups: string | null
   supplyType: 'luz' | 'gas'
-  voltis: { id: string; total: number; consumoKwh: number; periodStart: string | null; periodEnd: string | null }
-  prior?: MatchPrior
-  ahorro?: number
+  s0_priorReal?: number; s1_voltisFiscalAnt?: number
+  s2_voltisFiscalAct?: number; s3_voltisReal?: number
+  consumoPriorKwh?: number
+  ahorroCambioTarifa?: number; ahorroCambioNormativo?: number
+  ahorroMenorConsumo?: number; ahorroTotal?: number
   noPriorReason?: string
+}
+interface ScenarioBlock {
+  type: 'luz' | 'gas'
+  supplyId: string; supplyName: string | null; supplyCups: string | null
+  contract: any
+  totals: {
+    s0: number; s1: number; s2: number; s3: number
+    ahorroCambioTarifa: number; ahorroCambioNormativo: number
+    ahorroMenorConsumo: number; ahorroTotal: number; ahorroTotalPct: number
+    mesesComparables: number
+  }
+  months: MonthlyEntry[]
 }
 interface SavingsResponse {
   empty: boolean
   reason?: string
-  matches?: MonthlyMatch[]
-  totals?: {
-    totalVoltis: number; totalPrior: number; ahorroTotal: number; ahorroPct: number
-    mesesComparables: number; mesesSinComparar: number
-  }
+  clientName?: string | null
+  blocks?: ScenarioBlock[]
 }
 
 const fmt = (n: number, d = 2): string =>
@@ -44,8 +55,7 @@ const fmtEur = (n: number) => `${fmt(n, 2)} €`
 export function AhorrosClient() {
   const [data, setData] = useState<SavingsResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [selectedMonths, setSelectedMonths] = useState<Set<string>>(new Set())
-  const [typeFilter, setTypeFilter] = useState<'all' | 'luz' | 'gas'>('all')
+  const [activeBlockId, setActiveBlockId] = useState<string | null>(null)
 
   useEffect(() => {
     fetch('/api/portal/v2/savings', { credentials: 'same-origin' })
@@ -55,35 +65,10 @@ export function AhorrosClient() {
       })
       .then((d: SavingsResponse) => {
         setData(d)
-        // Por defecto, seleccionamos TODOS los meses con comparativa
-        if (d.matches) {
-          const init = new Set<string>()
-          for (const m of d.matches) if (m.ahorro !== undefined) init.add(matchKey(m))
-          setSelectedMonths(init)
-        }
+        if (d.blocks && d.blocks.length > 0) setActiveBlockId(d.blocks[0].supplyId)
       })
       .catch(e => setError(e.message))
   }, [])
-
-  const filteredMatches = useMemo(() => {
-    if (!data?.matches) return []
-    if (typeFilter === 'all') return data.matches
-    return data.matches.filter(m => m.supplyType === typeFilter)
-  }, [data, typeFilter])
-
-  const totals = useMemo(() => {
-    let voltis = 0, prior = 0, count = 0
-    for (const m of filteredMatches) {
-      if (m.ahorro === undefined) continue
-      if (!selectedMonths.has(matchKey(m))) continue
-      voltis += m.voltis.total
-      prior += m.prior?.total || 0
-      count++
-    }
-    const ahorro = prior - voltis
-    const pct = prior > 0 ? (ahorro / prior) * 100 : 0
-    return { voltis, prior, ahorro, pct, count }
-  }, [filteredMatches, selectedMonths])
 
   if (error) {
     return (
@@ -97,7 +82,6 @@ export function AhorrosClient() {
     )
   }
   if (!data) return <Skeleton />
-
   if (data.empty) {
     return (
       <div className="voltis-glass max-w-2xl p-8 md:p-10 relative overflow-hidden">
@@ -108,10 +92,8 @@ export function AhorrosClient() {
             <Image src="/mascota-transparente.png" alt="Voltis" width={64} height={64} />
           </div>
           <div>
-            <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#B9D1FF] mb-1">Ahorro acumulado</div>
-            <h1 className="text-2xl md:text-3xl font-semibold text-white" style={{ letterSpacing: '-0.02em' }}>
-              Aún sin facturas Voltis
-            </h1>
+            <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#B9D1FF] mb-1">Ahorros</div>
+            <h1 className="text-2xl md:text-3xl font-semibold text-white">Aún sin facturas Voltis</h1>
           </div>
         </div>
         <p className="relative text-sm text-white/80 leading-relaxed">{data.reason}</p>
@@ -119,241 +101,462 @@ export function AhorrosClient() {
     )
   }
 
-  const matches = filteredMatches
-  const matchesByType = {
-    luz: matches.filter(m => m.supplyType === 'luz').length,
-    gas: matches.filter(m => m.supplyType === 'gas').length,
-  }
-  const totalsApi = data.totals!
+  const blocks = data.blocks || []
+  const activeBlock = blocks.find(b => b.supplyId === activeBlockId) || blocks[0]
 
   return (
     <div className="space-y-7">
       {/* Hero */}
-      <header className="grid grid-cols-1 md:grid-cols-[auto_1fr] gap-6 items-center">
-        <div className="relative w-24 h-24">
-          <Image src="/mascota-transparente.png" alt="Voltis" width={96} height={96} priority />
-        </div>
+      <header className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-6 items-center">
         <div className="min-w-0">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-medium uppercase tracking-[0.18em] text-white voltis-glass-soft mb-3">
-            <TrendingDown className="w-3 h-3 text-[#7fffb9]" />
-            Ahorro acumulado · en vivo
-          </div>
-          <h1 className="text-[28px] md:text-[36px] font-semibold leading-[1.06] text-white" style={{ letterSpacing: '-0.02em' }}>
-            Tu ahorro con Voltis, mes a mes
+          <h1 className="text-[28px] md:text-[36px] font-semibold leading-[1.06] text-white"
+            style={{ letterSpacing: '-0.02em' }}>
+            Tu ahorro energético, en datos
           </h1>
           <p className="mt-2 text-sm text-white/75 max-w-2xl">
-            Comparamos cada factura Voltis con la del mismo mes del año anterior.
-            Selecciona los meses para ver el ahorro acumulado del periodo.
+            Comparativa de los meses con Voltis frente a tu antigua comercializadora.
+            Sin promesas, solo facturas.
           </p>
+        </div>
+        <div className="relative w-24 h-24 justify-self-end">
+          <Image src="/mascota-transparente.png" alt="Voltis" width={96} height={96} priority />
         </div>
       </header>
 
-      {/* Selector tipo + KPIs */}
-      <section className="flex flex-wrap items-center gap-2">
-        <span className="text-[10px] font-bold tracking-[0.18em] text-white/65 uppercase mr-2">Tipo</span>
-        <Chip active={typeFilter === 'all'} onClick={() => setTypeFilter('all')}>Todos</Chip>
-        {matchesByType.luz > 0 && (
-          <Chip active={typeFilter === 'luz'} onClick={() => setTypeFilter('luz')}>
-            <Zap className="w-3 h-3 inline mr-1" /> Luz ({matchesByType.luz})
-          </Chip>
-        )}
-        {matchesByType.gas > 0 && (
-          <Chip active={typeFilter === 'gas'} onClick={() => setTypeFilter('gas')}>
-            <Flame className="w-3 h-3 inline mr-1" /> Gas ({matchesByType.gas})
-          </Chip>
-        )}
-      </section>
+      {/* Tabs por supply */}
+      <nav className="flex flex-wrap items-center gap-2 border-b border-white/10 pb-2">
+        {blocks.map(b => (
+          <TabBtn key={b.supplyId} active={b.supplyId === activeBlockId} onClick={() => setActiveBlockId(b.supplyId)}>
+            {b.type === 'gas' ? <Flame className="w-3.5 h-3.5" /> : <Zap className="w-3.5 h-3.5" />}
+            Ahorro {b.type}
+            {b.supplyName && <span className="text-white/55 ml-1">· {b.supplyName}</span>}
+          </TabBtn>
+        ))}
+      </nav>
 
-      {/* KPIs del periodo seleccionado */}
-      <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Kpi label="Ahorro acumulado" value={fmtEur(totals.ahorro)} sub={`${totals.pct.toFixed(2)} % vs comerc. anterior`} positive accent />
-        <Kpi label="Pagaste antes" value={fmtEur(totals.prior)} sub={`${totals.count} meses comparables`} />
-        <Kpi label="Pagaste con Voltis" value={fmtEur(totals.voltis)} sub="totales del periodo" />
-      </section>
+      {activeBlock && <BlockView block={activeBlock} />}
+    </div>
+  )
+}
 
-      {/* Lista de meses con checkbox */}
-      <div className="voltis-glass p-5">
-        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-          <div>
-            <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#B9D1FF]">Meses con factura Voltis</div>
-            <h3 className="text-base font-bold text-white">
-              {totalsApi.mesesComparables} comparables ·{' '}
-              {totalsApi.mesesSinComparar > 0 && <span className="text-white/55">{totalsApi.mesesSinComparar} sin comparar</span>}
-            </h3>
-          </div>
-          <SelectAllToggle matches={matches} selected={selectedMonths} setSelected={setSelectedMonths} />
-        </div>
+// ── Bloque por supply ───────────────────────────────────────────────────
 
-        <div className="space-y-1.5">
-          {matches.map(m => {
-            const key = matchKey(m)
-            const selected = selectedMonths.has(key)
-            const comparable = m.ahorro !== undefined
-            return (
-              <button key={key + m.supplyId} disabled={!comparable}
-                onClick={() => toggle(selectedMonths, key, setSelectedMonths)}
-                className={`w-full flex items-center gap-3 p-3 rounded-xl text-left transition
-                  ${comparable ? 'hover:bg-white/8 cursor-pointer' : 'opacity-50 cursor-not-allowed'}
-                  ${selected ? 'voltis-glass-soft' : ''}`}>
-                {comparable
-                  ? (selected
-                      ? <CheckSquare className="w-4 h-4 text-[#7fffb9] shrink-0" />
-                      : <Square className="w-4 h-4 text-white/40 shrink-0" />)
-                  : <Square className="w-4 h-4 text-white/20 shrink-0" />}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                    {m.monthLabel}
-                    <span className={`text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded
-                      ${m.supplyType === 'gas' ? 'bg-orange-300/20 text-orange-200' : 'bg-yellow-300/20 text-yellow-200'}`}>
-                      {m.supplyType}
-                    </span>
-                  </div>
-                  <div className="text-[10px] text-white/55 num truncate">
-                    {m.supplyName || m.supplyCups}
-                  </div>
-                </div>
-                <div className="text-right text-xs num">
-                  {comparable && m.prior ? (
-                    <>
-                      <div className="text-white/60 line-through">{fmtEur(m.prior.total)}</div>
-                      <div className="text-white font-bold">{fmtEur(m.voltis.total)}</div>
-                    </>
-                  ) : (
-                    <div className="text-white font-bold">{fmtEur(m.voltis.total)}</div>
-                  )}
-                </div>
-                <div className="text-right ml-3 min-w-[80px]">
-                  {comparable ? (
-                    <>
-                      <div className={`text-sm font-bold num ${m.ahorro! >= 0 ? 'text-[#7fffb9]' : 'text-red-300'}`}>
-                        {m.ahorro! >= 0 ? '−' : '+'}{fmt(Math.abs(m.ahorro!), 2)} €
-                      </div>
-                      <div className="text-[9px] uppercase tracking-wider text-white/45">ahorro</div>
-                    </>
-                  ) : (
-                    <div className="text-[10px] text-white/45 italic">{m.noPriorReason}</div>
-                  )}
-                </div>
-              </button>
-            )
-          })}
-        </div>
+function BlockView({ block }: { block: ScenarioBlock }) {
+  const { totals, months, contract, type } = block
+  const ahorroCambioPct = totals.s0 > 0 ? (totals.ahorroCambioTarifa / totals.s0) * 100 : 0
+  const restoConsumo = totals.s2 - totals.s3
+
+  return (
+    <div className="space-y-7">
+      {/* Pregunta destacada */}
+      <div>
+        <p className="text-[11px] uppercase tracking-[0.16em] text-[#B9D1FF] font-bold mb-1">
+          ¿Cuánto habría pagado con Voltis si hubiera consumido lo mismo que el año pasado?
+        </p>
+        <h2 className="text-xl md:text-2xl font-bold text-white">
+          Estimación: precios Voltis × consumo año anterior
+        </h2>
       </div>
 
-      {/* Tabla resumen */}
-      <div className="voltis-glass p-5">
-        <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#B9D1FF] mb-3">
-          Resumen del periodo seleccionado
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-[10px] uppercase tracking-wider text-[#B9D1FF]">
-                <th className="text-left py-2">Mes</th>
-                <th className="text-left py-2">Suministro</th>
-                <th className="text-right py-2">Antes</th>
-                <th className="text-right py-2">Voltis</th>
-                <th className="text-right py-2">Ahorro</th>
-              </tr>
-            </thead>
-            <tbody>
-              {matches
-                .filter(m => selectedMonths.has(matchKey(m)) && m.ahorro !== undefined)
-                .map(m => (
-                  <tr key={matchKey(m) + m.supplyId} className="border-t border-white/10 text-white">
-                    <td className="py-2">{m.monthLabel}</td>
-                    <td className="py-2 text-white/75 truncate max-w-[200px]">{m.supplyName || m.supplyCups}</td>
-                    <td className="py-2 text-right num">{fmtEur(m.prior!.total)}</td>
-                    <td className="py-2 text-right num">{fmtEur(m.voltis.total)}</td>
-                    <td className={`py-2 text-right num font-bold ${m.ahorro! >= 0 ? 'text-[#7fffb9]' : 'text-red-300'}`}>
-                      {fmtEur(m.ahorro!)}
-                    </td>
-                  </tr>
-                ))}
-              <tr className="border-t-2 border-white/30">
-                <td className="py-3 font-bold text-white" colSpan={2}>Total ({totals.count} meses)</td>
-                <td className="py-3 text-right font-bold num text-white">{fmtEur(totals.prior)}</td>
-                <td className="py-3 text-right font-bold num text-white">{fmtEur(totals.voltis)}</td>
-                <td className={`py-3 text-right font-bold num ${totals.ahorro >= 0 ? 'text-[#7fffb9]' : 'text-red-300'}`}>
-                  {fmtEur(totals.ahorro)}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {/* 4 KPIs */}
+      <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Kpi
+          label="Pagó antes (real)"
+          value={fmtEur(totals.s0)}
+          sub="consumo real año anterior"
+        />
+        <Kpi
+          label="Habría pagado con Voltis"
+          value={fmtEur(totals.s2)}
+          sub="mismo consumo, precios Voltis"
+          accent="primary"
+        />
+        <Kpi
+          label="Ahorro solo por cambio"
+          value={fmtEur(totals.ahorroCambioTarifa)}
+          sub={`−${ahorroCambioPct.toFixed(2)} % solo por la tarifa`}
+          accent="positive"
+        />
+        <Kpi
+          label="Ahorro por menor consumo"
+          value={fmtEur(restoConsumo)}
+          sub={`resto hasta los ${fmtEur(totals.s3)} reales`}
+          accent="positive"
+        />
+      </section>
+
+      {/* Descomposición */}
+      <Descomposicion totals={totals} />
+
+      {/* Precios Voltis aplicados */}
+      {type === 'luz' && contract ? <PreciosLuzTable contract={contract} /> : null}
+      {type === 'gas' && contract ? <PreciosGasTable contract={contract} block={block} /> : null}
+
+      {/* Tabla mes a mes */}
+      <EstimacionMensual months={months} type={type} />
+
+      {/* Gráfico comparativa */}
+      <ComparativaMensualChart months={months} />
+
+      {/* 4 escenarios (gas según PDF Unice) */}
+      {type === 'gas' && <CuatroEscenarios totals={totals} />}
 
       {/* Metodología */}
-      <details className="voltis-glass-soft p-4 text-sm text-white/85">
-        <summary className="cursor-pointer font-semibold text-white">Cómo calculamos el ahorro</summary>
+      <details open className="voltis-glass p-5 text-sm text-white/85">
+        <summary className="cursor-pointer font-semibold text-white">Metodología</summary>
         <ul className="mt-3 space-y-1.5">
-          <li>• Para cada factura Voltis, buscamos la factura del <strong className="text-white">mismo mes del año anterior</strong> con tu comercializadora anterior.</li>
-          <li>• El ahorro es la diferencia directa entre los dos importes reales — sin estimaciones ni simulaciones.</li>
-          <li>• Los meses sin factura del año anterior aparecen como "sin comparar" y no se incluyen en el total.</li>
-          <li>• Al añadir nuevas facturas Voltis en el CRM, este panel se actualiza automáticamente.</li>
+          {type === 'luz' ? <>
+            <li>• <strong className="text-white">Energía</strong>: consumo por periodo × precio Voltis por periodo (peaje + P. Fijo).</li>
+            <li>• <strong className="text-white">Potencia y peajes de potencia</strong>: idénticos a las facturas reales Voltis (no dependen del consumo).</li>
+            <li>• <strong className="text-white">Excesos de potencia</strong>: los reales aplicados por Voltis en sus facturas (estimación conservadora).</li>
+            <li>• <strong className="text-white">Impuesto eléctrico</strong>: tipo vigente cada mes según RDL (cambio normativo).</li>
+            <li>• <strong className="text-white">Bono social, alquiler de equipos e IVA</strong>: igual que las facturas reales.</li>
+          </> : <>
+            <li>• <strong className="text-white">Término variable energía</strong>: consumo × precio Voltis €/kWh (TV Precio Fijo).</li>
+            <li>• <strong className="text-white">Peaje de acceso</strong>: consumo × peaje Voltis €/kWh.</li>
+            <li>• <strong className="text-white">Término fijo diario</strong>: días × tarifa fija Voltis €/día (incluye peaje, GTS, CNMC, corrector).</li>
+            <li>• <strong className="text-white">IEH</strong>: €/GJ según RDL vigente; <strong className="text-white">IVA</strong>: 21 % o 10 % según fecha.</li>
+            <li>• <strong className="text-white">Alquiler de equipos</strong>: igual que las facturas reales.</li>
+          </>}
+          <li>• <strong className="text-white">Validación cruzada</strong>: aplicando la fórmula al consumo real Voltis se reproducen las facturas con ±0,02 €.</li>
         </ul>
       </details>
     </div>
   )
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────
+// ── Sub-componentes ──────────────────────────────────────────────────────
 
-function matchKey(m: MonthlyMatch): string {
-  return `${m.supplyId}:${m.month}`
-}
-
-function toggle(set: Set<string>, key: string, setSet: (s: Set<string>) => void) {
-  const next = new Set(set)
-  if (next.has(key)) next.delete(key); else next.add(key)
-  setSet(next)
-}
-
-function SelectAllToggle({ matches, selected, setSelected }: {
-  matches: MonthlyMatch[]; selected: Set<string>; setSelected: (s: Set<string>) => void
-}) {
-  const comparables = matches.filter(m => m.ahorro !== undefined)
-  const allSelected = comparables.every(m => selected.has(matchKey(m)))
-  const noneSelected = comparables.every(m => !selected.has(matchKey(m)))
-  return (
-    <button
-      onClick={() => {
-        if (allSelected) setSelected(new Set())
-        else {
-          const next = new Set<string>()
-          for (const m of comparables) next.add(matchKey(m))
-          setSelected(next)
-        }
-      }}
-      className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs voltis-glass-soft text-white/85 hover:text-white">
-      {allSelected
-        ? <CheckSquare className="w-3.5 h-3.5 text-[#7fffb9]" />
-        : noneSelected
-          ? <Square className="w-3.5 h-3.5 text-white/50" />
-          : <MinusSquare className="w-3.5 h-3.5 text-white/65" />}
-      {allSelected ? 'Quitar todos' : 'Seleccionar todos'}
-    </button>
-  )
-}
-
-function Chip({ active, onClick, children }: any) {
+function TabBtn({ active, onClick, children }: any) {
   return (
     <button onClick={onClick}
-      className={`px-3 py-1.5 rounded-full text-xs font-semibold transition
-        ${active ? 'bg-white text-[#0A2061] shadow-md' : 'bg-white/20 text-white hover:bg-white/30'}`}>
+      className={`flex items-center gap-2 px-3 py-2 text-sm font-semibold transition border-b-2
+        ${active ? 'text-white border-white' : 'text-white/65 border-transparent hover:text-white'}`}>
       {children}
     </button>
   )
 }
 
-function Kpi({ label, value, sub, positive = false, accent = false }: any) {
+function Kpi({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: 'primary' | 'positive' }) {
+  const style = accent === 'positive' ? {
+    boxShadow: 'inset 0 0 0 1px rgba(127,255,185,0.45), inset 0 1px 0 rgba(255,255,255,0.30), 0 18px 40px -18px rgba(10,20,60,0.55)',
+  } : accent === 'primary' ? {
+    boxShadow: 'inset 0 0 0 1px rgba(218,180,90,0.45), inset 0 1px 0 rgba(255,255,255,0.30), 0 18px 40px -18px rgba(10,20,60,0.55)',
+  } : undefined
+
+  const valueColor = accent === 'positive' ? 'text-[#7fffb9]'
+                   : accent === 'primary' ? 'text-white'
+                   : 'text-white'
+
   return (
-    <div className="voltis-glass p-5 relative overflow-hidden" style={accent ? {
-      boxShadow: 'inset 0 0 0 1px rgba(127,255,185,0.45), inset 0 1px 0 rgba(255,255,255,0.30), 0 18px 40px -18px rgba(10,20,60,0.55)',
-    } : undefined}>
-      <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#B9D1FF] mb-3">{label}</div>
-      <div className={`text-2xl md:text-3xl font-bold num leading-none ${positive ? 'text-[#7fffb9]' : 'text-white'}`}>{value}</div>
-      {sub && <div className="text-[11px] mt-2 text-white/70">{sub}</div>}
+    <div className="voltis-glass p-5 relative overflow-hidden" style={style}>
+      <div className="absolute inset-x-0 top-0 h-2/5 pointer-events-none"
+        style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.10), transparent)' }} />
+      <div className="relative text-[10px] font-bold tracking-[0.18em] uppercase text-[#B9D1FF] mb-3">{label}</div>
+      <div className={`relative text-2xl md:text-3xl font-bold num leading-none ${valueColor}`}>{value}</div>
+      {sub && <div className="relative text-[11px] mt-2 text-white/70">{sub}</div>}
+    </div>
+  )
+}
+
+function Descomposicion({ totals }: { totals: ScenarioBlock['totals'] }) {
+  const consumoExtra = totals.s2 - totals.s3
+  const pctTarifa = totals.ahorroTotal !== 0 ? (totals.ahorroCambioTarifa / totals.ahorroTotal) * 100 : 0
+  const pctConsumo = totals.ahorroTotal !== 0 ? (consumoExtra / totals.ahorroTotal) * 100 : 0
+  return (
+    <div className="voltis-glass p-5">
+      <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
+        <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#B9D1FF]">
+          Descomposición del ahorro total ({fmtEur(totals.ahorroTotal)})
+        </div>
+        <div className="text-xs text-white/65">Tarifa {pctTarifa.toFixed(1)} % · Consumo {pctConsumo.toFixed(1)} %</div>
+      </div>
+      <p className="text-xs text-white/70 mb-3">
+        Cuánto se ahorra <strong className="text-white">solo por haber cambiado de comercializadora</strong>{' '}
+        y cuánto por haber consumido menos.
+      </p>
+      <div className="h-7 rounded-lg overflow-hidden flex">
+        {pctTarifa > 0 && (
+          <div style={{ width: `${pctTarifa}%`, background: '#4A6FE3' }}
+            className="flex items-center justify-center text-[10px] font-bold text-white">
+            {pctTarifa > 14 ? `Por cambio de tarifa (${pctTarifa.toFixed(1)} %)` : ''}
+          </div>
+        )}
+        {pctConsumo > 0 && (
+          <div style={{ width: `${pctConsumo}%`, background: '#7fb3ff' }}
+            className="flex items-center justify-center text-[10px] font-bold text-white">
+            {pctConsumo > 14 ? `Por menor consumo (${pctConsumo.toFixed(1)} %)` : ''}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function PreciosLuzTable({ contract }: { contract: any }) {
+  const periodos = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'] as const
+  const filas = periodos
+    .map(p => ({
+      p,
+      total: Number(contract[`precioKwh${p}`]) || 0,
+      kw: Number(contract[`precioKwDia${p}`]) || 0,
+    }))
+    .filter(f => f.total > 0)
+
+  return (
+    <div className="voltis-glass p-5">
+      <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#B9D1FF] mb-2">
+        Precios Voltis aplicados (€/kWh por periodo)
+      </div>
+      <p className="text-xs text-white/70 mb-3">
+        Precio final por kWh combinado (peaje + precio fijo), inferido automáticamente
+        de tus facturas Voltis.
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-[10px] uppercase tracking-wider text-[#B9D1FF]">
+              <th className="text-left py-2">Periodo</th>
+              <th className="text-right py-2">Precio energía €/kWh</th>
+              <th className="text-right py-2">Precio potencia €/kW día</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filas.map(f => (
+              <tr key={f.p} className="border-t border-white/10 text-white">
+                <td className="py-2 font-semibold">{f.p}</td>
+                <td className="py-2 text-right num font-bold">{fmt(f.total, 6)}</td>
+                <td className="py-2 text-right num">{f.kw > 0 ? fmt(f.kw, 6) : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function PreciosGasTable({ contract, block }: { contract: any; block: ScenarioBlock }) {
+  const tvEnergia = Number(contract.precioKwhGas) || 0
+  const peaje = Number(contract.peajeKwhGas) || 0
+  const fijoDia = Number(contract.terminoFijoDiarioGas) || 0
+  const precioTotal = tvEnergia + peaje
+
+  return (
+    <div className="voltis-glass p-5">
+      <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#B9D1FF] mb-2">
+        Precios Voltis aplicados al gas
+      </div>
+      <p className="text-xs text-white/70 mb-3">
+        Constantes durante todo el periodo analizado. La energía es plana, sin franjas
+        horarias. El término fijo diario incluye los cargos regulados (peaje, GTS, CNMC, corrector).
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-[10px] uppercase tracking-wider text-[#B9D1FF]">
+              <th className="text-left py-2">Concepto</th>
+              <th className="text-left py-2">Unidad</th>
+              <th className="text-right py-2">Precio Voltis</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="border-t border-white/10 text-white">
+              <td className="py-2"><div className="font-semibold">Término variable energía</div>
+                <div className="text-[10px] text-white/55">TV Precio Fijo</div></td>
+              <td className="py-2 text-white/75">€/kWh</td>
+              <td className="py-2 text-right num font-bold">{fmt(tvEnergia, 6)}</td>
+            </tr>
+            <tr className="border-t border-white/10 text-white">
+              <td className="py-2"><div className="font-semibold">Peaje de acceso</div>
+                <div className="text-[10px] text-white/55">TV Red Local</div></td>
+              <td className="py-2 text-white/75">€/kWh</td>
+              <td className="py-2 text-right num">{fmt(peaje, 6)}</td>
+            </tr>
+            <tr className="border-t border-white/10 text-white">
+              <td className="py-2"><div className="font-semibold">Término fijo diario</div>
+                <div className="text-[10px] text-white/55">suma de los 4 cargos fijos</div></td>
+              <td className="py-2 text-white/75">€/día</td>
+              <td className="py-2 text-right num">{fmt(fijoDia, 4)}</td>
+            </tr>
+            <tr className="border-t border-white/20 text-[#7fffb9]">
+              <td className="py-2 font-bold">Precio total energético (TV)</td>
+              <td className="py-2">€/kWh</td>
+              <td className="py-2 text-right num font-bold">{fmt(precioTotal, 6)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function EstimacionMensual({ months, type }: { months: MonthlyEntry[]; type: 'luz' | 'gas' }) {
+  const filas = months.filter(m => m.s2_voltisFiscalAct !== undefined)
+  if (filas.length === 0) return null
+  return (
+    <div className="voltis-glass p-5">
+      <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#B9D1FF] mb-3">
+        Estimación mes a mes (consumo año anterior × precios Voltis)
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-[10px] uppercase tracking-wider text-[#B9D1FF]">
+              <th className="text-left py-2">Mes</th>
+              <th className="text-right py-2">kWh consumo</th>
+              <th className="text-right py-2">Total factura est.</th>
+              <th className="text-right py-2">Pagó real (antes)</th>
+              <th className="text-right py-2">Pagó Voltis (real)</th>
+              <th className="text-right py-2">Ahorro tarifa</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filas.map(m => (
+              <tr key={m.month} className="border-t border-white/10 text-white">
+                <td className="py-2">{m.monthLabel}</td>
+                <td className="py-2 text-right num">{fmt(m.consumoPriorKwh || 0, 0)}</td>
+                <td className="py-2 text-right num">{fmtEur(m.s2_voltisFiscalAct!)}</td>
+                <td className="py-2 text-right num">{m.s0_priorReal !== undefined ? fmtEur(m.s0_priorReal) : '—'}</td>
+                <td className="py-2 text-right num">{m.s3_voltisReal !== undefined ? fmtEur(m.s3_voltisReal) : '—'}</td>
+                <td className={`py-2 text-right num font-bold ${(m.ahorroCambioTarifa || 0) >= 0 ? 'text-[#7fffb9]' : 'text-red-300'}`}>
+                  {m.ahorroCambioTarifa !== undefined ? fmtEur(m.ahorroCambioTarifa) : '—'}
+                </td>
+              </tr>
+            ))}
+            <tr className="border-t-2 border-white/30 text-white">
+              <td className="py-3 font-bold">Total</td>
+              <td className="py-3 text-right font-bold num">{fmt(filas.reduce((a, m) => a + (m.consumoPriorKwh || 0), 0), 0)}</td>
+              <td className="py-3 text-right font-bold num">{fmtEur(filas.reduce((a, m) => a + (m.s2_voltisFiscalAct || 0), 0))}</td>
+              <td className="py-3 text-right font-bold num">{fmtEur(filas.reduce((a, m) => a + (m.s0_priorReal || 0), 0))}</td>
+              <td className="py-3 text-right font-bold num">{fmtEur(filas.reduce((a, m) => a + (m.s3_voltisReal || 0), 0))}</td>
+              <td className={`py-3 text-right font-bold num ${filas.reduce((a, m) => a + (m.ahorroCambioTarifa || 0), 0) >= 0 ? 'text-[#7fffb9]' : 'text-red-300'}`}>
+                {fmtEur(filas.reduce((a, m) => a + (m.ahorroCambioTarifa || 0), 0))}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function ComparativaMensualChart({ months }: { months: MonthlyEntry[] }) {
+  const filas = months.filter(m => m.s0_priorReal !== undefined || m.s3_voltisReal !== undefined)
+  if (filas.length === 0) return null
+  const max = Math.max(...filas.flatMap(m => [m.s0_priorReal || 0, m.s2_voltisFiscalAct || 0, m.s3_voltisReal || 0]), 1)
+  const w = 900, h = 280, padL = 56, padR = 16, padT = 24, padB = 50
+  const innerW = w - padL - padR, innerH = h - padT - padB
+  const groupW = innerW / filas.length
+  const barW = (groupW / 4) * 0.95
+
+  return (
+    <div className="voltis-glass p-5">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#B9D1FF]">
+          Comparativa mes a mes (€)
+        </div>
+        <div className="flex gap-3 text-[11px]">
+          <Legend color="#B9D1FF" label="Pagó antes (real)" />
+          <Legend color="#7fb3ff" label="Habría pagado con Voltis" />
+          <Legend color="#1F47B5" label="Pagó con Voltis (real)" />
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-auto" preserveAspectRatio="xMidYMid meet">
+          {[0, 0.25, 0.5, 0.75, 1].map((p, i) => {
+            const y = padT + innerH * (1 - p)
+            return (
+              <g key={i}>
+                <line x1={padL} y1={y} x2={w - padR} y2={y} stroke="rgba(255,255,255,0.10)" strokeDasharray="3 4" />
+                <text x={padL - 6} y={y + 3} fontSize="9" fill="rgba(185,209,255,0.7)" textAnchor="end">
+                  {fmt(max * p, 0)} €
+                </text>
+              </g>
+            )
+          })}
+          {filas.map((m, i) => {
+            const x0 = padL + groupW * i + (groupW - barW * 3) / 2
+            const values = [
+              { v: m.s0_priorReal || 0, c: '#B9D1FF' },
+              { v: m.s2_voltisFiscalAct || 0, c: '#7fb3ff' },
+              { v: m.s3_voltisReal || 0, c: '#1F47B5' },
+            ]
+            return (
+              <g key={m.month}>
+                {values.map((vv, k) => {
+                  const hBar = (vv.v / max) * innerH
+                  const y = padT + innerH - hBar
+                  return <rect key={k} x={x0 + barW * k} y={y} width={barW * 0.92} height={hBar} fill={vv.c} rx={1.5} />
+                })}
+                <text x={x0 + barW * 1.5} y={padT + innerH + 14} fontSize="10" fill="rgba(255,255,255,0.75)" textAnchor="middle">
+                  {m.monthLabel}
+                </text>
+              </g>
+            )
+          })}
+        </svg>
+      </div>
+    </div>
+  )
+}
+
+function Legend({ color, label }: { color: string; label: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="w-3 h-3 rounded-sm" style={{ background: color }} />
+      <span className="text-white/75">{label}</span>
+    </div>
+  )
+}
+
+function CuatroEscenarios({ totals }: { totals: ScenarioBlock['totals'] }) {
+  return (
+    <div className="voltis-glass p-5">
+      <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#B9D1FF] mb-2">
+        Comparativa de los 4 escenarios (€)
+      </div>
+      <p className="text-xs text-white/70 mb-4">
+        Análisis detallado. La diferencia entre barras consecutivas explica de dónde viene
+        cada parte del ahorro: cambio de tarifa (S0→S1), cambio normativo (S1→S2) y menor consumo (S2→S3).
+      </p>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+        <ScenarioCard num={0} label="Pagó real anterior" value={fmtEur(totals.s0)} variant="default" />
+        <ScenarioCard num={1} label="Mismo consumo, precios Voltis, fisc. anterior" value={fmtEur(totals.s1)} variant="default" />
+        <ScenarioCard num={2} label="Mismo consumo, precios Voltis, fisc. actual" value={fmtEur(totals.s2)} variant="default" />
+        <ScenarioCard num={3} label="Pagó real Voltis" value={fmtEur(totals.s3)} variant="accent" />
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <Attribution label="Por cambio de tarifa" value={totals.ahorroCambioTarifa} hint="atribuible a Voltis" />
+        <Attribution label="Por cambio normativo" value={totals.ahorroCambioNormativo} hint="atribuible al regulador" />
+        <Attribution label="Por menor consumo" value={totals.ahorroMenorConsumo} hint="atribuible al cliente" />
+      </div>
+    </div>
+  )
+}
+
+function ScenarioCard({ num, label, value, variant }: { num: number; label: string; value: string; variant: 'default' | 'accent' }) {
+  const style = variant === 'accent' ? {
+    boxShadow: 'inset 0 0 0 1px rgba(31,71,181,0.65), inset 0 1px 0 rgba(255,255,255,0.30)',
+  } : undefined
+  return (
+    <div className="voltis-glass-soft p-4 relative" style={style}>
+      <div className="flex items-baseline gap-2 mb-1">
+        <span className="text-[14px] font-bold text-[#B9D1FF] num">S{num}</span>
+        <div className="text-[9px] font-bold tracking-wider uppercase text-[#B9D1FF] leading-tight">{label}</div>
+      </div>
+      <div className="text-base font-bold num text-white mt-2">{value}</div>
+    </div>
+  )
+}
+
+function Attribution({ label, value, hint }: { label: string; value: number; hint: string }) {
+  const positive = value >= 0
+  return (
+    <div className="voltis-glass-soft p-4">
+      <div className="text-[10px] font-bold tracking-wider uppercase text-[#B9D1FF] mb-1">{label}</div>
+      <div className={`text-lg font-bold num ${positive ? 'text-[#7fffb9]' : 'text-red-300'}`}>{fmtEur(value)}</div>
+      <div className="text-[10px] text-white/55 mt-1">{hint}</div>
     </div>
   )
 }
@@ -362,10 +565,11 @@ function Skeleton() {
   return (
     <div className="space-y-6">
       <div className="h-20 voltis-glass animate-pulse" />
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {[0, 1, 2].map(i => <div key={i} className="h-28 voltis-glass animate-pulse" />)}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[0, 1, 2, 3].map(i => <div key={i} className="h-28 voltis-glass animate-pulse" />)}
       </div>
-      <div className="h-72 voltis-glass animate-pulse" />
+      <div className="h-40 voltis-glass animate-pulse" />
+      <div className="h-64 voltis-glass animate-pulse" />
     </div>
   )
 }
