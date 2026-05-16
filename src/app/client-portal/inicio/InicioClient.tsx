@@ -112,6 +112,9 @@ export function InicioClient({ email, displayName }: { email: string; displayNam
       mode: engineMode,
       from, to,
       typeFilter,
+      // En el portal cliente sumamos TODO: facturas pre-Voltis +
+      // facturas Voltis. Es lo que el cliente realmente paga/ha pagado.
+      includeSources: 'all',
     })
   }, [raw, mode, yearSelected, typeFilter])
 

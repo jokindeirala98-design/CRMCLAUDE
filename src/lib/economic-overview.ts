@@ -62,6 +62,12 @@ export interface OverviewInputs {
   from?: string
   to?: string
   typeFilter?: 'luz' | 'gas' | 'all'
+  /** Qué orígenes de factura incluir en el estudio. Por defecto sólo
+   *  'historica' (compatibilidad con CRM, donde las Voltis se muestran
+   *  en otro lado). En el portal cliente v2 pasamos `'all'` para que
+   *  el estudio económico contemple TODO lo que el cliente paga
+   *  (pre-Voltis + Voltis combinados). */
+  includeSources?: 'historica' | 'voltis' | 'all'
 }
 
 // ── Estructuras de salida ──────────────────────────────────────────────────
@@ -278,9 +284,15 @@ function dedupPorMes(invs: OverviewInvoiceLite[]): OverviewInvoiceLite[] {
 function selectInvoicesByMode(
   invoices: OverviewInvoiceLite[],
   mode: OverviewMode,
-  opts: { from?: string; to?: string },
+  opts: { from?: string; to?: string; includeSources?: 'historica' | 'voltis' | 'all' },
 ): Map<string, OverviewInvoiceLite[]> {
-  const hist = invoices.filter(i => (i.source || 'historica') === 'historica')
+  const include = opts.includeSources || 'historica'
+  const hist = invoices.filter(i => {
+    const src = (i.source || 'historica').toLowerCase()
+    if (include === 'all') return true
+    if (include === 'historica') return src === 'historica'
+    return src === 'voltis'
+  })
 
   const bySupply = new Map<string, OverviewInvoiceLite[]>()
   for (const inv of hist) {
@@ -439,7 +451,10 @@ export function computarOverview(inputs: OverviewInputs): OverviewResult {
     ? supplies
     : supplies.filter(s => s.type === typeFilter)
 
-  const invsBySupply = selectInvoicesByMode(invoices, mode, { from: inputs.from, to: inputs.to })
+  const invsBySupply = selectInvoicesByMode(invoices, mode, {
+    from: inputs.from, to: inputs.to,
+    includeSources: inputs.includeSources,
+  })
 
   // Agregar cada supply (incluso si no tiene facturas)
   const ranking: SupplyAggregate[] = []
