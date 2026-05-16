@@ -18,8 +18,16 @@ export const metadata: Metadata = {
 
 export default function ClientPortalLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="voltis-portal-v2 voltis-portal-bg min-h-screen text-white">
+    <div className="voltis-portal-v2 min-h-screen text-white relative">
+      {/* Fondo cobalto FIJO — independiente del body del CRM. Es un div
+          en lugar de ::before para garantizar que tapa cualquier bg que
+          tenga el <body> raíz del proyecto. */}
+      <div aria-hidden className="voltis-portal-bg-fixed" />
+
       <style>{`
+        /* ── Override del body raíz del CRM solo en este scope ───────── */
+        :has(.voltis-portal-v2) body { background: transparent !important; }
+
         /* ── Tipografías ─────────────────────────────────────────────── */
         .voltis-portal-v2, .voltis-portal-v2 * {
           font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Inter', system-ui, sans-serif;
@@ -30,18 +38,22 @@ export default function ClientPortalLayout({ children }: { children: React.React
         }
 
         /* ── Fondo cobalto FIJO (parallax estilo Apple) ─────────────── */
-        .voltis-portal-bg { position: relative; isolation: isolate; }
-        .voltis-portal-bg::before {
-          content: '';
+        .voltis-portal-bg-fixed {
           position: fixed;
           inset: 0;
-          z-index: -1;
+          z-index: 0;
+          pointer-events: none;
           background:
             radial-gradient(60% 45% at 12% 8%, rgba(120,160,255,0.22), transparent 65%),
             radial-gradient(50% 40% at 88% 4%, rgba(160,200,255,0.18), transparent 70%),
             radial-gradient(70% 60% at 8% 92%, rgba(70,110,220,0.20), transparent 65%),
             radial-gradient(55% 45% at 92% 88%, rgba(50,90,180,0.18), transparent 70%),
             linear-gradient(180deg, #0A2061 0%, #0B1E55 50%, #0A1A48 100%);
+        }
+        /* Todo el contenido del portal vive por encima del fondo */
+        .voltis-portal-v2 > *:not(.voltis-portal-bg-fixed) {
+          position: relative;
+          z-index: 1;
         }
 
         /* ── Card glass cobalto reutilizable ─────────────────────────── */
