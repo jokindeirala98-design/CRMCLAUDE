@@ -195,6 +195,21 @@ export async function GET(req: NextRequest) {
 
   const report = buildForecast(year, clientName, historical, realCurrent, luzContract, gasContract, potenciaMaxKw)
 
+  // Diagnóstico: desglose trimestral + cuántos meses con histórico SIPS
+  const historicalMonths = historical.filter(h => (h.consumoLuz && sumPeriodos(h.consumoLuz) > 0) || (h.consumoGas && h.consumoGas > 0)).length
+  console.log('[portal:forecast] client=' + clientId,
+    'year=' + year,
+    'historical_months_with_data=' + historicalMonths + '/12',
+    'real_voltis_months=' + realCurrent.length,
+    'total_year=' + report.totalAnoPrevisto.toFixed(2),
+    'luz_year=' + report.totalLuzAno.toFixed(2),
+    'gas_year=' + report.totalGasAno.toFixed(2),
+    'Q1=' + (report.quarters[0]?.totalTrimestre.toFixed(2) || '0'),
+    'Q2=' + (report.quarters[1]?.totalTrimestre.toFixed(2) || '0'),
+    'Q3=' + (report.quarters[2]?.totalTrimestre.toFixed(2) || '0'),
+    'Q4=' + (report.quarters[3]?.totalTrimestre.toFixed(2) || '0'),
+    'gas_scale=' + gasScale)
+
   // Fiscalidad aplicable al año (subset de FISCAL_PERIODS dentro del año)
   const fiscalAplicable = FISCAL_PERIODS.filter(fp => {
     return fp.from.slice(0, 4) === String(year) || fp.to.slice(0, 4) === String(year)
