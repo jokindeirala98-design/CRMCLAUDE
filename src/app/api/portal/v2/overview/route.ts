@@ -175,6 +175,8 @@ export async function GET(req: NextRequest) {
     },
   })
 
-  res.headers.set('Cache-Control', 'private, max-age=60, stale-while-revalidate=300')
+  // Mientras estabilizamos, no cachear. Subiremos a SWR cuando todo
+  // funcione.
+  res.headers.set('Cache-Control', 'private, no-store')
   return res
 }

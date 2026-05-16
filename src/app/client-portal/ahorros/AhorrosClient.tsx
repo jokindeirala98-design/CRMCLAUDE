@@ -58,7 +58,7 @@ export function AhorrosClient() {
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null)
 
   useEffect(() => {
-    fetch('/api/portal/v2/savings', { credentials: 'same-origin' })
+    fetch('/api/portal/v2/savings', { credentials: 'same-origin', cache: 'no-store' })
       .then(async r => {
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Error')
         return r.json()

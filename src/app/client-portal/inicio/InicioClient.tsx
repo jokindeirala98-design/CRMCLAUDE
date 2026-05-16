@@ -68,10 +68,11 @@ export function InicioClient({ email, displayName }: { email: string; displayNam
   const [yearSelected, setYearSelected] = useState<number | null>(null)
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
 
-  // Fetch de datos
+  // Fetch de datos — cache: 'no-store' para no servir un cuerpo cacheado
+  // de algún intento previo que falló (típicamente el 401 inicial).
   useEffect(() => {
     let cancel = false
-    fetch('/api/portal/v2/overview', { credentials: 'same-origin' })
+    fetch('/api/portal/v2/overview', { credentials: 'same-origin', cache: 'no-store' })
       .then(async r => {
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Error de carga')
         return r.json()

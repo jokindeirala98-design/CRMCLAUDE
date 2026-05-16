@@ -58,7 +58,7 @@ export function PrevisionClient() {
   const [year, setYear] = useState(new Date().getUTCFullYear())
 
   useEffect(() => {
-    fetch(`/api/portal/v2/forecast?year=${year}`, { credentials: 'same-origin' })
+    fetch(`/api/portal/v2/forecast?year=${year}`, { credentials: 'same-origin', cache: 'no-store' })
       .then(async r => {
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Error')
         return r.json()

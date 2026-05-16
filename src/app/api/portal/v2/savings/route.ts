@@ -254,7 +254,7 @@ export async function GET(req: NextRequest) {
     clientName: clientRes.data?.name || null,
     blocks,
   })
-  res.headers.set('Cache-Control', 'private, max-age=60, stale-while-revalidate=300')
+  res.headers.set('Cache-Control', 'private, no-store')
   return res
 }
 
