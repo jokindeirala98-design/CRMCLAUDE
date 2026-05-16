@@ -82,9 +82,7 @@ export async function GET(req: NextRequest) {
   }
   const supplies = suppliesRes.data || []
 
-  // Diagnóstico para Vercel logs: cuántos supplies + facturas estamos
-  // sirviendo al cliente. Si está vacío sabemos que el problema es la
-  // query, no la UI.
+  // Diagnóstico para Vercel logs.
   let totalInvoices = 0
   for (const s of supplies as any[]) {
     if (Array.isArray(s.invoices)) totalInvoices += s.invoices.length
@@ -92,9 +90,36 @@ export async function GET(req: NextRequest) {
   console.log('[portal:overview] client=' + clientId,
     'name=' + (clientRes.data.name || '?'),
     'supplies=' + supplies.length,
-    'invoices=' + totalInvoices)
+    'invoices_via_join=' + totalInvoices)
   if (suppliesRes.error) {
     console.error('[portal:overview] suppliesRes error:', suppliesRes.error.message)
+  }
+
+  // Fallback: si el join nested no devolvió invoices, las cargamos por
+  // separado con una segunda query. Sucede si la FK invoices.supply_id
+  // no está declarada explícitamente en el schema de Supabase y el
+  // resolver de PostgREST no la encuentra.
+  if (totalInvoices === 0 && supplies.length > 0) {
+    const supplyIds = supplies.map((s: any) => s.id)
+    const fallback = await sb
+      .from('invoices')
+      .select('id, supply_id, source, period_start, period_end, total_amount, extracted_data')
+      .in('supply_id', supplyIds)
+    if (fallback.error) {
+      console.error('[portal:overview] fallback invoices error:', fallback.error.message)
+    } else {
+      const byId = new Map<string, any[]>()
+      for (const inv of (fallback.data || [])) {
+        const arr = byId.get(inv.supply_id) || []
+        arr.push(inv)
+        byId.set(inv.supply_id, arr)
+      }
+      for (const s of supplies as any[]) {
+        s.invoices = byId.get(s.id) || []
+      }
+      totalInvoices = fallback.data?.length || 0
+      console.log('[portal:overview] fallback invoices loaded =', totalInvoices)
+    }
   }
 
   const flatSupplies = supplies.map((s: any) => {
