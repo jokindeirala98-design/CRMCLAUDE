@@ -95,9 +95,12 @@ export async function getPortalOverview(
   if (errC || !client) return null
 
   // Cargar todos los supplies del cliente
+  // Incluimos consumption_data para poder usar el consumo SIPS real cuando
+  // el número de facturas subidas no cubre el año completo (caso típico:
+  // cliente con solo 1-2 facturas pero suministro con consumo histórico anual).
   const { data: supplies } = await sb
     .from('supplies')
-    .select('id, cups, tariff, type, name')
+    .select('id, cups, tariff, type, name, consumption_data')
     .eq('client_id', clientId)
 
   const sup = supplies ?? []
@@ -137,13 +140,20 @@ export async function getPortalOverview(
     const supInvs = invs.filter(i => i.supply_id === s.id && i.period_end &&
       new Date(i.period_end).getFullYear() === filterYear)
     let coste = 0
-    let kwh = 0
+    let kwhFacturas = 0
     for (const inv of supInvs) {
       const total = Number(inv.total_amount) || Number((inv.extracted_data || {})?.economics?.totalFactura) || 0
       coste += total
       const eco = (inv.extracted_data || {})?.economics
-      if (eco?.consumoTotalKwh) kwh += Number(eco.consumoTotalKwh) || 0
+      if (eco?.consumoTotalKwh) kwhFacturas += Number(eco.consumoTotalKwh) || 0
     }
+
+    // Fallback al consumo anual del SIPS cuando las facturas no cubren todo el año.
+    // El SIPS (`consumption_data.totalKwh`) refleja el consumo anual real del
+    // suministro y es lo que el cliente espera ver en el Excel global. Si el
+    // cliente solo ha subido 1-2 facturas, esa suma sería engañosa y muy baja.
+    const sipsAnnualKwh = Number((s as any).consumption_data?.totalKwh) || 0
+    const consumoAnualKwh = sipsAnnualKwh > kwhFacturas ? sipsAnnualKwh : kwhFacturas
 
     rows.push({
       id: s.id,
@@ -151,7 +161,7 @@ export async function getPortalOverview(
       tariff: s.tariff,
       type: s.type,
       name: s.name,
-      consumoAnualKwh: Math.round(kwh),
+      consumoAnualKwh: Math.round(consumoAnualKwh),
       costeAnualEur: Math.round(coste * 100) / 100,
       nFacturas: supInvs.length,
       iconCategory: isGas ? 'gas' : 'luz',
