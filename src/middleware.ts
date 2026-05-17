@@ -97,33 +97,36 @@ export async function middleware(request: NextRequest) {
   // ═══════════════════════════════════════════════════════════════════
   // PETICIONES AL SUBDOMINIO DEL PORTAL CLIENTE
   // ═══════════════════════════════════════════════════════════════════
+  //
+  // Lista BLANCA: en el host del portal, SOLO se sirven las rutas
+  // del portal y los assets públicos. Cualquier otra ruta del CRM
+  // (incluyendo /login, /auth, /set-password, /panel, /clients, etc.)
+  // devuelve 404. Esto es más seguro que mantener una lista negra,
+  // porque ninguna ruta nueva del CRM puede filtrarse por accidente.
+  //
   if (isPortal) {
-    // 1) Bloqueo absoluto: rutas del CRM no existen en este host.
-    if (CRM_ONLY_PREFIXES.some(p => pathname === p || pathname.startsWith(p + '/'))) {
-      return new NextResponse('Not Found', { status: 404 })
-    }
-
-    // 2) Raíz del portal → /client-portal/inicio (o /client-portal/login)
+    // 1) Raíz del portal → /client-portal/inicio
     if (pathname === '/' || pathname === '') {
       const url = request.nextUrl.clone()
       url.pathname = '/client-portal/inicio'
       return NextResponse.redirect(url)
     }
 
-    // 3) Compatibilidad: el portal v1 antiguo (/portal/[token]) sigue
-    //    sirviendo magic links existentes mientras migramos clientes.
-    if (pathname.startsWith('/portal/')) {
+    // 2) Rutas explícitamente permitidas en el host del portal.
+    const PORTAL_ALLOWED = [
+      '/client-portal',         // páginas del portal v2
+      '/api/portal',            // endpoints v1 y v2 del portal
+      '/portal/',               // magic links del portal v1 antiguo (compatibilidad)
+    ]
+    const isAllowed = PORTAL_ALLOWED.some(
+      p => pathname === p || pathname.startsWith(p === '/portal/' ? p : p + '/') || pathname === p.replace(/\/$/, ''),
+    )
+    if (isAllowed) {
       return NextResponse.next()
     }
 
-    // 4) /api/portal/* (v1) sigue accesible para compatibilidad.
-    //    /api/portal/v2/* es la nueva superficie.
-    if (pathname.startsWith('/api/portal')) {
-      return NextResponse.next()
-    }
-
-    // 5) Cualquier otra ruta dentro del host del portal: continúa.
-    return NextResponse.next()
+    // 3) Cualquier otra ruta en el host del portal → 404.
+    return new NextResponse('Not Found', { status: 404 })
   }
 
   // ═══════════════════════════════════════════════════════════════════
