@@ -119,15 +119,23 @@ export async function getPortalOverview(
     }
   }
 
-  // Determinar años disponibles
+  // Determinar años disponibles (para la UI del portal: selector de año)
   const yearsSet = new Set<number>()
   for (const inv of invs) {
     if (!inv.period_end) continue
     try { yearsSet.add(new Date(inv.period_end).getFullYear()) } catch {}
   }
   const years = [...yearsSet].sort((a, b) => b - a)
-  const defaultYear = years[0] ?? new Date().getFullYear()
-  const filterYear = options.year ?? defaultYear
+
+  // Filtro de año:
+  //  - si el caller pasa `options.year` explícitamente → filtramos por ese año
+  //  - si NO pasa year → mostramos TODAS las facturas (sin filtro)
+  //
+  // Antes el comportamiento era coger el año más reciente por defecto, pero
+  // eso ocultaba todas las facturas históricas cuando el cliente solo tenía
+  // 1-2 facturas del año en curso (ej. Vegoplas: 17 facturas en CRM pero el
+  // portal solo veía las 2 de 2026, ignorando las 14 de 2025).
+  const filterYear: number | null = options.year ?? null
   const filterType = options.type ?? 'all'
 
   // Agregar por supply
@@ -137,8 +145,11 @@ export async function getPortalOverview(
     if (filterType === 'luz' && isGas) continue
     if (filterType === 'gas' && !isGas) continue
 
-    const supInvs = invs.filter(i => i.supply_id === s.id && i.period_end &&
-      new Date(i.period_end).getFullYear() === filterYear)
+    // Si filterYear === null, no filtramos por año (todas las facturas del supply).
+    const supInvs = invs.filter(i =>
+      i.supply_id === s.id && i.period_end &&
+      (filterYear === null || new Date(i.period_end).getFullYear() === filterYear),
+    )
     let coste = 0
     let kwhFacturas = 0
     for (const inv of supInvs) {
@@ -148,12 +159,27 @@ export async function getPortalOverview(
       if (eco?.consumoTotalKwh) kwhFacturas += Number(eco.consumoTotalKwh) || 0
     }
 
-    // Fallback al consumo anual del SIPS cuando las facturas no cubren todo el año.
-    // El SIPS (`consumption_data.totalKwh`) refleja el consumo anual real del
-    // suministro y es lo que el cliente espera ver en el Excel global. Si el
-    // cliente solo ha subido 1-2 facturas, esa suma sería engañosa y muy baja.
+    // Para el consumo anual de referencia (no de la suma directa):
+    //  - usamos los últimos 12 meses cuando hay datos suficientes
+    //  - cuando hay menos, caemos al SIPS (consumption_data.totalKwh)
+    const now = new Date()
+    const oneYearAgo = new Date(now.getFullYear(), now.getMonth() - 12, 1)
+    const last12Invs = invs.filter(i =>
+      i.supply_id === s.id && i.period_end &&
+      new Date(i.period_end) >= oneYearAgo,
+    )
+    let kwhLast12 = 0
+    for (const inv of last12Invs) {
+      const eco = (inv.extracted_data || {})?.economics
+      if (eco?.consumoTotalKwh) kwhLast12 += Number(eco.consumoTotalKwh) || 0
+    }
     const sipsAnnualKwh = Number((s as any).consumption_data?.totalKwh) || 0
-    const consumoAnualKwh = sipsAnnualKwh > kwhFacturas ? sipsAnnualKwh : kwhFacturas
+    // Preferimos SIPS si es mayor (el SIPS refleja consumo anual oficial de
+    // la distribuidora). Si no hay SIPS, usamos últimos 12 meses; si tampoco,
+    // la suma de las facturas que entren en el filtro.
+    const consumoAnualKwh = sipsAnnualKwh > 0
+      ? sipsAnnualKwh
+      : (kwhLast12 > 0 ? kwhLast12 : kwhFacturas)
 
     rows.push({
       id: s.id,
@@ -183,6 +209,7 @@ export async function getPortalOverview(
 
   rows.sort((a, b) => b.costeAnualEur - a.costeAnualEur)
 
+  const defaultYear = years[0] ?? new Date().getFullYear()
   return {
     client: { id: client.id, name: client.name, alias: client.alias },
     years,
@@ -194,7 +221,7 @@ export async function getPortalOverview(
     totalKwhAnual: rows.reduce((a, r) => a + r.consumoAnualKwh, 0),
     byTariff,
     supplies: rows,
-    meta: { year: filterYear, type: filterType },
+    meta: { year: filterYear ?? defaultYear, type: filterType },
   }
 }
 
