@@ -367,7 +367,14 @@ export function PowerStudy({
   const [study, setStudy] = useState<PowerStudyResult | null>(existingStudy ?? null)
   const [loading, setLoading] = useState(false)
   const [loadSource, setLoadSource] = useState<string>('') // what's loading
-  const [error, setError] = useState<string | null>(null)
+  type ErrorSource = 'lidera' | 'sips_file' | 'pdf' | 'excel'
+  const [error, setError] = useState<{ source: ErrorSource; message: string } | null>(null)
+  const ERROR_TITLES: Record<ErrorSource, string> = {
+    lidera: 'Error cargando datos de Lidera',
+    sips_file: 'Error al procesar el archivo SIPS',
+    pdf: 'Error generando PDF',
+    excel: 'Error generando Excel',
+  }
   const [exporting, setExporting] = useState<'pdf' | 'excel' | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -419,7 +426,7 @@ export function PowerStudy({
       setStudy(studyData)
       onStudyGenerated?.(studyData)
     } catch (e: any) {
-      setError(e.message || 'Error cargando datos de Lidera')
+      setError({ source: 'lidera', message: e.message || 'Error cargando datos de Lidera' })
     } finally {
       setLoading(false)
       setLoadSource('')
@@ -449,7 +456,7 @@ export function PowerStudy({
       setStudy(data)
       onStudyGenerated?.(data)
     } catch (e: any) {
-      setError(e.message || 'Error al procesar el archivo SIPS')
+      setError({ source: 'sips_file', message: e.message || 'Error al procesar el archivo SIPS' })
     } finally {
       setLoading(false)
       setLoadSource('')
@@ -497,12 +504,20 @@ export function PowerStudy({
         body: JSON.stringify({ ...study, charts: { consumption: consumptionPng, maximetro: maximetroPng } }),
       })
       if (!res.ok) throw new Error('Error generando PDF')
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const win = window.open(url, '_blank')
-      if (win) win.focus()
+      // El endpoint devuelve HTML print-ready con @page A4 landscape y
+      // un window.onload → window.print() embebido. Lo escribimos en una
+      // pestaña nueva para que el diálogo de impresión respete la
+      // orientación horizontal.
+      const html = await res.text()
+      const win = window.open('', '_blank')
+      if (win) {
+        win.document.open()
+        win.document.write(html)
+        win.document.close()
+        win.focus()
+      }
     } catch (e: any) {
-      setError(e.message)
+      setError({ source: 'pdf', message: e.message })
     } finally {
       setExporting(null)
     }
@@ -531,7 +546,7 @@ export function PowerStudy({
       a.click()
       URL.revokeObjectURL(url)
     } catch (e: any) {
-      setError(e.message)
+      setError({ source: 'excel', message: e.message })
     } finally {
       setExporting(null)
     }
@@ -569,31 +584,33 @@ export function PowerStudy({
         <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8, padding: '10px 14px', marginBottom: 12, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
           <AlertTriangle size={14} color="#DC2626" style={{ marginTop: 1, flexShrink: 0 }} />
           <div style={{ flex: 1 }}>
-            <p style={{ margin: 0, fontSize: 13, color: '#991B1B', fontWeight: 600 }}>Error cargando datos de Lidera</p>
-            <p style={{ margin: '2px 0 0', fontSize: 12, color: '#B91C1C' }}>{error}</p>
-            <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button
-                onClick={loadFromAPI}
-                style={{ fontSize: 12, padding: '4px 10px', border: '1px solid #FCA5A5', borderRadius: 5, background: '#fff', color: '#DC2626', cursor: 'pointer', fontWeight: 600 }}
-              >
-                <RefreshCw size={11} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-                Reintentar Lidera
-              </button>
-              <span
-                onClick={() => fileRef.current?.click()}
-                style={{ fontSize: 12, padding: '4px 10px', border: '1px solid #D1D5DB', borderRadius: 5, background: '#fff', color: '#6B7280', cursor: 'pointer' }}
-              >
-                <Upload size={11} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-                Subir archivo SIPS manual
-              </span>
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".xlsx,.xls,.csv,.html,.htm"
-                style={{ display: 'none' }}
-                onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f) }}
-              />
-            </div>
+            <p style={{ margin: 0, fontSize: 13, color: '#991B1B', fontWeight: 600 }}>{ERROR_TITLES[error.source]}</p>
+            <p style={{ margin: '2px 0 0', fontSize: 12, color: '#B91C1C' }}>{error.message}</p>
+            {(error.source === 'lidera' || error.source === 'sips_file') && (
+              <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button
+                  onClick={loadFromAPI}
+                  style={{ fontSize: 12, padding: '4px 10px', border: '1px solid #FCA5A5', borderRadius: 5, background: '#fff', color: '#DC2626', cursor: 'pointer', fontWeight: 600 }}
+                >
+                  <RefreshCw size={11} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+                  Reintentar Lidera
+                </button>
+                <span
+                  onClick={() => fileRef.current?.click()}
+                  style={{ fontSize: 12, padding: '4px 10px', border: '1px solid #D1D5DB', borderRadius: 5, background: '#fff', color: '#6B7280', cursor: 'pointer' }}
+                >
+                  <Upload size={11} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+                  Subir archivo SIPS manual
+                </span>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv,.html,.htm"
+                  style={{ display: 'none' }}
+                  onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f) }}
+                />
+              </div>
+            )}
           </div>
         </div>
       )}

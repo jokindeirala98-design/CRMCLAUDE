@@ -1218,18 +1218,16 @@ export default function SupplyDetailPage() {
         body: JSON.stringify(supply.power_study_result),
       })
       if (!res.ok) return
-      // El endpoint ahora devuelve un PDF binario ya renderizado en
-      // orientación landscape por Chromium en el servidor.
-      const blob = await res.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      const cups = (supply.cups || 'estudio').slice(-8)
-      a.download = `Estudio_potencias_${cups}.pdf`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      window.URL.revokeObjectURL(url)
+      // El endpoint devuelve HTML print-ready (A4 landscape via @page).
+      // Lo abrimos en una pestaña nueva y dejamos que el script
+      // window.onload=window.print() del propio HTML lance el diálogo
+      // de impresión / Guardar como PDF en horizontal.
+      const html = await res.text()
+      const w = window.open('', '_blank')
+      if (!w) return
+      w.document.open()
+      w.document.write(html)
+      w.document.close()
     } catch (err) {
       console.error('Error generando PDF:', err)
     }
