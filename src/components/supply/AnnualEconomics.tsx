@@ -1090,6 +1090,34 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
     },
   ]
 
+  // ── Proporciones medias de consumo por periodo ──
+  // Cuando una factura tiene precio fijo único (sin desglose por periodos),
+  // inferimos el reparto entre P1/P2/P3... usando las proporciones medias
+  // de las OTRAS facturas del mismo suministro que sí tienen desglose.
+  // Si ninguna factura del suministro tiene desglose, no se infiere nada.
+  const periodFractions: Record<string, number> = (() => {
+    const sums: Record<string, number> = {}
+    let baseTotal = 0
+    for (const inv of invoices) {
+      const eco = getEco(inv)
+      const items = eco?.consumo
+      if (!items || !items.length) continue
+      const localTotal = items.reduce((acc, c) => acc + (Number(c.kwh) || 0), 0)
+      if (localTotal <= 0) continue
+      baseTotal += localTotal
+      for (const c of items) {
+        const k = String(c.periodo).replace(/^P/i, 'P').toUpperCase()
+        sums[k] = (sums[k] || 0) + (Number(c.kwh) || 0)
+      }
+    }
+    if (baseTotal === 0) return {}
+    const out: Record<string, number> = {}
+    for (const [p, v] of Object.entries(sums)) {
+      out[p] = v / baseTotal
+    }
+    return out
+  })()
+
   // ── Electricity-specific rows ──
   const electricityRows: RowDef[] = [
     {
@@ -1103,37 +1131,70 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
       indent: true,
       render: (eco: BillEconomics | null) => {
         const item = eco?.consumo?.find(c => c.periodo === p)
-        if (!item || !item.kwh) return <span className="text-[#8A9A8E] text-sm">—</span>
-        // Detección de descuento irrelevante: si el precio "neto" extraído
-        // por periodo es muy cercano al precio bruto (descuento implícito
-        // <8%), significa que el descuento ha caducado durante el periodo.
-        // En ese caso mostramos el precio bruto puro, no el neto.
-        // Calculamos precio bruto desde costeBrutoConsumo/consumoTotalKwh
-        // (asumimos descuento proporcional entre periodos).
+        // Detección de descuento irrelevante (común a extraído e inferido)
         const consumoKwh = Number(eco?.consumoTotalKwh) || 0
         const costeBruto = Number(eco?.costeBrutoConsumo) || 0
         const costeMedio = Number(eco?.costeMedioKwh) || 0
         const precioBrutoMedio = costeBruto > 0 && consumoKwh > 0 ? costeBruto / consumoKwh : 0
         const ratio = costeMedio > 0 && precioBrutoMedio > 0 ? costeMedio / precioBrutoMedio : null
         const irrelevante = ratio !== null && ratio > 0.92 && ratio < 1.0
-        // Si es irrelevante, el precioKwh extraído (que suele ser el bruto)
-        // se mantiene tal cual. Solo añadimos la badge.
-        return (
-          <div>
-            <div className="text-[#4F5C53] text-sm">{fmt(item.kwh, 0)} kWh</div>
-            <div className="text-[#8A9A8E] text-xs flex items-center gap-1">
-              <span>{fmt(item.precioKwh, 5)} €/KWH</span>
-              {irrelevante && (
-                <span
-                  title="El descuento solo aplicó a parte del periodo: precio mostrado es el bruto."
-                  className="text-[9px] text-amber-700 bg-amber-50 px-1 py-0.5 rounded"
-                >
-                  ⚠ bruto
-                </span>
-              )}
+
+        // 1) Si hay desglose extraído, lo usamos tal cual
+        if (item && item.kwh) {
+          return (
+            <div>
+              <div className="text-[#4F5C53] text-sm">{fmt(item.kwh, 0)} kWh</div>
+              <div className="text-[#8A9A8E] text-xs flex items-center gap-1">
+                <span>{fmt(item.precioKwh, 5)} €/KWH</span>
+                {irrelevante && (
+                  <span
+                    title="El descuento solo aplicó a parte del periodo: precio mostrado es el bruto."
+                    className="text-[9px] text-amber-700 bg-amber-50 px-1 py-0.5 rounded"
+                  >
+                    ⚠ bruto
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
-        )
+          )
+        }
+
+        // 2) Si la factura es de precio fijo único (sin desglose por periodos)
+        // y tenemos consumoTotal + proporciones de otras facturas, INFERIMOS
+        // el reparto. Aplicamos el mismo precio único (bruto si descuento
+        // irrelevante, neto si descuento aplica) a todos los periodos.
+        const fraction = periodFractions[p]
+        if (consumoKwh > 0 && fraction && fraction > 0) {
+          const kwhInferido = consumoKwh * fraction
+          const precioUnico = irrelevante ? precioBrutoMedio : (costeMedio || precioBrutoMedio)
+          return (
+            <div>
+              <div className="text-[#4F5C53] text-sm flex items-center gap-1">
+                <span>{fmt(kwhInferido, 0)} kWh</span>
+                <span
+                  title="Precio fijo único en esta factura. Reparto entre periodos estimado a partir de las proporciones de otras facturas del mismo suministro."
+                  className="text-[9px] text-blue-700 bg-blue-50 px-1 py-0.5 rounded"
+                >
+                  ~ estimado
+                </span>
+              </div>
+              <div className="text-[#8A9A8E] text-xs flex items-center gap-1">
+                <span>{fmt(precioUnico, 5)} €/KWH</span>
+                {irrelevante && (
+                  <span
+                    title="El descuento solo aplicó a parte del periodo: precio mostrado es el bruto."
+                    className="text-[9px] text-amber-700 bg-amber-50 px-1 py-0.5 rounded"
+                  >
+                    ⚠ bruto
+                  </span>
+                )}
+              </div>
+            </div>
+          )
+        }
+
+        // 3) No tenemos nada para este periodo
+        return <span className="text-[#8A9A8E] text-sm">—</span>
       },
     })),
     {
