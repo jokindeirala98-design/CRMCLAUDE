@@ -36,6 +36,10 @@ interface PendingTask {
   client_id: string
   created_at: string
   invoiceCount: number
+  /** Si > 1, esta card representa N supplies pendientes del cliente
+   *  (clientes con >3 supplies se agrupan en una sola card). */
+  groupTotal?: number
+  groupTaskIds?: string[]
   supply: {
     id: string
     cups: string | null
@@ -170,6 +174,7 @@ export default function InboxPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [totalRaw, setTotalRaw] = useState(0)
 
   const [dragOverId, setDragOverId] = useState<string | null>(null)
   const [pendingDrop, setPendingDrop] = useState<{ task: PendingTask; file: File } | null>(null)
@@ -184,6 +189,7 @@ export default function InboxPage() {
       if (!res.ok) throw new Error(data.error || 'Error cargando estudios pendientes')
       setTasks(data.tasks || [])
       setIsAdmin(Boolean(data.isAdmin))
+      setTotalRaw(Number(data.totalPendingRaw) || (data.tasks || []).length)
     } catch (e: any) {
       setError(e?.message || 'Error')
     } finally {
@@ -254,8 +260,8 @@ export default function InboxPage() {
     <div className="min-h-screen bg-bg">
       <Header
         title="Estudios pendientes"
-        subtitle={tasks.length > 0
-          ? `${tasks.length} pendiente${tasks.length === 1 ? '' : 's'} · más antiguos primero`
+        subtitle={totalRaw > 0
+          ? `${totalRaw} pendiente${totalRaw === 1 ? '' : 's'}${totalRaw !== tasks.length ? ` · ${tasks.length} card${tasks.length === 1 ? '' : 's'}` : ''} · más antiguos primero`
           : 'Sin estudios pendientes'}
       />
 
@@ -308,19 +314,23 @@ export default function InboxPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
                     {items.map((task) => {
                       const drag = dragOverId === task.id
+                      const grouped = (task.groupTotal || 1) > 1
+                      const target = grouped
+                        ? `/clients/${task.client_id}`
+                        : `/supplies/${task.supply_id}`
                       return (
                         <div
                           key={task.id}
-                          onDragOver={onDragOver(task.id)}
-                          onDragLeave={onDragLeave}
-                          onDrop={onDrop(task)}
-                          onClick={() => router.push(`/supplies/${task.supply_id}`)}
+                          onDragOver={grouped ? undefined : onDragOver(task.id)}
+                          onDragLeave={grouped ? undefined : onDragLeave}
+                          onDrop={grouped ? undefined : onDrop(task)}
+                          onClick={() => router.push(target)}
                           role="button"
                           tabIndex={0}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' || e.key === ' ') {
                               e.preventDefault()
-                              router.push(`/supplies/${task.supply_id}`)
+                              router.push(target)
                             }
                           }}
                           className={`relative rounded-xl border border-l-4 ${meta.accent} transition-all cursor-pointer ${
@@ -329,7 +339,9 @@ export default function InboxPage() {
                               : 'border-line bg-card hover:border-[#A8C8F0] hover:shadow-sm'
                           }`}
                           style={{ padding: 10 }}
-                          title={`Abrir ${clientLabel(task)}`}
+                          title={grouped
+                            ? `${clientLabel(task)} · ${task.groupTotal} estudios pendientes`
+                            : `Abrir ${clientLabel(task)}`}
                         >
                           <div className="flex items-center gap-2 mb-2">
                             <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${meta.iconBg} ${meta.iconColor}`}>
@@ -341,8 +353,9 @@ export default function InboxPage() {
                                 <CommercialBadge commercial={task.client?.commercial} />
                               </div>
                               <div className="text-[10px] text-ink-3 truncate font-mono">
-                                {shortCups(task.supply?.cups)}
-                                {task.supply?.tariff && ` · ${task.supply.tariff}`}
+                                {grouped
+                                  ? `${task.groupTotal} suministros · más grande: ${shortCups(task.supply?.cups)}`
+                                  : `${shortCups(task.supply?.cups)}${task.supply?.tariff ? ` · ${task.supply.tariff}` : ''}`}
                               </div>
                             </div>
                             <div className="text-right flex-shrink-0">
@@ -355,27 +368,37 @@ export default function InboxPage() {
                             </div>
                           </div>
 
-                          {/* Dropzone */}
-                          <label
-                            htmlFor={`file-${task.id}`}
-                            onClick={(e) => e.stopPropagation()}
-                            className={`flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg cursor-pointer transition text-[10px] font-semibold ${
-                              drag
-                                ? 'bg-[#4A6FE3] text-white'
-                                : 'bg-bg-2 text-ink-2 hover:bg-blue-50 hover:text-[#4A6FE3]'
-                            }`}
-                          >
-                            <Upload className="w-3 h-3" />
-                            {drag ? 'Suelta el estudio' : 'Arrastra o sube el estudio'}
-                            <input
-                              id={`file-${task.id}`}
-                              type="file"
-                              className="hidden"
-                              accept=".pdf,.xlsx,.xls,.csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                              onChange={onFileInput(task)}
+                          {grouped ? (
+                            /* Badge agrupado: ir a ficha cliente */
+                            <div
+                              className="flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200"
+                            >
+                              <AlertCircle className="w-3 h-3" />
+                              {task.groupTotal} estudios pendientes · ver cliente
+                            </div>
+                          ) : (
+                            /* Dropzone para subir el estudio */
+                            <label
+                              htmlFor={`file-${task.id}`}
                               onClick={(e) => e.stopPropagation()}
-                            />
-                          </label>
+                              className={`flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg cursor-pointer transition text-[10px] font-semibold ${
+                                drag
+                                  ? 'bg-[#4A6FE3] text-white'
+                                  : 'bg-bg-2 text-ink-2 hover:bg-blue-50 hover:text-[#4A6FE3]'
+                              }`}
+                            >
+                              <Upload className="w-3 h-3" />
+                              {drag ? 'Suelta el estudio' : 'Arrastra o sube el estudio'}
+                              <input
+                                id={`file-${task.id}`}
+                                type="file"
+                                className="hidden"
+                                accept=".pdf,.xlsx,.xls,.csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                onChange={onFileInput(task)}
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            </label>
+                          )}
                         </div>
                       )
                     })}
