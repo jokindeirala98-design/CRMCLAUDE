@@ -43,9 +43,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     const { data: profile } = await supabase
       .from('users_profile').select('id, role').eq('id', user.id).single()
-    if (profile?.role !== 'admin') {
-      return NextResponse.json({ error: 'Solo administradores' }, { status: 403 })
-    }
+    const isAdmin = profile?.role === 'admin'
 
     const taskId = params.id
     if (!taskId) return NextResponse.json({ error: 'taskId required' }, { status: 400 })
@@ -53,7 +51,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // 1. Cargar la tarea — debe existir y estar pendiente
     const { data: task } = await supabase
       .from('admin_tasks')
-      .select('id, type, supply_id, status')
+      .select('id, type, supply_id, client_id, status')
       .eq('id', taskId)
       .single()
     if (!task) return NextResponse.json({ error: 'Tarea no encontrada' }, { status: 404 })
@@ -62,6 +60,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
     if (!task.supply_id) {
       return NextResponse.json({ error: 'Tarea sin supply asociado' }, { status: 400 })
+    }
+
+    // Autorización: admin O comercial responsable del cliente
+    if (!isAdmin) {
+      const { data: clientRow } = await supabase
+        .from('clients').select('commercial_id').eq('id', task.client_id).single()
+      if (clientRow?.commercial_id !== user.id) {
+        return NextResponse.json(
+          { error: 'No tienes permisos para subir el estudio de este cliente.' },
+          { status: 403 },
+        )
+      }
     }
 
     // 2. Recibir archivo
@@ -122,7 +132,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         economic_study_url: publicUrl,
         economic_study_filename: filename,
         economic_study_uploaded_at: new Date().toISOString(),
-        economic_study_uploaded_by: profile.id,
+        economic_study_uploaded_by: user.id,
         updated_at: new Date().toISOString(),
       })
       .eq('id', task.supply_id)
@@ -138,7 +148,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       type: 'economico',
       report_url: publicUrl,
       status: 'completed',
-      created_by: profile.id,
+      created_by: user.id,
       created_at: nowIso,
       completed_at: nowIso,
     })
@@ -149,7 +159,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       .update({
         status: 'completed',
         completed_at: new Date().toISOString(),
-        completed_by: profile.id,
+        completed_by: user.id,
       })
       .eq('id', taskId)
     if (taskErr) {

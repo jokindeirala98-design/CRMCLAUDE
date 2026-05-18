@@ -1,953 +1,455 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+/**
+ * /inbox — "Estudios pendientes"
+ *
+ * Página dedicada a los estudios económicos pendientes de hacer.
+ * Reemplaza el antiguo wizard de subida de facturas (esa funcionalidad
+ * vive ahora en la ficha de cliente / suministro).
+ *
+ * - Admin: ve TODAS las tareas pendientes del sistema.
+ * - Comercial: ve solo las tareas de SUS clientes.
+ *
+ * Vista:
+ *   - Orden cronológico FIFO (más antiguas primero).
+ *   - Agrupadas por tarifa: 6.1TD · 3.0TD · 2.0TD · GAS.
+ *   - Cada card es una dropzone que acepta PDF/XLSX para adjuntar el
+ *     estudio económico (solo admin: si el endpoint responde 403,
+ *     mostramos un toast informativo).
+ */
+
+import React, { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Plus, Upload, Check, AlertCircle, Loader2, CheckCircle,
-  X, Zap, FileText, User, ArrowRight, Clipboard, Sparkles,
+  Loader2, AlertCircle, FileText, FileSpreadsheet, Upload,
+  Zap, Flame, CheckCircle2, X, Inbox as InboxIcon,
 } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
-import { createClient } from '@/lib/supabase/client'
-import { useAuthStore } from '@/stores/auth'
-import { normalizeCups } from '@/lib/utils/cups'
-import { advanceSupplyPipeline } from '@/lib/supply-pipeline'
-import { upsertInvoiceWithDedupe } from '@/lib/invoice-dedupe'
-import { ensurePendingPrescoring } from '@/lib/ensurePrescoring'
+import { CommercialBadge } from '@/components/admin/EstudiosPendientes'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type Step = 'client' | 'invoices' | 'analyzing' | 'review' | 'submitting' | 'success'
-
-interface UploadFile {
+interface PendingTask {
   id: string
-  file: File
-  status: 'pending' | 'analyzing' | 'success' | 'error'
-  extractedData?: any
-  error?: string
+  type: 'estudio_economico_pendiente'
+  supply_id: string
+  client_id: string
+  created_at: string
+  invoiceCount: number
+  supply: {
+    id: string
+    cups: string | null
+    tariff: string | null
+    type: string
+    name: string | null
+    address: string | null
+    created_at?: string
+  } | null
+  client: {
+    id: string
+    name: string
+    alias: string | null
+    cif: string | null
+    nif: string | null
+    cif_nif: string | null
+    commercial_id: string | null
+    commercial: {
+      id: string
+      full_name: string | null
+      nickname: string | null
+      email: string | null
+    } | null
+  } | null
 }
 
-interface ClientOption {
-  id: string
-  name: string
-  type: string
-  cif_nif?: string | null
+type Bucket = '6.1TD' | '3.0TD' | '2.0TD' | 'GAS' | 'OTRA'
+
+// ─── Tariff bucketing ────────────────────────────────────────────────────────
+
+function bucketFor(task: PendingTask): Bucket {
+  const supply = task.supply
+  const t = (supply?.tariff || '').replace(/\s+/g, '').toUpperCase()
+  const isGas = supply?.type === 'gas' || /^RL/i.test(t)
+  if (isGas) return 'GAS'
+  if (t.startsWith('6.1') || t.startsWith('6.2') || t.startsWith('6.3') || t.startsWith('6.4')) return '6.1TD'
+  if (t.startsWith('3.0')) return '3.0TD'
+  if (t.startsWith('2.0') || t === '20TD' || t === '20DHA') return '2.0TD'
+  return 'OTRA'
 }
 
-// ─── Component ───────────────────────────────────────────────────────────────
+const BUCKET_ORDER: Bucket[] = ['6.1TD', '3.0TD', '2.0TD', 'GAS', 'OTRA']
+
+const BUCKET_META: Record<Bucket, {
+  label: string
+  short: string
+  description: string
+  Icon: typeof Zap
+  iconBg: string
+  iconColor: string
+  accent: string
+}> = {
+  '6.1TD': {
+    label: '6.1TD',
+    short: '6.1',
+    description: 'Alta tensión / grandes consumidores',
+    Icon: Zap,
+    iconBg: 'bg-purple-100',
+    iconColor: 'text-purple-700',
+    accent: 'border-l-purple-400',
+  },
+  '3.0TD': {
+    label: '3.0TD',
+    short: '3.0',
+    description: 'Industriales / empresariales',
+    Icon: Zap,
+    iconBg: 'bg-blue-100',
+    iconColor: 'text-[#4A6FE3]',
+    accent: 'border-l-[#4A6FE3]',
+  },
+  '2.0TD': {
+    label: '2.0TD',
+    short: '2.0',
+    description: 'Hogares y pequeño negocio',
+    Icon: Zap,
+    iconBg: 'bg-green-100',
+    iconColor: 'text-green-700',
+    accent: 'border-l-green-400',
+  },
+  'GAS': {
+    label: 'GAS',
+    short: 'GAS',
+    description: 'Suministros de gas natural',
+    Icon: Flame,
+    iconBg: 'bg-amber-100',
+    iconColor: 'text-amber-700',
+    accent: 'border-l-amber-400',
+  },
+  'OTRA': {
+    label: 'Sin tarifa',
+    short: '—',
+    description: 'Suministros sin tarifa detectada',
+    Icon: Zap,
+    iconBg: 'bg-bg-2',
+    iconColor: 'text-ink-3',
+    accent: 'border-l-line',
+  },
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function clientLabel(t: PendingTask): string {
+  const c = t.client
+  if (!c) return t.supply?.name || 'Cliente sin nombre'
+  return c.alias || c.name || 'Cliente sin nombre'
+}
+
+function shortCups(cups: string | null | undefined): string {
+  if (!cups) return 'Sin CUPS'
+  return `${cups.slice(0, 4)}…${cups.slice(-6)}`
+}
+
+function formatRelative(iso: string): string {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  const diffMs = Date.now() - d.getTime()
+  const day = 24 * 60 * 60 * 1000
+  const days = Math.floor(diffMs / day)
+  if (days < 1) return 'hoy'
+  if (days < 2) return 'ayer'
+  if (days < 7) return `hace ${days} días`
+  if (days < 30) return `hace ${Math.floor(days / 7)} sem.`
+  if (days < 365) return `hace ${Math.floor(days / 30)} meses`
+  return `hace ${Math.floor(days / 365)} año${days >= 730 ? 's' : ''}`
+}
+
+// ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function InboxPage() {
   const router = useRouter()
-  const user = useAuthStore((s) => s.user)
-  const [supabase] = useState(() => createClient())
-
-  // Flow state
-  const [step, setStep] = useState<Step>('client')
-
-  // Client selection
-  const [clients, setClients] = useState<ClientOption[]>([])
-  const [clientSearch, setClientSearch] = useState('')
-  const [selectedClient, setSelectedClient] = useState<ClientOption | null>(null)
-  const [autoDetectClient, setAutoDetectClient] = useState(false)
-  const [creatingNewClient, setCreatingNewClient] = useState(false)
-  const [newClientName, setNewClientName] = useState('')
-  const clientInputRef = useRef<HTMLInputElement>(null)
-  const [autoDetectedClientName, setAutoDetectedClientName] = useState<string | null>(null)
-
-  // Invoice files
-  const [files, setFiles] = useState<UploadFile[]>([])
-  const [scanProgress, setScanProgress] = useState({ done: 0, total: 0 })
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const dropZoneRef = useRef<HTMLDivElement>(null)
-
-  // Review / extracted
-  const [extractedCups, setExtractedCups] = useState<string | null>(null)
-  const [extractedTariff, setExtractedTariff] = useState<string | null>(null)
-  const [extractedAddress, setExtractedAddress] = useState<string | null>(null)
-  const [extractedHolder, setExtractedHolder] = useState<string | null>(null)
-  const [existingSupply, setExistingSupply] = useState<any>(null)
-
-  // Result
-  const [successSupplyId, setSuccessSupplyId] = useState<string | null>(null)
+  const [tasks, setTasks] = useState<PendingTask[]>([])
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
 
-  // ── Load clients ──
-  useEffect(() => {
-    const load = async () => {
-      const { data } = await supabase
-        .from('clients')
-        .select('id, name, type, cif_nif')
-        .order('name')
-      setClients(data || [])
+  const [dragOverId, setDragOverId] = useState<string | null>(null)
+  const [pendingDrop, setPendingDrop] = useState<{ task: PendingTask; file: File } | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [toast, setToast] = useState<{ type: 'ok' | 'err' | 'info'; msg: string } | null>(null)
+
+  const fetchTasks = useCallback(async () => {
+    setLoading(true); setError(null)
+    try {
+      const res = await fetch('/api/inbox-pendientes', { cache: 'no-store' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Error cargando estudios pendientes')
+      setTasks(data.tasks || [])
+      setIsAdmin(Boolean(data.isAdmin))
+    } catch (e: any) {
+      setError(e?.message || 'Error')
+    } finally {
+      setLoading(false)
     }
-    load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ── Filtered clients ──
-  const filteredClients = clientSearch.trim()
-    ? clients.filter(c => {
-        const q = clientSearch.toLowerCase()
-        return c.name.toLowerCase().includes(q) || (c.cif_nif || '').toLowerCase().includes(q)
-      })
-    : []
-
-  const showNewClientButton = clientSearch.trim().length >= 2 && filteredClients.length === 0
-
-  // ── Select client ──
-  const handleSelectClient = (client: ClientOption) => {
-    setSelectedClient(client)
-    setClientSearch('')
-    setCreatingNewClient(false)
-    setStep('invoices')
-  }
-
-  // ── Create new client ──
-  const handleCreateClient = async () => {
-    if (!newClientName.trim() || !user?.id) return
-    setCreatingNewClient(true)
-    try {
-      const { data } = await supabase
-        .from('clients')
-        .insert({
-          name: newClientName.trim(),
-          type: 'empresa',
-          commercial_id: user.id,
-          origin: 'captacion',
-          marketing_consent: false,
-        })
-        .select('id, name, type, cif_nif')
-        .single()
-      if (data) {
-        setClients(prev => [data, ...prev])
-        setSelectedClient(data)
-        setNewClientName('')
-        setStep('invoices')
-      }
-    } catch (err) {
-      console.error('Error creating client:', err)
-    } finally {
-      setCreatingNewClient(false)
-    }
-  }
-
-  // ── File handling ──
-  const addFiles = (fileList: File[]) => {
-    const valid = fileList.filter(f => f.type === 'application/pdf' || f.type.startsWith('image/'))
-    if (!valid.length) return
-    const newFiles: UploadFile[] = valid.map(f => ({
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      file: f,
-      status: 'pending',
-    }))
-    setFiles(prev => [...prev, ...newFiles])
-  }
-
-  const removeFile = (id: string) => {
-    setFiles(prev => prev.filter(f => f.id !== id))
-  }
-
-  // ── Paste handler ──
-  useEffect(() => {
-    const handlePaste = (e: ClipboardEvent) => {
-      if (step !== 'invoices') return
-      const items = e.clipboardData?.items
-      if (!items) return
-      const pastedFiles: File[] = []
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i]
-        if (item.kind === 'file') {
-          const file = item.getAsFile()
-          if (file) pastedFiles.push(file)
-        }
-      }
-      if (pastedFiles.length > 0) {
-        e.preventDefault()
-        addFiles(pastedFiles)
-      }
-    }
-    window.addEventListener('paste', handlePaste)
-    return () => window.removeEventListener('paste', handlePaste)
-  }, [step])
+  useEffect(() => { fetchTasks() }, [fetchTasks])
 
   // ── Drag & drop ──
-  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation() }
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault(); e.stopPropagation()
-    const droppedFiles = Array.from(e.dataTransfer.files)
-    addFiles(droppedFiles)
+  const onDragOver = (id: string) => (e: React.DragEvent) => {
+    e.preventDefault(); e.stopPropagation(); setDragOverId(id)
+  }
+  const onDragLeave = (e: React.DragEvent) => {
+    e.preventDefault(); e.stopPropagation(); setDragOverId(null)
+  }
+  const onDrop = (task: PendingTask) => (e: React.DragEvent) => {
+    e.preventDefault(); e.stopPropagation(); setDragOverId(null)
+    const file = e.dataTransfer.files?.[0]
+    if (!file) return
+    setPendingDrop({ task, file })
+  }
+  const onFileInput = (task: PendingTask) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setPendingDrop({ task, file })
+    e.target.value = ''
   }
 
-  // ── Read file as base64 ──
-  const readFileAsBase64 = (file: File): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve((reader.result as string).split(',')[1])
-      reader.onerror = reject
-      reader.readAsDataURL(file)
-    })
-
-  // ── Analyze one file with retry ──
-  const analyzeOne = async (uf: UploadFile): Promise<any> => {
-    const maxAttempts = 2
-    let lastErr: string = 'Error desconocido'
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        const b64 = await readFileAsBase64(uf.file)
-        const res = await fetch('/api/analyze-invoice', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            file_base64: b64,
-            file_type: uf.file.type.startsWith('image') ? 'image' : 'pdf',
-            file_name: uf.file.name,
-          }),
-        })
-        const data = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          lastErr = data?.error || `HTTP ${res.status}`
-          if (attempt < maxAttempts) continue
-          throw new Error(lastErr)
-        }
-        if (data?.error) {
-          lastErr = data.error
-          if (attempt < maxAttempts) continue
-          throw new Error(lastErr)
-        }
-        return data
-      } catch (e: any) {
-        lastErr = e?.message || 'Error de red'
-        if (attempt >= maxAttempts) throw new Error(lastErr)
-      }
-    }
-    throw new Error(lastErr)
-  }
-
-  // ── Analyze all files ──
-  const startAnalysis = async () => {
-    if (files.length === 0) return
-    setStep('analyzing')
-    setError(null)
-    setScanProgress({ done: 0, total: files.length })
-
-    const collected: Array<{ id: string; data: any }> = []
-
-    // Analyze all files in parallel batches of 3
-    for (let i = 0; i < files.length; i += 3) {
-      const batch = files.slice(i, i + 3)
-      await Promise.allSettled(batch.map(async (uf) => {
-        setFiles(prev => prev.map(f => f.id === uf.id ? { ...f, status: 'analyzing' } : f))
-        try {
-          const data = await analyzeOne(uf)
-          collected.push({ id: uf.id, data })
-          setFiles(prev => prev.map(f => f.id === uf.id ? { ...f, status: 'success', extractedData: data } : f))
-        } catch (err: any) {
-          console.error(`[Inbox] Failed to analyze ${uf.file.name}:`, err)
-          setFiles(prev => prev.map(f => f.id === uf.id ? { ...f, status: 'error', error: err?.message || 'Error al analizar' } : f))
-        }
-      }))
-      setScanProgress(prev => ({ ...prev, done: Math.min(prev.done + batch.length, files.length) }))
-    }
-
-    // Merge data from all successful files — prefer first non-null value per field
-    const pick = (field: string) => {
-      for (const { data } of collected) {
-        const v = data?.[field] ?? data?.economics?.[field]
-        if (v) return v
-      }
-      return null
-    }
-    const rawCups = pick('cups')
-    const cups = rawCups ? normalizeCups(rawCups) : null
-    const tariff = pick('tariff') || (collected[0]?.data?.economics?.tarifa ?? null)
-    const address = pick('supply_address') || pick('billing_address')
-    const holder = pick('holder_name') || (collected[0]?.data?.economics?.titular ?? null)
-
-    setExtractedCups(cups || null)
-    setExtractedTariff(tariff)
-    setExtractedAddress(address)
-    setExtractedHolder(holder)
-    if (autoDetectClient) setAutoDetectedClientName(holder || 'Nuevo cliente')
-
-    // Check if CUPS already exists
-    if (cups) {
-      try {
-        const checkRes = await fetch('/api/check-cups', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cups }),
-        })
-        const checkData = await checkRes.json()
-        if (checkData.exists && checkData.supplies?.length > 0) {
-          setExistingSupply(checkData.supplies[0])
-        }
-      } catch {}
-    }
-
-    setStep('review')
-  }
-
-  // ── Extract keywords for fuzzy client match ──
-  const extractKeywordsLocal = (text: string): string[] => {
-    const legal = /\b(s\.?l\.?|s\.?a\.?|s\.?l\.?u\.?|c\.?b\.?|s\.?c\.?|sociedad|limitada|anonima|cooperativa|ltda?|inc|llc|corp|company)\b/gi
-    const fillers = /\b(de|del|la|las|el|los|y|en|con|por|para)\b/gi
-    const cleaned = text.replace(legal, '').replace(fillers, '').replace(/[.,;:'"()]/g, '').trim()
-    return Array.from(new Set(cleaned.split(/\s+/).filter(w => w.length >= 3).map(w => w.toLowerCase())))
-  }
-
-  // ── Cascade match/create client from extracted data ──
-  const matchOrCreateClient = async (): Promise<{ clientId: string; clientName: string } | null> => {
-    if (!user?.id) return null
-    const holderCif = extractedHolder
-      ? files.find(f => f.extractedData?.holder_cif_nif)?.extractedData?.holder_cif_nif || null
-      : null
-    const cifFromAny = holderCif || files.find(f => f.extractedData?.holder_cif_nif)?.extractedData?.holder_cif_nif || null
-
-    // 1. Try find client by CIF/NIF
-    if (cifFromAny) {
-      const cleanCif = String(cifFromAny).replace(/[\s.-]/g, '').toUpperCase()
-      if (cleanCif.length >= 8) {
-        const { data } = await supabase
-          .from('clients')
-          .select('id, name')
-          .or(`cif_nif.ilike.%${cleanCif}%,cif.ilike.%${cleanCif}%,nif.ilike.%${cleanCif}%`)
-          .limit(1)
-        if (data?.length) return { clientId: data[0].id, clientName: data[0].name }
-      }
-    }
-
-    // 2. Try by holder name keywords
-    if (extractedHolder && extractedHolder !== 'No detectado') {
-      const keywords = extractKeywordsLocal(extractedHolder)
-      if (keywords.length > 0) {
-        const primaryKeyword = keywords.sort((a, b) => b.length - a.length)[0]
-        const { data: nameMatches } = await supabase
-          .from('clients')
-          .select('id, name')
-          .ilike('name', `%${primaryKeyword}%`)
-          .limit(5)
-        if (nameMatches?.length) {
-          const scored = (nameMatches as Array<{ id: string; name: string }>).map((c) => ({
-            ...c,
-            score: keywords.filter((k) => c.name.toLowerCase().includes(k)).length,
-          })).sort((a: { score: number }, b: { score: number }) => b.score - a.score)
-          if (scored[0].score >= 1) return { clientId: scored[0].id, clientName: scored[0].name }
-        }
-      }
-    }
-
-    // 3. Create new client
-    const clientName = extractedHolder && extractedHolder !== 'No detectado'
-      ? extractedHolder
-      : 'Cliente sin nombre'
-    const isAyuntamiento = /ayuntamiento|ajuntament|concello|diputaci[oó]n|consejo\s+comarcal|mancomunidad/i.test(clientName)
-    const isParticular = cifFromAny ? /^\d/.test(String(cifFromAny).trim()) : false
-    const clientType = isAyuntamiento ? 'ayuntamiento' : isParticular ? 'particular' : 'empresa'
-
-    const payload = {
-      name: clientName,
-      type: clientType,
-      commercial_id: user.id,
-      cif_nif: cifFromAny || null,
-      origin: 'captacion',
-      marketing_consent: false,
-    }
-    const { data: newClient, error: createErr } = await supabase
-      .from('clients')
-      .insert(payload)
-      .select('id, name')
-      .single()
-    if (createErr || !newClient) {
-      console.error('[Inbox] Failed to create client:', createErr)
-      return null
-    }
-    return { clientId: newClient.id, clientName: newClient.name }
-  }
-
-  // ── Submit: create supply + upload invoices ──
-  const submitSupply = async () => {
-    if (!user?.id) return
-    if (!selectedClient && !autoDetectClient) return
-    setStep('submitting')
-    setError(null)
-
+  // ── Confirm upload ──
+  const confirmUpload = async () => {
+    if (!pendingDrop) return
+    setUploading(true)
     try {
-      let clientId: string
-      let clientDisplayName: string
-
-      if (selectedClient) {
-        clientId = selectedClient.id
-        clientDisplayName = selectedClient.name
-      } else {
-        // Auto-detect: cascade match or create
-        const matched = await matchOrCreateClient()
-        if (!matched) {
-          throw new Error('No se pudo detectar ni crear el cliente automáticamente')
-        }
-        clientId = matched.clientId
-        clientDisplayName = matched.clientName
-        setAutoDetectedClientName(clientDisplayName)
-      }
-
-      const normalizedCups = extractedCups ? normalizeCups(extractedCups) : null
-
-      // Detect supply type from tariff (RL = gas) or extracted supply_type
-      const tariffNormForType = (extractedTariff || '').replace(/\s+/g, '').toUpperCase()
-      const firstSuccess = files.find(f => f.status === 'success')?.extractedData
-      const extractedSupplyType = firstSuccess?.supply_type || ''
-      const supplyType: string = tariffNormForType && /^RL/i.test(tariffNormForType) ? 'gas'
-        : extractedSupplyType === 'gas' ? 'gas'
-        : extractedSupplyType === 'telefonia' ? 'telefonia'
-        : 'luz'
-
-      // If CUPS exists, add invoices to existing supply
-      if (existingSupply) {
-        for (const uf of files.filter(f => f.status === 'success')) {
-          const uid = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-          const path = `invoices/${user.id}/${uid}-${uf.file.name}`
-          const { error: upErr } = await supabase.storage.from('documents').upload(path, uf.file)
-          if (upErr) { console.error(upErr); continue }
-          const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path)
-          // Derivar período y total para dedupe
-          const eco = uf.extractedData?.economics
-          const toIso = (s?: string) => {
-            if (!s) return null
-            const d = new Date(s)
-            return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10)
-          }
-          await upsertInvoiceWithDedupe(supabase, {
-            supply_id: existingSupply.id,
-            file_url: urlData.publicUrl,
-            file_type: uf.file.type.startsWith('image') ? 'image' : 'pdf',
-            extraction_status: 'completed',
-            extracted_data: uf.extractedData,
-            period_start: eco?.fechaInicio ? toIso(eco.fechaInicio) : null,
-            period_end: eco?.fechaFin ? toIso(eco.fechaFin) : null,
-            total_amount: eco?.totalFactura ?? null,
-          })
-        }
-        // Auto-advance pipeline for existing supply
-        await advanceSupplyPipeline({
-          supabase,
-          supplyId: existingSupply.id,
-          event: 'invoices_added',
-          userId: user?.id,
-        })
-
-        setSuccessSupplyId(existingSupply.id)
-        setStep('success')
-        return
-      }
-
-      // Create new supply
-      const { data: supply, error: supplyErr } = await supabase
-        .from('supplies')
-        .insert({
-          client_id: clientId,
-          cups: normalizedCups,
-          type: supplyType,
-          tariff: extractedTariff || '',
-          address: extractedAddress || '',
-          status: 'estudio_en_curso',
-        })
-        .select('id')
-        .single()
-
-      if (supplyErr || !supply) throw new Error(supplyErr?.message || 'Error creando suministro')
-
-      // Upload all successful files
-      for (const uf of files.filter(f => f.status === 'success')) {
-        const uid = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-        const path = `invoices/${user.id}/${uid}-${uf.file.name}`
-        const { error: upErr } = await supabase.storage.from('documents').upload(path, uf.file)
-        if (upErr) { console.error(upErr); continue }
-        const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path)
-        const eco2 = uf.extractedData?.economics
-        const toIso2 = (s?: string) => {
-          if (!s) return null
-          const d = new Date(s)
-          return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10)
-        }
-        await upsertInvoiceWithDedupe(supabase, {
-          supply_id: supply.id,
-          file_url: urlData.publicUrl,
-          file_type: uf.file.type.startsWith('image') ? 'image' : 'pdf',
-          extraction_status: 'completed',
-          extracted_data: uf.extractedData,
-          period_start: eco2?.fechaInicio ? toIso2(eco2.fechaInicio) : null,
-          period_end: eco2?.fechaFin ? toIso2(eco2.fechaFin) : null,
-          total_amount: eco2?.totalFactura ?? null,
-        })
-      }
-
-      // Garantizar prescoring (helper centralizado: salta 2.0TD, rellena
-      // todos los campos disponibles del cliente, SIPS y la última factura).
-      await ensurePendingPrescoring(supabase, supply.id, {
-        userId: user.id,
-        updateNulls: true,
+      const fd = new FormData()
+      fd.append('file', pendingDrop.file)
+      const res = await fetch(`/api/admin-tasks/${pendingDrop.task.id}/complete`, {
+        method: 'POST', body: fd,
       })
-
-      // Background: fetch SIPS + power study
-      if (normalizedCups) {
-        fetchSipsBackground(supply.id, normalizedCups, clientId, extractedHolder || clientDisplayName)
+      const data = await res.json()
+      if (!res.ok) {
+        if (res.status === 403) {
+          throw new Error('Solo los administradores pueden adjuntar el estudio económico. Pide al admin que lo suba.')
+        }
+        throw new Error(data.error || 'Error subiendo')
       }
-
-      setSuccessSupplyId(supply.id)
-      setStep('success')
-    } catch (err: any) {
-      setError(err.message || 'Error al crear suministro')
-      setStep('review')
+      setTasks(prev => prev.filter(t => t.id !== pendingDrop.task.id))
+      setToast({ type: 'ok', msg: `Estudio guardado para ${clientLabel(pendingDrop.task)}` })
+      setTimeout(() => setToast(null), 3500)
+    } catch (e: any) {
+      setToast({ type: 'err', msg: e?.message || 'Error subiendo' })
+      setTimeout(() => setToast(null), 5500)
+    } finally {
+      setUploading(false)
+      setPendingDrop(null)
     }
   }
 
-  // ── Background SIPS fetch ──
-  const fetchSipsBackground = async (supplyId: string, cups: string, clientId: string, holderName: string) => {
-    try {
-      const sipsRes = await fetch('/api/sips', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cups }),
-      })
-      const sipsResult = await sipsRes.json()
-      if (!sipsResult.success || !sipsResult.data) return
-      const d = sipsResult.data
-
-      await supabase.from('supplies').update({
-        consumption_data: {
-          source: 'greening_sips', fetched_at: new Date().toISOString(),
-          total: d.totalConsumption, totalKwh: d.totalConsumptionKwh,
-          sips_tariff: d.tariff, consumoPeriodos: d.consumoPeriodos,
-          potenciaContratada: d.potenciaContratada,
-          history: (d.consumptionHistory || []).map((h: any) => ({
-            fecha: h.fecha, P1: h.P1, P2: h.P2, P3: h.P3, P4: h.P4, P5: h.P5, P6: h.P6, total: h.total,
-          })),
-          maximetroHistory: (d.maximetroHistory || []).map((h: any) => ({
-            fecha: h.fecha, P1: h.P1, P2: h.P2, P3: h.P3, P4: h.P4, P5: h.P5, P6: h.P6,
-          })),
-          distribuidora: d.distribuidora, codigoPostal: d.codigoPostal,
-          provincia: d.provincia, municipio: d.municipio, cnae: d.cnae,
-          tension: d.tension, fechaAlta: d.fechaAlta, fechaUltimaLectura: d.fechaUltimaLectura,
-        },
-        ...(d.tariff ? { tariff: d.tariff } : {}),
-        updated_at: new Date().toISOString(),
-      }).eq('id', supplyId)
-
-      if (d.consumptionHistory?.length > 0 && d.potenciaContratada) {
-        const studyRes = await fetch('/api/power-study-auto', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            cups, clientName: holderName, potenciaContratada: d.potenciaContratada,
-            consumptionHistory: d.consumptionHistory, maximetroHistory: d.maximetroHistory || [],
-          }),
-        })
-        if (studyRes.ok) {
-          const studyResult = await studyRes.json()
-          await supabase.from('supplies').update({ power_study_result: studyResult }).eq('id', supplyId)
-        }
-      }
-    } catch (err) {
-      console.error('[Inbox] Background SIPS error:', err)
-    }
+  // ── Agrupar por tarifa ──
+  const grouped: Record<Bucket, PendingTask[]> = {
+    '6.1TD': [], '3.0TD': [], '2.0TD': [], 'GAS': [], 'OTRA': [],
   }
+  for (const t of tasks) grouped[bucketFor(t)].push(t)
+  // Cada grupo ya viene ordenado por fecha asc desde el endpoint
+  const nonEmptyBuckets = BUCKET_ORDER.filter(b => grouped[b].length > 0)
 
-  // ── Reset ──
-  const reset = () => {
-    setStep('client')
-    setSelectedClient(null)
-    setAutoDetectClient(false)
-    setAutoDetectedClientName(null)
-    setClientSearch('')
-    setNewClientName('')
-    setFiles([])
-    setExtractedCups(null)
-    setExtractedTariff(null)
-    setExtractedAddress(null)
-    setExtractedHolder(null)
-    setExistingSupply(null)
-    setSuccessSupplyId(null)
-    setError(null)
-  }
-
-  const successCount = files.filter(f => f.status === 'success').length
-
-  // ═══════════════════════════════════════════════════════════════════════════
   return (
     <div className="min-h-screen bg-bg">
-      <Header title="Agregar Suministro" subtitle="Crea un suministro con sus facturas" />
+      <Header
+        title="Estudios pendientes"
+        subtitle={tasks.length > 0
+          ? `${tasks.length} pendiente${tasks.length === 1 ? '' : 's'} · más antiguos primero`
+          : 'Sin estudios pendientes'}
+      />
 
-      <div className="px-4 lg:px-8 py-6 max-w-xl mx-auto">
+      <main className="px-4 lg:px-6 py-6 max-w-7xl mx-auto">
+        {loading && (
+          <div className="rounded-2xl border border-line bg-card p-6 text-sm text-ink-3 flex items-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Cargando estudios pendientes…
+          </div>
+        )}
 
-        {/* ── Step indicator ── */}
-        <div className="flex items-center gap-2 mb-8">
-          {['Cliente', 'Facturas', 'Revisar'].map((label, i) => {
-            const stepIdx = i === 0 ? 'client' : i === 1 ? 'invoices' : 'review'
-            const stepOrder = ['client', 'invoices', 'analyzing', 'review', 'submitting', 'success']
-            const currentIdx = stepOrder.indexOf(step)
-            const thisIdx = stepOrder.indexOf(stepIdx)
-            const isDone = currentIdx > thisIdx
-            const isCurrent = step === stepIdx || (i === 2 && ['review', 'analyzing', 'submitting', 'success'].includes(step))
-            return (
-              <div key={label} className="flex items-center gap-2 flex-1">
-                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
-                  isDone ? 'bg-brand text-white' :
-                  isCurrent ? 'bg-primary/20 text-brand border-2 border-brand' :
-                  'bg-bg-2 text-ink-3'
-                }`}>
-                  {isDone ? <Check className="w-3.5 h-3.5" /> : i + 1}
-                </div>
-                <span className={`text-xs font-medium ${isCurrent || isDone ? 'text-ink' : 'text-ink-3'}`}>
-                  {label}
-                </span>
-                {i < 2 && <div className={`flex-1 h-px ${isDone ? 'bg-brand' : 'bg-outline-variant/30'}`} />}
+        {error && !loading && (
+          <div className="rounded-2xl border border-err/40 bg-err-container/40 p-4 text-sm text-err flex items-center gap-2">
+            <AlertCircle className="w-4 h-4" />
+            {error}
+          </div>
+        )}
+
+        {!loading && !error && tasks.length === 0 && (
+          <div className="rounded-2xl border border-line bg-card p-10 text-center">
+            <div className="w-12 h-12 rounded-full bg-bg-2 mx-auto mb-3 flex items-center justify-center">
+              <InboxIcon className="w-5 h-5 text-ink-3" />
+            </div>
+            <p className="text-sm font-medium text-ink">Nada pendiente</p>
+            <p className="text-xs text-ink-3 mt-1">
+              {isAdmin
+                ? 'No hay estudios pendientes en el sistema.'
+                : 'No tienes estudios pendientes de hacer.'}
+            </p>
+          </div>
+        )}
+
+        {!loading && !error && tasks.length > 0 && (
+          <div className="space-y-6">
+            {nonEmptyBuckets.map((bucket) => {
+              const meta = BUCKET_META[bucket]
+              const items = grouped[bucket]
+              return (
+                <section key={bucket}>
+                  <header className="flex items-baseline justify-between mb-3 px-1">
+                    <div className="flex items-baseline gap-2">
+                      <h2 className="text-base font-bold text-ink">{meta.label}</h2>
+                      <span className="text-xs text-ink-3 hidden sm:inline">{meta.description}</span>
+                    </div>
+                    <div className="text-xs text-ink-3">
+                      <span className="font-bold text-ink">{items.length}</span> pendiente{items.length === 1 ? '' : 's'}
+                    </div>
+                  </header>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                    {items.map((task) => {
+                      const drag = dragOverId === task.id
+                      return (
+                        <div
+                          key={task.id}
+                          onDragOver={onDragOver(task.id)}
+                          onDragLeave={onDragLeave}
+                          onDrop={onDrop(task)}
+                          onClick={() => router.push(`/supplies/${task.supply_id}`)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              router.push(`/supplies/${task.supply_id}`)
+                            }
+                          }}
+                          className={`relative rounded-xl border border-l-4 ${meta.accent} transition-all cursor-pointer ${
+                            drag
+                              ? 'border-2 border-[#4A6FE3] bg-blue-50 scale-[1.01]'
+                              : 'border-line bg-card hover:border-[#A8C8F0] hover:shadow-sm'
+                          }`}
+                          style={{ padding: 10 }}
+                          title={`Abrir ${clientLabel(task)}`}
+                        >
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${meta.iconBg} ${meta.iconColor}`}>
+                              <meta.Icon className="w-3.5 h-3.5" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs font-bold text-ink truncate">{clientLabel(task)}</span>
+                                <CommercialBadge commercial={task.client?.commercial} />
+                              </div>
+                              <div className="text-[10px] text-ink-3 truncate font-mono">
+                                {shortCups(task.supply?.cups)}
+                                {task.supply?.tariff && ` · ${task.supply.tariff}`}
+                              </div>
+                            </div>
+                            <div className="text-right flex-shrink-0">
+                              <div className="text-[10px] text-ink-4 leading-tight">
+                                {formatRelative(task.created_at)}
+                              </div>
+                              <div className="text-[10px] text-ink-4 leading-tight">
+                                <span className="font-semibold text-ink-2">{task.invoiceCount}</span> fra.
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Dropzone */}
+                          <label
+                            htmlFor={`file-${task.id}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className={`flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg cursor-pointer transition text-[10px] font-semibold ${
+                              drag
+                                ? 'bg-[#4A6FE3] text-white'
+                                : 'bg-bg-2 text-ink-2 hover:bg-blue-50 hover:text-[#4A6FE3]'
+                            }`}
+                          >
+                            <Upload className="w-3 h-3" />
+                            {drag ? 'Suelta el estudio' : 'Arrastra o sube el estudio'}
+                            <input
+                              id={`file-${task.id}`}
+                              type="file"
+                              className="hidden"
+                              accept=".pdf,.xlsx,.xls,.csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                              onChange={onFileInput(task)}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </label>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </section>
+              )
+            })}
+          </div>
+        )}
+      </main>
+
+      {/* Modal confirmación */}
+      {pendingDrop && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+          onClick={() => !uploading && setPendingDrop(null)}
+        >
+          <div
+            className="bg-card rounded-2xl shadow-xl max-w-md w-full p-6 border border-line"
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="text-base font-bold text-ink mb-1">Confirmar estudio económico</h3>
+            <p className="text-sm text-ink-3 mb-4">¿Adjuntar este archivo como <b>estudio económico</b> del suministro?</p>
+
+            <div className="rounded-xl border border-line bg-bg-2 p-3 mb-4 flex items-center gap-3">
+              {/\.pdf$/i.test(pendingDrop.file.name)
+                ? <FileText className="w-8 h-8 text-[#DC2626]" />
+                : <FileSpreadsheet className="w-8 h-8 text-[#16a34a]" />}
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold text-ink truncate">{pendingDrop.file.name}</div>
+                <div className="text-xs text-ink-3">{(pendingDrop.file.size / 1024).toLocaleString('es-ES', { maximumFractionDigits: 0 })} KB</div>
               </div>
-            )
-          })}
+            </div>
+
+            <div className="rounded-xl bg-blue-50 border border-blue-100 p-3 mb-4 text-xs text-slate-700">
+              <div><b>Cliente:</b> {clientLabel(pendingDrop.task)}</div>
+              <div className="font-mono mt-1"><b>CUPS:</b> {pendingDrop.task.supply?.cups || '—'}</div>
+              <div className="mt-1"><b>Tarifa:</b> {pendingDrop.task.supply?.tariff || '—'}</div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={() => setPendingDrop(null)}
+                disabled={uploading}
+                className="px-4 py-2 rounded-xl text-sm font-semibold text-ink-2 hover:bg-bg-2 transition disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmUpload}
+                disabled={uploading}
+                className="px-4 py-2 rounded-xl text-sm font-bold text-white bg-[#4A6FE3] hover:bg-[#2E4FBF] transition flex items-center gap-2 disabled:opacity-60"
+              >
+                {uploading ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Subiendo…</> : <><CheckCircle2 className="w-3.5 h-3.5" /> Confirmar y adjuntar</>}
+              </button>
+            </div>
+          </div>
         </div>
+      )}
 
-        {/* ═══ STEP 1: CLIENT SELECTION ═══ */}
-        {step === 'client' && (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
-            {/* Auto-detect option */}
-            <button
-              onClick={() => {
-                setSelectedClient(null)
-                setAutoDetectClient(true)
-                setClientSearch('')
-                setCreatingNewClient(false)
-                setStep('invoices')
-              }}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-primary/40 bg-primary/5 hover:bg-primary/10 transition-all"
-            >
-              <div className="w-10 h-10 rounded-xl bg-brand flex items-center justify-center flex-shrink-0 p-1.5">
-                <img src="/mascota-transparente.png" alt="Voltis" className="w-full h-full object-contain" />
-              </div>
-              <div className="text-left flex-1">
-                <p className="text-sm font-bold text-brand">Auto-detectar cliente</p>
-                <p className="text-[11px] text-ink-3">Extraer titular y CIF/NIF de las facturas automáticamente</p>
-              </div>
-              <ArrowRight className="w-4 h-4 text-brand" />
-            </button>
-
-            <div className="flex items-center gap-2">
-              <div className="flex-1 h-px bg-outline-variant/30" />
-              <span className="text-[10px] text-ink-3 tracking-wider">O ASIGNAR MANUALMENTE</span>
-              <div className="flex-1 h-px bg-outline-variant/30" />
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-ink-3 tracking-wider mb-2 block">
-                SELECCIONA O CREA UN CLIENTE
-              </label>
-              <input
-                ref={clientInputRef}
-                type="text"
-                value={clientSearch}
-                onChange={e => { setClientSearch(e.target.value); setCreatingNewClient(false) }}
-                placeholder="Escribe el nombre del cliente..."
-                className="w-full px-4 py-3 bg-bg-2 rounded-xl text-sm text-ink placeholder:text-ink-3/50 outline-none border border-line-2-variant/30 focus:border-ink/50 focus:ring-2 focus:ring-primary/20 transition-all"
-                autoFocus
-              />
-            </div>
-
-            {filteredClients.length > 0 && (
-              <div className="bg-bg-2 rounded-xl border border-line-2-variant/20 overflow-hidden divide-y divide-outline-variant/10">
-                {filteredClients.slice(0, 8).map(c => (
-                  <button
-                    key={c.id}
-                    onClick={() => handleSelectClient(c)}
-                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-bg-2 transition-colors text-left"
-                  >
-                    <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
-                      <User className="w-4 h-4 text-brand" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-ink truncate">{c.name}</p>
-                      <p className="text-xs text-ink-3 truncate">{c.cif_nif || c.type}</p>
-                    </div>
-                    <ArrowRight className="w-4 h-4 text-ink-3" />
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {showNewClientButton && !creatingNewClient && (
-              <button
-                onClick={() => { setNewClientName(clientSearch); setCreatingNewClient(true) }}
-                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-dashed border-primary/30 hover:border-primary/60 hover:bg-primary/5 transition-all"
-              >
-                <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
-                  <Plus className="w-4 h-4 text-brand" />
-                </div>
-                <div className="text-left">
-                  <p className="text-sm font-medium text-brand">Crear cliente nuevo</p>
-                  <p className="text-xs text-ink-3">&quot;{clientSearch}&quot;</p>
-                </div>
-              </button>
-            )}
-
-            <AnimatePresence>
-              {creatingNewClient && (
-                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
-                  className="overflow-hidden">
-                  <div className="bg-bg-2 rounded-xl border border-primary/20 p-4 space-y-3">
-                    <p className="text-xs font-semibold text-brand tracking-wider">NUEVO CLIENTE</p>
-                    <input
-                      type="text"
-                      value={newClientName}
-                      onChange={e => setNewClientName(e.target.value)}
-                      placeholder="Nombre del cliente"
-                      className="w-full px-3 py-2.5 bg-bg rounded-lg text-sm text-ink border border-line-2-variant/30 outline-none focus:border-ink/50 transition"
-                      autoFocus
-                      onKeyDown={e => { if (e.key === 'Enter') handleCreateClient() }}
-                    />
-                    <div className="flex gap-2">
-                      <button onClick={() => setCreatingNewClient(false)}
-                        className="flex-1 px-3 py-2 rounded-lg text-xs font-medium text-ink-3 hover:bg-bg-2 transition">
-                        Cancelar
-                      </button>
-                      <button onClick={handleCreateClient}
-                        disabled={!newClientName.trim()}
-                        className="flex-1 px-3 py-2 rounded-lg text-xs font-bold text-white bg-brand disabled:opacity-50 transition">
-                        Crear y continuar
-                      </button>
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </motion.div>
-        )}
-
-        {/* ═══ STEP 2: INVOICES UPLOAD ═══ */}
-        {step === 'invoices' && (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
-            <div className="flex items-center gap-2 px-3 py-2 bg-primary/5 rounded-xl border border-primary/20">
-              {autoDetectClient ? (
-                <Sparkles className="w-4 h-4 text-brand" />
-              ) : (
-                <User className="w-4 h-4 text-brand" />
-              )}
-              <span className="text-sm font-medium text-ink flex-1">
-                {autoDetectClient ? 'Auto-detectar cliente de las facturas' : selectedClient?.name}
-              </span>
-              <button onClick={() => { setSelectedClient(null); setAutoDetectClient(false); setStep('client') }}
-                className="p-1 rounded-lg hover:bg-primary/10 transition">
-                <X className="w-3.5 h-3.5 text-ink-3" />
-              </button>
-            </div>
-
-            <div
-              ref={dropZoneRef}
-              onDragOver={handleDragOver}
-              onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
-              className="flex flex-col items-center justify-center gap-3 py-12 px-6 rounded-2xl border-2 border-dashed border-line-2-variant/30 hover:border-primary/40 hover:bg-primary/[0.02] transition-all cursor-pointer"
-            >
-              <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center">
-                <Upload className="w-6 h-6 text-brand" />
-              </div>
-              <div className="text-center">
-                <p className="text-sm font-medium text-ink">Arrastra facturas o haz click</p>
-                <p className="text-xs text-ink-3 mt-1">PDF o imagenes. Tambien puedes <span className="text-brand font-medium">pegar (Ctrl+V)</span> desde el portapapeles</p>
-              </div>
-            </div>
-            <input ref={fileInputRef} type="file" multiple accept=".pdf,image/*" className="hidden"
-              onChange={e => { if (e.target.files) addFiles(Array.from(e.target.files)); e.target.value = '' }} />
-
-            {files.length > 0 && (
-              <div className="space-y-2">
-                {files.map(f => (
-                  <div key={f.id} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-bg-2">
-                    <FileText className="w-4 h-4 text-ink-3 flex-shrink-0" />
-                    <span className="text-xs text-ink truncate flex-1">{f.file.name}</span>
-                    <span className="text-[10px] text-ink-3">{(f.file.size / 1024).toFixed(0)} KB</span>
-                    <button onClick={() => removeFile(f.id)} className="p-1 rounded-lg hover:bg-bg-2 transition">
-                      <X className="w-3 h-3 text-ink-3" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="flex gap-3 pt-2">
-              <button onClick={() => setStep('client')}
-                className="px-4 py-2.5 rounded-xl text-sm text-ink-3 hover:bg-bg-2 transition">
-                Atras
-              </button>
-              <button
-                onClick={startAnalysis}
-                disabled={files.length === 0}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-brand disabled:opacity-40 transition hover:opacity-90 active:scale-[0.98]"
-              >
-                <Zap className="w-4 h-4" />
-                Analizar {files.length} factura{files.length !== 1 ? 's' : ''}
-              </button>
-            </div>
-          </motion.div>
-        )}
-
-        {/* ═══ STEP 3: ANALYZING ═══ */}
-        {step === 'analyzing' && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center py-16 gap-4">
-            <div className="relative">
-              <div className="w-16 h-16 rounded-full border-4 border-primary/20 border-t-primary animate-spin" />
-              <Zap className="w-6 h-6 text-brand absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
-            </div>
-            <p className="text-sm font-medium text-ink">Analizando facturas...</p>
-            <p className="text-xs text-ink-3">{scanProgress.done} / {scanProgress.total} completadas</p>
-            <div className="w-48 h-1.5 rounded-full bg-bg-2 overflow-hidden">
-              <div className="h-full rounded-full bg-brand transition-all duration-500"
-                style={{ width: `${scanProgress.total > 0 ? (scanProgress.done / scanProgress.total) * 100 : 0}%` }} />
-            </div>
-          </motion.div>
-        )}
-
-        {/* ═══ STEP 4: REVIEW ═══ */}
-        {step === 'review' && (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
-            {existingSupply && (
-              <div className="flex items-start gap-3 p-4 rounded-xl bg-warn-container/40 border border-warn/30">
-                <AlertCircle className="w-5 h-5 text-warn flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-medium text-warn">CUPS ya existe en el sistema</p>
-                  <p className="text-xs text-warn mt-0.5">
-                    Cliente: {existingSupply.client_name} — Las facturas se a&ntilde;adiran al suministro existente.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            <div className="bg-bg-2 rounded-xl border border-line-2-variant/20 p-4 space-y-3">
-              <p className="text-xs font-semibold text-ink-3 tracking-wider">DATOS EXTRAIDOS</p>
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { label: 'CUPS', value: extractedCups },
-                  { label: 'Tarifa', value: extractedTariff },
-                  { label: 'Titular', value: extractedHolder },
-                  { label: 'Direccion', value: extractedAddress },
-                ].map(({ label, value }) => (
-                  <div key={label}>
-                    <p className="text-[10px] text-ink-3 tracking-wider">{label}</p>
-                    <p className="text-sm text-ink font-medium truncate">{value || '\u2014'}</p>
-                  </div>
-                ))}
-              </div>
-              <div className="pt-2 border-t border-line-2-variant/10">
-                <p className="text-[10px] text-ink-3 tracking-wider">CLIENTE</p>
-                <p className="text-sm text-ink font-medium flex items-center gap-1.5">
-                  {autoDetectClient && <Sparkles className="w-3.5 h-3.5 text-brand" />}
-                  {selectedClient?.name || autoDetectedClientName || 'Se detectará al crear'}
-                </p>
-              </div>
-            </div>
-
-            <div className="bg-bg-2 rounded-xl border border-line-2-variant/20 p-4">
-              <p className="text-xs font-semibold text-ink-3 tracking-wider mb-2">
-                FACTURAS ({successCount}/{files.length} analizadas)
-              </p>
-              <div className="space-y-1.5">
-                {files.map(f => (
-                  <div key={f.id} className="flex items-start gap-2 text-xs">
-                    {f.status === 'success' ? (
-                      <CheckCircle className="w-3.5 h-3.5 text-ok mt-0.5 flex-shrink-0" />
-                    ) : f.status === 'error' ? (
-                      <AlertCircle className="w-3.5 h-3.5 text-err mt-0.5 flex-shrink-0" />
-                    ) : (
-                      <Loader2 className="w-3.5 h-3.5 text-brand animate-spin mt-0.5 flex-shrink-0" />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <span className="text-ink truncate block">{f.file.name}</span>
-                      {f.status === 'error' && f.error && (
-                        <span className="text-[10px] text-err block truncate">{f.error}</span>
-                      )}
-                    </div>
-                    {f.status === 'error' && (
-                      <button
-                        onClick={async () => {
-                          setFiles(prev => prev.map(x => x.id === f.id ? { ...x, status: 'analyzing', error: undefined } : x))
-                          try {
-                            const data = await analyzeOne(f)
-                            setFiles(prev => prev.map(x => x.id === f.id ? { ...x, status: 'success', extractedData: data } : x))
-                          } catch (err: any) {
-                            setFiles(prev => prev.map(x => x.id === f.id ? { ...x, status: 'error', error: err?.message || 'Error' } : x))
-                          }
-                        }}
-                        className="text-[10px] text-brand font-medium hover:underline flex-shrink-0"
-                      >
-                        Reintentar
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {error && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-err-container/30 text-err text-xs">
-                <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" /> {error}
-              </div>
-            )}
-
-            <div className="flex gap-3 pt-2">
-              <button onClick={() => setStep('invoices')}
-                className="px-4 py-2.5 rounded-xl text-sm text-ink-3 hover:bg-bg-2 transition">
-                Atras
-              </button>
-              <button
-                onClick={submitSupply}
-                disabled={successCount === 0}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-brand disabled:opacity-40 transition hover:opacity-90 active:scale-[0.98]"
-              >
-                {existingSupply ? (
-                  <><Plus className="w-4 h-4" /> A&ntilde;adir facturas</>
-                ) : (
-                  <><Zap className="w-4 h-4" /> Crear suministro</>
-                )}
-              </button>
-            </div>
-          </motion.div>
-        )}
-
-        {/* ═══ SUBMITTING ═══ */}
-        {step === 'submitting' && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center py-16 gap-4">
-            <Loader2 className="w-10 h-10 text-brand animate-spin" />
-            <p className="text-sm font-medium text-ink">
-              {existingSupply ? 'A\u00f1adiendo facturas...' : 'Creando suministro...'}
-            </p>
-          </motion.div>
-        )}
-
-        {/* ═══ SUCCESS ═══ */}
-        {step === 'success' && (
-          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-            className="flex flex-col items-center py-16 gap-4">
-            <div className="w-16 h-16 rounded-full bg-ok-container flex items-center justify-center">
-              <CheckCircle className="w-8 h-8 text-ok" />
-            </div>
-            <p className="text-lg font-bold text-ink">
-              {existingSupply ? 'Facturas a\u00f1adidas' : 'Suministro creado'}
-            </p>
-            <p className="text-sm text-ink-3 text-center">
-              {extractedCups && <span className="font-mono text-xs">{extractedCups}</span>}
-            </p>
-            <div className="flex gap-3 mt-4">
-              <button onClick={reset}
-                className="px-5 py-2.5 rounded-xl text-sm font-medium text-ink-3 hover:bg-bg-2 transition border border-line-2-variant/30">
-                Agregar otro
-              </button>
-              {successSupplyId && (
-                <button onClick={() => router.push(`/supplies/${successSupplyId}`)}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-brand transition hover:opacity-90">
-                  Ver suministro <ArrowRight className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          </motion.div>
-        )}
-
-      </div>
+      {/* Toast */}
+      {toast && (
+        <div className={`fixed bottom-6 right-6 z-[300] rounded-xl px-4 py-3 shadow-lg flex items-center gap-2 text-sm font-medium ${
+          toast.type === 'ok' ? 'bg-[#16a34a] text-white'
+            : toast.type === 'err' ? 'bg-[#DC2626] text-white'
+            : 'bg-slate-700 text-white'
+        }`}>
+          {toast.type === 'ok' ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+          {toast.msg}
+          <button onClick={() => setToast(null)} className="ml-1 opacity-70 hover:opacity-100">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
     </div>
   )
 }

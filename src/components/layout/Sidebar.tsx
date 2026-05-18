@@ -44,7 +44,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
     label: 'General',
     items: [
       { href: '/panel',   label: 'Panel',   icon: LayoutDashboard, permission: 'panel' },
-      { href: '/inbox',   label: 'Bandeja', icon: Inbox,           permission: 'inbox' },
+      { href: '/inbox',   label: 'Estudios pendientes', icon: Inbox, permission: 'inbox' },
       { href: '/agenda',  label: 'Agenda',  icon: CalendarDays,    permission: 'agenda' },
     ],
   },

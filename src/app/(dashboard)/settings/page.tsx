@@ -42,7 +42,7 @@ export default function SettingsPage() {
       label: 'General',
       items: [
         { key: 'panel',  label: 'Panel' },
-        { key: 'inbox',  label: 'Bandeja' },
+        { key: 'inbox',  label: 'Estudios pendientes' },
         { key: 'agenda', label: 'Agenda' },
       ],
     },
