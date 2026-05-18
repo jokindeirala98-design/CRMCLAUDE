@@ -25,6 +25,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { ensurePendingPrescoring } from '@/lib/ensurePrescoring'
 
 export interface InvoiceInsertPayload {
   supply_id: string | null | undefined
@@ -104,8 +105,29 @@ function toIsoEmission(s: string): string | null {
  * El supabase client debe tener permisos suficientes para SELECT, INSERT
  * y DELETE en la tabla invoices (admin / service-role en server, RLS en
  * browser si el usuario tiene permiso).
+ *
+ * Tras cada inserción/reemplazo exitoso, garantiza también que existe un
+ * prescoring pendiente para el supply (para tarifas que lo requieran) —
+ * llamada fire-and-forget, no bloquea ni rompe el flujo si falla.
  */
 export async function upsertInvoiceWithDedupe(
+  supabase: SupabaseClient,
+  payload: InvoiceInsertPayload,
+): Promise<DedupeResult> {
+  const result = await _upsertInvoiceCore(supabase, payload)
+  // Tras cualquier operación que toque el supply (inserción nueva,
+  // reemplazo, incluso duplicado detectado), garantizamos prescoring.
+  // El skipped_older y los errores no necesitan asegurar prescoring
+  // (en el primer caso ya existe la factura "ganadora" que lo creó;
+  // en el segundo no hay factura).
+  if (result.ok && payload.supply_id && result.action !== 'skipped_older') {
+    ensurePendingPrescoring(supabase, payload.supply_id, { updateNulls: true })
+      .catch((err) => console.warn('[invoice-dedupe] ensurePrescoring fallido:', err))
+  }
+  return result
+}
+
+async function _upsertInvoiceCore(
   supabase: SupabaseClient,
   payload: InvoiceInsertPayload,
 ): Promise<DedupeResult> {

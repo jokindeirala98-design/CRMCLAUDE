@@ -13,6 +13,7 @@ import { useAuthStore } from '@/stores/auth'
 import { normalizeCups } from '@/lib/utils/cups'
 import { advanceSupplyPipeline } from '@/lib/supply-pipeline'
 import { upsertInvoiceWithDedupe } from '@/lib/invoice-dedupe'
+import { ensurePendingPrescoring } from '@/lib/ensurePrescoring'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -479,19 +480,12 @@ export default function InboxPage() {
         })
       }
 
-      // Create prescoring — only for tariffs that need it (skip 2.0 tariffs)
-      const tariffNorm = (extractedTariff || '').replace(/\s+/g, '').toUpperCase()
-      const needsPrescoring = !tariffNorm.startsWith('2.0') && tariffNorm !== '20TD' && tariffNorm !== '20' && tariffNorm !== '202020' && tariffNorm !== '2.0DHA' && tariffNorm !== '20DHA'
-      if (needsPrescoring) {
-        await supabase.from('prescorings').insert({
-          supply_id: supply.id,
-          client_name: extractedHolder || clientDisplayName,
-          cups: normalizedCups,
-          tariff: extractedTariff,
-          status: 'pending',
-          requested_by: user.id,
-        })
-      }
+      // Garantizar prescoring (helper centralizado: salta 2.0TD, rellena
+      // todos los campos disponibles del cliente, SIPS y la última factura).
+      await ensurePendingPrescoring(supabase, supply.id, {
+        userId: user.id,
+        updateNulls: true,
+      })
 
       // Background: fetch SIPS + power study
       if (normalizedCups) {

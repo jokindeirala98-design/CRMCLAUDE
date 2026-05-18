@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { normalizeCups } from '@/lib/utils/cups'
 import { fetchSipsForCups } from '@/lib/sips'
 import { normalizeTariff } from '@/lib/consumption-utils'
+import { ensurePendingPrescoring } from '@/lib/ensurePrescoring'
 
 // SIPS + power study can take a while
 export const maxDuration = 60
@@ -137,6 +138,10 @@ export async function POST(req: NextRequest) {
 
     const supplyId = newSupply!.id
     console.log(`[create-from-cups] Created supply ${supplyId} for CUPS ${cleanCups}, SIPS=${!!sipsData}`)
+
+    // Garantizar prescoring pendiente (no bloquea si falla).
+    ensurePendingPrescoring(supabase, supplyId, { updateNulls: true })
+      .catch((err) => console.warn('[create-from-cups] ensurePrescoring fallido:', err))
 
     // ── 6. Fire-and-forget: auto power study ──
     if (sipsData?.consumptionHistory?.length && sipsData?.potenciaContratada) {

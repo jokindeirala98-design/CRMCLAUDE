@@ -8,6 +8,7 @@ import { analyzeDocument, analyzeInvoice } from '@/lib/gemini'
 import { normalizeCups, cupsBase20 } from '@/lib/utils/cups'
 import { fetchSipsForCups } from '@/lib/sips'
 import { normalizeTariff } from '@/lib/consumption-utils'
+import { ensurePendingPrescoring } from '@/lib/ensurePrescoring'
 import { findOrCreateCommercial, isValidEmail } from '@/lib/telegram-onboarding'
 
 // Extend Vercel function timeout to 60s (requires Vercel Pro for >10s, but
@@ -1470,6 +1471,10 @@ async function createSupplyFromCups(
   }
 
   const supplyId = newSupply!.id
+
+  // Garantizar prescoring pendiente (no bloquea si falla).
+  ensurePendingPrescoring(supabase, supplyId, { updateNulls: true })
+    .catch((err) => console.warn('[telegram/cups] ensurePrescoring fallido:', err))
 
   // Build confirm message
   let sipsLines = ''
