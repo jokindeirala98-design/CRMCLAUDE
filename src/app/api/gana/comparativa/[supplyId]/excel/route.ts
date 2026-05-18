@@ -14,9 +14,11 @@ import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import {
   computarComparativaGanaMulti,
+  computarComparativaGana,
   buildScenariosFromTarifas,
   type GanaTarifaRow,
   type BillSample,
+  type InputComparativa2td,
 } from '@/lib/comparativa-2td-gana'
 import { comparativaFilename } from '@/lib/utils/download-names'
 
@@ -157,10 +159,13 @@ export async function POST(req: NextRequest, { params }: { params: { supplyId: s
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const { tipo, comercializadora, attach } = await req.json() as {
+    const { tipo, comercializadora, attach, input: editedInput } = await req.json() as {
       tipo: 'fija_24h' | 'tramos' | 'mercado'
       comercializadora?: string                // 'gana' | 'nordy' | …
       attach?: boolean
+      /** Si viene, se usa como input directo (lo que el comercial editó en
+       *  el panel "Ajustar datos"). Si no, se reconstruye desde BD. */
+      input?: InputComparativa2td
     }
     if (!['fija_24h', 'tramos', 'mercado'].includes(tipo)) {
       return NextResponse.json({ error: 'tipo inválido' }, { status: 400 })
@@ -242,13 +247,20 @@ export async function POST(req: NextRequest, { params }: { params: { supplyId: s
 
     const scenarios = buildScenariosFromTarifas((tarifas ?? []) as GanaTarifaRow[])
 
-    // 5) Calcular con el motor commer (mismo que la UI)
-    const result = computarComparativaGanaMulti({
-      potenciaP1, potenciaP2,
-      consumoP1, consumoP2, consumoP3,
-      bills, scenarios,
-      potenciaMaxDemandadaKw: potenciaMaxDemandadaKw || undefined,
-    })
+    // 5) Calcular con el motor commer.
+    //    Si el cliente nos pasa un `input` editado (panel "Ajustar datos"
+    //    de la UI tras pulsar "Actualizar y comparar"), usamos el motor
+    //    single-input para respetar los valores manuales del comercial.
+    //    Si no, el motor multi-bill desde BD + SIPS (comportamiento
+    //    original).
+    const result = editedInput
+      ? computarComparativaGana({ input: editedInput, scenarios })
+      : computarComparativaGanaMulti({
+          potenciaP1, potenciaP2,
+          consumoP1, consumoP2, consumoP3,
+          bills, scenarios,
+          potenciaMaxDemandadaKw: potenciaMaxDemandadaKw || undefined,
+        })
 
     // Filtrar por tipo + comercializadora (puede haber 2 de mismo tipo: Gana tramos + Nordy tramos)
     const scenario = result.scenarios.find(

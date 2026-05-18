@@ -1128,6 +1128,50 @@ A11. NOVALUZ ENERGÍA / ESCANDINAVA DE ELECTRICIDAD (EDE SLU):
 
    COMERCIALIZADORA: registrar siempre como "NOVALUZ" (no "Escandinava").
 
+A11c. CONTIGO ENERGÍA / GESTERNOVA — 2.0TD precio fijo:
+   Comercializadora del Grupo Gesternova. Distribuidora I-DE (Iberdrola).
+   Formato MUY peculiar de la sección "Término de potencia":
+
+     Término de potencia entre 05/03/2026 y 05/04/2026
+     P1. Precio: 30,704413 X (32 / 365) = 2,691894 €/kW
+     P1. Potencia facturada 14,300 kW    2,691894    38,49
+     P2. Precio:  3,725423 X (32 / 365) = 0,326612 €/kW
+     P2. Potencia facturada 14,300 kW    0,326612     4,67
+
+   ⚠️ LECTURA CORRECTA — el €/kW que aparece es POR EL PERIODO, no por día:
+     - "30,704413" es el precio ANUAL en €/kW/año (peajes+cargos+comercializadora).
+     - "× (32 / 365)" es el factor de prorrateo para los 32 días facturados.
+     - "2,691894 €/kW" es el precio TOTAL del periodo de 32 días por cada kW
+       (es decir, precio_anual × dias / 365). NO es €/kW·día.
+     - "14,300 kW × 2,691894 = 38,49 €" es el coste P1 del periodo.
+
+   CÓMO EXTRAER (campo precioKwDia debe ser €/kW por DÍA):
+     - El precio diario = precio_anual / 365.
+     - Ejemplo: precioKwDia P1 = 30,704413 / 365 = 0,084121 €/kW·día.
+     - Ejemplo: precioKwDia P2 = 3,725423 / 365 = 0,010206 €/kW·día.
+     - Alternativa equivalente: precioKwDia = (€/kW del periodo) / días.
+       0,326612 / 32 = 0,010206 €/kW·día. ✓ MISMO RESULTADO.
+
+   ⚠️ NUNCA pongas el "€/kW del periodo" (2,691894) como precioKwDia. Es un
+   error que multiplica el coste real ×32-365 cuando luego el CRM lo multiplica
+   por días. Debes convertir SIEMPRE a €/kW·día dividiendo por 365 o por días.
+
+   POTENCIA — emite SIEMPRE estos campos:
+     potencia[0] = { periodo:"P1", kw:14.3, dias:32, precioKwDia:0.084121, total:38.49 }
+     potencia[1] = { periodo:"P2", kw:14.3, dias:32, precioKwDia:0.010206, total:4.67 }
+   Verificación obligatoria: kw × dias × precioKwDia ≈ total
+     14.3 × 32 × 0.084121 = 38.49 ✓
+
+   ENERGÍA — formato típico de precio fijo 24h:
+     "Término de energía activa entre 05/03/2026 y 05/04/2026
+      P1. Energía activa 154,000 kWh 0,150725 23,21"
+     Aunque la línea diga "P1", el contador real tiene 3 periodos. Busca el
+     desglose P1/P2/P3 en la sección "MEDIDAS" al pie de la factura (regla
+     general "DESGLOSE POR PERIODOS" de más arriba).
+
+   COMERCIALIZADORA: registrar como "Contigo Energía" (o "Gesternova" si la
+   factura lo indica). CIF emisor: A84337849.
+
 A11b. ENÉRGYA-VM (Energía VM Gestión de Energía S.L.U.) — 3.0TD / 6.1TD:
    Comercializadora habitual de empresas. Email atcliente@energyavm.es. CIF B-83390366.
    Formato MUY estable: la sección "Detalle Factura" tiene SIEMPRE este orden:

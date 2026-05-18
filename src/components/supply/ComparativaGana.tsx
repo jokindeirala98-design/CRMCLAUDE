@@ -251,6 +251,11 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
     const dlKey = `${scenario.comercializadora}:${scenario.tipo}`
     setDownloading(dlKey)
     try {
+      // Si el comercial ha tocado el panel "Ajustar datos" y el estado
+      // local difiere del que vino del backend, pasamos `input` al endpoint
+      // para que el Excel respete sus ediciones (sin esto, el Excel
+      // reconstruye desde BD y descarta los cambios manuales).
+      const inputChanged = editable && data && JSON.stringify(editable) !== JSON.stringify(data.input)
       const res = await fetch(`/api/gana/comparativa/${supplyId}/excel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -258,6 +263,7 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
           tipo: scenario.tipo,
           comercializadora: scenario.comercializadora,
           attach: wantAttach,
+          ...(inputChanged ? { input: editable } : {}),
         }),
       })
       if (!res.ok) {
