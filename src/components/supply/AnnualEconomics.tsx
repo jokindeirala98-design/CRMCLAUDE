@@ -914,7 +914,7 @@ function ReExtractBanner({ invoices, onDone }: { invoices: InvoiceRow[]; onDone:
 
 // ─── FileTable View ──────────────────────────────────────────────────────────
 
-function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, authoritativeType, potenciaContratada, supplyCups, clientNameForFile, defaultTitular, defaultCif, defaultAddress }: {
+function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, authoritativeType, potenciaContratada, sipsConsumoPeriodos, supplyCups, clientNameForFile, defaultTitular, defaultCif, defaultAddress }: {
   invoices: InvoiceRow[]
   onRescan?: (inv: InvoiceRow) => void
   onDelete?: (inv: InvoiceRow) => void
@@ -922,6 +922,11 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
   busyDelete?: string | null
   authoritativeType?: string
   potenciaContratada?: Record<string, number>
+  /** Consumo anual por periodo según el SIPS de la distribuidora.
+   *  Lo usamos para repartir el consumo entre periodos cuando la factura
+   *  agrupa varios (ej. una 2.0TD que solo factura P1+P2 cuando técnicamente
+   *  tiene 3 periodos). */
+  sipsConsumoPeriodos?: Record<string, number>
   /** CUPS del suministro, para construir nombres de descarga estándar. */
   supplyCups?: string
   /** Nombre del cliente, para los nombres de archivo de facturas. */
@@ -1090,12 +1095,28 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
     },
   ]
 
-  // ── Proporciones medias de consumo por periodo ──
-  // Cuando una factura tiene precio fijo único (sin desglose por periodos),
-  // inferimos el reparto entre P1/P2/P3... usando las proporciones medias
-  // de las OTRAS facturas del mismo suministro que sí tienen desglose.
-  // Si ninguna factura del suministro tiene desglose, no se infiere nada.
+  // ── Proporciones de consumo por periodo (multi-fuente) ──
+  //
+  // Para inferir el reparto kWh por periodo cuando una factura no lo trae,
+  // priorizamos el dato más fiable disponible:
+  //   1) SIPS (consumoPeriodos del distribuidor) — el dato oficial anual.
+  //   2) Proporciones medias calculadas de otras facturas con desglose.
+  //   3) Si ninguno está disponible, no inferimos.
   const periodFractions: Record<string, number> = (() => {
+    // 1) Preferir SIPS si tiene >= 2 periodos con datos
+    const sipsEntries = Object.entries(sipsConsumoPeriodos || {})
+      .filter(([, v]) => Number(v) > 0)
+    if (sipsEntries.length >= 2) {
+      const total = sipsEntries.reduce((a, [, v]) => a + Number(v), 0)
+      if (total > 0) {
+        const out: Record<string, number> = {}
+        for (const [p, v] of sipsEntries) {
+          out[String(p).toUpperCase()] = Number(v) / total
+        }
+        return out
+      }
+    }
+    // 2) Fallback: agregado de otras facturas con desglose
     const sums: Record<string, number> = {}
     let baseTotal = 0
     for (const inv of invoices) {
@@ -1139,8 +1160,57 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
         const ratio = costeMedio > 0 && precioBrutoMedio > 0 ? costeMedio / precioBrutoMedio : null
         const irrelevante = ratio !== null && ratio > 0.92 && ratio < 1.0
 
-        // 1) Si hay desglose extraído, lo usamos tal cual
+        // Suma kWh de los periodos extraídos en esta factura
+        const extractedItems = eco?.consumo || []
+        const extractedKwhSum = extractedItems.reduce((a, c) => a + (Number(c.kwh) || 0), 0)
+
+        // CASO A: el periodo P está extraído directamente
         if (item && item.kwh) {
+          // Si la factura agrupa periodos (suma de extraídos = total consumido,
+          // pero faltan periodos de la tarifa), redistribuir usando fractions.
+          // Esto ocurre, p. ej., con Iberdrola Plata en 2.0TD que solo factura
+          // P1 + P2 cuando técnicamente hay 3 periodos (P2 = Llano+Valle agrupado).
+          const hayPeriodosNoExtraidos = activePeriods.some(ap =>
+            !extractedItems.some(c => String(c.periodo).toUpperCase() === ap.toUpperCase()),
+          )
+          const facturaCubreTodo = consumoKwh > 0 && Math.abs(extractedKwhSum - consumoKwh) < 1
+          if (hayPeriodosNoExtraidos && facturaCubreTodo && Object.keys(periodFractions).length > 0) {
+            // Redistribuir respetando el total. Usamos fractions del SIPS/otras facturas.
+            const fraction = periodFractions[p]
+            if (fraction && fraction > 0) {
+              const kwhInferido = consumoKwh * fraction
+              // Precio: si el periodo extraído tenía precio, usarlo; si no,
+              // usar el precio del último periodo extraído (suelen ser similares
+              // en facturas planas).
+              const precioPropio = Number(item.precioKwh) || 0
+              const precioMostrar = precioPropio > 0 ? precioPropio : (irrelevante ? precioBrutoMedio : costeMedio)
+              return (
+                <div>
+                  <div className="text-[#4F5C53] text-sm flex items-center gap-1">
+                    <span>{fmt(kwhInferido, 0)} kWh</span>
+                    <span
+                      title="La factura agrupa este periodo con otros. Reparto estimado a partir de las proporciones del SIPS."
+                      className="text-[9px] text-blue-700 bg-blue-50 px-1 py-0.5 rounded"
+                    >
+                      ~ estimado
+                    </span>
+                  </div>
+                  <div className="text-[#8A9A8E] text-xs flex items-center gap-1">
+                    <span>{fmt(precioMostrar, 5)} €/KWH</span>
+                    {irrelevante && (
+                      <span
+                        title="El descuento solo aplicó a parte del periodo: precio mostrado es el bruto."
+                        className="text-[9px] text-amber-700 bg-amber-50 px-1 py-0.5 rounded"
+                      >
+                        ⚠ bruto
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )
+            }
+          }
+          // Si no hay periodos agrupados, mostrar el extraído directamente.
           return (
             <div>
               <div className="text-[#4F5C53] text-sm">{fmt(item.kwh, 0)} kWh</div>
@@ -1159,20 +1229,28 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
           )
         }
 
-        // 2) Si la factura es de precio fijo único (sin desglose por periodos)
-        // y tenemos consumoTotal + proporciones de otras facturas, INFERIMOS
-        // el reparto. Aplicamos el mismo precio único (bruto si descuento
-        // irrelevante, neto si descuento aplica) a todos los periodos.
+        // CASO B: el periodo P no está extraído pero existe en la tarifa.
+        // Puede ser porque la factura es precio fijo único, o porque agrupa
+        // varios periodos. Inferimos.
         const fraction = periodFractions[p]
         if (consumoKwh > 0 && fraction && fraction > 0) {
           const kwhInferido = consumoKwh * fraction
-          const precioUnico = irrelevante ? precioBrutoMedio : (costeMedio || precioBrutoMedio)
+          // Precio: si hay otros periodos extraídos, heredar el del último
+          // (suele ser el de menor precio: Llano/Valle). Si no, usar
+          // bruto/neto según descuento.
+          const lastExtracted = [...extractedItems]
+            .sort((a, b) => String(a.periodo).localeCompare(String(b.periodo)))
+            .pop()
+          const precioHeredado = Number(lastExtracted?.precioKwh) || 0
+          const precioUnico = precioHeredado > 0
+            ? precioHeredado
+            : (irrelevante ? precioBrutoMedio : (costeMedio || precioBrutoMedio))
           return (
             <div>
               <div className="text-[#4F5C53] text-sm flex items-center gap-1">
                 <span>{fmt(kwhInferido, 0)} kWh</span>
                 <span
-                  title="Precio fijo único en esta factura. Reparto entre periodos estimado a partir de las proporciones de otras facturas del mismo suministro."
+                  title="La factura no desglosa este periodo. Reparto estimado a partir del SIPS y precio heredado del periodo agrupado."
                   className="text-[9px] text-blue-700 bg-blue-50 px-1 py-0.5 rounded"
                 >
                   ~ estimado
@@ -1193,7 +1271,7 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
           )
         }
 
-        // 3) No tenemos nada para este periodo
+        // No hay datos ni inferibles
         return <span className="text-[#8A9A8E] text-sm">—</span>
       },
     })),
@@ -5046,6 +5124,7 @@ export default function AnnualEconomics({ invoices, supplyId, onInvoicesUpdated,
           busyDelete={busyDelete}
           authoritativeType={propSupplyType}
           potenciaContratada={potenciaContratada}
+          sipsConsumoPeriodos={consumoPeriodos}
           supplyCups={invoices[0]?.extracted_data?.cups}
           clientNameForFile={clientName || supplyNameProp}
           defaultTitular={clientName}
