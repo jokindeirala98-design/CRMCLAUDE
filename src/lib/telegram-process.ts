@@ -6,6 +6,7 @@ import { fetchSipsForCups } from '@/lib/sips'
 import { advanceSupplyPipeline } from '@/lib/supply-pipeline'
 import { ensurePendingPrescoring } from '@/lib/ensurePrescoring'
 import { upsertInvoiceWithDedupe } from '@/lib/invoice-dedupe'
+import { applyIdentityToClient } from '@/lib/identity-apply'
 
 /**
  * Shared processing logic for telegram_inbox items.
@@ -300,50 +301,49 @@ export async function processTelegramInboxItem(
           return { ok: true, skipped: true }
         }
         if (!identityClientId) {
+          // Tipo del cliente según el documento:
+          //   DNI/NIE → particular (persona física que es el propio cliente)
+          //   CIF     → empresa
+          //   Cert.   → según account_holder_id (CIF=empresa, NIF=particular)
+          const isParticular =
+            identity.documentType === 'dni' || identity.documentType === 'nie' ||
+            (identity.documentType === 'cert_bancario' && identity.account_holder_id
+              && !/^[A-HJNP-SUVW]/.test(identity.account_holder_id.toUpperCase()))
           const clientName = rawClientName || 'Cliente Telegram'
-          // NIE (documentType 'nie') is also a particular person
-          const isParticular = identity.documentType === 'dni' || identity.documentType === 'nie'
-          const clientPayload = {
+          const clientPayload: Record<string, any> = {
             name: clientName,
             type: isParticular ? 'particular' : 'empresa',
             commercial_id: item.user_id,
-            cif_nif: identity.dni || identity.cif || null,
-            nif: identity.dni || null,
-            cif: identity.cif || null,
             marketing_consent: false,
+          }
+          // Solo guardamos identificadores que correspondan al tipo del cliente.
+          // Si es empresa y solo tenemos un DNI/NIE → no rellenamos cif/nif del
+          // cliente; el applyIdentityToClient siguiente lo guardará como
+          // representante legal.
+          if (isParticular && identity.dni) {
+            clientPayload.nif = identity.dni
+            clientPayload.cif_nif = identity.dni
+          }
+          if (!isParticular && identity.cif) {
+            clientPayload.cif = identity.cif
+            clientPayload.cif_nif = identity.cif
           }
           const res = await supabase.from('clients').insert({ ...clientPayload, origin: 'telegram' }).select('id').single()
           identityClientId = res.data?.id || null
           console.log(`[TelegramProcess] Created client from identity doc: ${identityClientId}`)
         }
 
-        // Save document URL and extracted fields to the client
+        // Save document URL and extracted fields to the client respetando
+        // el rol del documento (DNI en empresa = representante legal, no
+        // sobreescribe el nombre/CIF de la empresa).
         if (identityClientId) {
-          const patch: Record<string, any> = {}
-          if (identity.documentType === 'dni') {
-            patch.nif_file_url = item.file_url
-            if (identity.dni) { patch.nif = identity.dni; patch.cif_nif = identity.dni }
-            if (identity.full_name) patch.name = identity.full_name
-            if (identity.fiscal_address) patch.fiscal_address = identity.fiscal_address
-          } else if (identity.documentType === 'cif') {
-            patch.cif_file_url = item.file_url
-            if (identity.cif) { patch.cif = identity.cif; patch.cif_nif = identity.cif }
-            if (identity.company_name) patch.name = identity.company_name
-            if (identity.fiscal_address) patch.fiscal_address = identity.fiscal_address
-          } else if (identity.documentType === 'cert_bancario') {
-            patch.iban_file_url = item.file_url
-            if (identity.iban) patch.iban = identity.iban
-            if (identity.account_holder) patch.name = identity.account_holder
-            if (identity.account_holder_id) {
-              const id = identity.account_holder_id.toUpperCase()
-              if (/^[A-HJNP-SUVW]/.test(id)) { patch.cif = id; patch.cif_nif = id }
-              else { patch.nif = id; patch.cif_nif = id }
-            }
-          }
-          if (Object.keys(patch).length > 0) {
-            await supabase.from('clients').update(patch).eq('id', identityClientId)
-            console.log(`[TelegramProcess] Saved identity doc (${identity.documentType}) to client ${identityClientId}:`, Object.keys(patch))
-          }
+          const result = await applyIdentityToClient(
+            supabase,
+            identityClientId,
+            identity as any,
+            item.file_url,
+          )
+          console.log(`[TelegramProcess] Identity applied to client ${identityClientId}:`, result.summary, result.fieldsPatched)
         }
 
         await supabase.from('telegram_inbox').update({

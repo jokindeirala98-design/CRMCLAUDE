@@ -9,6 +9,7 @@ import { normalizeCups, cupsBase20 } from '@/lib/utils/cups'
 import { fetchSipsForCups } from '@/lib/sips'
 import { normalizeTariff } from '@/lib/consumption-utils'
 import { ensurePendingPrescoring } from '@/lib/ensurePrescoring'
+import { applyIdentityToClient } from '@/lib/identity-apply'
 import { findOrCreateCommercial, isValidEmail } from '@/lib/telegram-onboarding'
 
 // Extend Vercel function timeout to 60s (requires Vercel Pro for >10s, but
@@ -1736,6 +1737,19 @@ async function handleNonInvoiceDocResult(
       pendingDocType: docType,
       pendingClientId: clientId,
       pendingClientName: clientName,
+      // Guardamos también los datos extraídos del documento para que el
+      // callback doc_confirm pueda aplicar el patch al cliente sin tener
+      // que volver a llamar al extractor.
+      pendingAnalyzed: {
+        holder_name: extractedName || null,
+        cif: docType === 'cif' ? extractedId : null,
+        nif: docType === 'nif' ? extractedId : null,
+        iban: extractedIban || null,
+        account_holder: analyzed.account_holder || null,
+        account_holder_id: analyzed.account_holder_id || null,
+        fiscal_address: analyzed.fiscal_address || null,
+        bank_name: analyzed.bank_name || null,
+      },
     })
     return sendMessage(chatId,
       `📎 <b>${docTypeLabel(docType)} recibido</b>\n\n` +
@@ -1751,28 +1765,35 @@ async function handleNonInvoiceDocResult(
   }
 
   // 2 — Update client fields based on document type
-  const patch: Record<string, any> = { updated_at: new Date().toISOString() }
+  //
+  // Reglas críticas (cliente empresa):
+  //   • CIF → cif/cif_nif/cif_file_url de la EMPRESA
+  //   • NIF → REPRESENTANTE LEGAL (signer_name/signer_nif) + nif_file_url.
+  //     NO se sobrescribe cif/cif_nif de la empresa.
+  //   • IBAN → cuenta de la empresa; si el titular es persona y empresa,
+  //     se trata como representante.
+  // Para particular: el NIF es del propio cliente (comportamiento clásico).
   let savedFields: string[] = []
-
-  if ((docType === 'cif' || docType === 'nif') && extractedId) {
-    const field = docType === 'cif' ? 'cif' : 'nif'
-    const fileField = docType === 'cif' ? 'cif_file_url' : 'nif_file_url'
-    patch[field] = extractedId
-    patch.cif_nif = extractedId
-    if (fileUrl) patch[fileField] = fileUrl
-    savedFields = [extractedId, fileUrl ? '(doc guardado)' : '']
-  } else if (docType === 'iban') {
-    const ibanVal = extractedIban || extractedId
-    if (ibanVal) { patch.iban = ibanVal; savedFields.push(ibanVal) }
-    if (fileUrl) { patch.iban_file_url = fileUrl; savedFields.push('(certificado guardado)') }
+  if ((docType === 'cif' || docType === 'nif' || docType === 'iban') && (extractedId || extractedIban)) {
+    const identityForApply: any = {
+      documentType: docType === 'iban' ? 'cert_bancario'
+                  : docType === 'cif' ? 'cif'
+                  : 'dni',
+      dni:  docType === 'nif' ? extractedId : null,
+      cif:  docType === 'cif' ? extractedId : null,
+      full_name:    extractedName,
+      company_name: docType === 'cif' ? extractedName : null,
+      fiscal_address: analyzed.fiscal_address || null,
+      iban: extractedIban || null,
+      account_holder: analyzed.account_holder || null,
+      account_holder_id: analyzed.account_holder_id || null,
+    }
+    const result = await applyIdentityToClient(supabase, clientId, identityForApply, fileUrl)
+    if (result.patched) savedFields.push(result.summary)
     if (analyzed.bank_name) savedFields.push(analyzed.bank_name)
   } else if (docType === 'contrato' || docType === 'otro') {
-    // For other docs: just store file URL in notes or acknowledge
+    // For other docs: just acknowledge — no client patch
     savedFields = ['documento archivado']
-  }
-
-  if (Object.keys(patch).length > 1) {
-    await supabase.from('clients').update(patch).eq('id', clientId)
   }
 
   // 3 — Mark inbox as processed
@@ -2143,6 +2164,43 @@ async function handleCallback(cb: CallbackQuery) {
           }
           await answerCallback(cb.id, 'Guardando...')
           const supabase = createBotSupabase()
+
+          // Recuperar archivo + datos extraídos para aplicar el patch al
+          // cliente (antes este flujo solo marcaba processed y no guardaba
+          // los datos del documento → bug visible en clientes empresa con
+          // DNI del representante).
+          const { data: inboxRow } = await supabase
+            .from('telegram_inbox')
+            .select('file_url')
+            .eq('id', d.pendingInboxId)
+            .single()
+          const analyzed = d.pendingAnalyzed || {}
+          const docType = d.pendingDocType
+          const extractedId = (analyzed.cif || analyzed.nif || analyzed.holder_cif_nif || '').replace(/[\s.\-]/g, '').toUpperCase()
+          const extractedIban = (analyzed.iban || '').replace(/\s/g, '').toUpperCase()
+
+          let savedFields: string[] = []
+          if ((docType === 'cif' || docType === 'nif' || docType === 'iban') && (extractedId || extractedIban || inboxRow?.file_url)) {
+            const identityForApply: any = {
+              documentType: docType === 'iban' ? 'cert_bancario'
+                          : docType === 'cif' ? 'cif'
+                          : 'dni',
+              dni:  docType === 'nif' ? extractedId : null,
+              cif:  docType === 'cif' ? extractedId : null,
+              full_name:    analyzed.holder_name || null,
+              company_name: docType === 'cif' ? analyzed.holder_name : null,
+              fiscal_address: analyzed.fiscal_address || null,
+              iban: extractedIban || null,
+              account_holder: analyzed.account_holder || null,
+              account_holder_id: analyzed.account_holder_id || null,
+            }
+            const r = await applyIdentityToClient(supabase, d.pendingClientId, identityForApply, inboxRow?.file_url || null)
+            if (r.patched) savedFields.push(r.summary)
+            else savedFields.push('documento archivado')
+          } else {
+            savedFields.push('documento archivado')
+          }
+
           await supabase.from('telegram_inbox').update({
             status: 'processed', processed_at: new Date().toISOString()
           }).eq('id', d.pendingInboxId)
@@ -2153,7 +2211,7 @@ async function handleCallback(cb: CallbackQuery) {
           })
           return sendMessage(chatId,
             `📎 <b>${docTypeLabel(d.pendingDocType)} guardado</b>\n\n` +
-            `👤 <b>${d.pendingClientName}</b>\n✅ documento archivado`
+            `👤 <b>${d.pendingClientName}</b>\n✅ ${savedFields.join(' · ')}`
           )
         }
 
