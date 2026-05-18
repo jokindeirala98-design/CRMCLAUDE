@@ -5,6 +5,7 @@ import { normalizeCups, cupsBase20, sameCupsBase } from '@/lib/utils/cups'
 import { fetchSipsForCups } from '@/lib/sips'
 import { advanceSupplyPipeline } from '@/lib/supply-pipeline'
 import { ensurePendingPrescoring } from '@/lib/ensurePrescoring'
+import { upsertInvoiceWithDedupe } from '@/lib/invoice-dedupe'
 
 /**
  * Shared processing logic for telegram_inbox items.
@@ -810,7 +811,7 @@ export async function processTelegramInboxItem(
     }
   }
 
-  const { error: invoiceErr } = await supabase.from('invoices').insert({
+  const dedupeTg = await upsertInvoiceWithDedupe(supabase, {
     supply_id: supplyId,
     file_url: item.file_url,
     file_type: item.file_type === 'pdf' ? 'pdf' : 'image',
@@ -820,9 +821,10 @@ export async function processTelegramInboxItem(
     period_end: periodEnd,
     total_amount: totalAmount,
   })
-
-  if (invoiceErr) {
-    console.error(`[TelegramProcess] Invoice creation error:`, invoiceErr)
+  if (dedupeTg.action === 'error') {
+    console.error(`[TelegramProcess] Invoice creation error:`, dedupeTg.reason)
+  } else if (dedupeTg.action !== 'inserted') {
+    console.log(`[TelegramProcess] Dedupe: ${dedupeTg.action} — ${dedupeTg.reason}`)
   }
 
   // 10b. Ensure prescoring row exists and is fully populated from invoice data

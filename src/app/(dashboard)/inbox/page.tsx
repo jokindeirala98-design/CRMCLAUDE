@@ -12,6 +12,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/stores/auth'
 import { normalizeCups } from '@/lib/utils/cups'
 import { advanceSupplyPipeline } from '@/lib/supply-pipeline'
+import { upsertInvoiceWithDedupe } from '@/lib/invoice-dedupe'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -406,12 +407,22 @@ export default function InboxPage() {
           const { error: upErr } = await supabase.storage.from('documents').upload(path, uf.file)
           if (upErr) { console.error(upErr); continue }
           const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path)
-          await supabase.from('invoices').insert({
+          // Derivar período y total para dedupe
+          const eco = uf.extractedData?.economics
+          const toIso = (s?: string) => {
+            if (!s) return null
+            const d = new Date(s)
+            return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10)
+          }
+          await upsertInvoiceWithDedupe(supabase, {
             supply_id: existingSupply.id,
             file_url: urlData.publicUrl,
             file_type: uf.file.type.startsWith('image') ? 'image' : 'pdf',
             extraction_status: 'completed',
             extracted_data: uf.extractedData,
+            period_start: eco?.fechaInicio ? toIso(eco.fechaInicio) : null,
+            period_end: eco?.fechaFin ? toIso(eco.fechaFin) : null,
+            total_amount: eco?.totalFactura ?? null,
           })
         }
         // Auto-advance pipeline for existing supply
@@ -450,12 +461,21 @@ export default function InboxPage() {
         const { error: upErr } = await supabase.storage.from('documents').upload(path, uf.file)
         if (upErr) { console.error(upErr); continue }
         const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path)
-        await supabase.from('invoices').insert({
+        const eco2 = uf.extractedData?.economics
+        const toIso2 = (s?: string) => {
+          if (!s) return null
+          const d = new Date(s)
+          return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10)
+        }
+        await upsertInvoiceWithDedupe(supabase, {
           supply_id: supply.id,
           file_url: urlData.publicUrl,
           file_type: uf.file.type.startsWith('image') ? 'image' : 'pdf',
           extraction_status: 'completed',
           extracted_data: uf.extractedData,
+          period_start: eco2?.fechaInicio ? toIso2(eco2.fechaInicio) : null,
+          period_end: eco2?.fechaFin ? toIso2(eco2.fechaFin) : null,
+          total_amount: eco2?.totalFactura ?? null,
         })
       }
 

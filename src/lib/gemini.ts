@@ -33,6 +33,8 @@ export interface ExtractedDocumentData {
   comercializadora?: string
   supply_address?: string
   billing_period?: string
+  /** Fecha de emisión de la factura (yyyy-mm-dd o dd/mm/yyyy). */
+  emission_date?: string
   economics?: any
 }
 
@@ -1473,9 +1475,11 @@ FORMATO JSON DE RESPUESTA PARA FACTURAS
     "comercializadora": "Endesa",
     "supply_address": "C/ Mayor 1, 31430 Aoiz, Navarra",
     "billing_period": "2024-01-01 - 2024-01-31",
+    "emission_date": "2024-02-05",
     "economics": {
       "fechaInicio": "2024-01-01",
       "fechaFin": "2024-01-31",
+      "fechaEmision": "2024-02-05",
       "titular": "AYUNTAMIENTO DE AOIZ",
       "comercializadora": "Endesa",
       "cups": "ES0000000000000000XX",
@@ -2282,6 +2286,13 @@ Aunque la imagen sea borrosa, DEBES extraer todos los valores numéricos de las 
 ════ 4. FECHAS ════
 - fechaInicio / fechaFin del período de facturación — salida SIEMPRE en formato ISO: YYYY-MM-DD
 - Busca "Período de facturación", "Del ... al ...", "del DD/MM/AAAA a DD/MM/AAAA"
+- **emission_date / fechaEmision (OBLIGATORIO si aparece)**:
+  - Busca "Fecha de emisión", "Fecha emisión", "Fecha factura", "Emitida el"
+  - Suele estar en la cabecera, junto al número de factura
+  - Formato ISO en la salida: YYYY-MM-DD
+  - Importantísimo para dedupe: las facturas rectificativas tienen MISMO período
+    de facturación pero DIFERENTE fecha de emisión (la rectificativa es posterior).
+  - Devuélvelo en DOS sitios: "extracted.emission_date" y "economics.fechaEmision".
 
 ⚠️ LAS FACTURAS ESPAÑOLAS USAN DD/MM/AAAA — el primer número es el DÍA, no el mes:
   "del 07/02/2026 a 07/03/2026"
@@ -2361,6 +2372,7 @@ que un null. La única excepción es el CUPS — ahí null es mejor que inventar
       comercializadora: clean(extracted.comercializadora),
       supply_address: clean(extracted.supply_address),
       billing_period: clean(extracted.billing_period),
+      emission_date: clean(extracted.emission_date) || clean(extracted.economics?.fechaEmision),
       economics: extracted.economics ? postProcessEconomics(extracted.economics) : null,
       iban: clean(extracted.iban),
       bank_name: clean(extracted.bank_name),

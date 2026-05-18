@@ -3,6 +3,7 @@ import { normalizeCups } from '@/lib/utils/cups'
 import { normalizeTariff as normalizeTariffCanonical } from '@/lib/consumption-utils'
 import { ensurePendingPrescoring } from '@/lib/ensurePrescoring'
 import { advanceSupplyPipeline } from '@/lib/supply-pipeline'
+import { upsertInvoicesBulk } from '@/lib/invoice-dedupe'
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
 /*  TYPES                                                                    */
@@ -875,8 +876,13 @@ export async function processJobInBackground(jobId: string): Promise<void> {
         })
 
       if (invoices.length > 0) {
-        const { error: invErr } = await supabase.from('invoices').insert(invoices)
-        if (invErr) console.error(`[UploadQueue] Invoice insert error for ${cups}:`, invErr)
+        const dedupe = await upsertInvoicesBulk(supabase, invoices)
+        if (dedupe.errors > 0) {
+          console.error(`[UploadQueue] ${dedupe.errors} errores insertando facturas para ${cups}`, dedupe.details.filter(d => d.action === 'error'))
+        }
+        if (dedupe.skipped > 0 || dedupe.replaced > 0) {
+          console.log(`[UploadQueue] ${cups}: ${dedupe.inserted} insertadas, ${dedupe.replaced} reemplazadas, ${dedupe.skipped} omitidas (duplicadas/más antiguas)`)
+        }
       }
 
       // Ensure a pending prescoring row exists for this supply (no-op if already there)

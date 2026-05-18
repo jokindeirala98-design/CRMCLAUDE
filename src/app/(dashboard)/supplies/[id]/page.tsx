@@ -26,6 +26,7 @@ import { ensurePendingPrescoring } from '@/lib/ensurePrescoring'
 import { downloadClientInvoicesZip, type DownloadProgress } from '@/lib/utils/download-invoices-zip'
 import { useModalShortcuts } from '@/lib/hooks/useBodyScrollLock'
 import { advanceSupplyPipeline } from '@/lib/supply-pipeline'
+import { upsertInvoiceWithDedupe } from '@/lib/invoice-dedupe'
 import { useAuthStore } from '@/stores/auth'
 import type { SupplyStatus } from '@/types/database'
 import { generatePropuestaHTML, generateContratoHTML, generateAndDownloadPDF } from '@/lib/voltis-contract-templates'
@@ -811,8 +812,9 @@ export default function SupplyDetailPage() {
           seenPeriods.add(periodKey)
         }
 
-        // 5. Insert invoice row
-        await supabase.from('invoices').insert({
+        // 5. Insert invoice row (con dedupe: si ya hay factura para ese
+        //    período se elige la de mayor fecha de emisión).
+        const dedupeRes = await upsertInvoiceWithDedupe(supabase, {
           supply_id: supply.id,
           file_url: publicUrl,
           file_type: fileType,
@@ -822,6 +824,13 @@ export default function SupplyDetailPage() {
           period_end: periodEnd,
           total_amount: totalAmount,
         })
+        if (dedupeRes.action === 'skipped_duplicate' || dedupeRes.action === 'skipped_older') {
+          // Limpia el storage: el archivo no se usa
+          await supabase.storage.from('documents').remove([storageData.path]).catch(() => {})
+          showNotification(`"${file.name}" descartada: ${dedupeRes.reason}`, 'success')
+        } else if (dedupeRes.action === 'replaced') {
+          showNotification(`"${file.name}" sustituye a factura anterior del mismo período (más reciente).`, 'success')
+        }
 
         // 6. Auto-fill missing client fields from invoice extraction
         if (supply.client?.id && extractedData) {
@@ -1037,8 +1046,8 @@ export default function SupplyDetailPage() {
           }
         }
 
-        // 6. Insertar invoice marcada como Voltis
-        await supabase.from('invoices').insert({
+        // 6. Insertar invoice marcada como Voltis (con dedupe)
+        const dedupeVoltis = await upsertInvoiceWithDedupe(supabase, {
           supply_id: targetSupplyId,
           file_url: publicUrl,
           file_type: fileType,
@@ -1050,6 +1059,10 @@ export default function SupplyDetailPage() {
           source: 'voltis',
           voltis_uploaded_at: new Date().toISOString(),
         })
+        if (dedupeVoltis.action === 'skipped_duplicate' || dedupeVoltis.action === 'skipped_older') {
+          await supabase.storage.from('documents').remove([storageData.path]).catch(() => {})
+          showNotification(`"${file.name}" descartada: ${dedupeVoltis.reason}`, 'success')
+        }
 
         if (targetSupplyId !== supply.id) movedCount++
 
