@@ -89,6 +89,8 @@ interface ApiResponse {
   input: {
     consumoP1: number; consumoP2: number; consumoP3: number
     potenciaP1: number; potenciaP2: number
+    /** Potencia que se propondría con Gana (opcional, defaultea a actual). */
+    potenciaNuevaP1?: number; potenciaNuevaP2?: number
     currentEnergyP1: number; currentEnergyP2: number; currentEnergyP3: number
     currentPowerP1: number; currentPowerP2: number
     totalBillAmount?: number
@@ -656,43 +658,81 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
                 </div>
               )}
 
-              {/* Edit data */}
-              {!isSpecialCase && (
-                <details
-                  open={showEdit}
-                  onToggle={(e) => setShowEdit((e.currentTarget as HTMLDetailsElement).open)}
-                  className="rounded-2xl border border-stone-200 bg-white overflow-hidden shadow-sm"
-                >
-                  <summary className="flex items-center gap-2 px-5 py-4 cursor-pointer hover:bg-stone-50 text-sm font-semibold text-stone-700">
-                    <Edit2 className="w-4 h-4" />
-                    Ajustar datos (potencias, consumos, precios)
-                  </summary>
-                  <div className="px-5 pb-5 grid grid-cols-2 md:grid-cols-4 gap-3 border-t border-stone-100 pt-4">
-                    <Field label="Potencia P1 (kW)"        value={editable!.potenciaP1}     onChange={v => setEditable({ ...editable!, potenciaP1: v })} step="0.001" />
-                    <Field label="Potencia P2 (kW)"        value={editable!.potenciaP2}     onChange={v => setEditable({ ...editable!, potenciaP2: v })} step="0.001" />
-                    <Field label="Consumo P1 kWh/año"      value={editable!.consumoP1}      onChange={v => setEditable({ ...editable!, consumoP1: v })} step="1" />
-                    <Field label="Consumo P2 kWh/año"      value={editable!.consumoP2}      onChange={v => setEditable({ ...editable!, consumoP2: v })} step="1" />
-                    <Field label="Consumo P3 kWh/año"      value={editable!.consumoP3}      onChange={v => setEditable({ ...editable!, consumoP3: v })} step="1" />
-                    <Field label="Precio P1 (€/kWh)"       value={editable!.currentEnergyP1} onChange={v => setEditable({ ...editable!, currentEnergyP1: v })} step="0.000001" />
-                    <Field label="Precio P2 (€/kWh)"       value={editable!.currentEnergyP2} onChange={v => setEditable({ ...editable!, currentEnergyP2: v })} step="0.000001" />
-                    <Field label="Precio P3 (€/kWh)"       value={editable!.currentEnergyP3} onChange={v => setEditable({ ...editable!, currentEnergyP3: v })} step="0.000001" />
-                    <Field label="Pot. P1 (€/kW·día)"      value={editable!.currentPowerP1}  onChange={v => setEditable({ ...editable!, currentPowerP1: v })} step="0.000001" />
-                    <Field label="Pot. P2 (€/kW·día)"      value={editable!.currentPowerP2}  onChange={v => setEditable({ ...editable!, currentPowerP2: v })} step="0.000001" />
-                    <div className="col-span-2 md:col-span-4 flex justify-end pt-2">
-                      <button
-                        onClick={recalculate}
-                        disabled={recalculating}
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm hover:bg-emerald-700 disabled:opacity-50"
-                      >
-                        {recalculating
-                          ? <Loader2 className="w-4 h-4 animate-spin" />
-                          : <RefreshCw className="w-4 h-4" />}
-                        Recalcular
-                      </button>
+              {/* Edit data — 3 secciones: Potencias / Consumos / Energía */}
+              {!isSpecialCase && (() => {
+                const consumoTotalKwh = (Number(editable!.consumoP1) || 0)
+                                      + (Number(editable!.consumoP2) || 0)
+                                      + (Number(editable!.consumoP3) || 0)
+                const potNuevaP1 = editable!.potenciaNuevaP1 ?? editable!.potenciaP1
+                const potNuevaP2 = editable!.potenciaNuevaP2 ?? editable!.potenciaP2
+                return (
+                  <details
+                    open={showEdit}
+                    onToggle={(e) => setShowEdit((e.currentTarget as HTMLDetailsElement).open)}
+                    className="rounded-2xl border border-stone-200 bg-white overflow-hidden shadow-sm"
+                  >
+                    <summary className="flex items-center gap-2 px-5 py-4 cursor-pointer hover:bg-stone-50 text-sm font-semibold text-stone-700">
+                      <Edit2 className="w-4 h-4" />
+                      Ajustar datos (potencias, consumos, precios)
+                    </summary>
+                    <div className="px-5 pb-5 border-t border-stone-100 pt-4 space-y-5">
+
+                      {/* SECCIÓN 1 — POTENCIAS */}
+                      <section>
+                        <h3 className="text-xs font-bold tracking-wider uppercase text-stone-500 mb-2">⚡ Potencias</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          <Field label="Potencia actual P1 (kW)" value={editable!.potenciaP1}      onChange={v => setEditable({ ...editable!, potenciaP1: v })} step="0.001" />
+                          <Field label="Potencia actual P2 (kW)" value={editable!.potenciaP2}      onChange={v => setEditable({ ...editable!, potenciaP2: v })} step="0.001" />
+                          <Field label="Potencia nueva P1 (kW)"  value={potNuevaP1}                 onChange={v => setEditable({ ...editable!, potenciaNuevaP1: v })} step="0.001" hint="Se usará en el cálculo con Gana" />
+                          <Field label="Potencia nueva P2 (kW)"  value={potNuevaP2}                 onChange={v => setEditable({ ...editable!, potenciaNuevaP2: v })} step="0.001" hint="Se usará en el cálculo con Gana" />
+                          <Field label="Precio P1 (€/kW·día)"    value={editable!.currentPowerP1}   onChange={v => setEditable({ ...editable!, currentPowerP1: v })} step="0.000001" hint="Extraído de factura" />
+                          <Field label="Precio P2 (€/kW·día)"    value={editable!.currentPowerP2}   onChange={v => setEditable({ ...editable!, currentPowerP2: v })} step="0.000001" hint="Extraído de factura" />
+                        </div>
+                      </section>
+
+                      {/* SECCIÓN 2 — CONSUMOS POR PERÍODO */}
+                      <section>
+                        <h3 className="text-xs font-bold tracking-wider uppercase text-stone-500 mb-2">🔋 Consumos por período</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          <Field label="Consumo P1 (kWh/año)" value={editable!.consumoP1} onChange={v => setEditable({ ...editable!, consumoP1: v })} step="1" />
+                          <Field label="Consumo P2 (kWh/año)" value={editable!.consumoP2} onChange={v => setEditable({ ...editable!, consumoP2: v })} step="1" />
+                          <Field label="Consumo P3 (kWh/año)" value={editable!.consumoP3} onChange={v => setEditable({ ...editable!, consumoP3: v })} step="1" />
+                          <div className="flex flex-col">
+                            <label className="text-[11px] font-medium text-stone-600 mb-1">Consumo anual total (kWh)</label>
+                            <div className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm font-mono font-bold text-stone-800">
+                              {fmtInt(consumoTotalKwh)}
+                            </div>
+                            <div className="text-[10px] text-stone-500 mt-1">Calculado P1+P2+P3</div>
+                          </div>
+                        </div>
+                      </section>
+
+                      {/* SECCIÓN 3 — ENERGÍA */}
+                      <section>
+                        <h3 className="text-xs font-bold tracking-wider uppercase text-stone-500 mb-2">💡 Energía — precios actuales (comercializadora actual)</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                          <Field label="Precio P1 (€/kWh)" value={editable!.currentEnergyP1} onChange={v => setEditable({ ...editable!, currentEnergyP1: v })} step="0.000001" hint="Extraído de factura" />
+                          <Field label="Precio P2 (€/kWh)" value={editable!.currentEnergyP2} onChange={v => setEditable({ ...editable!, currentEnergyP2: v })} step="0.000001" hint="Extraído de factura" />
+                          <Field label="Precio P3 (€/kWh)" value={editable!.currentEnergyP3} onChange={v => setEditable({ ...editable!, currentEnergyP3: v })} step="0.000001" hint="Extraído de factura" />
+                        </div>
+                      </section>
+
+                      <div className="flex justify-end pt-1">
+                        <button
+                          onClick={recalculate}
+                          disabled={recalculating}
+                          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 shadow-sm"
+                        >
+                          {recalculating
+                            ? <Loader2 className="w-4 h-4 animate-spin" />
+                            : <RefreshCw className="w-4 h-4" />}
+                          Actualizar y comparar
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                </details>
-              )}
+                  </details>
+                )
+              })()}
 
               {/* Footer */}
               <div className="rounded-2xl border border-stone-200 bg-white p-4 text-xs text-stone-500 flex items-start gap-2">
@@ -804,6 +844,7 @@ function Field(props: {
   value: number
   onChange: (v: number) => void
   step: string
+  hint?: string
 }) {
   return (
     <label className="flex flex-col gap-1">
@@ -815,6 +856,7 @@ function Field(props: {
         onChange={e => props.onChange(parseFloat(e.target.value) || 0)}
         className="px-2 py-1.5 rounded-lg border border-stone-300 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500"
       />
+      {props.hint && <span className="text-[10px] text-stone-500">{props.hint}</span>}
     </label>
   )
 }

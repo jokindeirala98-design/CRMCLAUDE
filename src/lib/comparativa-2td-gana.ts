@@ -74,8 +74,16 @@ export interface InputComparativa2td {
   consumoP1: number
   consumoP2: number
   consumoP3: number
+  /** Potencia ACTUALMENTE contratada (la que viene en la factura). */
   potenciaP1: number
   potenciaP2: number
+  /**
+   * Potencia NUEVA que se contrataría con Gana. Si no viene, se asume
+   * igual a la actual. Permite al comercial proponer una optimización
+   * (bajar de 10 kW a 8 kW p. ej.) y ver el ahorro real con Gana.
+   */
+  potenciaNuevaP1?: number
+  potenciaNuevaP2?: number
   // Precios actuales (resultado de analizar todas las facturas)
   currentEnergyP1: number
   currentEnergyP2: number
@@ -315,9 +323,19 @@ function calcularEscenarioCommer(
   const C = COMMER_CONSTANTS
   const P = C.ELECTRICITY_IE * C.ELECTRICITY_IVA
 
+  // Potencia a facturar: en el escenario "actual" usamos la potencia
+  // realmente contratada hoy; en escenarios Gana usamos la "potencia
+  // nueva" propuesta (defaultea a la actual si no se ha indicado).
+  const isActualScenario = scenario.comercializadora === 'actual'
+  const potP1Aplicada = isActualScenario
+    ? input.potenciaP1
+    : (input.potenciaNuevaP1 ?? input.potenciaP1)
+  const potP2Aplicada = isActualScenario
+    ? input.potenciaP2
+    : (input.potenciaNuevaP2 ?? input.potenciaP2)
   const ye =
-    C.DAYS_PER_YEAR * input.potenciaP1 * scenario.potenciaP1
-    + C.DAYS_PER_YEAR * input.potenciaP2 * scenario.potenciaP2
+    C.DAYS_PER_YEAR * potP1Aplicada * scenario.potenciaP1
+    + C.DAYS_PER_YEAR * potP2Aplicada * scenario.potenciaP2
 
   const tipoCalculado = tarifaType(scenario.tipo)
   const consumoTotal = input.consumoP1 + input.consumoP2 + input.consumoP3
