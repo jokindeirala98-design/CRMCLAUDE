@@ -449,6 +449,9 @@ export interface ComputarComparativaMultiArgs {
   scenarios: ScenarioGanaInput[]
   /** Optimización potencia opcional */
   potenciaMaxDemandadaKw?: number
+  /** Potencia propuesta para Gana — defaultea a actual. */
+  potenciaNuevaP1?: number
+  potenciaNuevaP2?: number
 }
 
 export function computarComparativaGanaMulti(args: ComputarComparativaMultiArgs): ComparativaGanaResult {
@@ -561,6 +564,8 @@ export function computarComparativaGanaMulti(args: ComputarComparativaMultiArgs)
   const input: InputComparativa2td = {
     consumoP1, consumoP2, consumoP3,
     potenciaP1, potenciaP2,
+    potenciaNuevaP1: args.potenciaNuevaP1,
+    potenciaNuevaP2: args.potenciaNuevaP2,
     currentEnergyP1, currentEnergyP2, currentEnergyP3,
     currentPowerP1, currentPowerP2,
     totalBillAmount: priceAnalysis.totalAmount || undefined,
@@ -614,6 +619,8 @@ export function computarComparativaGana(args: ComputarComparativaArgs): Comparat
   return computarComparativaGanaMulti({
     potenciaP1: args.input.potenciaP1,
     potenciaP2: args.input.potenciaP2,
+    potenciaNuevaP1: args.input.potenciaNuevaP1,
+    potenciaNuevaP2: args.input.potenciaNuevaP2,
     consumoP1: args.input.consumoP1,
     consumoP2: args.input.consumoP2,
     consumoP3: args.input.consumoP3,
