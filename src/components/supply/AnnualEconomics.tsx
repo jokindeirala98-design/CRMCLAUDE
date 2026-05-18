@@ -1104,10 +1104,34 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
       render: (eco: BillEconomics | null) => {
         const item = eco?.consumo?.find(c => c.periodo === p)
         if (!item || !item.kwh) return <span className="text-[#8A9A8E] text-sm">—</span>
+        // Detección de descuento irrelevante: si el precio "neto" extraído
+        // por periodo es muy cercano al precio bruto (descuento implícito
+        // <8%), significa que el descuento ha caducado durante el periodo.
+        // En ese caso mostramos el precio bruto puro, no el neto.
+        // Calculamos precio bruto desde costeBrutoConsumo/consumoTotalKwh
+        // (asumimos descuento proporcional entre periodos).
+        const consumoKwh = Number(eco?.consumoTotalKwh) || 0
+        const costeBruto = Number(eco?.costeBrutoConsumo) || 0
+        const costeMedio = Number(eco?.costeMedioKwh) || 0
+        const precioBrutoMedio = costeBruto > 0 && consumoKwh > 0 ? costeBruto / consumoKwh : 0
+        const ratio = costeMedio > 0 && precioBrutoMedio > 0 ? costeMedio / precioBrutoMedio : null
+        const irrelevante = ratio !== null && ratio > 0.92 && ratio < 1.0
+        // Si es irrelevante, el precioKwh extraído (que suele ser el bruto)
+        // se mantiene tal cual. Solo añadimos la badge.
         return (
           <div>
             <div className="text-[#4F5C53] text-sm">{fmt(item.kwh, 0)} kWh</div>
-            <div className="text-[#8A9A8E] text-xs">{fmt(item.precioKwh, 5)} €/KWH</div>
+            <div className="text-[#8A9A8E] text-xs flex items-center gap-1">
+              <span>{fmt(item.precioKwh, 5)} €/KWH</span>
+              {irrelevante && (
+                <span
+                  title="El descuento solo aplicó a parte del periodo: precio mostrado es el bruto."
+                  className="text-[9px] text-amber-700 bg-amber-50 px-1 py-0.5 rounded"
+                >
+                  ⚠ bruto
+                </span>
+              )}
+            </div>
           </div>
         )
       },
@@ -1120,8 +1144,34 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
     {
       key: 'costeMedio', label: 'COSTE MEDIO (€/KWH)',
       render: (eco) => {
-        const precio = eco?.costeMedioKwh || (eco?.costeTotalConsumo && eco?.consumoTotalKwh ? eco.costeTotalConsumo / eco.consumoTotalKwh : null)
-        return <span className="text-[#5A6B5F] text-sm">{precio ? fmt(precio, 5) : '—'}</span>
+        // Detección de "descuento irrelevante":
+        // Si la factura tiene costeBruto extraído y el descuento implícito
+        // (1 - neto/bruto) es <8%, asumimos que el descuento aplicaba a
+        // parte del periodo y ha caducado a mitad. En ese caso NO mostramos
+        // el coste medio neto (lleva a engaño al comercial), mostramos el
+        // bruto + alerta. Si el descuento es ≥8%, aplica al periodo y es OK.
+        const consumoKwh = Number(eco?.consumoTotalKwh) || 0
+        const costeBruto = Number(eco?.costeBrutoConsumo) || 0
+        const costeMedio = Number(eco?.costeMedioKwh) || 0
+        const precioBruto = costeBruto > 0 && consumoKwh > 0 ? costeBruto / consumoKwh : 0
+        const precioFallback = eco?.costeTotalConsumo && consumoKwh ? eco.costeTotalConsumo / consumoKwh : null
+        const ratio = costeMedio > 0 && precioBruto > 0 ? costeMedio / precioBruto : null
+        const irrelevante = ratio !== null && ratio > 0.92 && ratio < 1.0
+        const precioMostrado = irrelevante ? precioBruto : (costeMedio || precioFallback)
+        if (!precioMostrado) return <span className="text-[#8A9A8E] text-sm">—</span>
+        return (
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[#5A6B5F] text-sm">{fmt(precioMostrado, 5)}</span>
+            {irrelevante && (
+              <span
+                title={`Bruto ${fmt(precioBruto, 5)} €/kWh · Neto extraído ${fmt(costeMedio, 5)} €/kWh. El descuento solo se aplicó a parte del periodo de facturación: ya ha caducado para el cliente.`}
+                className="text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded-md self-start inline-flex items-center gap-1"
+              >
+                ⚠ descuento irrelevante
+              </span>
+            )}
+          </div>
+        )
       },
     },
     { key: 'sep2', label: '', isSeparator: true, render: () => null },
