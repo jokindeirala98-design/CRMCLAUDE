@@ -31,15 +31,25 @@ async function getBrowser() {
   })
 }
 
-export async function htmlToPdf(html: string): Promise<Buffer> {
+export interface HtmlToPdfOptions {
+  /** Orientación de la página. Default: portrait. */
+  landscape?: boolean
+  /** Formato de página. Default: A4. */
+  format?: 'A4' | 'A3' | 'Letter' | 'Legal'
+  /** Márgenes en CSS units (ej. '8mm' o '0'). Default: 0 (los gestiona el CSS). */
+  margin?: { top?: string; right?: string; bottom?: string; left?: string }
+}
+
+export async function htmlToPdf(html: string, options: HtmlToPdfOptions = {}): Promise<Buffer> {
   const browser = await getBrowser()
   try {
     const page = await browser.newPage()
     await page.setContent(html, { waitUntil: 'networkidle0' })
     const pdf = await page.pdf({
-      format: 'A4',
+      format: options.format ?? 'A4',
+      landscape: options.landscape ?? false,
       printBackground: true,
-      margin: { top: '0', right: '0', bottom: '0', left: '0' },
+      margin: options.margin ?? { top: '0', right: '0', bottom: '0', left: '0' },
     })
     return Buffer.from(pdf)
   } finally {

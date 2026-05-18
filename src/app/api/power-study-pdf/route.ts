@@ -195,11 +195,30 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const study: PowerStudyResult = body
     const html = generateHTML(study)
-    return new NextResponse(html, {
-      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+
+    // Renderizamos el PDF en el servidor con Chromium para garantizar
+    // orientación landscape independientemente del navegador del cliente.
+    // Antes devolvíamos HTML y dependíamos del diálogo "Imprimir" del browser,
+    // que no siempre respetaba `@page { size: A4 landscape }`.
+    const { htmlToPdf } = await import('@/lib/pdf-renderer')
+    const pdfBuffer = await htmlToPdf(html, { landscape: true, format: 'A4' })
+
+    const cups = (study as any)?.cups || (study as any)?.supplyCups || 'estudio'
+    const filename = `Estudio_potencias_${String(cups).slice(-8)}.pdf`
+
+    return new NextResponse(new Uint8Array(pdfBuffer), {
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Cache-Control': 'no-store',
+      },
     })
   } catch (err: any) {
     console.error('[power-study-pdf] Error:', err)
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }
+
+// Necesitamos runtime nodejs para puppeteer
+export const runtime = 'nodejs'
+export const maxDuration = 60
