@@ -1107,6 +1107,53 @@ A11. NOVALUZ ENERGÍA / ESCANDINAVA DE ELECTRICIDAD (EDE SLU):
 
    COMERCIALIZADORA: registrar siempre como "NOVALUZ" (no "Escandinava").
 
+A11b. ENÉRGYA-VM (Energía VM Gestión de Energía S.L.U.) — 3.0TD / 6.1TD:
+   Comercializadora habitual de empresas. Email atcliente@energyavm.es. CIF B-83390366.
+   Formato MUY estable: la sección "Detalle Factura" tiene SIEMPRE este orden:
+     Término de energía P<X>: <kwh> kWh, Precio: <€/kWh>. <€>
+                        P<Y>: <kwh> kWh, Precio: <€/kWh>. <€>
+                        ... (SOLO los periodos facturados — típicamente 3 en 3.0TD)
+     Término de potencia P1: <kw> kW x <dias> días x <€/kW/día>. <€>
+                         P2: <kw> kW x <dias> días x <€/kW/día>. <€>
+                         ... (SIEMPRE 6 líneas P1–P6 en 3.0TD/6.1TD)
+     Alquiler equipo de medida ...
+     Impuestos eléctricos ...
+     Base imponible ... / IVA 21% ... / TOTAL ...
+
+   ⚠️ REGLA ANTI-ALUCINACIÓN crítica:
+   - En el bloque "Término de energía" solo aparecen los periodos que tienen consumo (≠0).
+     En 3.0TD lo típico es ver 3 periodos. NO LOS COMPLETES con P4/P5/P6 que no aparezcan.
+   - JAMÁS interpretes "72,000 kW" del bloque de potencia como "72.000 kWh". El número con coma
+     "72,000" es 72 kW (formato español: coma = decimal). Si lo conviertes a 72000 kWh estás
+     destruyendo la factura.
+   - JAMÁS dupliques en consumo[] los periodos del bloque de potencia. Son COSAS DISTINTAS.
+
+   CONSUMO — emite EXACTAMENTE los periodos listados (3 en 3.0TD, 6 en 6.1TD):
+     "Término de energía P2: 5617,25 kWh, Precio: 0,167539 €/kWh. 941,10"
+       → consumo[] += { periodo:"P2", kwh:5617.25, precioKwh:0.167539, total:941.10 }
+     Si la factura empieza por "P1:" → emite P1; si empieza por "P2:" → emite P2; etc.
+     Los periodos NO listados (kWh=0) NO se emiten. Cero líneas inventadas.
+
+   POTENCIA — SIEMPRE 6 entradas P1–P6 con kW y días COMPLETOS:
+     "P1: 72,000 kW x 30 días x 0,060533 €/kW/día. 130,76"
+       → potencia[] += { periodo:"P1", kw:72.0, dias:30, precioKwDia:0.060533, total:130.76 }
+     ⚠️ El campo kw es OBLIGATORIO — extráelo SIEMPRE. Lo mismo con dias.
+     "72,000 kW" → kw = 72.0 (coma decimal, no miles).
+     "10,001 kW" → kw = 10.001 (no 10001).
+
+   TARIFA: la tarifa REAL aparece en la página 2, sección "Datos punto suministro" como
+     "Peaje transporte y distribución: 3.0 TD" (o 6.1TD, 2.0TD, etc.).
+     ⚠️ NO uses "Tipo Contrato: Mercado libre" como tarifa — eso es el TIPO de contrato,
+     no la tarifa de acceso. Para Enérgya-VM tarifa = "3.0TD" / "6.1TD" / "2.0TD".
+
+   CUPS: campo "CUPS: ES00210000XXXXXXXXXX" en la sección "Datos punto suministro".
+
+   CONSUMO TOTAL: consumoTotalKwh = suma de kwh de los periodos emitidos en consumo[].
+     Para la factura de ejemplo (P2+P3+P6) = 5617,25+4155,28+9892,72 = 19.665,25 kWh.
+     JAMÁS sumes los kW de potencia al consumo (72×6 = 432 NO es kWh).
+
+   COMERCIALIZADORA: registra siempre como "Enérgya-VM" (con tilde y guion).
+
 A12. COMERCIALIZADORA DESCONOCIDA — MODO EXPERTO (aplica si no hay patrón en A1-A11):
    Si la comercializadora no aparece en los patrones A1–A11, actúa como un asesor
    energético senior y extrae los datos usando tu conocimiento del mercado eléctrico español:
