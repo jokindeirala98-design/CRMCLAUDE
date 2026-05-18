@@ -1137,11 +1137,7 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
       render: (eco: BillEconomics | null, inv: InvoiceRow) => {
         const item = eco?.potencia?.find(c => c.periodo === p)
         if (!item || !item.total) return <span className="text-[#8A9A8E] text-sm">—</span>
-        // kW: prefer stored value, then SIPS contracted power, then P1's kW (P1 and P2 always same kW in 2.0TD)
-        const p1Kw = Number(eco?.potencia?.find(c => c.periodo === 'P1')?.kw) || 0
-        const kw = Number(item.kw) > 0
-          ? Number(item.kw)
-          : (Number(potenciaContratada?.[p]) || p1Kw || 0)
+
         // días: prefer stored value, fall back to invoice billing period length
         const rawDias = Number(item.dias) || 0
         const billingDays = (() => {
@@ -1152,15 +1148,50 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
           return diff > 0 && diff <= 366 ? diff + 1 : 0
         })()
         const dias = rawDias > 0 ? rawDias : billingDays
-        const precioKwDia = Number(item.precioKwDia) > 0
-          ? Number(item.precioKwDia)
+
+        // kW: cadena de fallbacks robusta para nunca devolver 0 si hay total > 0.
+        //
+        // En 2.0TD, P1 y P2 siempre comparten la misma kW contratada. Y la
+        // potencia contratada de SIPS muchas veces solo trae P1 (no P2),
+        // entonces P2 hereda de P1 (que a su vez puede venir de SIPS).
+        //
+        // Orden:
+        //   1. item.kw extraído de la factura.
+        //   2. potenciaContratada[p] del SIPS.
+        //   3. potenciaContratada['P1'] del SIPS (mismo valor en 2.0TD).
+        //   4. kW de P1 extraído (item.kw o SIPS).
+        //   5. Derivar de total / (precioKwDia × dias) si tenemos precio y días.
+        const p1Item = eco?.potencia?.find(c => c.periodo === 'P1')
+        const p1KwAny = Number(p1Item?.kw) || Number(potenciaContratada?.['P1']) || 0
+        const precioRaw = Number(item.precioKwDia) || 0
+        let kw = Number(item.kw) > 0
+          ? Number(item.kw)
+          : (Number(potenciaContratada?.[p]) || p1KwAny || 0)
+        if (kw === 0 && precioRaw > 0 && dias > 0) {
+          // Derivar kW desde total y precio: kw = total / (precio × dias)
+          const derived = item.total / (precioRaw * dias)
+          if (derived > 0 && derived < 1000) kw = derived
+        }
+
+        // precioKwDia: si no está extraído, calcularlo de total / (kw × dias)
+        const precioKwDia = precioRaw > 0
+          ? precioRaw
           : (kw > 0 && dias > 0 ? item.total / (kw * dias) : 0)
+
+        // Siempre intentamos mostrar el desglose. Solo si TODO falla (no hay
+        // ni kW estimable ni precio €/kW·día calculable), caemos al € total
+        // a secas — pero esto debería ser raro en facturas bien extraídas.
+        const hayDesglose = kw > 0 && precioKwDia > 0
         return (
           <div>
             <div className="text-[#5A6B5F] text-sm">{fmt(item.total)} €</div>
-            {kw > 0 && precioKwDia > 0 && (
+            {hayDesglose ? (
               <div className="text-[#8A9A8E] text-xs">{fmt(kw, 1)} kW · {fmt(precioKwDia, 5)} €/kW·día</div>
-            )}
+            ) : precioKwDia > 0 ? (
+              <div className="text-[#8A9A8E] text-xs">{fmt(precioKwDia, 5)} €/kW·día</div>
+            ) : kw > 0 && dias > 0 ? (
+              <div className="text-[#8A9A8E] text-xs">{fmt(kw, 1)} kW · {dias} días</div>
+            ) : null}
           </div>
         )
       },
