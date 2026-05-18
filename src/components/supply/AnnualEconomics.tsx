@@ -964,6 +964,12 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
     : undefined
   const activePeriods = getActiveConsumoPeriods(tarifa)
   const activePowerPeriods = getActivePowerPeriods(tarifa)
+  // En 2.0TD la inferencia tiene sentido: solo hay 3 periodos posibles
+  // (P1 Punta, P2 Llano, P3 Valle) y algunas facturas agrupan P2+P3.
+  // En 3.0TD/6.1TD los periodos NO extraídos están vacíos por diseño
+  // (calendario CNMC: en invierno se factura P1/P2/P3+P6, en verano
+  // P4/P5+P6, etc.). Inferir reparto en esos casos genera falsos kWh.
+  const allowPeriodInference = is2TDTariff(tarifa)
 
   // ── Common header rows (both luz & gas) ──
   const headerRows: RowDef[] = [
@@ -1174,7 +1180,10 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
             !extractedItems.some(c => String(c.periodo).toUpperCase() === ap.toUpperCase()),
           )
           const facturaCubreTodo = consumoKwh > 0 && Math.abs(extractedKwhSum - consumoKwh) < 1
-          if (hayPeriodosNoExtraidos && facturaCubreTodo && Object.keys(periodFractions).length > 0) {
+          // ⚠️ Inferencia SOLO en 2.0TD. En 3.0TD/6.1TD los periodos
+          // vacíos lo están por diseño (calendario CNMC), no porque la
+          // factura los agrupe — mostrar los kWh extraídos tal cual.
+          if (allowPeriodInference && hayPeriodosNoExtraidos && facturaCubreTodo && Object.keys(periodFractions).length > 0) {
             // Redistribuir respetando el total. Usamos fractions del SIPS/otras facturas.
             const fraction = periodFractions[p]
             if (fraction && fraction > 0) {
@@ -1231,9 +1240,11 @@ function FileTable({ invoices, onRescan, onDelete, busyRescan, busyDelete, autho
 
         // CASO B: el periodo P no está extraído pero existe en la tarifa.
         // Puede ser porque la factura es precio fijo único, o porque agrupa
-        // varios periodos. Inferimos.
+        // varios periodos. Inferimos SOLO en 2.0TD; en 3.0TD/6.1TD los
+        // periodos vacíos son legítimamente cero (calendario CNMC) y
+        // no se deben inventar.
         const fraction = periodFractions[p]
-        if (consumoKwh > 0 && fraction && fraction > 0) {
+        if (allowPeriodInference && consumoKwh > 0 && fraction && fraction > 0) {
           const kwhInferido = consumoKwh * fraction
           // Precio: si hay otros periodos extraídos, heredar el del último
           // (suele ser el de menor precio: Llano/Valle). Si no, usar
