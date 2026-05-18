@@ -786,15 +786,38 @@ A1. IBERDROLA / i-DE:
        En consumo[] consolida en UNA sola entrada con kWh sumados y precio ponderado.
        Los descuentos (si los hay) van como rawLineItems adicionales con category=descuento_energia y total NEGATIVO.
 
-   DESGLOSE POR PERIODOS (kWh por P1/P2 — 2.0TD Iberdrola):
-     En facturas 2.0TD Iberdrola, la energía puede aparecer como UN flat SIN desglose
-     por periodo en la tabla principal. El desglose de kWh por periodo (Punta/Valle/Llano)
-     suele venir en el PIE DE PÁGINA o sección "Lecturas desagregadas" con texto como:
+   DESGLOSE POR PERIODOS (kWh por P1/P2/P3 — 2.0TD Iberdrola):
+     En facturas 2.0TD Iberdrola Plata (y planes similares de precio fijo), la
+     energía aparece como UN flat sin desglose por periodo en la tabla de
+     facturación principal (p. ej. "Energía consumida: 159 kWh × 0,219832 €/kWh").
+
+     ⚠️ OBLIGATORIO: el desglose por periodo (Punta/Llano/Valle) viene escondido
+     en el TEXTO INFORMATIVO del PDF, normalmente unas líneas debajo del listado
+     de líneas de facturación, con la fórmula:
+
+       "Sus consumos desagregados han sido punta: X kWh; llano: Y kWh; valle Z kWh"
+
+     A veces también aparece como:
+       "Lecturas desagregadas según la tarifa de acceso, tomadas el DD/MM/YYYY
+        son: punta: A kWh; llano: B kWh; valle C kWh, siendo estas lecturas reales.
+        Sus consumos desagregados han sido punta: X kWh; llano: Y kWh; valle Z kWh"
+     (las primeras son lecturas absolutas del contador; las segundas son el
+     CONSUMO real del periodo de facturación — usa SIEMPRE las segundas).
+
+     o como variantes en otras comercializadoras:
        "punta: 123 kWh; llano: 40 kWh; valle: 43 kWh"
-     o    "P1 (punta): 123 kWh   P2 (valle): 51 kWh"
-     → LEE ESA SECCIÓN y úsala para rellenar consumo[] con kWh por periodo.
-     → En 2.0TD: P1=punta, P2=llano+valle (si se usan 2 periodos) o P1=punta, P2=valle (discriminación).
-     → Si no hay desglose en ningún sitio, emite consumo[] con una sola entrada periodo=null con el total.
+       "P1 (punta): 123 kWh   P2 (llano): 51 kWh   P3 (valle): 43 kWh"
+
+     → LEE ESA FRASE COMPLETA y rellena consumo[] CON TRES entradas:
+         {periodo:"P1", kwh:X (punta), precioKwh:<precio bruto unitario>, total:X×precio}
+         {periodo:"P2", kwh:Y (llano), precioKwh:<mismo precio bruto>, total:Y×precio}
+         {periodo:"P3", kwh:Z (valle), precioKwh:<mismo precio bruto>, total:Z×precio}
+     → Como el contrato es precio fijo único, el €/kWh es IDÉNTICO en los 3 periodos
+       (el precio bruto que aparece en la línea "Energía consumida").
+     → Si la suma X+Y+Z no coincide exactamente con el consumo total, prevalece
+       el desglose (puede haber redondeos en la factura).
+     → Si NO hay frase de "Sus consumos desagregados" ni equivalente, emite
+       consumo[] con UNA sola entrada periodo=null con el total y el precio bruto.
 
    PEAJES Y CARGOS POR PERIODO (debajo de la energía flat):
      "Energía facturada peajes P1 1.080 kWh × 0,028528 €/kWh" → energia_peaje
