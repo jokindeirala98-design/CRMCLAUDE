@@ -120,7 +120,7 @@ function normalizarInput(raw: any): InputComparativa {
       valle: num(raw?.energias?.valle),
     },
     dias: num(raw?.dias, 365),
-    ivaPct: num(raw?.ivaPct, 10),
+    ivaPct: num(raw?.ivaPct, 21),
     totalFacturaActual: num(raw?.totalFacturaActual),
     alquiler: raw?.alquiler !== undefined ? num(raw.alquiler) : 0,
     descuentoDespuesIva:

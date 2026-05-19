@@ -142,7 +142,7 @@ const INITIAL_FORM: FormState = {
   precioLlano: '',
   precioValle: '',
   dias: '365',
-  ivaPct: '10',
+  ivaPct: '21',
   alquiler: '',
   titularNombre: '',
   titularDni: '',
