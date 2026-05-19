@@ -21,6 +21,12 @@ import {
   Building2, BadgePercent, ChevronDown,
 } from 'lucide-react'
 import { comparativaFilename } from '@/lib/utils/download-names'
+import {
+  computarComparativaGana,
+  buildScenariosFromTarifas,
+  type GanaTarifaRow,
+  type InputComparativa2td,
+} from '@/lib/comparativa-2td-gana'
 
 interface Props {
   supplyId: string
@@ -117,6 +123,8 @@ interface ApiResponse {
     priceAnalysis: PriceAnalysis | null
   }
   bills?: any[]
+  /** Tarifas Gana vigentes (para recalcular en cliente sin roundtrip). */
+  tarifas?: GanaTarifaRow[]
   lastInvoicePeriod?: { start: string | null; end: string | null } | null
 }
 
@@ -215,22 +223,25 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [supplyId])
 
+  // Recálculo LOCAL en cliente — sin roundtrip al backend.
+  // El motor `computarComparativaGana` es código puro (sin Supabase ni
+  // network), así que podemos invocarlo directamente con las tarifas
+  // que ya vinieron en el GET inicial. Esto evita problemas de auth,
+  // caché y deploy.
   async function recalculate(): Promise<ApiResponse['result'] | null> {
-    if (!editable) return null
+    if (!editable || !data?.tarifas?.length) return null
     setRecalculating(true)
     try {
-      const r = await fetch('/api/gana/recalculate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input: editable }),
-      })
-      const json = await r.json()
-      if (r.ok) {
-        setRecalcResult(json.result)
-        setLastRecalcInput(editable)
-        return json.result
-      }
-      return null
+      const scenarios = buildScenariosFromTarifas(data.tarifas)
+      const result = computarComparativaGana({
+        input: editable as InputComparativa2td,
+        scenarios,
+      }) as unknown as ApiResponse['result']
+      // Pequeño delay para que el spinner sea perceptible.
+      await new Promise(r => setTimeout(r, 150))
+      setRecalcResult(result)
+      setLastRecalcInput(editable)
+      return result
     } finally { setRecalculating(false) }
   }
 
