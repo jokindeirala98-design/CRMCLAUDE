@@ -176,6 +176,8 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
   const apiDone = useRef(false)
   const [editable, setEditable] = useState<ApiResponse['input'] | null>(null)
   const [recalcResult, setRecalcResult] = useState<ApiResponse['result'] | null>(null)
+  // Input que generó el recalcResult actual — para detectar cambios pendientes.
+  const [lastRecalcInput, setLastRecalcInput] = useState<ApiResponse['input'] | null>(null)
   const [recalculating, setRecalculating] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
 
@@ -202,7 +204,7 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
         const json = await r.json()
         if (!r.ok) throw new Error(json.error || `HTTP ${r.status}`)
         if (!active) return
-        setData(json); setEditable(json.input); setRecalcResult(json.result)
+        setData(json); setEditable(json.input); setRecalcResult(json.result); setLastRecalcInput(json.input)
         apiDone.current = true; tryShow()
       })
       .catch(e => {
@@ -213,8 +215,8 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [supplyId])
 
-  async function recalculate() {
-    if (!editable) return
+  async function recalculate(): Promise<ApiResponse['result'] | null> {
+    if (!editable) return null
     setRecalculating(true)
     try {
       const r = await fetch('/api/gana/recalculate', {
@@ -223,9 +225,21 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
         body: JSON.stringify({ input: editable }),
       })
       const json = await r.json()
-      if (r.ok) setRecalcResult(json.result)
+      if (r.ok) {
+        setRecalcResult(json.result)
+        setLastRecalcInput(editable)
+        return json.result
+      }
+      return null
     } finally { setRecalculating(false) }
   }
+
+  // Detecta si hay ediciones sin aplicar (mostrar aviso + auto-recalc al
+  // descargar para que el Excel y la UI coincidan siempre).
+  const hasPendingChanges = useMemo(() => {
+    if (!editable || !lastRecalcInput) return false
+    return JSON.stringify(editable) !== JSON.stringify(lastRecalcInput)
+  }, [editable, lastRecalcInput])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -251,17 +265,34 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
     const dlKey = `${scenario.comercializadora}:${scenario.tipo}`
     setDownloading(dlKey)
     try {
+      // Si hay ediciones sin aplicar (las cards muestran el cálculo
+      // antiguo), recalculamos PRIMERO para sincronizar la UI con el
+      // input editado. Así el Excel y lo que ve el comercial en
+      // pantalla siempre cuadran.
+      let scenarioForExcel = scenario
+      if (hasPendingChanges) {
+        const fresh = await recalculate()
+        if (fresh) {
+          // Buscar el escenario equivalente en el recalc
+          const found = fresh.scenarios.find(
+            s => s.tipo === scenario.tipo
+              && (s.comercializadora || 'gana').toLowerCase()
+                  === (scenario.comercializadora || 'gana').toLowerCase()
+          )
+          if (found) scenarioForExcel = found
+        }
+      }
+
       // Si el comercial ha tocado el panel "Ajustar datos" y el estado
       // local difiere del que vino del backend, pasamos `input` al endpoint
-      // para que el Excel respete sus ediciones (sin esto, el Excel
-      // reconstruye desde BD y descarta los cambios manuales).
+      // para que el Excel respete sus ediciones.
       const inputChanged = editable && data && JSON.stringify(editable) !== JSON.stringify(data.input)
       const res = await fetch(`/api/gana/comparativa/${supplyId}/excel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          tipo: scenario.tipo,
-          comercializadora: scenario.comercializadora,
+          tipo: scenarioForExcel.tipo,
+          comercializadora: scenarioForExcel.comercializadora,
           attach: wantAttach,
           ...(inputChanged ? { input: editable } : {}),
         }),
@@ -723,11 +754,21 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
                         </div>
                       </section>
 
-                      <div className="flex justify-end pt-1">
+                      <div className="flex items-center justify-between pt-1 gap-3">
+                        {hasPendingChanges ? (
+                          <div className="flex items-center gap-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                            <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span>Tienes cambios sin aplicar. Pulsa <b>Actualizar y comparar</b> para refrescar los escenarios.</span>
+                          </div>
+                        ) : <span />}
                         <button
                           onClick={recalculate}
                           disabled={recalculating}
-                          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 shadow-sm"
+                          className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-white text-sm font-semibold disabled:opacity-50 shadow-sm transition-all ${
+                            hasPendingChanges
+                              ? 'bg-amber-600 hover:bg-amber-700 ring-2 ring-amber-300 ring-offset-1 animate-pulse'
+                              : 'bg-emerald-600 hover:bg-emerald-700'
+                          }`}
                         >
                           {recalculating
                             ? <Loader2 className="w-4 h-4 animate-spin" />
