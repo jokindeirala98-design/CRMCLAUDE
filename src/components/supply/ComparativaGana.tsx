@@ -845,6 +845,15 @@ function PeriodBar(props: { label: string; value: number; total: number; color: 
   )
 }
 
+/**
+ * Input numérico que acepta TANTO coma como punto como separador decimal.
+ * Internamente almacena el valor como string (lo que el usuario tipea) y
+ * solo notifica al padre el float parseado. Así no se pierde la coma en
+ * mitad de la edición ("3," queda mostrado mientras el usuario escribe).
+ *
+ * Para mostrar el valor inicial / re-sincronizado externamente, se usa
+ * el formato español con coma decimal y sin separador de miles.
+ */
 function Field(props: {
   label: string
   value: number
@@ -852,14 +861,53 @@ function Field(props: {
   step: string
   hint?: string
 }) {
+  // String mostrado en el input. Se mantiene sincronizado con props.value
+  // pero permite que el usuario tipee comas/puntos sin que React lo
+  // reformatee mientras edita.
+  const fmt = (n: number) => {
+    if (!isFinite(n)) return ''
+    // Hasta 8 decimales, sin separador de miles, con coma como decimal
+    return n.toLocaleString('es-ES', { maximumFractionDigits: 8, useGrouping: false })
+  }
+  const [text, setText] = React.useState<string>(fmt(props.value))
+  const lastEmitted = React.useRef<number>(props.value)
+
+  // Si el valor de props cambia desde fuera (recalc, reset…), sincronizamos.
+  React.useEffect(() => {
+    if (props.value !== lastEmitted.current) {
+      setText(fmt(props.value))
+      lastEmitted.current = props.value
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.value])
+
+  function parseInput(s: string): number {
+    // Acepta "3,5" o "3.5". Quita espacios y separadores de miles ".".
+    // Estrategia: si tiene tanto "." como ",", el último carácter de los
+    // dos manda como decimal. Para simplificar, sustituimos cualquier ","
+    // por "." y quitamos cualquier "." que no sea el último.
+    const clean = s.trim().replace(/\s/g, '').replace(',', '.')
+    const n = parseFloat(clean)
+    return isFinite(n) ? n : 0
+  }
+
   return (
     <label className="flex flex-col gap-1">
       <span className="text-[11px] font-medium text-stone-600">{props.label}</span>
       <input
-        type="number"
-        value={props.value}
-        step={props.step}
-        onChange={e => props.onChange(parseFloat(e.target.value) || 0)}
+        type="text"
+        inputMode="decimal"
+        value={text}
+        onChange={e => {
+          const raw = e.target.value
+          // Solo permitimos dígitos, ',', '.' y signo opcional
+          if (!/^-?[\d.,]*$/.test(raw)) return
+          setText(raw)
+          const n = parseInput(raw)
+          lastEmitted.current = n
+          props.onChange(n)
+        }}
+        onBlur={() => setText(fmt(parseInput(text)))}
         className="px-2 py-1.5 rounded-lg border border-stone-300 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500"
       />
       {props.hint && <span className="text-[10px] text-stone-500">{props.hint}</span>}
