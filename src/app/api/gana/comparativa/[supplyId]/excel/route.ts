@@ -352,10 +352,15 @@ export async function POST(req: NextRequest, { params }: { params: { supplyId: s
     })
     sc(ws, 13, K, 'TOTAL:', { bold: true, size: 14, color: CLR.salviaDark, align: 'center' })
 
-    const nuevoPotNetoP1 = potenciaP1 * scenario.preciosNuevos.potenciaP1 * 365
-    const nuevoPotNetoP2 = potenciaP2 * scenario.preciosNuevos.potenciaP2 * 365
-    sc(ws, 14, B, potenciaP1, { bold: true, size: 12, color: CLR.salviaDark, align: 'center', numFmt: '#,##0.000' })
-    sc(ws, 14, C, potenciaP2, { bold: true, size: 12, color: CLR.salviaDark, align: 'center', numFmt: '#,##0.000' })
+    // En la sección "NUEVO" debemos pintar la POTENCIA NUEVA propuesta
+    // (puede que el comercial la haya bajado de 14,3 a 3,5 kW). Si no se
+    // ha cambiado, defaultea a la potencia actual.
+    const potenciaNuevaP1 = editedInput?.potenciaNuevaP1 ?? potenciaP1
+    const potenciaNuevaP2 = editedInput?.potenciaNuevaP2 ?? potenciaP2
+    const nuevoPotNetoP1 = potenciaNuevaP1 * scenario.preciosNuevos.potenciaP1 * 365
+    const nuevoPotNetoP2 = potenciaNuevaP2 * scenario.preciosNuevos.potenciaP2 * 365
+    sc(ws, 14, B, potenciaNuevaP1, { bold: true, size: 12, color: CLR.salviaDark, align: 'center', numFmt: '#,##0.000' })
+    sc(ws, 14, C, potenciaNuevaP2, { bold: true, size: 12, color: CLR.salviaDark, align: 'center', numFmt: '#,##0.000' })
     sc(ws, 14, E, scenario.preciosNuevos.potenciaP1, { bold: true, size: 12, color: CLR.salviaDark, align: 'center', numFmt: '#,##0.000000', bg: CLR.salviaSoft })
     sc(ws, 14, F, scenario.preciosNuevos.potenciaP2, { bold: true, size: 12, color: CLR.salviaDark, align: 'center', numFmt: '#,##0.000000', bg: CLR.salviaSoft })
     sc(ws, 14, H, nuevoPotNetoP1, { bold: true, size: 12, color: CLR.salviaDark, align: 'center', numFmt: '#,##0.00' })

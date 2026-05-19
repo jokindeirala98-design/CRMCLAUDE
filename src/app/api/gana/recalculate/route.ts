@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
 
     const { data: tarifas } = await supabase
       .from('gana_tarifas')
-      .select('id, nombre, tipo, precio_p1, precio_p2, precio_p3, potencia_p1, potencia_p2, extras_anuales')
+      .select('id, comercializadora, nombre, tipo, precio_p1, precio_p2, precio_p3, potencia_p1, potencia_p2, extras_anuales, management_fee_day')
       .eq('vigente', true)
       .eq('tarifa_atr', '2.0TD')
 
