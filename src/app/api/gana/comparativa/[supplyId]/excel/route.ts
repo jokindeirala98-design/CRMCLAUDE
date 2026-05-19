@@ -16,6 +16,7 @@ import {
   computarComparativaGanaMulti,
   computarComparativaGana,
   buildScenariosFromTarifas,
+  COMMER_CONSTANTS,
   type GanaTarifaRow,
   type BillSample,
   type InputComparativa2td,
@@ -23,6 +24,12 @@ import {
 import { comparativaFilename } from '@/lib/utils/download-names'
 
 export const runtime = 'nodejs'
+
+// Factor IE × IVA — el motor lo aplica internamente para los totales con
+// impuestos. Lo importamos para que el Excel y el motor JAMÁS se
+// descoordinen (antes había un IE_X_IVA hardcoded = IE × 10%, que dejó de
+// ser correcto cuando volvimos al IVA 21%).
+const IE_X_IVA = COMMER_CONSTANTS.ELECTRICITY_IE * COMMER_CONSTANTS.ELECTRICITY_IVA
 
 // ── Helpers extracción factura (idénticos al endpoint GET principal) ─────────
 
@@ -287,10 +294,10 @@ export async function POST(req: NextRequest, { params }: { params: { supplyId: s
 
     // POTENCIA (filas 1-16)
     const potP1ActualEur  = scenario.costeActualAnual    // no usado directamente
-    const potP1NetoNuevo  = scenario.desglose.potenciaAnualNeta / 1.1055  // sin IE×IVA
+    const potP1NetoNuevo  = scenario.desglose.potenciaAnualNeta / IE_X_IVA  // sin IE×IVA
     // Para mostrar valores compatibles con el formato Excel original:
     //   - Sin IVA en columnas H, I → multiplicamos por 1 (neto)
-    //   - Con IVA en columna K → ya incluye IE×IVA = 1.1055
+    //   - Con IVA en columna K → ya incluye IE×IVA = IE_X_IVA
     // OJO: el Excel original mostraba IVA 1.21; ahora mostramos commer-style.
 
     // ─── HEADER VOLTIS ─────────────────────────────────────────────────────
@@ -318,7 +325,7 @@ export async function POST(req: NextRequest, { params }: { params: { supplyId: s
     const currentPotP2 = result.priceAnalysis?.powerP2?.weightedMean ?? 0
     const actualPotEneroP1 = potenciaP1 * currentPotP1 * 365
     const actualPotEneroP2 = potenciaP2 * currentPotP2 * 365
-    const actualPotIVA = (actualPotEneroP1 + actualPotEneroP2) * 1.1055   // IE × IVA commer
+    const actualPotIVA = (actualPotEneroP1 + actualPotEneroP2) * IE_X_IVA   // IE × IVA commer
 
     sc(ws, 7, B, potenciaP1,   { bold: true, size: 12, align: 'center', numFmt: '#,##0.000' })
     sc(ws, 7, C, potenciaP2,   { bold: true, size: 12, align: 'center', numFmt: '#,##0.000' })
@@ -335,7 +342,7 @@ export async function POST(req: NextRequest, { params }: { params: { supplyId: s
     sc(ws, 9, N, 'DIFERENCIA', { bold: true, size: 11, color: CLR.salviaDark, align: 'center' })
 
     // Diferencia potencia ANUAL = actual - nuevo (ambos IVA commer)
-    const nuevaPotIVA = scenario.desglose.potenciaAnualNeta * 1.1055
+    const nuevaPotIVA = scenario.desglose.potenciaAnualNeta * IE_X_IVA
     const difPotAnual = actualPotIVA - nuevaPotIVA
     const difPotMensual = difPotAnual / 12
     const powColor = difPotAnual >= 0 ? CLR.green : CLR.red
@@ -403,7 +410,7 @@ export async function POST(req: NextRequest, { params }: { params: { supplyId: s
     const actualEneP1 = consumoP1 * currentE1
     const actualEneP2 = consumoP2 * currentE2
     const actualEneP3 = consumoP3 * currentE3
-    const actualEneIVA = (actualEneP1 + actualEneP2 + actualEneP3) * 1.1055
+    const actualEneIVA = (actualEneP1 + actualEneP2 + actualEneP3) * IE_X_IVA
 
     sc(ws, 26, N, actualEneIVA, { bold: true, size: 12, color: CLR.ink, numFmt: '#,##0.00 €', align: 'center', bg: CLR.crema })
 
@@ -431,7 +438,7 @@ export async function POST(req: NextRequest, { params }: { params: { supplyId: s
     sc(ws, 29, Q, 'DIFERENCIA', { bold: true, size: 11, color: CLR.salviaDark, align: 'center' })
 
     // Diferencia energía
-    const nuevaEneIVA = scenario.desglose.energiaAnualNeta * 1.1055
+    const nuevaEneIVA = scenario.desglose.energiaAnualNeta * IE_X_IVA
     const difEneAnual = actualEneIVA - nuevaEneIVA
     const difEneMensual = difEneAnual / 12
     const eneColor = difEneAnual >= 0 ? CLR.green : CLR.red

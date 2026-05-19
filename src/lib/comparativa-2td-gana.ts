@@ -23,7 +23,9 @@
 // ─── Constantes ─────────────────────────────────────────────────────────────
 export const COMMER_CONSTANTS = {
   ELECTRICITY_IE:                 1.005,
-  ELECTRICITY_IVA:                1.1,
+  // IVA estándar 21%. El 10% fue temporal durante la crisis energética
+  // (2022-2023); desde 2024 la electricidad vuelve a tributar al 21%.
+  ELECTRICITY_IVA:                1.21,
   ELECTRICITY_METER_RENTAL_DAY:   0.02663,
   ELECTRICITY_SOCIAL_BONUS_DAY:   0.019122,
   DEFAULT_POWER_PRICE_KW_DAY:     0.115,

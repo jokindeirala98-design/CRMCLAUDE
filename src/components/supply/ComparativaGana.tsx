@@ -796,7 +796,7 @@ export default function ComparativaGana({ supplyId, onClose }: Props) {
               <div className="rounded-2xl border border-stone-200 bg-white p-4 text-xs text-stone-500 flex items-start gap-2">
                 <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
                 <div>
-                  Cálculo basado en el modelo de Commer Energía: 365 días/año, IE ×1.005, IVA ×1.10, alquiler
+                  Cálculo basado en el modelo de Commer Energía: 365 días/año, IE ×1.005, IVA ×1.21, alquiler
                   contador 0.02663 €/día, financiación bono social 0.019122 €/día (si no tiene bono).
                   Precios actuales extraídos de la última factura{data.lastInvoicePeriod?.end
                     ? ` (periodo hasta ${new Date(data.lastInvoicePeriod.end).toLocaleDateString('es-ES')})`
